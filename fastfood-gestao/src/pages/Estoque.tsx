@@ -6,7 +6,8 @@ import {
   id
 } from '../store/storage'
 import type { Purchase, Ingredient, Supplier, PurchaseItem } from '../types'
-import { Plus, Trash2, X, Package, ShoppingBag, Clock, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Trash2, X, Package, ShoppingBag, Clock, ChevronDown, ChevronUp, ScanLine } from 'lucide-react'
+import NotaFiscalImport from '../components/NotaFiscalImport'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -29,6 +30,7 @@ export default function Estoque() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [expandedPurchase, setExpandedPurchase] = useState<string | null>(null)
+  const [showNotaImport, setShowNotaImport] = useState(false)
 
   // Formulário compra
   const [showPurchaseForm, setShowPurchaseForm] = useState(false)
@@ -159,7 +161,13 @@ export default function Estoque() {
       {/* COMPRAS */}
       {tab === 'compras' && (
         <div>
-          <div className="flex justify-end mb-4">
+          <div className="flex justify-end gap-2 mb-4">
+            <button
+              onClick={() => setShowNotaImport(true)}
+              className="flex items-center gap-2 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 font-medium text-sm"
+            >
+              <ScanLine size={16} /> Importar Nota Fiscal
+            </button>
             <button
               onClick={() => setShowPurchaseForm(true)}
               className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 font-medium text-sm"
@@ -514,6 +522,12 @@ export default function Estoque() {
             </div>
           )}
         </div>
+      )}
+      {showNotaImport && (
+        <NotaFiscalImport
+          onClose={() => setShowNotaImport(false)}
+          onImported={() => { reload(); setShowNotaImport(false) }}
+        />
       )}
     </div>
   )
