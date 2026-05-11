@@ -14,12 +14,19 @@ export default async function handler(req, res) {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'pt-BR,pt;q=0.9',
-      }
+      },
+      redirect: 'follow'
     })
 
     if (!response.ok) throw new Error(`Erro ao acessar a Sefaz: ${response.status}`)
     const html = await response.text()
-    const data = parseSefazHTML(html, url)
+    const finalUrl = response.url || url
+    const data = parseSefazHTML(html, finalUrl)
+
+    if (!data.items || data.items.length === 0) {
+      throw new Error('Não foi possível extrair os produtos. O site da Sefaz pode ter expirado a sessão — use o botão "Fotografar QR Code" diretamente no app.')
+    }
+
     res.json(data)
   } catch (e) {
     res.status(500).json({ error: e.message || 'Erro ao consultar a Sefaz.' })
@@ -32,122 +39,135 @@ function clean(s) {
 
 function parseBRL(s) {
   if (!s) return 0
-  return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0
+  const cleaned = String(s).replace(/[^\d,]/g, '').replace(',', '.')
+  return parseFloat(cleaned) || 0
 }
 
-function extractTag(html, tag, cls) {
-  const pattern = cls
-    ? new RegExp(`<${tag}[^>]*class=["'][^"']*${cls}[^"']*["'][^>]*>([\\s\\S]*?)<\/${tag}>`, 'gi')
-    : new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\/${tag}>`, 'gi')
-  const results = []
-  let m
-  while ((m = pattern.exec(html)) !== null) {
-    results.push(clean(m[1].replace(/<[^>]+>/g, ' ')))
-  }
-  return results
+function stripTags(s) {
+  return s ? s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : ''
 }
 
 function parseSefazHTML(html, url) {
   const today = new Date().toISOString().slice(0, 10)
 
-  // Nome da loja — várias tentativas
+  // Detecta estado pela URL
+  const isRJ = /fazenda\.rj\.gov\.br/i.test(url)
+  const isSP = /fazenda\.sp\.gov\.br/i.test(url)
+  const isMG = /fazenda\.mg\.gov\.br/i.test(url)
+
+  // Nome da loja
   let storeName = ''
   const storePatterns = [
+    // RJ específico
+    /<span[^>]*id=["'][^"']*nomeEmit[^"']*["'][^>]*>([\s\S]*?)<\/span>/i,
+    /<td[^>]*class=["'][^"']*dadoEmit[^"']*["'][^>]*>([\s\S]*?)<\/td>/i,
+    // Genérico
     /class=["']txEmp["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
     /class=["']NomeEmit["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
     /class=["']txtTit2["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
     /<h4[^>]*>([\s\S]*?)<\/h4>/i,
-    /Razão Social[^:]*:[^>]*>([\s\S]*?)<\/[^>]+>/i,
+    /Raz[aã]o Social[^:]*:?\s*<[^>]+>\s*([\s\S]*?)<\//i,
   ]
   for (const p of storePatterns) {
     const m = html.match(p)
-    if (m) { storeName = clean(m[1].replace(/<[^>]+>/g, '')); break }
+    if (m) { storeName = clean(stripTags(m[1])); if (storeName.length > 2) break }
   }
   if (!storeName) {
     const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i)
-    if (titleMatch) storeName = clean(titleMatch[1].replace(/<[^>]+>/g, ''))
+    if (titleMatch) storeName = clean(stripTags(titleMatch[1]))
   }
   if (!storeName) storeName = 'Fornecedor'
 
-  // Data de emissão
+  // Data
   let date = today
-  const datePatterns = [
-    /(\d{2})\/(\d{2})\/(\d{4})/,
-    /Data de Emissão[^:]*:[^\d]*(\d{2})\/(\d{2})\/(\d{4})/i,
-  ]
-  for (const p of datePatterns) {
-    const m = html.match(p)
-    if (m) {
-      if (m.length === 4) date = `${m[3]}-${m[2]}-${m[1]}`
-      else if (m.length === 2) {
-        const inner = m[1].match(/(\d{2})\/(\d{2})\/(\d{4})/)
-        if (inner) date = `${inner[3]}-${inner[2]}-${inner[1]}`
-      }
-      break
-    }
-  }
+  const dateMatch = html.match(/(\d{2})\/(\d{2})\/(\d{4})/)
+  if (dateMatch) date = `${dateMatch[3]}-${dateMatch[2]}-${dateMatch[1]}`
 
   // Total
   let total = 0
   const totalPatterns = [
-    /(?:Valor Total|Total a Pagar|TOTAL)[^\d]*R?\$?\s*([\d.,]+)/i,
-    /class=["']totalNF["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
+    /(?:Valor Total|Total a Pagar|TOTAL\s*R\$)[^\d]*([\d.,]+)/i,
+    /id=["'][^"']*totalNF[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
+    /class=["'][^"']*total[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
   ]
   for (const p of totalPatterns) {
     const m = html.match(p)
-    if (m) { total = parseBRL(m[1].replace(/<[^>]+>/g, '')); break }
+    if (m) { total = parseBRL(stripTags(m[1])); if (total > 0) break }
   }
 
-  // Produtos — estratégias múltiplas
-  const items = []
+  let items = []
 
-  // Estratégia 1: tabela de produtos padrão NFC-e (maioria dos estados)
-  const prodSection = html.match(/(?:Produtos e Serviços|Descrição dos Produtos)([\s\S]*?)(?:Totais|Informações Adicionais|<\/table>)/i)
-  if (prodSection) {
-    const rows = prodSection[1].match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || []
+  // === ESTRATÉGIA RJ ===
+  if (isRJ || items.length === 0) {
+    // RJ usa tabela com id/class específicos
+    const rjPatterns = [
+      /<tr[^>]*class=["'][^"']*(?:rich-table-row|itemProd|linhaDetalhe)[^"']*["'][^>]*>([\s\S]*?)<\/tr>/gi,
+      /<tr[^>]*id=["'][^"']*item[^"']*["'][^>]*>([\s\S]*?)<\/tr>/gi,
+    ]
+    for (const pattern of rjPatterns) {
+      let m
+      while ((m = pattern.exec(html)) !== null) {
+        const cells = (m[1].match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || []).map(c => clean(stripTags(c)))
+        if (cells.length >= 3) {
+          const name = cells[0]
+          const qty = parseBRL(cells[1])
+          const unit = (cells[2] || 'un').toLowerCase().slice(0, 3)
+          const unitPrice = cells[3] ? parseBRL(cells[3]) : 0
+          const totalPrice = cells[4] ? parseBRL(cells[4]) : (cells[3] ? parseBRL(cells[3]) : qty * unitPrice)
+          if (name && name.length > 1 && totalPrice > 0 && !/descri|produto|c[oó]d/i.test(name)) {
+            items.push({ name, quantity: qty || 1, unit, unitPrice, totalPrice })
+          }
+        }
+      }
+      if (items.length > 0) break
+    }
+  }
+
+  // === ESTRATÉGIA GENÉRICA — tabela de produtos ===
+  if (items.length === 0) {
+    // Tenta encontrar seção de produtos
+    const prodSection = html.match(/(?:Produtos|Itens|Mercadorias)([\s\S]*?)(?:Totais|Informações|Pagamento|<\/table>)/i)
+    const searchArea = prodSection ? prodSection[1] : html
+    const rows = searchArea.match(/<tr[^>]*>([\s\S]*?)<\/tr>/gi) || []
     for (const row of rows) {
-      const cells = (row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || [])
-        .map(c => clean(c.replace(/<[^>]+>/g, '')))
-        .filter(Boolean)
-
+      const cells = (row.match(/<td[^>]*>([\s\S]*?)<\/td>/gi) || []).map(c => clean(stripTags(c))).filter(Boolean)
       if (cells.length >= 4) {
         const name = cells[0]
         const qty = parseBRL(cells[1])
-        const unit = cells[2] || 'un'
+        const unit = (cells[2] || 'un').toLowerCase().slice(0, 3)
         const unitPrice = parseBRL(cells[3])
         const totalPrice = cells[4] ? parseBRL(cells[4]) : qty * unitPrice
-
-        if (name && qty > 0 && totalPrice > 0 && !/descrição|produto|código/i.test(name)) {
-          items.push({ name, quantity: qty, unit: unit.toLowerCase().slice(0, 3), unitPrice, totalPrice })
+        if (name && qty > 0 && totalPrice > 0 && !/descri|produto|c[oó]d|qtd|uni/i.test(name)) {
+          items.push({ name, quantity: qty, unit, unitPrice, totalPrice })
         }
       }
     }
   }
 
-  // Estratégia 2: divs com classes comuns de NFC-e (SP, RJ, MG, etc.)
+  // === ESTRATÉGIA SP — classes txtTit ===
   if (items.length === 0) {
-    const names = extractTag(html, 'span', 'txtTit')
-    const qtds = extractTag(html, 'span', 'Norm').filter(s => /[\d,.]/.test(s))
+    const names = []
+    const namePattern = /<span[^>]*class=["'][^"']*txtTit[^"']*["'][^>]*>([\s\S]*?)<\/span>/gi
+    let nm
+    while ((nm = namePattern.exec(html)) !== null) names.push(clean(stripTags(nm[1])))
 
-    if (names.length > 0) {
-      for (let i = 0; i < names.length; i++) {
-        const name = names[i]
-        const priceMatch = html.match(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\s\\S]{1,300}?(\\d+[\\d.,]*\\s*,\\s*\\d{2})'))
-        const price = priceMatch ? parseBRL(priceMatch[1]) : 0
-        if (name && price > 0) {
-          items.push({ name, quantity: 1, unit: 'un', unitPrice: price, totalPrice: price })
-        }
-      }
+    for (const name of names) {
+      if (!name || name.length < 2) continue
+      const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const priceMatch = html.match(new RegExp(escaped + '[\\s\\S]{1,500}?(\\d+[\\d.]*,\\d{2})'))
+      const price = priceMatch ? parseBRL(priceMatch[1]) : 0
+      if (price > 0) items.push({ name, quantity: 1, unit: 'un', unitPrice: price, totalPrice: price })
     }
   }
 
-  // Estratégia 3: padrão genérico — linhas com preço
+  // === ESTRATÉGIA TEXTO PURO ===
   if (items.length === 0) {
-    const lines = html.replace(/<[^>]+>/g, '\n').split('\n').map(l => l.trim()).filter(Boolean)
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-      const priceMatch = line.match(/R?\$?\s*(\d[\d.]*,\d{2})$/)
-      if (priceMatch && line.length > 5 && !/total|desconto|frete|taxa/i.test(line)) {
+    const text = html.replace(/<[^>]+>/g, '\n')
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+    for (const line of lines) {
+      if (/total|desconto|frete|taxa|cnpj|cpf|obrigado|emiss/i.test(line)) continue
+      const priceMatch = line.match(/(\d[\d.]*,\d{2})\s*$/)
+      if (priceMatch && line.length > 4) {
         const price = parseBRL(priceMatch[1])
         const name = line.replace(priceMatch[0], '').trim()
         if (name.length > 2 && price > 0) {
@@ -157,5 +177,5 @@ function parseSefazHTML(html, url) {
     }
   }
 
-  return { storeName, date, items: items.slice(0, 50), total }
+  return { storeName, date, items: items.slice(0, 60), total }
 }

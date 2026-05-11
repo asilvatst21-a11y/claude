@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { Camera, Upload, X, Check, AlertCircle, Loader, Key, QrCode } from 'lucide-react'
-import jsQR from 'jsqr'
+import { Html5Qrcode } from 'html5-qrcode'
 import { getIngredients, getSuppliers, saveIngredient, saveSupplier, savePurchase, id } from '../store/storage'
 import type { Purchase, PurchaseItem, Ingredient, Supplier } from '../types'
 
@@ -39,23 +39,22 @@ function parseBRPrice(s: string): number {
   return parseFloat(cleaned) || 0
 }
 
-// Lê QR Code de uma imagem e retorna a URL encontrada
-function readQRCode(file: File): Promise<string | null> {
-  return new Promise((resolve) => {
-    const img = new Image()
-    img.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = img.width
-      canvas.height = img.height
-      const ctx = canvas.getContext('2d')!
-      ctx.drawImage(img, 0, 0)
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const code = jsQR(imageData.data, imageData.width, imageData.height)
-      resolve(code ? code.data : null)
-    }
-    img.onerror = () => resolve(null)
-    img.src = URL.createObjectURL(file)
-  })
+// Lê QR Code de uma imagem usando html5-qrcode (mais robusto)
+async function readQRCode(file: File): Promise<string | null> {
+  const tmpId = 'qr-reader-tmp-' + Date.now()
+  const div = document.createElement('div')
+  div.id = tmpId
+  div.style.display = 'none'
+  document.body.appendChild(div)
+  try {
+    const scanner = new Html5Qrcode(tmpId)
+    const result = await scanner.scanFile(file, false)
+    return result || null
+  } catch {
+    return null
+  } finally {
+    document.getElementById(tmpId)?.remove()
+  }
 }
 
 async function fetchSefaz(url: string): Promise<ExtractedReceipt> {
