@@ -19,8 +19,10 @@ interface ExtractedReceipt {
   total: number
 }
 
+const ENV_API_KEY = import.meta.env.VITE_VISION_API_KEY || ''
+
 function getApiKey() {
-  return localStorage.getItem('ff_vision_api_key') || ''
+  return ENV_API_KEY || localStorage.getItem('ff_vision_api_key') || ''
 }
 
 function saveApiKey(key: string) {
@@ -150,6 +152,7 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
   const [step, setStep] = useState<'config' | 'capture' | 'processing' | 'review'>(
     getApiKey() ? 'capture' : 'config'
   )
+
   const [apiKey, setApiKey] = useState(getApiKey)
   const [error, setError] = useState('')
   const [extracted, setExtracted] = useState<ExtractedReceipt | null>(null)
