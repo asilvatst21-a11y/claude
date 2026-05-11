@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react'
-import { Camera, Upload, X, Check, AlertCircle, Loader, Key } from 'lucide-react'
+import { Camera, Upload, X, Check, AlertCircle, Loader, Key, QrCode } from 'lucide-react'
+import jsQR from 'jsqr'
 import { getIngredients, getSuppliers, saveIngredient, saveSupplier, savePurchase, id } from '../store/storage'
 import type { Purchase, PurchaseItem, Ingredient, Supplier } from '../types'
 
@@ -38,9 +39,40 @@ function parseBRPrice(s: string): number {
   return parseFloat(cleaned) || 0
 }
 
+// Lê QR Code de uma imagem e retorna a URL encontrada
+function readQRCode(file: File): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => {
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext('2d')!
+      ctx.drawImage(img, 0, 0)
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+      const code = jsQR(imageData.data, imageData.width, imageData.height)
+      resolve(code ? code.data : null)
+    }
+    img.onerror = () => resolve(null)
+    img.src = URL.createObjectURL(file)
+  })
+}
+
+async function fetchSefaz(url: string): Promise<ExtractedReceipt> {
+  const response = await fetch('/api/sefaz', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  })
+  if (!response.ok) {
+    const err = await response.json()
+    throw new Error(err.error || 'Erro ao consultar a Sefaz.')
+  }
+  return response.json()
+}
+
 function parseReceipt(text: string): ExtractedReceipt {
   const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
-
   let storeName = ''
   for (let i = 0; i < Math.min(8, lines.length); i++) {
     if (/cnpj/i.test(lines[i])) {
@@ -61,7 +93,6 @@ function parseReceipt(text: string): ExtractedReceipt {
 
   const totalMatch = text.match(/total[^\d]*(\d[\d.,]+)/i)
   const total = totalMatch ? parseBRPrice(totalMatch[1]) : 0
-
   const items: ExtractedItem[] = []
   const pricePattern = /(\d+[.,]\d{2})/g
   const unitPattern = /(\d+[.,]?\d*)\s*(kg|g|l|ml|lt|un|pct|cx|fd|sc|bd|pc|cj|fr|lata|garrafa)/i
@@ -70,27 +101,18 @@ function parseReceipt(text: string): ExtractedReceipt {
     const line = lines[i]
     if (/cnpj|cpf|ie:|insc|total|subtotal|troco|desconto|acrescimo|taxa|dinheiro|cartao|pix|recibo|nota|fiscal|obrigado|cliente|documento/i.test(line)) continue
     if (line.length < 4) continue
-
     const unitMatch = line.match(unitPattern)
     const prices = line.match(pricePattern)
-
     if (unitMatch && prices) {
       const quantity = parseFloat(unitMatch[1].replace(',', '.'))
       const unit = unitMatch[2].toLowerCase()
-      const normalizedUnit = unit === 'l' || unit === 'lt' ? 'L'
-        : unit === 'ml' ? 'ml' : unit === 'kg' ? 'kg'
-        : unit === 'g' ? 'g' : unit === 'pct' ? 'pct'
-        : unit === 'cx' ? 'cx' : 'un'
-
+      const normalizedUnit = unit === 'l' || unit === 'lt' ? 'L' : unit === 'ml' ? 'ml' : unit === 'kg' ? 'kg' : unit === 'g' ? 'g' : unit === 'pct' ? 'pct' : unit === 'cx' ? 'cx' : 'un'
       const priceValues = prices.map(parseBRPrice).filter(v => v > 0)
       const totalPrice = priceValues[priceValues.length - 1] || 0
       const unitPrice = quantity > 0 ? totalPrice / quantity : totalPrice
       const nameRaw = line.split(unitMatch[0])[0].trim()
       const name = nameRaw.replace(/^\d+\s*/, '').replace(/[^a-zA-ZÀ-ÿ0-9\s\-]/g, '').trim()
-
-      if (name.length > 1 && totalPrice > 0) {
-        items.push({ name, quantity, unit: normalizedUnit, unitPrice, totalPrice })
-      }
+      if (name.length > 1 && totalPrice > 0) items.push({ name, quantity, unit: normalizedUnit, unitPrice, totalPrice })
     } else if (prices && prices.length >= 2) {
       const priceValues = prices.map(parseBRPrice).filter(v => v > 0)
       if (priceValues.length < 2) continue
@@ -100,12 +122,9 @@ function parseReceipt(text: string): ExtractedReceipt {
       const qtyMatch = nameRaw.match(/^(\d+)\s+(.+)/)
       const quantity = qtyMatch ? parseInt(qtyMatch[1]) : 1
       const name = qtyMatch ? qtyMatch[2].trim() : nameRaw
-      if (name.length > 1 && totalPrice > 0 && name !== storeName) {
-        items.push({ name, quantity, unit: 'un', unitPrice, totalPrice })
-      }
+      if (name.length > 1 && totalPrice > 0 && name !== storeName) items.push({ name, quantity, unit: 'un', unitPrice, totalPrice })
     }
   }
-
   return { storeName, date, items, total }
 }
 
@@ -116,10 +135,7 @@ async function callVisionAPI(base64Image: string, apiKey: string): Promise<strin
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        requests: [{
-          image: { content: base64Image },
-          features: [{ type: 'DOCUMENT_TEXT_DETECTION' }]
-        }]
+        requests: [{ image: { content: base64Image }, features: [{ type: 'DOCUMENT_TEXT_DETECTION' }] }]
       })
     }
   )
@@ -134,10 +150,7 @@ async function callVisionAPI(base64Image: string, apiKey: string): Promise<strin
 function toBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
-    reader.onload = () => {
-      const result = reader.result as string
-      resolve(result.split(',')[1])
-    }
+    reader.onload = () => resolve((reader.result as string).split(',')[1])
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
@@ -152,38 +165,77 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
   const [step, setStep] = useState<'config' | 'capture' | 'processing' | 'review'>(
     getApiKey() ? 'capture' : 'config'
   )
-
   const [apiKey, setApiKey] = useState(getApiKey)
   const [error, setError] = useState('')
+  const [processingMsg, setProcessingMsg] = useState('')
   const [extracted, setExtracted] = useState<ExtractedReceipt | null>(null)
   const [editItems, setEditItems] = useState<ExtractedItem[]>([])
   const [editStoreName, setEditStoreName] = useState('')
   const [editDate, setEditDate] = useState('')
+  const [qrUrl, setQrUrl] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+  const qrFileRef = useRef<HTMLInputElement>(null)
 
   const ingredients = getIngredients()
   const suppliers = getSuppliers()
 
-  async function handleFile(file: File) {
+  function applyReceipt(receipt: ExtractedReceipt) {
+    setExtracted(receipt)
+    setEditItems(receipt.items.map(item => ({
+      ...item,
+      ingredientId: ingredients.find(i =>
+        i.name.toLowerCase().includes(item.name.toLowerCase().slice(0, 5))
+      )?.id || ''
+    })))
+    setEditStoreName(receipt.storeName)
+    setEditDate(receipt.date)
+    setStep('review')
+  }
+
+  async function handleQRFile(file: File) {
+    setStep('processing')
+    setProcessingMsg('Lendo QR Code da imagem...')
+    setError('')
+    try {
+      const url = await readQRCode(file)
+      if (!url) throw new Error('QR Code não encontrado na imagem. Tente uma foto mais próxima e nítida.')
+      if (!url.startsWith('http')) throw new Error('QR Code não contém uma URL válida da nota fiscal.')
+      setProcessingMsg('Consultando a Sefaz...')
+      const receipt = await fetchSefaz(url)
+      if (!receipt.items || receipt.items.length === 0) throw new Error('Não foi possível extrair os produtos da nota. Tente pelo Google Vision.')
+      applyReceipt(receipt)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro desconhecido')
+      setStep('capture')
+    }
+  }
+
+  async function handleQRUrl() {
+    if (!qrUrl.startsWith('http')) { setError('Cole uma URL válida.'); return }
+    setStep('processing')
+    setProcessingMsg('Consultando a Sefaz...')
+    setError('')
+    try {
+      const receipt = await fetchSefaz(qrUrl)
+      if (!receipt.items || receipt.items.length === 0) throw new Error('Não foi possível extrair os produtos.')
+      applyReceipt(receipt)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro desconhecido')
+      setStep('capture')
+    }
+  }
+
+  async function handleVisionFile(file: File) {
     const key = getApiKey()
     if (!key) { setStep('config'); return }
     setStep('processing')
+    setProcessingMsg('Lendo a nota com Google Vision...')
     setError('')
     try {
       const base64 = await toBase64(file)
       const text = await callVisionAPI(base64, key)
       if (!text) throw new Error('Não foi possível ler o texto da imagem.')
-      const receipt = parseReceipt(text)
-      setExtracted(receipt)
-      setEditItems(receipt.items.map(item => ({
-        ...item,
-        ingredientId: ingredients.find(i =>
-          i.name.toLowerCase().includes(item.name.toLowerCase().slice(0, 5))
-        )?.id || ''
-      })))
-      setEditStoreName(receipt.storeName)
-      setEditDate(receipt.date)
-      setStep('review')
+      applyReceipt(parseReceipt(text))
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro desconhecido')
       setStep('capture')
@@ -194,9 +246,7 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
     setEditItems(prev => prev.map((item, i) => {
       if (i !== idx) return item
       const updated = { ...item, [field]: value }
-      if (field === 'quantity' || field === 'unitPrice') {
-        updated.totalPrice = Number(updated.quantity) * Number(updated.unitPrice)
-      }
+      if (field === 'quantity' || field === 'unitPrice') updated.totalPrice = Number(updated.quantity) * Number(updated.unitPrice)
       return updated
     }))
   }
@@ -235,16 +285,12 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
       return { ingredientId, quantity: item.quantity, unit: item.unit, unitPrice: item.unitPrice, totalPrice: item.totalPrice }
     })
 
-    const purchase: Purchase = {
-      id: id(),
-      supplierId,
-      supplierName: editStoreName,
-      date: editDate,
+    savePurchase({
+      id: id(), supplierId, supplierName: editStoreName, date: editDate,
       items: purchaseItems,
       totalValue: purchaseItems.reduce((s, i) => s + i.totalPrice, 0),
-      notes: 'Importado por nota fiscal (OCR)'
-    }
-    savePurchase(purchase)
+      notes: 'Importado por nota fiscal'
+    } as Purchase)
     onImported()
     onClose()
   }
@@ -255,44 +301,29 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <div>
             <h2 className="font-bold text-gray-800">Importar Nota Fiscal</h2>
-            <p className="text-xs text-gray-400">Tire foto da nota e o sistema preenche automaticamente</p>
+            <p className="text-xs text-gray-400">Leia o QR Code ou tire foto da nota</p>
           </div>
           <button onClick={onClose}><X size={20} className="text-gray-400" /></button>
         </div>
 
         <div className="p-5">
+          {/* Config */}
           {step === 'config' && (
             <div className="space-y-4">
               <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
                 <Key size={20} className="text-amber-500 shrink-0 mt-0.5" />
-                <div>
-                  <p className="text-sm font-medium text-amber-800">Chave da API necessária</p>
-                  <p className="text-xs text-amber-600 mt-1">
-                    Cole aqui sua chave do Google Vision API (começa com <strong>AIza...</strong>).
-                    A chave fica salva no seu navegador.
-                  </p>
-                </div>
+                <p className="text-sm text-amber-700">Cole sua chave do Google Vision API (usada como alternativa ao QR Code).</p>
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Chave da API Google Vision</label>
-                <input
-                  type="text"
-                  value={apiKey}
-                  onChange={e => setApiKey(e.target.value)}
-                  placeholder="AIza..."
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
-                />
-              </div>
-              <button
-                onClick={() => { saveApiKey(apiKey); setStep('capture') }}
-                disabled={!apiKey}
-                className="w-full bg-orange-500 text-white py-2.5 rounded-lg font-medium disabled:opacity-40 hover:bg-orange-600"
-              >
+              <input type="text" value={apiKey} onChange={e => setApiKey(e.target.value)} placeholder="AIza..."
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+              <button onClick={() => { saveApiKey(apiKey); setStep('capture') }} disabled={!apiKey}
+                className="w-full bg-orange-500 text-white py-2.5 rounded-lg font-medium disabled:opacity-40 hover:bg-orange-600">
                 Salvar e continuar
               </button>
             </div>
           )}
 
+          {/* Captura */}
           {step === 'capture' && (
             <div className="space-y-4">
               {error && (
@@ -302,30 +333,52 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                 </div>
               )}
 
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="hidden"
-                onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])}
-              />
+              {/* QR Code — opção principal */}
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                <p className="text-sm font-semibold text-green-800 mb-3 flex items-center gap-2">
+                  <QrCode size={16} /> QR Code da Nota (Recomendado)
+                </p>
 
-              <button
-                onClick={() => fileRef.current?.click()}
-                className="w-full border-2 border-dashed border-orange-300 rounded-xl p-10 text-center hover:bg-orange-50 transition-colors"
-              >
-                <Camera size={36} className="text-orange-400 mx-auto mb-3" />
-                <p className="font-medium text-gray-700">Tirar foto da nota</p>
-                <p className="text-xs text-gray-400 mt-1">Abre a câmera do dispositivo</p>
-              </button>
+                <input ref={qrFileRef} type="file" accept="image/*" capture="environment" className="hidden"
+                  onChange={e => e.target.files?.[0] && handleQRFile(e.target.files[0])} />
 
-              <label className="w-full border border-gray-200 rounded-xl p-4 text-center cursor-pointer hover:bg-gray-50 flex items-center justify-center gap-2 text-gray-600 text-sm font-medium">
-                <Upload size={18} className="text-gray-400" />
-                Ou selecionar imagem da galeria
-                <input type="file" accept="image/*" className="hidden"
-                  onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
-              </label>
+                <button onClick={() => qrFileRef.current?.click()}
+                  className="w-full border-2 border-dashed border-green-300 rounded-xl p-6 text-center hover:bg-green-100 transition-colors mb-3">
+                  <QrCode size={32} className="text-green-500 mx-auto mb-2" />
+                  <p className="font-medium text-gray-700 text-sm">Fotografar o QR Code da nota</p>
+                  <p className="text-xs text-gray-400 mt-1">Mais preciso — busca direto na Sefaz</p>
+                </button>
+
+                <div className="flex gap-2">
+                  <input type="text" value={qrUrl} onChange={e => setQrUrl(e.target.value)}
+                    placeholder="Ou cole a URL do QR Code aqui..."
+                    className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-400" />
+                  <button onClick={handleQRUrl} disabled={!qrUrl}
+                    className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-green-700">
+                    Buscar
+                  </button>
+                </div>
+              </div>
+
+              {/* Google Vision — alternativa */}
+              <div className="border border-gray-200 rounded-xl p-4">
+                <p className="text-sm font-medium text-gray-500 mb-3 flex items-center gap-2">
+                  <Camera size={16} /> Google Vision (alternativa)
+                </p>
+                <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
+                  onChange={e => e.target.files?.[0] && handleVisionFile(e.target.files[0])} />
+                <div className="flex gap-2">
+                  <button onClick={() => fileRef.current?.click()}
+                    className="flex-1 border border-dashed border-gray-300 rounded-lg p-3 text-center hover:bg-gray-50 text-sm text-gray-500">
+                    <Camera size={18} className="mx-auto mb-1 text-gray-400" /> Câmera
+                  </button>
+                  <label className="flex-1 border border-dashed border-gray-300 rounded-lg p-3 text-center cursor-pointer hover:bg-gray-50 text-sm text-gray-500">
+                    <Upload size={18} className="mx-auto mb-1 text-gray-400" /> Galeria
+                    <input type="file" accept="image/*" className="hidden"
+                      onChange={e => e.target.files?.[0] && handleVisionFile(e.target.files[0])} />
+                  </label>
+                </div>
+              </div>
 
               <button onClick={() => setStep('config')} className="w-full text-xs text-gray-400 hover:text-gray-600 text-center">
                 Alterar chave da API
@@ -333,14 +386,15 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
             </div>
           )}
 
+          {/* Processando */}
           {step === 'processing' && (
             <div className="text-center py-16">
-              <Loader size={40} className="text-orange-500 mx-auto mb-4 animate-spin" />
-              <p className="font-medium text-gray-700">Lendo a nota fiscal...</p>
-              <p className="text-sm text-gray-400 mt-1">Isso pode levar alguns segundos</p>
+              <Loader size={40} className="text-green-500 mx-auto mb-4 animate-spin" />
+              <p className="font-medium text-gray-700">{processingMsg}</p>
             </div>
           )}
 
+          {/* Revisão */}
           {step === 'review' && extracted && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -411,7 +465,7 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                 </p>
                 <div className="flex gap-2">
                   <button onClick={() => setStep('capture')} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
-                    Tirar outra foto
+                    Voltar
                   </button>
                   <button onClick={saveImport} disabled={editItems.length === 0}
                     className="flex items-center gap-2 bg-orange-500 text-white px-5 py-2 rounded-lg hover:bg-orange-600 text-sm font-medium disabled:opacity-40">
