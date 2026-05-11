@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Camera, Upload, X, Check, AlertCircle, Loader } from 'lucide-react'
+import { Camera, Upload, X, Check, AlertCircle, Loader, Key } from 'lucide-react'
 import { getIngredients, getSuppliers, saveIngredient, saveSupplier, savePurchase, id } from '../store/storage'
 import type { Purchase, PurchaseItem, Ingredient, Supplier } from '../types'
 
@@ -19,36 +19,126 @@ interface ExtractedReceipt {
   total: number
 }
 
+function getApiKey() {
+  return localStorage.getItem('ff_vision_api_key') || ''
+}
+
+function saveApiKey(key: string) {
+  localStorage.setItem('ff_vision_api_key', key)
+}
+
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-function toBase64(file: File): Promise<{ data: string; mediaType: string }> {
+function parseBRPrice(s: string): number {
+  const cleaned = s.replace(/[^\d,]/g, '').replace(',', '.')
+  return parseFloat(cleaned) || 0
+}
+
+function parseReceipt(text: string): ExtractedReceipt {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+
+  let storeName = ''
+  for (let i = 0; i < Math.min(8, lines.length); i++) {
+    if (/cnpj/i.test(lines[i])) {
+      storeName = lines.slice(0, i).find(l => l.length > 3) || lines[0]
+      break
+    }
+  }
+  if (!storeName) storeName = lines[0] || 'Fornecedor'
+  storeName = storeName.replace(/[^a-zA-ZÀ-ÿ0-9\s]/g, '').trim()
+
+  const dateMatch = text.match(/(\d{2})[\/\-](\d{2})[\/\-](\d{2,4})/)
+  let date = new Date().toISOString().slice(0, 10)
+  if (dateMatch) {
+    const [, d, m, y] = dateMatch
+    const year = y.length === 2 ? `20${y}` : y
+    date = `${year}-${m}-${d}`
+  }
+
+  const totalMatch = text.match(/total[^\d]*(\d[\d.,]+)/i)
+  const total = totalMatch ? parseBRPrice(totalMatch[1]) : 0
+
+  const items: ExtractedItem[] = []
+  const pricePattern = /(\d+[.,]\d{2})/g
+  const unitPattern = /(\d+[.,]?\d*)\s*(kg|g|l|ml|lt|un|pct|cx|fd|sc|bd|pc|cj|fr|lata|garrafa)/i
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+    if (/cnpj|cpf|ie:|insc|total|subtotal|troco|desconto|acrescimo|taxa|dinheiro|cartao|pix|recibo|nota|fiscal|obrigado|cliente|documento/i.test(line)) continue
+    if (line.length < 4) continue
+
+    const unitMatch = line.match(unitPattern)
+    const prices = line.match(pricePattern)
+
+    if (unitMatch && prices) {
+      const quantity = parseFloat(unitMatch[1].replace(',', '.'))
+      const unit = unitMatch[2].toLowerCase()
+      const normalizedUnit = unit === 'l' || unit === 'lt' ? 'L'
+        : unit === 'ml' ? 'ml' : unit === 'kg' ? 'kg'
+        : unit === 'g' ? 'g' : unit === 'pct' ? 'pct'
+        : unit === 'cx' ? 'cx' : 'un'
+
+      const priceValues = prices.map(parseBRPrice).filter(v => v > 0)
+      const totalPrice = priceValues[priceValues.length - 1] || 0
+      const unitPrice = quantity > 0 ? totalPrice / quantity : totalPrice
+      const nameRaw = line.split(unitMatch[0])[0].trim()
+      const name = nameRaw.replace(/^\d+\s*/, '').replace(/[^a-zA-ZÀ-ÿ0-9\s\-]/g, '').trim()
+
+      if (name.length > 1 && totalPrice > 0) {
+        items.push({ name, quantity, unit: normalizedUnit, unitPrice, totalPrice })
+      }
+    } else if (prices && prices.length >= 2) {
+      const priceValues = prices.map(parseBRPrice).filter(v => v > 0)
+      if (priceValues.length < 2) continue
+      const totalPrice = priceValues[priceValues.length - 1]
+      const unitPrice = priceValues[0]
+      const nameRaw = line.replace(pricePattern, '').replace(/[^a-zA-ZÀ-ÿ0-9\s\-]/g, '').trim()
+      const qtyMatch = nameRaw.match(/^(\d+)\s+(.+)/)
+      const quantity = qtyMatch ? parseInt(qtyMatch[1]) : 1
+      const name = qtyMatch ? qtyMatch[2].trim() : nameRaw
+      if (name.length > 1 && totalPrice > 0 && name !== storeName) {
+        items.push({ name, quantity, unit: 'un', unitPrice, totalPrice })
+      }
+    }
+  }
+
+  return { storeName, date, items, total }
+}
+
+async function callVisionAPI(base64Image: string, apiKey: string): Promise<string> {
+  const response = await fetch(
+    `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requests: [{
+          image: { content: base64Image },
+          features: [{ type: 'DOCUMENT_TEXT_DETECTION' }]
+        }]
+      })
+    }
+  )
+  if (!response.ok) {
+    const err = await response.json()
+    throw new Error(err.error?.message || 'Erro na API do Google Vision')
+  }
+  const data = await response.json()
+  return data.responses?.[0]?.fullTextAnnotation?.text || ''
+}
+
+function toBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = () => {
       const result = reader.result as string
-      const [header, data] = result.split(',')
-      const mediaType = header.match(/:(.*?);/)?.[1] || 'image/jpeg'
-      resolve({ data, mediaType })
+      resolve(result.split(',')[1])
     }
     reader.onerror = reject
     reader.readAsDataURL(file)
   })
-}
-
-async function callOCR(file: File): Promise<ExtractedReceipt> {
-  const { data, mediaType } = await toBase64(file)
-  const response = await fetch('/api/ocr', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: data, mediaType })
-  })
-  if (!response.ok) {
-    const err = await response.json()
-    throw new Error(err.error || 'Erro ao processar a imagem.')
-  }
-  return response.json()
 }
 
 interface Props {
@@ -57,7 +147,10 @@ interface Props {
 }
 
 export default function NotaFiscalImport({ onClose, onImported }: Props) {
-  const [step, setStep] = useState<'capture' | 'processing' | 'review'>('capture')
+  const [step, setStep] = useState<'config' | 'capture' | 'processing' | 'review'>(
+    getApiKey() ? 'capture' : 'config'
+  )
+  const [apiKey, setApiKey] = useState(getApiKey)
   const [error, setError] = useState('')
   const [extracted, setExtracted] = useState<ExtractedReceipt | null>(null)
   const [editItems, setEditItems] = useState<ExtractedItem[]>([])
@@ -69,10 +162,15 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
   const suppliers = getSuppliers()
 
   async function handleFile(file: File) {
+    const key = getApiKey()
+    if (!key) { setStep('config'); return }
     setStep('processing')
     setError('')
     try {
-      const receipt = await callOCR(file)
+      const base64 = await toBase64(file)
+      const text = await callVisionAPI(base64, key)
+      if (!text) throw new Error('Não foi possível ler o texto da imagem.')
+      const receipt = parseReceipt(text)
       setExtracted(receipt)
       setEditItems(receipt.items.map(item => ({
         ...item,
@@ -141,7 +239,7 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
       date: editDate,
       items: purchaseItems,
       totalValue: purchaseItems.reduce((s, i) => s + i.totalPrice, 0),
-      notes: 'Importado por nota fiscal (IA)'
+      notes: 'Importado por nota fiscal (OCR)'
     }
     savePurchase(purchase)
     onImported()
@@ -154,13 +252,44 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <div>
             <h2 className="font-bold text-gray-800">Importar Nota Fiscal</h2>
-            <p className="text-xs text-gray-400">A IA lê a nota e preenche tudo automaticamente</p>
+            <p className="text-xs text-gray-400">Tire foto da nota e o sistema preenche automaticamente</p>
           </div>
           <button onClick={onClose}><X size={20} className="text-gray-400" /></button>
         </div>
 
         <div className="p-5">
-          {/* Captura */}
+          {step === 'config' && (
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+                <Key size={20} className="text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-sm font-medium text-amber-800">Chave da API necessária</p>
+                  <p className="text-xs text-amber-600 mt-1">
+                    Cole aqui sua chave do Google Vision API (começa com <strong>AIza...</strong>).
+                    A chave fica salva no seu navegador.
+                  </p>
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Chave da API Google Vision</label>
+                <input
+                  type="text"
+                  value={apiKey}
+                  onChange={e => setApiKey(e.target.value)}
+                  placeholder="AIza..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
+                />
+              </div>
+              <button
+                onClick={() => { saveApiKey(apiKey); setStep('capture') }}
+                disabled={!apiKey}
+                className="w-full bg-orange-500 text-white py-2.5 rounded-lg font-medium disabled:opacity-40 hover:bg-orange-600"
+              >
+                Salvar e continuar
+              </button>
+            </div>
+          )}
+
           {step === 'capture' && (
             <div className="space-y-4">
               {error && (
@@ -194,38 +323,33 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                 <input type="file" accept="image/*" className="hidden"
                   onChange={e => e.target.files?.[0] && handleFile(e.target.files[0])} />
               </label>
+
+              <button onClick={() => setStep('config')} className="w-full text-xs text-gray-400 hover:text-gray-600 text-center">
+                Alterar chave da API
+              </button>
             </div>
           )}
 
-          {/* Processando */}
           {step === 'processing' && (
             <div className="text-center py-16">
               <Loader size={40} className="text-orange-500 mx-auto mb-4 animate-spin" />
-              <p className="font-medium text-gray-700">Analisando a nota fiscal...</p>
-              <p className="text-sm text-gray-400 mt-1">A IA está lendo os produtos e preços</p>
+              <p className="font-medium text-gray-700">Lendo a nota fiscal...</p>
+              <p className="text-sm text-gray-400 mt-1">Isso pode levar alguns segundos</p>
             </div>
           )}
 
-          {/* Revisão */}
           {step === 'review' && extracted && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Estabelecimento</label>
-                  <input
-                    value={editStoreName}
-                    onChange={e => setEditStoreName(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
-                  />
+                  <input value={editStoreName} onChange={e => setEditStoreName(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Data da compra</label>
-                  <input
-                    type="date"
-                    value={editDate}
-                    onChange={e => setEditDate(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
-                  />
+                  <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
                 </div>
               </div>
 
@@ -234,33 +358,20 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                   <p className="text-sm font-medium text-gray-700">{editItems.length} item(s) detectado(s)</p>
                   <p className="text-xs text-gray-400">Revise antes de salvar</p>
                 </div>
-
                 <div className="space-y-2 max-h-64 overflow-y-auto">
                   {editItems.map((item, idx) => (
                     <div key={idx} className="border border-gray-100 rounded-lg p-3 bg-gray-50">
                       <div className="grid grid-cols-4 gap-2 mb-2">
                         <div className="col-span-2">
-                          <input
-                            value={item.name}
-                            onChange={e => updateItem(idx, 'name', e.target.value)}
-                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-orange-400"
-                            placeholder="Nome do produto"
-                          />
+                          <input value={item.name} onChange={e => updateItem(idx, 'name', e.target.value)}
+                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-orange-400" />
                         </div>
-                        <div>
-                          <input
-                            type="number" min={0} step="0.001"
-                            value={item.quantity}
-                            onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
-                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none"
-                          />
-                        </div>
+                        <input type="number" min={0} step="0.001" value={item.quantity}
+                          onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
+                          className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none" />
                         <div className="flex gap-1 items-center">
-                          <select
-                            value={item.unit}
-                            onChange={e => updateItem(idx, 'unit', e.target.value)}
-                            className="flex-1 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none"
-                          >
+                          <select value={item.unit} onChange={e => updateItem(idx, 'unit', e.target.value)}
+                            className="flex-1 border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none">
                             {['kg','g','L','ml','un','pct','cx'].map(u => <option key={u}>{u}</option>)}
                           </select>
                           <button onClick={() => removeItem(idx)}><X size={14} className="text-red-400" /></button>
@@ -269,12 +380,9 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                       <div className="grid grid-cols-3 gap-2">
                         <div>
                           <label className="text-xs text-gray-400">Preço unit.</label>
-                          <input
-                            type="number" min={0} step="0.01"
-                            value={item.unitPrice}
+                          <input type="number" min={0} step="0.01" value={item.unitPrice}
                             onChange={e => updateItem(idx, 'unitPrice', parseFloat(e.target.value) || 0)}
-                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none"
-                          />
+                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none" />
                         </div>
                         <div>
                           <label className="text-xs text-gray-400">Total</label>
@@ -282,11 +390,8 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                         </div>
                         <div>
                           <label className="text-xs text-gray-400">Vincular ingrediente</label>
-                          <select
-                            value={item.ingredientId || ''}
-                            onChange={e => updateItem(idx, 'ingredientId', e.target.value)}
-                            className="w-full border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none"
-                          >
+                          <select value={item.ingredientId || ''} onChange={e => updateItem(idx, 'ingredientId', e.target.value)}
+                            className="w-full border border-gray-200 rounded px-1 py-1 text-xs focus:outline-none">
                             <option value="">Criar novo</option>
                             {ingredients.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
                           </select>
@@ -298,23 +403,15 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
               </div>
 
               <div className="flex items-center justify-between border-t pt-3">
-                <div>
-                  <p className="text-sm font-semibold text-gray-700">
-                    Total: <span className="text-orange-600">{fmt(editItems.reduce((s, i) => s + i.totalPrice, 0))}</span>
-                  </p>
-                  {extracted.total > 0 && (
-                    <p className="text-xs text-gray-400">Total da nota: {fmt(extracted.total)}</p>
-                  )}
-                </div>
+                <p className="text-sm font-semibold text-gray-700">
+                  Total: <span className="text-orange-600">{fmt(editItems.reduce((s, i) => s + i.totalPrice, 0))}</span>
+                </p>
                 <div className="flex gap-2">
                   <button onClick={() => setStep('capture')} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
                     Tirar outra foto
                   </button>
-                  <button
-                    onClick={saveImport}
-                    disabled={editItems.length === 0}
-                    className="flex items-center gap-2 bg-orange-500 text-white px-5 py-2 rounded-lg hover:bg-orange-600 text-sm font-medium disabled:opacity-40"
-                  >
+                  <button onClick={saveImport} disabled={editItems.length === 0}
+                    className="flex items-center gap-2 bg-orange-500 text-white px-5 py-2 rounded-lg hover:bg-orange-600 text-sm font-medium disabled:opacity-40">
                     <Check size={16} /> Salvar compra
                   </button>
                 </div>
