@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, Package, TrendingUp,
-  FileText, BarChart2, Settings, UtensilsCrossed, MoreHorizontal
+  FileText, BarChart2, Settings, UtensilsCrossed, MoreHorizontal, Users
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -13,6 +13,7 @@ const navMain = [
 ]
 
 const navMore = [
+  { to: '/clientes',     icon: Users,      label: 'Clientes' },
   { to: '/precificacao', icon: TrendingUp, label: 'Precificação' },
   { to: '/dre',          icon: FileText,   label: 'DRE' },
   { to: '/relatorios',   icon: BarChart2,  label: 'Relatórios' },

@@ -8,6 +8,7 @@ import Precificacao from './pages/Precificacao'
 import DRE from './pages/DRE'
 import Relatorios from './pages/Relatorios'
 import Cadastros from './pages/Cadastros'
+import Clientes from './pages/Clientes'
 import SyncSetup from './components/SyncSetup'
 import { pullFromCloud } from './store/sync'
 import { supabase } from './store/supabase'
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="dre" element={<DRE />} />
           <Route path="relatorios" element={<Relatorios />} />
           <Route path="cadastros" element={<Cadastros />} />
+          <Route path="clientes" element={<Clientes />} />
         </Route>
       </Routes>
     </BrowserRouter>

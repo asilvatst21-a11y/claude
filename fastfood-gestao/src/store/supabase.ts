@@ -26,4 +26,5 @@ export const ENTITY_KEYS: Record<string, string> = {
   sales:       'ff_sales',
   fixed_costs: 'ff_fixed_costs',
   dre:         'ff_dre',
+  customers:   'ff_customers',
 }

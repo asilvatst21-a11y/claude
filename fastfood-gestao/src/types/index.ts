@@ -81,3 +81,18 @@ export interface DREEntry {
   variableCosts: number
   observations: string
 }
+
+export interface Customer {
+  id: string
+  name: string
+  phone: string
+  birthday: string
+  cashbackBalance: number
+  totalSpent: number
+  createdAt: string
+}
+
+export interface CashbackConfig {
+  enabled: boolean
+  percentage: number
+}
