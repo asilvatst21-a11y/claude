@@ -24,19 +24,27 @@ const months = [
 export default function DRE() {
   const [fixedCosts, setFixedCosts] = useState<FixedCost[]>([])
   const [editCost, setEditCost] = useState<FixedCost | null>(null)
+  const [tick, setTick] = useState(0)
   const now = new Date()
   const [selectedMonth, setSelectedMonth] = useState(now.getMonth())
   const [selectedYear, setSelectedYear] = useState(now.getFullYear())
 
-  useEffect(() => { setFixedCosts(getFixedCosts()) }, [])
+  const [sales, setSales] = useState(() => getSales())
+  const [purchases, setPurchases] = useState(() => getPurchases())
+
+  useEffect(() => {
+    setFixedCosts(getFixedCosts())
+    setSales(getSales())
+    setPurchases(getPurchases())
+  }, [tick, selectedMonth, selectedYear])
 
   const monthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`
 
-  const sales = getSales().filter(s => s.date.startsWith(monthStr))
-  const purchases = getPurchases().filter(p => p.date.startsWith(monthStr))
+  const salesFiltered = sales.filter(s => s.date.startsWith(monthStr))
+  const purchasesFiltered = purchases.filter(p => p.date.startsWith(monthStr))
 
-  const revenue = sales.reduce((s, x) => s + x.total, 0)
-  const cogs = purchases.reduce((s, p) => s + p.totalValue, 0)
+  const revenue = salesFiltered.reduce((s, x) => s + x.total, 0)
+  const cogs = purchasesFiltered.reduce((s, p) => s + p.totalValue, 0)
   const grossProfit = revenue - cogs
   const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0
 
@@ -70,8 +78,8 @@ export default function DRE() {
     const targetCogs = targetRevenue * (1 - grossMarginPct)
 
     // Deduct existing data for the selected month
-    const existingRevenue = sales.reduce((s, x) => s + x.total, 0)
-    const existingCogs = purchases.reduce((s, p) => s + p.totalValue, 0)
+    const existingRevenue = salesFiltered.reduce((s, x) => s + x.total, 0)
+    const existingCogs = purchasesFiltered.reduce((s, p) => s + p.totalValue, 0)
     const neededRevenue = targetRevenue - existingRevenue
     const neededCogs = targetCogs - existingCogs
 
@@ -129,8 +137,7 @@ export default function DRE() {
       })
     }
 
-    setFixedCosts(getFixedCosts())
-    window.location.reload()
+    setTick(t => t + 1)
   }
 
   function saveCost(c: FixedCost) {
@@ -144,7 +151,7 @@ export default function DRE() {
     setFixedCosts(getFixedCosts())
   }
 
-  const paymentCount = sales.reduce((acc, s) => {
+  const paymentCount = salesFiltered.reduce((acc, s) => {
     acc[s.paymentMethod] = (acc[s.paymentMethod] || 0) + s.total
     return acc
   }, {} as Record<string, number>)
@@ -186,7 +193,7 @@ export default function DRE() {
             <option key={y} value={y}>{y}</option>
           ))}
         </select>
-        <span className="text-sm text-gray-500">{sales.length} vendas · {purchases.length} compras</span>
+        <span className="text-sm text-gray-500">{salesFiltered.length} vendas · {purchasesFiltered.length} compras</span>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
