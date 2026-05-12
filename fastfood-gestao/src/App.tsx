@@ -9,6 +9,7 @@ import DRE from './pages/DRE'
 import Relatorios from './pages/Relatorios'
 import Cadastros from './pages/Cadastros'
 import Clientes from './pages/Clientes'
+import CadastroPublico from './pages/CadastroPublico'
 import SyncSetup from './components/SyncSetup'
 import { pullFromCloud } from './store/sync'
 import { supabase } from './store/supabase'
@@ -36,6 +37,7 @@ export default function App() {
     <BrowserRouter>
       <SyncSetup />
       <Routes>
+        <Route path="/cadastro" element={<CadastroPublico />} />
         <Route path="/" element={<Layout />}>
           <Route index element={<Dashboard />} />
           <Route path="vendas" element={<Vendas />} />
