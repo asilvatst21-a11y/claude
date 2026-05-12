@@ -1,4 +1,4 @@
-import type { Product, Ingredient, Supplier, Purchase, Sale, FixedCost, DREEntry } from '../types'
+import type { Product, Ingredient, Supplier, Purchase, Sale, FixedCost, DREEntry, Customer, CashbackConfig } from '../types'
 import { pushRecord, deleteRecord } from './sync'
 
 function get<T>(key: string): T[] {
@@ -109,6 +109,32 @@ export const saveDREEntry = (e: DREEntry) => {
   idx >= 0 ? list.splice(idx, 1, e) : list.push(e)
   set('ff_dre', list)
   pushRecord('dre', e.month + '_' + e.year, e).catch(() => {})
+}
+
+// Customers
+export const getCustomers = () => get<Customer>('ff_customers')
+export const saveCustomer = (c: Customer) => {
+  const list = getCustomers()
+  const idx = list.findIndex(x => x.id === c.id)
+  idx >= 0 ? list.splice(idx, 1, c) : list.push(c)
+  set('ff_customers', list)
+  pushRecord('customers', c.id, c).catch(() => {})
+}
+export const deleteCustomer = (cid: string) => {
+  set('ff_customers', getCustomers().filter(x => x.id !== cid))
+  deleteRecord('customers', cid).catch(() => {})
+}
+
+// Cashback Config
+export const getCashbackConfig = (): CashbackConfig => {
+  try {
+    return JSON.parse(localStorage.getItem('ff_cashback') || 'null') ?? { enabled: false, percentage: 5 }
+  } catch {
+    return { enabled: false, percentage: 5 }
+  }
+}
+export const saveCashbackConfig = (cfg: CashbackConfig) => {
+  localStorage.setItem('ff_cashback', JSON.stringify(cfg))
 }
 
 export { id }
