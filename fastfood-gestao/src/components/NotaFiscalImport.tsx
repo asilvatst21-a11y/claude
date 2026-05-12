@@ -57,11 +57,11 @@ async function readQRCode(file: File): Promise<string | null> {
   }
 }
 
-async function fetchSefaz(url: string): Promise<ExtractedReceipt> {
+async function fetchSefaz(url?: string, chave?: string): Promise<ExtractedReceipt> {
   const response = await fetch('/api/sefaz', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url })
+    body: JSON.stringify({ url, chave })
   })
   if (!response.ok) {
     const err = await response.json()
@@ -172,6 +172,7 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
   const [editStoreName, setEditStoreName] = useState('')
   const [editDate, setEditDate] = useState('')
   const [qrUrl, setQrUrl] = useState('')
+  const [chaveAcesso, setChaveAcesso] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const qrFileRef = useRef<HTMLInputElement>(null)
 
@@ -216,6 +217,22 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
     setError('')
     try {
       const receipt = await fetchSefaz(qrUrl)
+      if (!receipt.items || receipt.items.length === 0) throw new Error('Não foi possível extrair os produtos.')
+      applyReceipt(receipt)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro desconhecido')
+      setStep('capture')
+    }
+  }
+
+  async function handleChaveAcesso() {
+    const limpa = chaveAcesso.replace(/\D/g, '')
+    if (limpa.length !== 44) { setError('A chave deve ter 44 dígitos.'); return }
+    setStep('processing')
+    setProcessingMsg('Consultando a Sefaz pela chave de acesso...')
+    setError('')
+    try {
+      const receipt = await fetchSefaz(undefined, limpa)
       if (!receipt.items || receipt.items.length === 0) throw new Error('Não foi possível extrair os produtos.')
       applyReceipt(receipt)
     } catch (e: unknown) {
@@ -347,6 +364,25 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                   <p className="font-medium text-gray-700 text-sm">Fotografar o QR Code da nota</p>
                   <p className="text-xs text-gray-400 mt-1">Mais preciso — busca direto na Sefaz</p>
                 </button>
+
+                {/* Chave de acesso */}
+                <div className="mb-3">
+                  <p className="text-xs font-medium text-gray-600 mb-1">Chave de acesso (44 números do rodapé da nota):</p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={chaveAcesso}
+                      onChange={e => setChaveAcesso(e.target.value.replace(/\D/g, '').slice(0, 44))}
+                      placeholder="0000 0000 0000 0000 0000 0000 0000 0000 0000 0000 0000"
+                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-400 font-mono"
+                    />
+                    <button onClick={handleChaveAcesso} disabled={chaveAcesso.replace(/\D/g,'').length !== 44}
+                      className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-green-700 whitespace-nowrap">
+                      Buscar
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-1">Funciona mesmo sem QR Code — copie os números do rodapé da nota</p>
+                </div>
 
                 <div className="flex gap-2">
                   <input type="text" value={qrUrl} onChange={e => setQrUrl(e.target.value)}
