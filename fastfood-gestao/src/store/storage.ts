@@ -1,4 +1,4 @@
-import type { Product, Ingredient, Supplier, Purchase, Sale, FixedCost, DREEntry, Customer, CashbackConfig } from '../types'
+import type { Product, Ingredient, Supplier, Purchase, Sale, FixedCost, DREEntry, Customer, CashbackConfig, CashSession } from '../types'
 import { pushRecord, deleteRecord } from './sync'
 
 function get<T>(key: string): T[] {
@@ -136,5 +136,17 @@ export const getCashbackConfig = (): CashbackConfig => {
 export const saveCashbackConfig = (cfg: CashbackConfig) => {
   localStorage.setItem('ff_cashback', JSON.stringify(cfg))
 }
+
+// Cash Sessions
+export const getCashSessions = () => get<CashSession>('ff_cash_sessions')
+export const saveCashSession = (s: CashSession) => {
+  const list = getCashSessions()
+  const idx = list.findIndex(x => x.id === s.id)
+  idx >= 0 ? list.splice(idx, 1, s) : list.push(s)
+  set('ff_cash_sessions', list)
+  pushRecord('cash_sessions', s.id, s).catch(() => {})
+}
+export const getOpenSession = (): CashSession | null =>
+  getCashSessions().find(s => s.status === 'open') ?? null
 
 export { id }

@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { getFixedCosts, saveFixedCost, deleteFixedCost, getSales, getPurchases, saveSale, savePurchase, id } from '../store/storage'
 import type { FixedCost } from '../types'
-import { Plus, Trash2, X, FileText, TrendingUp, TrendingDown, FlaskConical } from 'lucide-react'
+import { Plus, Trash2, X, FileText, TrendingUp, FlaskConical, Settings, HelpCircle, Wallet, Banknote } from 'lucide-react'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -21,6 +21,47 @@ const months = [
   'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'
 ]
 
+const TOOLTIPS: Record<string, string> = {
+  receita: 'Total de dinheiro recebido pelas vendas do período, antes de qualquer desconto ou custo.',
+  cmv: 'Custo das Mercadorias Vendidas: valor gasto na compra dos ingredientes e produtos vendidos. Quanto maior o CMV, menor a margem.',
+  lucro_bruto: 'Receita menos o CMV. Mostra quanto sobra depois de pagar os produtos vendidos. É a base para cobrir as despesas fixas.',
+  fixos: 'Despesas que você paga todo mês independente do volume de vendas: aluguel, salários, energia, etc.',
+  ebitda: 'Resultado Operacional antes de impostos e depreciação. Indica se o negócio é operacionalmente lucrativo. Meta saudável para food: acima de 15%.',
+  impostos: 'Estimativa de impostos sobre o lucro. Para Simples Nacional use 6%, Lucro Presumido use ~11%. Ajuste conforme seu regime tributário.',
+  lucro_liquido: 'Lucro após impostos. É o que "sobra de verdade" para o sócio ou para reinvestir no negócio.',
+  geracao_caixa: 'Lucro Líquido mais a depreciação (que é custo no papel, mas não sai do caixa). Representa o dinheiro que o negócio realmente gerou no período.',
+  ponto_equilibrio: 'Receita mínima necessária para cobrir todos os custos fixos. Abaixo disso o negócio opera no prejuízo.',
+}
+
+function Tip({ id: tipId }: { id: string }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onClickOut(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    if (open) document.addEventListener('mousedown', onClickOut)
+    return () => document.removeEventListener('mousedown', onClickOut)
+  }, [open])
+
+  return (
+    <div className="relative inline-block" ref={ref}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="text-gray-300 hover:text-gray-500 ml-1 align-middle"
+      >
+        <HelpCircle size={13} />
+      </button>
+      {open && (
+        <div className="absolute z-30 left-5 top-0 bg-gray-800 text-white text-xs rounded-xl p-3 w-56 shadow-xl leading-relaxed">
+          {TOOLTIPS[tipId]}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function DRE() {
   const [fixedCosts, setFixedCosts] = useState<FixedCost[]>([])
   const [editCost, setEditCost] = useState<FixedCost | null>(null)
@@ -32,14 +73,31 @@ export default function DRE() {
   const [sales, setSales] = useState(() => getSales())
   const [purchases, setPurchases] = useState(() => getPurchases())
 
+  // Configurações DRE
+  const [taxRate, setTaxRate] = useState(() => parseFloat(localStorage.getItem('ff_dre_tax') || '6'))
+  const [depreciation, setDepreciation] = useState(() => parseFloat(localStorage.getItem('ff_dre_dep') || '0'))
+  const [showConfig, setShowConfig] = useState(false)
+
+  // Simulação
+  const [simTarget, setSimTarget] = useState(25)
+  const [showSim, setShowSim] = useState(false)
+
   useEffect(() => {
     setFixedCosts(getFixedCosts())
     setSales(getSales())
     setPurchases(getPurchases())
   }, [tick, selectedMonth, selectedYear])
 
-  const monthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`
+  function saveTaxRate(v: number) {
+    setTaxRate(v)
+    localStorage.setItem('ff_dre_tax', String(v))
+  }
+  function saveDepreciation(v: number) {
+    setDepreciation(v)
+    localStorage.setItem('ff_dre_dep', String(v))
+  }
 
+  const monthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`
   const salesFiltered = sales.filter(s => s.date.startsWith(monthStr))
   const purchasesFiltered = purchases.filter(p => p.date.startsWith(monthStr))
 
@@ -51,12 +109,16 @@ export default function DRE() {
   const activeFixedCosts = fixedCosts.filter(c => c.active)
   const totalFixed = activeFixedCosts.reduce((s, c) => s + c.monthlyValue, 0)
   const ebitda = grossProfit - totalFixed
-  const netMargin = revenue > 0 ? (ebitda / revenue) * 100 : 0
+  const ebitdaMargin = revenue > 0 ? (ebitda / revenue) * 100 : 0
+
+  const taxes = ebitda > 0 ? ebitda * (taxRate / 100) : 0
+  const netProfit = ebitda - taxes
+  const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0
+  const cashGeneration = netProfit + depreciation
 
   const newCost = (): FixedCost => ({ id: id(), name: '', category: 'outro', monthlyValue: 0, active: true })
 
-  function simulateEbitda25() {
-    // Ensure fixed costs exist
+  function simulate() {
     let costs = getFixedCosts()
     if (costs.filter(c => c.active).length === 0) {
       const defaults: FixedCost[] = [
@@ -70,14 +132,12 @@ export default function DRE() {
       costs = getFixedCosts()
     }
 
-    const totalFixed = costs.filter(c => c.active).reduce((s, c) => s + c.monthlyValue, 0)
-
-    // Revenue = Fixed / (GrossMargin% - EBITDA%) = Fixed / (0.65 - 0.25)
+    const totalF = costs.filter(c => c.active).reduce((s, c) => s + c.monthlyValue, 0)
     const grossMarginPct = 0.65
-    const targetRevenue = totalFixed / (grossMarginPct - 0.25)
+    const targetPct = simTarget / 100
+    const targetRevenue = totalF / (grossMarginPct - targetPct)
     const targetCogs = targetRevenue * (1 - grossMarginPct)
 
-    // Deduct existing data for the selected month
     const existingRevenue = salesFiltered.reduce((s, x) => s + x.total, 0)
     const existingCogs = purchasesFiltered.reduce((s, p) => s + p.totalValue, 0)
     const neededRevenue = targetRevenue - existingRevenue
@@ -104,8 +164,7 @@ export default function DRE() {
           saveSale({
             id: id(),
             date: `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-            time: '12:00',
-            notes: '',
+            time: '12:00', notes: '',
             items: [{ productId: id(), productName: p.name, quantity: qty, unitPrice: p.price, total }],
             total,
             paymentMethod: payments[Math.floor(Math.random() * payments.length)],
@@ -128,15 +187,14 @@ export default function DRE() {
         savePurchase({
           id: id(),
           date: `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-02`,
-          supplierId: '',
-          supplierName: 'Fornecedor (simulação)',
-          notes: '',
+          supplierId: '', supplierName: 'Fornecedor (simulação)', notes: '',
           items: [{ ingredientId: id(), quantity: 10, unit: item.unit, unitPrice: perItem / 10, totalPrice: perItem }],
           totalValue: perItem,
         })
       })
     }
 
+    setShowSim(false)
     setTick(t => t + 1)
   }
 
@@ -160,35 +218,101 @@ export default function DRE() {
     dinheiro: 'Dinheiro', pix: 'PIX', cartao_debito: 'Débito', cartao_credito: 'Crédito'
   }
 
+  // Projected revenue for simulation preview
+  const projRevenue = totalFixed > 0 ? totalFixed / (0.65 - simTarget / 100) : 0
+
   return (
-    <div className="p-6">
-      <div className="mb-6 flex items-start justify-between gap-4">
+    <div className="p-4 md:p-6">
+      {/* Header */}
+      <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">DRE — Demonstração do Resultado</h1>
           <p className="text-gray-500 text-sm">Visão financeira completa do período</p>
         </div>
-        <button
-          onClick={simulateEbitda25}
-          className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl text-sm font-medium shrink-0"
-        >
-          <FlaskConical size={15} /> Simular EBITDA 25%
-        </button>
+        <div className="flex gap-2">
+          <button onClick={() => setShowConfig(s => !s)}
+            className="flex items-center gap-2 border border-gray-200 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-xl text-sm font-medium">
+            <Settings size={15} /> Configurar
+          </button>
+          <button onClick={() => setShowSim(s => !s)}
+            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-xl text-sm font-medium">
+            <FlaskConical size={15} /> Simular Cenário
+          </button>
+        </div>
       </div>
+
+      {/* Painel de configuração */}
+      {showConfig && (
+        <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1.5">
+              Taxa de impostos (%) <Tip id="impostos" />
+            </label>
+            <div className="flex items-center gap-2">
+              <input type="range" min={0} max={30} step={0.5} value={taxRate}
+                onChange={e => saveTaxRate(parseFloat(e.target.value))}
+                className="flex-1 accent-orange-500" />
+              <span className="text-sm font-bold text-gray-700 w-12 text-right">{taxRate.toFixed(1)}%</span>
+            </div>
+            <p className="text-xs text-gray-400 mt-1">Simples Nacional ≈ 6% · Lucro Presumido ≈ 11%</p>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1.5">
+              Depreciação mensal (R$) <Tip id="geracao_caixa" />
+            </label>
+            <input type="number" min={0} step={50} value={depreciation || ''}
+              onChange={e => saveDepreciation(parseFloat(e.target.value) || 0)}
+              placeholder="0"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+            <p className="text-xs text-gray-400 mt-1">Equipamentos, utensílios, reforma, etc.</p>
+          </div>
+        </div>
+      )}
+
+      {/* Painel de simulação */}
+      {showSim && (
+        <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-sm font-semibold text-purple-800">Simulador de Cenário — {months[selectedMonth]} {selectedYear}</p>
+            <button onClick={() => setShowSim(false)}><X size={16} className="text-purple-400" /></button>
+          </div>
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-xs text-purple-700 font-medium w-28">Meta EBITDA: <strong>{simTarget}%</strong></span>
+            <input type="range" min={5} max={45} step={1} value={simTarget}
+              onChange={e => setSimTarget(Number(e.target.value))}
+              className="flex-1 accent-purple-600" />
+          </div>
+          {totalFixed > 0 && (
+            <div className="grid grid-cols-3 gap-2 text-center mb-3">
+              <div className="bg-white rounded-lg p-2">
+                <p className="text-xs text-gray-500">Receita necessária</p>
+                <p className="text-sm font-bold text-gray-800">{fmt(projRevenue)}</p>
+              </div>
+              <div className="bg-white rounded-lg p-2">
+                <p className="text-xs text-gray-500">CMV (35%)</p>
+                <p className="text-sm font-bold text-gray-800">{fmt(projRevenue * 0.35)}</p>
+              </div>
+              <div className="bg-white rounded-lg p-2">
+                <p className="text-xs text-gray-500">EBITDA</p>
+                <p className="text-sm font-bold text-purple-700">{fmt(projRevenue * (simTarget / 100))}</p>
+              </div>
+            </div>
+          )}
+          <button onClick={simulate}
+            className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-xl text-sm font-bold">
+            🎯 Gerar simulação com EBITDA de {simTarget}%
+          </button>
+        </div>
+      )}
 
       {/* Seletor de período */}
       <div className="flex items-center gap-3 mb-6">
-        <select
-          value={selectedMonth}
-          onChange={e => setSelectedMonth(Number(e.target.value))}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
-        >
+        <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400">
           {months.map((m, i) => <option key={i} value={i}>{m}</option>)}
         </select>
-        <select
-          value={selectedYear}
-          onChange={e => setSelectedYear(Number(e.target.value))}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
-        >
+        <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))}
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400">
           {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map(y => (
             <option key={y} value={y}>{y}</option>
           ))}
@@ -205,23 +329,23 @@ export default function DRE() {
             </h2>
 
             {/* Receita Bruta */}
-            <DRERow label="(+) Receita Bruta" value={revenue} total={revenue} highlight="green" bold />
+            <DRERow label="(+) Receita Bruta" value={revenue} total={revenue} highlight="green" bold tip={<Tip id="receita" />} />
             <div className="pl-4 space-y-1 mb-3">
               {Object.entries(paymentCount).map(([method, val]) => (
-                <DRERow key={method} label={`  · ${paymentLabel[method] || method}`} value={val} total={revenue} small />
+                <DRERow key={method} label={`· ${paymentLabel[method] || method}`} value={val} total={revenue} small />
               ))}
             </div>
 
             <div className="border-t border-gray-100 my-3" />
 
             {/* CMV */}
-            <DRERow label="(−) Custo das Mercadorias Vendidas (CMV)" value={-cogs} total={revenue} highlight="red" bold />
+            <DRERow label="(−) Custo das Mercadorias (CMV)" value={-cogs} total={revenue} highlight="red" bold tip={<Tip id="cmv" />} />
             <div className="pl-4 mb-3">
-              <DRERow label="  · Compras do período" value={-cogs} total={revenue} small />
+              <DRERow label="· Compras do período" value={-cogs} total={revenue} small />
             </div>
 
             <DRERow label="(=) Lucro Bruto" value={grossProfit} total={revenue}
-              bold highlight={grossProfit >= 0 ? 'green' : 'red'} border />
+              bold highlight={grossProfit >= 0 ? 'green' : 'red'} border tip={<Tip id="lucro_bruto" />} />
             <div className="pl-4 mb-3">
               <span className="text-xs text-gray-400">Margem bruta: {grossMargin.toFixed(1)}%</span>
             </div>
@@ -229,10 +353,10 @@ export default function DRE() {
             <div className="border-t border-gray-100 my-3" />
 
             {/* Despesas fixas */}
-            <DRERow label="(−) Despesas Operacionais Fixas" value={-totalFixed} total={revenue} highlight="red" bold />
+            <DRERow label="(−) Despesas Operacionais Fixas" value={-totalFixed} total={revenue} highlight="red" bold tip={<Tip id="fixos" />} />
             <div className="pl-4 space-y-1 mb-3">
               {activeFixedCosts.map(c => (
-                <DRERow key={c.id} label={`  · ${c.name}`} value={-c.monthlyValue} total={revenue} small />
+                <DRERow key={c.id} label={`· ${c.name}`} value={-c.monthlyValue} total={revenue} small />
               ))}
               {activeFixedCosts.length === 0 && (
                 <p className="text-xs text-gray-400">Nenhum custo fixo cadastrado</p>
@@ -240,32 +364,62 @@ export default function DRE() {
             </div>
 
             <div className="border-t border-gray-200 my-3" />
-            <DRERow label="(=) Resultado Operacional (EBITDA)" value={ebitda} total={revenue}
-              bold highlight={ebitda >= 0 ? 'green' : 'red'} border big />
-            <div className="pl-4">
+            <DRERow label="(=) EBITDA — Resultado Operacional" value={ebitda} total={revenue}
+              bold highlight={ebitda >= 0 ? 'green' : 'red'} border big tip={<Tip id="ebitda" />} />
+            <div className="pl-4 mb-4">
+              <span className="text-xs text-gray-400">Margem EBITDA: {ebitdaMargin.toFixed(1)}%</span>
+            </div>
+
+            <div className="border-t border-gray-100 my-3" />
+
+            {/* Impostos */}
+            <DRERow label={`(−) Provisão de Impostos (${taxRate}%)`} value={-taxes} total={revenue} highlight="red" bold tip={<Tip id="impostos" />} />
+            <div className="pl-4 mb-3">
+              <span className="text-xs text-gray-400">Regime tributário configurável em "Configurar"</span>
+            </div>
+
+            <DRERow label="(=) Lucro Líquido" value={netProfit} total={revenue}
+              bold highlight={netProfit >= 0 ? 'green' : 'red'} border big tip={<Tip id="lucro_liquido" />} />
+            <div className="pl-4 mb-4">
               <span className="text-xs text-gray-400">Margem líquida: {netMargin.toFixed(1)}%</span>
             </div>
+
+            {depreciation > 0 && (
+              <>
+                <div className="border-t border-gray-100 my-3" />
+                <DRERow label="(+) Depreciação (não-caixa)" value={depreciation} total={revenue} bold />
+                <div className="border-t border-gray-200 my-3" />
+                <DRERow label="(=) Geração de Caixa Operacional" value={cashGeneration} total={revenue}
+                  bold highlight={cashGeneration >= 0 ? 'green' : 'red'} border big tip={<Tip id="geracao_caixa" />} />
+              </>
+            )}
           </div>
 
           {/* Cards resumo */}
-          <div className="grid grid-cols-2 gap-3">
-            <div className={`rounded-xl p-4 ${ebitda >= 0 ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
-              <div className="flex items-center gap-2 mb-1">
-                {ebitda >= 0 ? <TrendingUp size={18} className="text-green-500" /> : <TrendingDown size={18} className="text-red-500" />}
-                <span className="text-xs font-medium text-gray-500 uppercase">Resultado</span>
-              </div>
-              <p className={`text-2xl font-bold ${ebitda >= 0 ? 'text-green-600' : 'text-red-600'}`}>{fmt(ebitda)}</p>
-              <p className="text-xs text-gray-400 mt-1">{netMargin.toFixed(1)}% de margem</p>
-            </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <SummaryCard
+              label="EBITDA" value={ebitda} margin={ebitdaMargin}
+              icon={<TrendingUp size={16} />} positive={ebitda >= 0}
+            />
+            <SummaryCard
+              label="Lucro Líquido" value={netProfit} margin={netMargin}
+              icon={<Wallet size={16} />} positive={netProfit >= 0}
+            />
+            {depreciation > 0 && (
+              <SummaryCard
+                label="Geração de Caixa" value={cashGeneration} margin={revenue > 0 ? cashGeneration / revenue * 100 : 0}
+                icon={<Banknote size={16} />} positive={cashGeneration >= 0}
+              />
+            )}
             <div className="rounded-xl p-4 bg-blue-50 border border-blue-100">
-              <div className="flex items-center gap-2 mb-1">
-                <FileText size={18} className="text-blue-500" />
-                <span className="text-xs font-medium text-gray-500 uppercase">Ponto de Equilíbrio</span>
+              <div className="flex items-center gap-1.5 mb-1">
+                <FileText size={16} className="text-blue-500" />
+                <span className="text-xs font-medium text-gray-500 uppercase">Ponto Equilíbrio <Tip id="ponto_equilibrio" /></span>
               </div>
-              <p className="text-2xl font-bold text-blue-600">
+              <p className="text-lg font-bold text-blue-600">
                 {grossMargin > 0 ? fmt(totalFixed / (grossMargin / 100)) : '—'}
               </p>
-              <p className="text-xs text-gray-400 mt-1">receita necessária para cobrir fixos</p>
+              <p className="text-xs text-gray-400 mt-0.5">receita mínima</p>
             </div>
           </div>
         </div>
@@ -274,10 +428,8 @@ export default function DRE() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 h-fit">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-gray-700">Custos Fixos Mensais</h2>
-            <button
-              onClick={() => setEditCost(newCost())}
-              className="flex items-center gap-1 text-orange-500 hover:text-orange-700 text-sm font-medium"
-            >
+            <button onClick={() => setEditCost(newCost())}
+              className="flex items-center gap-1 text-orange-500 hover:text-orange-700 text-sm font-medium">
               <Plus size={16} /> Adicionar
             </button>
           </div>
@@ -288,29 +440,20 @@ export default function DRE() {
                 <span className="text-xs font-medium text-orange-700">Novo Custo</span>
                 <button onClick={() => setEditCost(null)}><X size={14} className="text-gray-400" /></button>
               </div>
-              <input
-                placeholder="Nome (ex: Aluguel)"
-                value={editCost.name}
+              <input placeholder="Nome (ex: Aluguel)" value={editCost.name}
                 onChange={e => setEditCost({ ...editCost, name: e.target.value })}
-                className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm mb-2 focus:outline-none"
-              />
-              <select
-                value={editCost.category}
+                className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm mb-2 focus:outline-none" />
+              <select value={editCost.category}
                 onChange={e => setEditCost({ ...editCost, category: e.target.value as FixedCost['category'] })}
-                className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm mb-2 focus:outline-none"
-              >
+                className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm mb-2 focus:outline-none">
                 {categoryOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
-              <input
-                type="number" placeholder="Valor mensal (R$)" min={0} step="0.01"
+              <input type="number" placeholder="Valor mensal (R$)" min={0} step="0.01"
                 value={editCost.monthlyValue || ''}
                 onChange={e => setEditCost({ ...editCost, monthlyValue: parseFloat(e.target.value) || 0 })}
-                className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm mb-2 focus:outline-none"
-              />
-              <button
-                onClick={() => saveCost(editCost)}
-                className="w-full bg-orange-500 text-white rounded py-1.5 text-sm font-medium hover:bg-orange-600"
-              >
+                className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm mb-2 focus:outline-none" />
+              <button onClick={() => saveCost(editCost)}
+                className="w-full bg-orange-500 text-white rounded py-1.5 text-sm font-medium hover:bg-orange-600">
                 Salvar
               </button>
             </div>
@@ -320,12 +463,9 @@ export default function DRE() {
             {fixedCosts.map(c => (
               <div key={c.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                 <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={c.active}
+                  <input type="checkbox" checked={c.active}
                     onChange={() => { saveFixedCost({ ...c, active: !c.active }); setFixedCosts(getFixedCosts()) }}
-                    className="accent-orange-500"
-                  />
+                    className="accent-orange-500" />
                   <div>
                     <p className="text-sm font-medium text-gray-700">{c.name}</p>
                     <p className="text-xs text-gray-400">{categoryOptions.find(o => o.value === c.category)?.label}</p>
@@ -356,32 +496,40 @@ export default function DRE() {
   )
 }
 
+function SummaryCard({ label, value, margin, icon, positive }: {
+  label: string; value: number; margin: number; icon: React.ReactNode; positive: boolean
+}) {
+  return (
+    <div className={`rounded-xl p-4 ${positive ? 'bg-green-50 border border-green-100' : 'bg-red-50 border border-red-100'}`}>
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className={positive ? 'text-green-500' : 'text-red-500'}>{icon}</span>
+        <span className="text-xs font-medium text-gray-500 uppercase">{label}</span>
+      </div>
+      <p className={`text-lg font-bold ${positive ? 'text-green-600' : 'text-red-600'}`}>{fmt(value)}</p>
+      <p className="text-xs text-gray-400 mt-0.5">{margin.toFixed(1)}% margem</p>
+    </div>
+  )
+}
+
 function DRERow({
-  label, value, total, highlight, bold, border, small, big
+  label, value, total, highlight, bold, border, small, big, tip
 }: {
-  label: string
-  value: number
-  total: number
-  highlight?: 'green' | 'red'
-  bold?: boolean
-  border?: boolean
-  small?: boolean
-  big?: boolean
+  label: string; value: number; total: number
+  highlight?: 'green' | 'red'; bold?: boolean; border?: boolean
+  small?: boolean; big?: boolean; tip?: React.ReactNode
 }) {
   const colorClass = highlight === 'green'
     ? value >= 0 ? 'text-green-600' : 'text-red-600'
-    : highlight === 'red'
-    ? 'text-red-500'
-    : 'text-gray-700'
+    : highlight === 'red' ? 'text-red-500' : 'text-gray-700'
 
   return (
     <div className={`flex items-center justify-between py-1 ${border ? 'border-t border-gray-200 pt-2 mt-1' : ''}`}>
-      <span className={`${small ? 'text-xs text-gray-400' : 'text-sm text-gray-600'} ${bold ? 'font-semibold' : ''} ${big ? '!text-base !text-gray-800' : ''}`}>
-        {label}
+      <span className={`${small ? 'text-xs text-gray-400' : 'text-sm text-gray-600'} ${bold ? 'font-semibold' : ''} ${big ? '!text-base !text-gray-800' : ''} flex items-center`}>
+        {label}{tip}
       </span>
       <div className="text-right">
         <span className={`${small ? 'text-xs' : 'text-sm'} font-${bold ? 'bold' : 'medium'} ${colorClass} ${big ? '!text-lg' : ''}`}>
-          {value >= 0 ? '' : ''}{Math.abs(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+          {Math.abs(value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
         </span>
         {!small && total > 0 && (
           <span className="text-xs text-gray-300 ml-2">
