@@ -64,6 +64,10 @@ export interface Sale {
   total: number
   paymentMethod: 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'pix'
   notes: string
+  customerId?: string
+  customerName?: string
+  cashbackUsed?: number
+  cashbackEarned?: number
 }
 
 export interface FixedCost {

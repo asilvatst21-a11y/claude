@@ -1,7 +1,7 @@
 import { useState } from 'react'
-import { getCustomers, saveCustomer, deleteCustomer, getCashbackConfig, saveCashbackConfig, id } from '../store/storage'
+import { getCustomers, saveCustomer, deleteCustomer, getCashbackConfig, saveCashbackConfig, getSales, id } from '../store/storage'
 import type { Customer, CashbackConfig } from '../types'
-import { Plus, Trash2, X, Check, Users, Gift, Phone, Cake, Search, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Trash2, X, Check, Users, Gift, Phone, Cake, Search, ChevronDown, ChevronUp, ShoppingBag, ArrowLeft } from 'lucide-react'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -52,6 +52,7 @@ export default function Clientes() {
   const [phoneInput, setPhoneInput] = useState('')
   const [showCashbackSettings, setShowCashbackSettings] = useState(false)
   const [saved, setSaved] = useState(false)
+  const [detailCustomer, setDetailCustomer] = useState<Customer | null>(null)
 
   const reload = () => setCustomers(getCustomers())
 
@@ -59,6 +60,13 @@ export default function Clientes() {
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.phone.includes(search.replace(/\D/g, ''))
   )
+
+  const allSales = getSales()
+  const customerSales = detailCustomer
+    ? [...allSales.filter(s => s.customerId === detailCustomer.id)].sort((a, b) =>
+        `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`)
+      )
+    : []
 
   const birthdays = customers.filter(c => isToday(c.birthday))
 
@@ -121,6 +129,72 @@ export default function Clientes() {
     const updated = { ...cashback, percentage: v }
     setCashback(updated)
     saveCashbackConfig(updated)
+  }
+
+  // Tela de detalhe do cliente
+  if (detailCustomer) {
+    const c = customers.find(x => x.id === detailCustomer.id) ?? detailCustomer
+    return (
+      <div className="p-4 md:p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setDetailCustomer(null)} className="text-gray-400 hover:text-gray-700">
+            <ArrowLeft size={20} />
+          </button>
+          <div className="flex-1">
+            <h1 className="text-xl font-bold text-gray-800">{c.name}</h1>
+            <p className="text-gray-500 text-xs">{c.phone && formatPhone(c.phone)}{c.birthday && ` · ${birthdayFromISO(c.birthday)}`}</p>
+          </div>
+          <button onClick={() => { openEdit(c); setDetailCustomer(null) }}
+            className="text-xs text-orange-500 border border-orange-300 px-3 py-1.5 rounded-lg hover:bg-orange-50">
+            Editar
+          </button>
+        </div>
+
+        {/* KPIs */}
+        <div className="grid grid-cols-3 gap-3">
+          <div className="bg-orange-50 rounded-xl p-3 text-center">
+            <p className="text-xs text-gray-500 mb-1">Compras</p>
+            <p className="text-lg font-bold text-orange-600">{customerSales.length}</p>
+          </div>
+          <div className="bg-green-50 rounded-xl p-3 text-center">
+            <p className="text-xs text-gray-500 mb-1">Total gasto</p>
+            <p className="text-lg font-bold text-green-600">{fmt(c.totalSpent)}</p>
+          </div>
+          <div className="bg-blue-50 rounded-xl p-3 text-center">
+            <p className="text-xs text-gray-500 mb-1">Cashback</p>
+            <p className="text-lg font-bold text-blue-600">{fmt(c.cashbackBalance)}</p>
+          </div>
+        </div>
+
+        {/* Histórico de compras */}
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <h2 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            <ShoppingBag size={15} className="text-orange-500" /> Histórico de Compras
+          </h2>
+          {customerSales.length === 0 ? (
+            <p className="text-gray-400 text-sm text-center py-6">Nenhuma compra registrada ainda.</p>
+          ) : (
+            <div className="space-y-2">
+              {customerSales.map(sale => (
+                <div key={sale.id} className="flex items-start justify-between py-2.5 border-b border-gray-50 last:border-0">
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-700">
+                      {sale.items.map(i => `${i.quantity}x ${i.productName}`).join(' · ')}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {sale.date} {sale.time} · {sale.paymentMethod === 'pix' ? 'PIX' : sale.paymentMethod === 'dinheiro' ? 'Dinheiro' : sale.paymentMethod === 'cartao_debito' ? 'Débito' : 'Crédito'}
+                      {sale.cashbackUsed ? <span className="text-green-600"> · cashback −{fmt(sale.cashbackUsed)}</span> : null}
+                      {sale.cashbackEarned ? <span className="text-blue-500"> · +{fmt(sale.cashbackEarned)} cashback</span> : null}
+                    </p>
+                  </div>
+                  <span className="font-semibold text-green-600 ml-3">{fmt(sale.total)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -221,7 +295,7 @@ export default function Clientes() {
           {filtered.map(c => (
             <div
               key={c.id}
-              onClick={() => openEdit(c)}
+              onClick={() => setDetailCustomer(c)}
               className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-4 cursor-pointer hover:border-orange-200 transition-colors"
             >
               <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
