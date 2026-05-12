@@ -42,6 +42,14 @@ async function readQRCode(file: File): Promise<string | null> {
   }
 }
 
+class SefazError extends Error {
+  tipo: string
+  constructor(message: string, tipo = '') {
+    super(message)
+    this.tipo = tipo
+  }
+}
+
 async function fetchSefaz(url?: string, chave?: string): Promise<ExtractedReceipt> {
   const response = await fetch('/api/sefaz', {
     method: 'POST',
@@ -50,7 +58,7 @@ async function fetchSefaz(url?: string, chave?: string): Promise<ExtractedReceip
   })
   if (!response.ok) {
     const err = await response.json()
-    throw new Error(err.error || 'Erro ao consultar a Sefaz.')
+    throw new SefazError(err.error || 'Erro ao consultar a Sefaz.', err.tipo || '')
   }
   return response.json()
 }
@@ -90,6 +98,7 @@ interface Props {
 export default function NotaFiscalImport({ onClose, onImported }: Props) {
   const [step, setStep] = useState<'capture' | 'processing' | 'review'>('capture')
   const [error, setError] = useState('')
+  const [errorTipo, setErrorTipo] = useState<'portal_indisponivel' | 'nfe' | ''>('')
   const [processingMsg, setProcessingMsg] = useState('')
   const [extracted, setExtracted] = useState<ExtractedReceipt | null>(null)
   const [editItems, setEditItems] = useState<ExtractedItem[]>([])
@@ -155,12 +164,15 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
     setStep('processing')
     setProcessingMsg('Consultando a Sefaz pela chave de acesso...')
     setError('')
+    setErrorTipo('')
     try {
       const receipt = await fetchSefaz(undefined, limpa)
       if (!receipt.items || receipt.items.length === 0) throw new Error('Não foi possível extrair os produtos.')
       applyReceipt(receipt)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro desconhecido')
+      const tipo = e instanceof SefazError ? e.tipo : ''
+      setErrorTipo(tipo === 'nfe' || tipo === 'portal_indisponivel' ? tipo : '')
       setStep('capture')
     }
   }
@@ -249,9 +261,19 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
           {step === 'capture' && (
             <div className="space-y-4">
               {error && (
-                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex gap-2 items-start">
-                  <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
-                  <p className="text-sm text-red-600">{error}</p>
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 space-y-2">
+                  <div className="flex gap-2 items-start">
+                    <AlertCircle size={16} className="text-red-500 shrink-0 mt-0.5" />
+                    <p className="text-sm text-red-600">{error}</p>
+                  </div>
+                  {(errorTipo === 'portal_indisponivel' || errorTipo === 'nfe') && (
+                    <button
+                      onClick={() => { setError(''); setErrorTipo(''); fileRef.current?.click() }}
+                      className="w-full bg-red-100 hover:bg-red-200 text-red-700 text-sm font-medium py-2 rounded-lg flex items-center justify-center gap-2 transition-colors"
+                    >
+                      <Camera size={15} /> Tentar pela Foto da Nota
+                    </button>
+                  )}
                 </div>
               )}
 

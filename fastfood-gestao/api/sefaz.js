@@ -107,14 +107,24 @@ export default async function handler(req, res) {
       }
 
       const stateCode = chaveLimpa.slice(0, 2)
+      const modelCode = chaveLimpa.slice(20, 22)
+
+      // NF-e (modelo 55) é nota B2B — portal nacional exige reCAPTCHA, não consultável automaticamente
+      if (modelCode === '55') {
+        return res.status(422).json({
+          error: 'Esta é uma NF-e (nota fiscal B2B, modelo 55). A consulta automática não é possível — use a opção "Foto da Nota" para extrair os produtos.',
+          tipo: 'nfe'
+        })
+      }
+
       const data = await consultarPorChave(chaveLimpa)
 
       if (!data || !data.items || data.items.length === 0) {
         const stateSupported = !!STATE_GET_URLS[stateCode]
         const msg = stateSupported
-          ? `Não foi possível extrair os produtos (estado ${stateCode}). O portal da SEFAZ pode estar indisponível ou a chave pode ser de NF-e (não NFC-e).`
-          : `Estado ${stateCode} não suportado na consulta por chave. Use a foto da nota ou o QR Code.`
-        return res.status(500).json({ error: msg })
+          ? 'O portal da SEFAZ não retornou os produtos. Isso pode ocorrer quando o servidor está fora do Brasil. Use a opção "Foto da Nota" como alternativa.'
+          : `Estado ${stateCode} não suportado na consulta por chave. Use a opção "Foto da Nota" ou o QR Code.`
+        return res.status(500).json({ error: msg, tipo: 'portal_indisponivel' })
       }
 
       return res.json(data)
