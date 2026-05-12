@@ -6,6 +6,7 @@ const key = import.meta.env.VITE_SUPABASE_ANON_KEY || ''
 export const supabase = url && key ? createClient(url, key) : null
 
 export function getBusinessId(): string {
+  // Prefer auth user ID (set on login), fall back to legacy random ID
   let bid = localStorage.getItem('ff_business_id')
   if (!bid) {
     bid = crypto.randomUUID()
@@ -16,6 +17,27 @@ export function getBusinessId(): string {
 
 export function setBusinessId(bid: string) {
   localStorage.setItem('ff_business_id', bid)
+}
+
+export async function signInWithGoogle() {
+  if (!supabase) return
+  await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: { redirectTo: window.location.origin },
+  })
+}
+
+export async function signOut() {
+  if (!supabase) return
+  await supabase.auth.signOut()
+  // Clear auth-derived business_id so next session starts fresh
+  localStorage.removeItem('ff_auth_uid')
+}
+
+export async function getSession() {
+  if (!supabase) return null
+  const { data } = await supabase.auth.getSession()
+  return data.session
 }
 
 export const ENTITY_KEYS: Record<string, string> = {

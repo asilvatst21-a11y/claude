@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { useEffect, useState } from 'react'
+import type { Session } from '@supabase/supabase-js'
 import Layout from './components/Layout'
 import Dashboard from './pages/Dashboard'
 import Vendas from './pages/Vendas'
@@ -10,34 +11,93 @@ import Relatorios from './pages/Relatorios'
 import Cadastros from './pages/Cadastros'
 import Clientes from './pages/Clientes'
 import CadastroPublico from './pages/CadastroPublico'
+import Login from './pages/Login'
 import SyncSetup from './components/SyncSetup'
 import { pullFromCloud, hasNewData } from './store/sync'
-import { supabase } from './store/supabase'
+import { supabase, setBusinessId } from './store/supabase'
+
+type AppState = 'loading' | 'ready'
 
 export default function App() {
-  const [synced, setSynced] = useState(false)
+  const [appState, setAppState] = useState<AppState>('loading')
+  const [session, setSession] = useState<Session | null>(null)
+
+  // Public registration page never needs auth
+  const isPublicRoute = window.location.pathname === '/cadastro'
 
   useEffect(() => {
-    if (!supabase) { setSynced(true); return }
-    pullFromCloud().finally(() => setSynced(true))
+    if (isPublicRoute) { setAppState('ready'); return }
 
-    // Quando volta para a aba, verifica se há dados novos e recarrega só se necessário
+    if (!supabase) {
+      // No Supabase configured: run fully offline
+      setAppState('ready')
+      return
+    }
+
+    // Get initial session
+    supabase.auth.getSession().then(({ data }) => {
+      const s = data.session
+      setSession(s)
+
+      if (s) {
+        // Use the auth user's ID as the business_id for consistent cross-device data
+        setBusinessId(s.user.id)
+        pullFromCloud().finally(() => setAppState('ready'))
+      } else {
+        setAppState('ready')
+      }
+    })
+
+    // Listen for auth state changes (login / logout / token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      setSession(s)
+      if (s) {
+        setBusinessId(s.user.id)
+        pullFromCloud()
+      }
+    })
+
+    return () => subscription.unsubscribe()
+  }, [isPublicRoute])
+
+  // Realtime subscription — only when logged in
+  useEffect(() => {
+    if (!supabase || !session) return
+
+    const businessId = session.user.id
+    const channel = supabase
+      .channel('ff_sync_changes')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'ff_sync', filter: `business_id=eq.${businessId}` },
+        () => {
+          pullFromCloud().then(ok => { if (ok) window.location.reload() })
+        }
+      )
+      .subscribe()
+
+    return () => { supabase!.removeChannel(channel) }
+  }, [session])
+
+  // Fallback: sync when tab becomes visible (covers non-realtime cases)
+  useEffect(() => {
+    if (!supabase || !session) return
     function onVisible() {
-      if (!supabase || document.visibilityState !== 'visible') return
+      if (document.visibilityState !== 'visible') return
       hasNewData().then(hasNew => {
         if (hasNew) pullFromCloud().then(() => window.location.reload())
       })
     }
     document.addEventListener('visibilitychange', onVisible)
     return () => document.removeEventListener('visibilitychange', onVisible)
-  }, [])
+  }, [session])
 
-  if (!synced) {
+  if (appState === 'loading') {
     return (
       <div className="h-screen flex items-center justify-center bg-orange-50">
         <div className="text-center">
           <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-          <p className="text-gray-600 text-sm">Sincronizando dados...</p>
+          <p className="text-gray-600 text-sm">Carregando...</p>
         </div>
       </div>
     )
@@ -45,19 +105,32 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <SyncSetup />
       <Routes>
         <Route path="/cadastro" element={<CadastroPublico />} />
-        <Route path="/" element={<Layout />}>
-          <Route index element={<Dashboard />} />
-          <Route path="vendas" element={<Vendas />} />
-          <Route path="estoque" element={<Estoque />} />
-          <Route path="precificacao" element={<Precificacao />} />
-          <Route path="dre" element={<DRE />} />
-          <Route path="relatorios" element={<Relatorios />} />
-          <Route path="cadastros" element={<Cadastros />} />
-          <Route path="clientes" element={<Clientes />} />
-        </Route>
+        <Route
+          path="/*"
+          element={
+            supabase && !session ? (
+              <Login />
+            ) : (
+              <>
+                <SyncSetup session={session} />
+                <Routes>
+                  <Route path="/" element={<Layout />}>
+                    <Route index element={<Dashboard />} />
+                    <Route path="vendas" element={<Vendas />} />
+                    <Route path="estoque" element={<Estoque />} />
+                    <Route path="precificacao" element={<Precificacao />} />
+                    <Route path="dre" element={<DRE />} />
+                    <Route path="relatorios" element={<Relatorios />} />
+                    <Route path="cadastros" element={<Cadastros />} />
+                    <Route path="clientes" element={<Clientes />} />
+                  </Route>
+                </Routes>
+              </>
+            )
+          }
+        />
       </Routes>
     </BrowserRouter>
   )
