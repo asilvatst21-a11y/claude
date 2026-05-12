@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Camera, Upload, X, Check, AlertCircle, Loader, QrCode, Hash } from 'lucide-react'
+import { Camera, Upload, X, Check, AlertCircle, Loader, QrCode } from 'lucide-react'
 import { Html5Qrcode } from 'html5-qrcode'
 import { getIngredients, getSuppliers, saveIngredient, saveSupplier, savePurchase, id } from '../store/storage'
 import type { Purchase, PurchaseItem, Ingredient, Supplier } from '../types'
@@ -24,7 +24,6 @@ function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
-// Lê QR Code de uma imagem usando html5-qrcode
 async function readQRCode(file: File): Promise<string | null> {
   const tmpId = 'qr-reader-tmp-' + Date.now()
   const div = document.createElement('div')
@@ -42,11 +41,11 @@ async function readQRCode(file: File): Promise<string | null> {
   }
 }
 
-async function fetchSefaz(url?: string, chave?: string): Promise<ExtractedReceipt> {
+async function fetchSefaz(url: string): Promise<ExtractedReceipt> {
   const response = await fetch('/api/sefaz', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, chave })
+    body: JSON.stringify({ url })
   })
   if (!response.ok) {
     const err = await response.json()
@@ -96,7 +95,6 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
   const [editStoreName, setEditStoreName] = useState('')
   const [editDate, setEditDate] = useState('')
   const [qrUrl, setQrUrl] = useState('')
-  const [chaveAcesso, setChaveAcesso] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
   const qrFileRef = useRef<HTMLInputElement>(null)
 
@@ -126,7 +124,7 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
       if (!url.startsWith('http')) throw new Error('QR Code não contém uma URL válida da nota fiscal.')
       setProcessingMsg('Consultando a Sefaz...')
       const receipt = await fetchSefaz(url)
-      if (!receipt.items || receipt.items.length === 0) throw new Error('Não foi possível extrair os produtos da nota. Tente pela foto da nota.')
+      if (!receipt.items || receipt.items.length === 0) throw new Error('Não foi possível extrair os produtos da nota.')
       applyReceipt(receipt)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Erro desconhecido')
@@ -141,22 +139,6 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
     setError('')
     try {
       const receipt = await fetchSefaz(qrUrl)
-      if (!receipt.items || receipt.items.length === 0) throw new Error('Não foi possível extrair os produtos.')
-      applyReceipt(receipt)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Erro desconhecido')
-      setStep('capture')
-    }
-  }
-
-  async function handleChaveAcesso() {
-    const limpa = chaveAcesso.replace(/\D/g, '')
-    if (limpa.length !== 44) { setError('A chave deve ter 44 dígitos.'); return }
-    setStep('processing')
-    setProcessingMsg('Consultando a Sefaz pela chave de acesso...')
-    setError('')
-    try {
-      const receipt = await fetchSefaz(undefined, limpa)
       if (!receipt.items || receipt.items.length === 0) throw new Error('Não foi possível extrair os produtos.')
       applyReceipt(receipt)
     } catch (e: unknown) {
@@ -239,13 +221,12 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
           <div>
             <h2 className="font-bold text-gray-800">Importar Nota Fiscal</h2>
-            <p className="text-xs text-gray-400">Leia o QR Code, informe a chave ou tire foto da nota</p>
+            <p className="text-xs text-gray-400">Leia o QR Code ou tire foto da nota</p>
           </div>
           <button onClick={onClose}><X size={20} className="text-gray-400" /></button>
         </div>
 
         <div className="p-5">
-          {/* Captura */}
           {step === 'capture' && (
             <div className="space-y-4">
               {error && (
@@ -255,10 +236,10 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                 </div>
               )}
 
-              {/* Opção 1 — QR Code */}
+              {/* QR Code */}
               <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                 <p className="text-sm font-semibold text-green-800 mb-3 flex items-center gap-2">
-                  <QrCode size={16} /> Opção 1 — QR Code da Nota (Recomendado)
+                  <QrCode size={16} /> QR Code da Nota (Recomendado)
                 </p>
 
                 <input ref={qrFileRef} type="file" accept="image/*" capture="environment" className="hidden"
@@ -282,40 +263,12 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                 </div>
               </div>
 
-              {/* Opção 2 — Chave de acesso */}
-              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                <p className="text-sm font-semibold text-blue-800 mb-1 flex items-center gap-2">
-                  <Hash size={16} /> Opção 2 — Chave de Acesso (44 dígitos)
-                </p>
-                <p className="text-xs text-blue-600 mb-3">Números impressos no rodapé ou verso da nota fiscal</p>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={chaveAcesso}
-                    onChange={e => setChaveAcesso(e.target.value.replace(/\D/g, '').slice(0, 44))}
-                    placeholder="Digite ou cole os 44 números aqui"
-                    className="flex-1 border border-blue-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400 font-mono bg-white"
-                  />
-                  <button
-                    onClick={handleChaveAcesso}
-                    disabled={chaveAcesso.replace(/\D/g, '').length !== 44}
-                    className="bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-blue-700 whitespace-nowrap"
-                  >
-                    Buscar
-                  </button>
-                </div>
-                <p className="text-xs text-blue-500 mt-2">
-                  {chaveAcesso.replace(/\D/g, '').length}/44 dígitos
-                </p>
-              </div>
-
-              {/* Opção 3 — Foto da nota */}
+              {/* Foto da nota */}
               <div className="border border-gray-200 rounded-xl p-4">
                 <p className="text-sm font-semibold text-gray-600 mb-1 flex items-center gap-2">
-                  <Camera size={16} /> Opção 3 — Foto da Nota (IA)
+                  <Camera size={16} /> Foto da Nota (IA)
                 </p>
-                <p className="text-xs text-gray-400 mb-3">Use quando não há QR Code e não tem a chave de acesso</p>
+                <p className="text-xs text-gray-400 mb-3">Use quando não há QR Code ou a leitura falhar</p>
                 <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
                   onChange={e => e.target.files?.[0] && handleOCRFile(e.target.files[0])} />
                 <div className="flex gap-2">
@@ -333,7 +286,6 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
             </div>
           )}
 
-          {/* Processando */}
           {step === 'processing' && (
             <div className="text-center py-16">
               <Loader size={40} className="text-green-500 mx-auto mb-4 animate-spin" />
@@ -341,7 +293,6 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
             </div>
           )}
 
-          {/* Revisão */}
           {step === 'review' && extracted && (
             <div className="space-y-4">
               <div className="grid grid-cols-2 gap-3">
