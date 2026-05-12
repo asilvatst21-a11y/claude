@@ -26,6 +26,7 @@ export default function Vendas() {
   const [sales, setSales] = useState<Sale[]>([])
   const [products] = useState(getProducts)
   const [filterDate, setFilterDate] = useState(today())
+  const [filterProduct, setFilterProduct] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [cart, setCart] = useState<SaleItem[]>([])
   const [payment, setPayment] = useState<Sale['paymentMethod']>('dinheiro')
@@ -34,7 +35,14 @@ export default function Vendas() {
 
   useEffect(() => { setSales(getSales()) }, [showForm])
 
-  const filtered = sales.filter(s => s.date === filterDate)
+  const byDate = filterDate ? sales.filter(s => s.date === filterDate) : sales
+  const filtered = filterProduct
+    ? byDate.filter(s => s.items.some(i => i.productId === filterProduct))
+    : byDate
+
+  const productQtySold = filterProduct
+    ? filtered.reduce((sum, s) => sum + s.items.filter(i => i.productId === filterProduct).reduce((q, i) => q + i.quantity, 0), 0)
+    : 0
   const totalDay = filtered.reduce((s, x) => s + x.total, 0)
 
   function addToCart(productId: string) {
@@ -230,16 +238,34 @@ export default function Vendas() {
 
       {/* Filtro e lista */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <input
-              type="date"
-              value={filterDate}
-              onChange={e => setFilterDate(e.target.value)}
-              className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400"
-            />
-            <span className="text-sm text-gray-500">{filtered.length} pedidos</span>
-          </div>
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          <input
+            type="date"
+            value={filterDate}
+            onChange={e => setFilterDate(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400"
+          />
+          <select
+            value={filterProduct}
+            onChange={e => setFilterProduct(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 flex-1 min-w-0"
+          >
+            <option value="">Todos os produtos</option>
+            {[...new Map(sales.flatMap(s => s.items).map(i => [i.productId, i])).values()].map(i => (
+              <option key={i.productId} value={i.productId}>{i.productName}</option>
+            ))}
+          </select>
+          {(filterProduct || filterDate) && (
+            <button onClick={() => { setFilterProduct(''); setFilterDate(today()) }} className="text-xs text-gray-400 hover:text-orange-500 underline whitespace-nowrap">
+              Limpar
+            </button>
+          )}
+        </div>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-sm text-gray-500">
+            {filtered.length} pedido{filtered.length !== 1 ? 's' : ''}
+            {filterProduct && ` · ${productQtySold} unid. vendidas`}
+          </span>
           <div className="font-semibold text-green-600">{fmt(totalDay)}</div>
         </div>
 
