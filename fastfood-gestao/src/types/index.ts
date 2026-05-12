@@ -19,6 +19,8 @@ export interface Ingredient {
   unit: string
   currentStock: number
   minStock: number
+  lastCount?: number
+  lastCountDate?: string
 }
 
 export interface Supplier {
@@ -34,6 +36,7 @@ export interface PurchaseItem {
   unit: string
   unitPrice: number
   totalPrice: number
+  expiryDate?: string
 }
 
 export interface Purchase {
