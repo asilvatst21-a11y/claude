@@ -11,7 +11,7 @@ import Cadastros from './pages/Cadastros'
 import Clientes from './pages/Clientes'
 import CadastroPublico from './pages/CadastroPublico'
 import SyncSetup from './components/SyncSetup'
-import { pullFromCloud } from './store/sync'
+import { pullFromCloud, hasNewData } from './store/sync'
 import { supabase } from './store/supabase'
 
 export default function App() {
@@ -20,6 +20,16 @@ export default function App() {
   useEffect(() => {
     if (!supabase) { setSynced(true); return }
     pullFromCloud().finally(() => setSynced(true))
+
+    // Quando volta para a aba, verifica se há dados novos e recarrega só se necessário
+    function onVisible() {
+      if (!supabase || document.visibilityState !== 'visible') return
+      hasNewData().then(hasNew => {
+        if (hasNew) pullFromCloud().then(() => window.location.reload())
+      })
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [])
 
   if (!synced) {

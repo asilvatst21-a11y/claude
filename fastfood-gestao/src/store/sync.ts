@@ -52,6 +52,23 @@ export async function deleteRecord(entityType: string, entityId: string) {
   } catch { /* silencioso */ }
 }
 
+// Verifica se há dados novos no Supabase desde a última sincronização
+export async function hasNewData(): Promise<boolean> {
+  if (!supabase) return false
+  try {
+    const lastPull = localStorage.getItem('ff_last_pull') || new Date(0).toISOString()
+    const { data } = await supabase
+      .from('ff_sync')
+      .select('id')
+      .eq('business_id', getBusinessId())
+      .gt('synced_at', lastPull)
+      .limit(1)
+    return (data?.length ?? 0) > 0
+  } catch {
+    return false
+  }
+}
+
 // Baixa todos os dados do Supabase e popula o localStorage
 export async function pullFromCloud(): Promise<boolean> {
   if (!supabase) return false
@@ -75,6 +92,7 @@ export async function pullFromCloud(): Promise<boolean> {
       if (localKey) localStorage.setItem(localKey, JSON.stringify(items))
     }
 
+    localStorage.setItem('ff_last_pull', new Date().toISOString())
     return true
   } catch {
     return false
