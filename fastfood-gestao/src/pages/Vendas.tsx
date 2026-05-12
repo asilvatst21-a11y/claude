@@ -1,7 +1,32 @@
 import { useState, useEffect, useRef } from 'react'
-import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer, getCashbackConfig, id } from '../store/storage'
+import QRCode from 'qrcode'
+import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer, getCashbackConfig, getPixConfig, savePixConfig, id } from '../store/storage'
+import type { PixConfig } from '../store/storage'
 import type { Sale, SaleItem, Customer } from '../types'
-import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown } from 'lucide-react'
+import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2 } from 'lucide-react'
+
+// PIX BRCode (EMV Merchant Presented Mode) com CRC16-CCITT
+function crc16(str: string): string {
+  let crc = 0xffff
+  for (let i = 0; i < str.length; i++) {
+    crc ^= str.charCodeAt(i) << 8
+    for (let j = 0; j < 8; j++) {
+      crc = crc & 0x8000 ? (crc << 1) ^ 0x1021 : crc << 1
+      crc &= 0xffff
+    }
+  }
+  return crc.toString(16).toUpperCase().padStart(4, '0')
+}
+
+function buildPixPayload(pixKey: string, amount: number, merchantName: string, city: string): string {
+  const f = (id: string, v: string) => `${id}${String(v.length).padStart(2, '0')}${v}`
+  const mai = f('00', 'BR.GOV.BCB.PIX') + f('01', pixKey)
+  let p = f('00', '01') + f('26', mai) + f('52', '0000') + f('53', '986')
+  if (amount > 0) p += f('54', amount.toFixed(2))
+  p += f('58', 'BR') + f('59', merchantName.slice(0, 25)) + f('60', city.slice(0, 15))
+  p += f('62', f('05', '***')) + '6304'
+  return p + crc16(p)
+}
 
 const PAYMENT_OPTIONS = [
   { value: 'pix',            label: 'PIX',    color: 'bg-green-500' },
@@ -120,6 +145,17 @@ export default function Vendas() {
   const [filterDate, setFilterDate] = useState(today())
   const [filterProduct, setFilterProduct] = useState('')
 
+  // Troco
+  const [receivedAmount, setReceivedAmount] = useState('')
+  // PIX QR
+  const [pixConfig, setPixConfig] = useState<PixConfig | null>(() => getPixConfig())
+  const [showPixQR, setShowPixQR] = useState(false)
+  const [pixQrUrl, setPixQrUrl] = useState('')
+  const [editPixConfig, setEditPixConfig] = useState(false)
+  const [pixKeyInput, setPixKeyInput] = useState('')
+  const [pixNameInput, setPixNameInput] = useState('')
+  const [pixCityInput, setPixCityInput] = useState('')
+
   const cashbackConfig = getCashbackConfig()
 
   useEffect(() => { setSales(getSales()); setCustomers(getCustomers()) }, [view])
@@ -135,6 +171,25 @@ export default function Vendas() {
   const cartTotal = Math.max(0, cartSubtotal - cashbackDiscount)
   const cashbackEarned = cashbackConfig.enabled && !useCashback ? cartSubtotal * (cashbackConfig.percentage / 100) : 0
   const cartCount = cart.reduce((s, x) => s + x.quantity, 0)
+
+  const received = parseFloat(receivedAmount) || 0
+  const troco = payment === 'dinheiro' && received > 0 ? Math.max(0, received - cartTotal) : 0
+  const trocoBadge = payment === 'dinheiro' && received > 0 && received < cartTotal
+
+  async function openPixQR() {
+    if (!pixConfig) return
+    const payload = buildPixPayload(pixConfig.key, cartTotal, pixConfig.merchantName, pixConfig.city)
+    const url = await QRCode.toDataURL(payload, { width: 260, margin: 2, color: { dark: '#111', light: '#fff' } })
+    setPixQrUrl(url)
+    setShowPixQR(true)
+  }
+
+  function savePixCfg() {
+    const cfg: PixConfig = { key: pixKeyInput.trim(), merchantName: pixNameInput.trim() || 'Estabelecimento', city: pixCityInput.trim() || 'Cidade' }
+    savePixConfig(cfg)
+    setPixConfig(cfg)
+    setEditPixConfig(false)
+  }
 
   function addToCart(productId: string) {
     const p = products.find(x => x.id === productId)
@@ -187,6 +242,7 @@ export default function Vendas() {
     setPayment('pix')
     setSelectedCustomer(null)
     setUseCashback(false)
+    setReceivedAmount('')
     setSuccess(true)
     setShowCheckout(false)
     setTimeout(() => setSuccess(false), 2500)
@@ -253,18 +309,87 @@ export default function Vendas() {
         {/* Pagamento */}
         <div className="grid grid-cols-4 gap-2">
           {PAYMENT_OPTIONS.map(opt => (
-            <button key={opt.value} type="button" onClick={() => setPayment(opt.value as Sale['paymentMethod'])}
+            <button key={opt.value} type="button" onClick={() => { setPayment(opt.value as Sale['paymentMethod']); setReceivedAmount('') }}
               className={`py-2 rounded-xl text-xs font-bold text-white ${opt.color} ${payment === opt.value ? 'ring-2 ring-offset-1 ring-gray-400' : 'opacity-60 hover:opacity-80'}`}>
               {opt.label}
             </button>
           ))}
         </div>
 
+        {/* Calculadora de troco */}
+        {payment === 'dinheiro' && (
+          <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 space-y-2">
+            <p className="text-xs font-semibold text-yellow-700">Calculadora de Troco</p>
+            <div className="flex gap-2">
+              <input
+                type="number" min={0} step="0.50"
+                value={receivedAmount}
+                onChange={e => setReceivedAmount(e.target.value)}
+                placeholder="Valor recebido (R$)"
+                className="flex-1 border border-yellow-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-yellow-500 bg-white"
+              />
+            </div>
+            {received > 0 && (
+              <div className={`flex justify-between items-center rounded-lg px-3 py-2 ${trocoBadge ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
+                <span className="text-sm font-medium">{trocoBadge ? 'Valor insuficiente' : 'Troco'}</span>
+                <span className="text-lg font-bold">{trocoBadge ? `−${fmt(cartTotal - received)}` : fmt(troco)}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* PIX QR Code */}
+        {payment === 'pix' && (
+          <div className="bg-green-50 border border-green-200 rounded-xl p-3">
+            {!editPixConfig && pixConfig ? (
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-xs font-semibold text-green-700">Chave PIX configurada</p>
+                  <p className="text-xs text-green-600 truncate max-w-[160px]">{pixConfig.key}</p>
+                </div>
+                <div className="flex gap-1">
+                  <button type="button" onClick={() => { setPixKeyInput(pixConfig.key); setPixNameInput(pixConfig.merchantName); setPixCityInput(pixConfig.city); setEditPixConfig(true) }}
+                    className="p-1.5 text-green-500 hover:text-green-700"><Settings2 size={14} /></button>
+                  <button type="button" onClick={openPixQR}
+                    className="flex items-center gap-1.5 bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs font-bold">
+                    <QrCode size={13} /> Gerar QR Code
+                  </button>
+                </div>
+              </div>
+            ) : !editPixConfig ? (
+              <div>
+                <p className="text-xs text-green-700 font-medium mb-2">Configure a chave PIX para gerar QR Code</p>
+                <button type="button" onClick={() => setEditPixConfig(true)}
+                  className="text-xs text-green-600 underline hover:text-green-800">Configurar agora</button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-green-700">Configurar chave PIX</p>
+                <input value={pixKeyInput} onChange={e => setPixKeyInput(e.target.value)}
+                  placeholder="Chave PIX (email, CPF, telefone ou aleatória)"
+                  className="w-full border border-green-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white" />
+                <input value={pixNameInput} onChange={e => setPixNameInput(e.target.value)}
+                  placeholder="Nome do estabelecimento"
+                  className="w-full border border-green-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white" />
+                <input value={pixCityInput} onChange={e => setPixCityInput(e.target.value)}
+                  placeholder="Cidade"
+                  className="w-full border border-green-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none bg-white" />
+                <div className="flex gap-2">
+                  <button type="button" onClick={savePixCfg} disabled={!pixKeyInput.trim()}
+                    className="flex-1 bg-green-600 disabled:opacity-40 text-white rounded-lg py-1.5 text-xs font-bold">Salvar</button>
+                  <button type="button" onClick={() => setEditPixConfig(false)}
+                    className="text-xs text-gray-400 hover:text-gray-600 px-2">Cancelar</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
         <textarea placeholder="Obs..." value={notes} onChange={e => setNotes(e.target.value)} rows={mobile ? 2 : 1}
           className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-orange-400 resize-none" />
 
-        <button type="button" onClick={submitSale}
-          className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+        <button type="button" onClick={submitSale} disabled={payment === 'dinheiro' && received > 0 && trocoBadge}
+          className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2">
           <Check size={16} /> Confirmar · {fmt(cartTotal)}
         </button>
         <button type="button" onClick={() => { setCart([]); setUseCashback(false); setSelectedCustomer(null) }}
@@ -397,6 +522,35 @@ export default function Vendas() {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Modal PIX QR Code */}
+      {showPixQR && pixQrUrl && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-xs">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <QrCode size={18} className="text-green-600" />
+                <h2 className="font-bold text-gray-800">QR Code PIX</h2>
+              </div>
+              <button onClick={() => setShowPixQR(false)}><X size={20} className="text-gray-400" /></button>
+            </div>
+            <div className="p-5 text-center">
+              <img src={pixQrUrl} alt="QR Code PIX" className="mx-auto rounded-xl" width={220} height={220} />
+              <div className="mt-4 bg-green-50 rounded-xl px-4 py-3">
+                <p className="text-2xl font-bold text-green-600">{fmt(cartTotal)}</p>
+                <p className="text-xs text-green-500 mt-0.5">Escaneie com qualquer banco</p>
+              </div>
+              {pixConfig && (
+                <p className="text-xs text-gray-400 mt-3 truncate">Chave: {pixConfig.key}</p>
+              )}
+              <button onClick={() => { setShowPixQR(false); submitSale() }}
+                className="mt-4 w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+                <Check size={16} /> Confirmar pagamento recebido
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

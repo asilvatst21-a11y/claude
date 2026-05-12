@@ -154,6 +154,15 @@ export const deleteCashSession = (sid: string) => {
   deleteRecord('cash_sessions', sid).catch(() => {})
 }
 
+// PIX Config
+export interface PixConfig { key: string; merchantName: string; city: string }
+export const getPixConfig = (): PixConfig | null => {
+  try { return JSON.parse(localStorage.getItem('ff_pix_config') || 'null') } catch { return null }
+}
+export const savePixConfig = (c: PixConfig) => {
+  localStorage.setItem('ff_pix_config', JSON.stringify(c))
+}
+
 // Monthly Targets
 export interface MonthlyTarget { revenueTarget: number; ebitdaTarget: number }
 export const getMonthlyTarget = (month: string): MonthlyTarget | null => {
