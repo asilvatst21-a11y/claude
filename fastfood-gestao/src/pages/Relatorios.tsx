@@ -1,10 +1,12 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { getSales, getPurchases } from '../store/storage'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts'
-import { BarChart2 } from 'lucide-react'
+import { BarChart2, Trophy, ArrowUpDown } from 'lucide-react'
+
+const MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -19,6 +21,9 @@ const paymentLabel: Record<string, string> = {
 export default function Relatorios() {
   const now = new Date()
   const [selectedYear, setSelectedYear] = useState(now.getFullYear())
+  const [rankMonth, setRankMonth] = useState(now.getMonth())
+  const [rankYear, setRankYear] = useState(now.getFullYear())
+  const [rankSort, setRankSort] = useState<'qty' | 'revenue'>('qty')
 
   const allSales = getSales()
   const allPurchases = getPurchases()
@@ -73,6 +78,25 @@ export default function Relatorios() {
 
   const totalYear = yearSales.reduce((s, x) => s + x.total, 0)
   const avgTicket = yearSales.length > 0 ? totalYear / yearSales.length : 0
+
+  // Ranking mensal de produtos
+  const rankMonthStr = `${rankYear}-${String(rankMonth + 1).padStart(2, '0')}`
+  const rankSales = useMemo(() => allSales.filter(s => s.date.startsWith(rankMonthStr)), [allSales, rankMonthStr])
+  const rankProducts = useMemo(() => {
+    const map: Record<string, { name: string; qty: number; revenue: number; orders: number }> = {}
+    for (const s of rankSales) {
+      for (const item of s.items) {
+        if (!map[item.productName]) map[item.productName] = { name: item.productName, qty: 0, revenue: 0, orders: 0 }
+        map[item.productName].qty += item.quantity
+        map[item.productName].revenue += item.total
+        map[item.productName].orders++
+      }
+    }
+    const totalRevenue = Object.values(map).reduce((s, p) => s + p.revenue, 0)
+    return Object.values(map)
+      .sort((a, b) => rankSort === 'qty' ? b.qty - a.qty : b.revenue - a.revenue)
+      .map(p => ({ ...p, pct: totalRevenue > 0 ? (p.revenue / totalRevenue) * 100 : 0 }))
+  }, [rankSales, rankSort])
 
   return (
     <div className="p-6">
@@ -160,6 +184,81 @@ export default function Relatorios() {
               </ResponsiveContainer>
             </div>
           )}
+
+          {/* Ranking mensal de produtos */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+              <h2 className="font-semibold text-gray-700 flex items-center gap-2">
+                <Trophy size={16} className="text-yellow-500" /> Ranking de Produtos por Mês
+              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <select value={rankMonth} onChange={e => setRankMonth(Number(e.target.value))}
+                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-orange-400">
+                  {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                </select>
+                <select value={rankYear} onChange={e => setRankYear(Number(e.target.value))}
+                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-orange-400">
+                  {[now.getFullYear() - 1, now.getFullYear()].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+                <button
+                  onClick={() => setRankSort(s => s === 'qty' ? 'revenue' : 'qty')}
+                  className="flex items-center gap-1 text-xs border border-gray-200 rounded-lg px-2 py-1.5 hover:bg-gray-50 text-gray-600">
+                  <ArrowUpDown size={11} /> {rankSort === 'qty' ? 'Por qtd.' : 'Por receita'}
+                </button>
+              </div>
+            </div>
+            {rankProducts.length === 0 ? (
+              <p className="text-gray-400 text-sm text-center py-8">Nenhuma venda em {MONTHS[rankMonth]} {rankYear}.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-gray-100">
+                    <tr className="text-xs text-gray-500 text-left">
+                      <th className="pb-2 w-8">#</th>
+                      <th className="pb-2">Produto</th>
+                      <th className="pb-2 text-right">Qtd vendida</th>
+                      <th className="pb-2 text-right">Faturamento</th>
+                      <th className="pb-2 text-right hidden sm:table-cell">% do total</th>
+                      <th className="pb-2 text-right hidden md:table-cell">Ticket médio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rankProducts.map((p, i) => (
+                      <tr key={p.name} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                        <td className="py-2.5">
+                          {i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : <span className="text-gray-400 text-xs pl-1">{i + 1}</span>}
+                        </td>
+                        <td className="py-2.5 font-medium text-gray-800 max-w-[140px] truncate">{p.name}</td>
+                        <td className="py-2.5 text-right text-gray-600">{p.qty} un.</td>
+                        <td className="py-2.5 text-right font-semibold text-green-600">{fmt(p.revenue)}</td>
+                        <td className="py-2.5 text-right hidden sm:table-cell">
+                          <div className="flex items-center justify-end gap-2">
+                            <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                              <div className="h-full bg-orange-400 rounded-full" style={{ width: `${p.pct}%` }} />
+                            </div>
+                            <span className="text-xs text-gray-500 w-10 text-right">{p.pct.toFixed(1)}%</span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 text-right text-gray-500 hidden md:table-cell text-xs">{fmt(p.orders > 0 ? p.revenue / p.orders : 0)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="border-t border-gray-200">
+                    <tr>
+                      <td colSpan={2} className="pt-2.5 text-xs font-semibold text-gray-500">{rankProducts.length} produtos</td>
+                      <td className="pt-2.5 text-right text-xs font-semibold text-gray-700">
+                        {rankProducts.reduce((s, p) => s + p.qty, 0)} un.
+                      </td>
+                      <td className="pt-2.5 text-right text-xs font-bold text-green-600">
+                        {fmt(rankProducts.reduce((s, p) => s + p.revenue, 0))}
+                      </td>
+                      <td colSpan={2} />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
 
           {/* Tabela resumo por mês */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">

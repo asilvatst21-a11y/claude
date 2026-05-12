@@ -154,4 +154,13 @@ export const deleteCashSession = (sid: string) => {
   deleteRecord('cash_sessions', sid).catch(() => {})
 }
 
+// Monthly Targets
+export interface MonthlyTarget { revenueTarget: number; ebitdaTarget: number }
+export const getMonthlyTarget = (month: string): MonthlyTarget | null => {
+  try { return JSON.parse(localStorage.getItem(`ff_target_${month}`) || 'null') } catch { return null }
+}
+export const saveMonthlyTarget = (month: string, t: MonthlyTarget) => {
+  localStorage.setItem(`ff_target_${month}`, JSON.stringify(t))
+}
+
 export { id }

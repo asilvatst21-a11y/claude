@@ -3,10 +3,11 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts'
-import { getSales, getIngredients, getPurchases, getFixedCosts, id as genId } from '../store/storage'
+import { getSales, getIngredients, getPurchases, getFixedCosts, id as genId, getMonthlyTarget, saveMonthlyTarget } from '../store/storage'
+import type { MonthlyTarget } from '../store/storage'
 import {
   ShoppingCart, DollarSign, Package, AlertTriangle,
-  TrendingUp, Clock, CreditCard, Beer,
+  TrendingUp, Clock, CreditCard, Beer, Target, Pencil, X, Check,
 } from 'lucide-react'
 
 const COLORS = ['#ff6b35', '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#84cc16']
@@ -146,6 +147,28 @@ export default function Dashboard() {
   const monthPurchases = purchases.filter(p => p.date.startsWith(thisMonth)).reduce((s, p) => s + p.totalValue, 0)
   const monthFixedCosts = fixedCosts.filter(c => c.active).reduce((s, c) => s + c.monthlyValue, 0)
   const monthProfit = monthRevenue - monthPurchases - monthFixedCosts
+  const monthEbitda = monthRevenue - monthPurchases - monthFixedCosts
+  const monthEbitdaMargin = monthRevenue > 0 ? (monthEbitda / monthRevenue) * 100 : 0
+
+  const [target, setTarget] = useState<MonthlyTarget | null>(() => getMonthlyTarget(thisMonth))
+  const [editTarget, setEditTarget] = useState(false)
+  const [editRevenue, setEditRevenue] = useState('')
+  const [editEbitda, setEditEbitda] = useState('')
+
+  function openEdit() {
+    setEditRevenue(target ? String(target.revenueTarget) : '')
+    setEditEbitda(target ? String(target.ebitdaTarget) : '')
+    setEditTarget(true)
+  }
+  function saveTarget() {
+    const t: MonthlyTarget = {
+      revenueTarget: parseFloat(editRevenue) || 0,
+      ebitdaTarget: parseFloat(editEbitda) || 0,
+    }
+    saveMonthlyTarget(thisMonth, t)
+    setTarget(t)
+    setEditTarget(false)
+  }
 
   // Faturamento por dia (período selecionado)
   const last30 = useMemo(() => {
@@ -275,6 +298,71 @@ export default function Dashboard() {
           sub={`Ticket médio ${fmt(avgTicket)}`}
           bg={monthProfit >= 0 ? 'bg-emerald-50' : 'bg-red-50'}
         />
+      </div>
+
+      {/* Metas do Mês */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-gray-700 flex items-center gap-2">
+            <Target size={16} className="text-orange-500" />
+            Metas — {now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+          </h2>
+          {!editTarget ? (
+            <button onClick={openEdit} className="flex items-center gap-1 text-xs text-gray-400 hover:text-orange-500">
+              <Pencil size={13} /> {target ? 'Editar metas' : 'Definir metas'}
+            </button>
+          ) : (
+            <div className="flex gap-2">
+              <button onClick={saveTarget} className="flex items-center gap-1 text-xs text-green-600 hover:text-green-700 font-medium">
+                <Check size={13} /> Salvar
+              </button>
+              <button onClick={() => setEditTarget(false)} className="text-gray-400 hover:text-gray-600">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {editTarget ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1">Meta de Receita (R$)</label>
+              <input type="number" min={0} step={100} value={editRevenue}
+                onChange={e => setEditRevenue(e.target.value)}
+                placeholder="Ex: 30000"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-500 block mb-1">Meta de EBITDA (%)</label>
+              <input type="number" min={0} max={60} step={1} value={editEbitda}
+                onChange={e => setEditEbitda(e.target.value)}
+                placeholder="Ex: 20"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+            </div>
+          </div>
+        ) : target ? (
+          <div className="space-y-4">
+            <ProgressBar
+              label="Receita"
+              current={monthRevenue}
+              goal={target.revenueTarget}
+              formatValue={fmt}
+              color="orange"
+            />
+            <ProgressBar
+              label="EBITDA"
+              current={monthEbitdaMargin}
+              goal={target.ebitdaTarget}
+              formatValue={v => `${v.toFixed(1)}%`}
+              color={monthEbitdaMargin >= target.ebitdaTarget ? 'green' : 'orange'}
+            />
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 text-center py-4">
+            Nenhuma meta definida para este mês.{' '}
+            <button onClick={openEdit} className="text-orange-500 hover:underline font-medium">Definir agora</button>
+          </p>
+        )}
       </div>
 
       {/* Faturamento 30 dias */}
@@ -455,4 +543,32 @@ function Card({ icon, label, value, sub, bg }: { icon: React.ReactNode; label: s
 
 function EmptyChart() {
   return <p className="text-gray-400 text-sm text-center py-10">Sem dados suficientes</p>
+}
+
+function ProgressBar({ label, current, goal, formatValue, color }: {
+  label: string; current: number; goal: number
+  formatValue: (v: number) => string; color: 'orange' | 'green' | 'red'
+}) {
+  const pct = goal > 0 ? Math.min((current / goal) * 100, 100) : 0
+  const over = goal > 0 && current > goal
+  const colorMap = { orange: 'bg-orange-500', green: 'bg-emerald-500', red: 'bg-red-500' }
+  return (
+    <div>
+      <div className="flex justify-between items-baseline mb-1.5">
+        <span className="text-sm font-medium text-gray-600">{label}</span>
+        <span className="text-xs text-gray-500">
+          <span className={`font-bold ${over ? 'text-emerald-600' : 'text-gray-800'}`}>{formatValue(current)}</span>
+          {' '}/{' '}{formatValue(goal)}
+          {over && <span className="ml-1 text-emerald-600 font-medium">✓ Meta atingida!</span>}
+        </span>
+      </div>
+      <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${colorMap[color]}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <p className="text-xs text-gray-400 mt-0.5 text-right">{pct.toFixed(0)}% da meta</p>
+    </div>
+  )
 }
