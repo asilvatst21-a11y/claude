@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { getFixedCosts, saveFixedCost, deleteFixedCost, getSales, getPurchases, id } from '../store/storage'
+import { getFixedCosts, saveFixedCost, deleteFixedCost, getSales, getPurchases, saveSale, savePurchase, id } from '../store/storage'
 import type { FixedCost } from '../types'
-import { Plus, Trash2, X, FileText, TrendingUp, TrendingDown } from 'lucide-react'
+import { Plus, Trash2, X, FileText, TrendingUp, TrendingDown, FlaskConical } from 'lucide-react'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -47,6 +47,92 @@ export default function DRE() {
 
   const newCost = (): FixedCost => ({ id: id(), name: '', category: 'outro', monthlyValue: 0, active: true })
 
+  function simulateEbitda25() {
+    // Ensure fixed costs exist
+    let costs = getFixedCosts()
+    if (costs.filter(c => c.active).length === 0) {
+      const defaults: FixedCost[] = [
+        { id: id(), name: 'Aluguel', category: 'aluguel', monthlyValue: 2500, active: true },
+        { id: id(), name: 'Pró-Labore', category: 'pro_labore', monthlyValue: 3000, active: true },
+        { id: id(), name: 'Energia Elétrica', category: 'energia', monthlyValue: 800, active: true },
+        { id: id(), name: 'Água', category: 'agua', monthlyValue: 200, active: true },
+        { id: id(), name: 'Internet/Telefone', category: 'internet', monthlyValue: 150, active: true },
+      ]
+      defaults.forEach(saveFixedCost)
+      costs = getFixedCosts()
+    }
+
+    const totalFixed = costs.filter(c => c.active).reduce((s, c) => s + c.monthlyValue, 0)
+
+    // Revenue = Fixed / (GrossMargin% - EBITDA%) = Fixed / (0.65 - 0.25)
+    const grossMarginPct = 0.65
+    const targetRevenue = totalFixed / (grossMarginPct - 0.25)
+    const targetCogs = targetRevenue * (1 - grossMarginPct)
+
+    // Deduct existing data for the selected month
+    const existingRevenue = sales.reduce((s, x) => s + x.total, 0)
+    const existingCogs = purchases.reduce((s, p) => s + p.totalValue, 0)
+    const neededRevenue = targetRevenue - existingRevenue
+    const neededCogs = targetCogs - existingCogs
+
+    const payments: Array<'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito'> = ['pix', 'pix', 'dinheiro', 'cartao_debito', 'cartao_credito']
+    const products = [
+      { name: 'Macarrão na Chapa Simples', price: 18 },
+      { name: 'Macarrão na Chapa Especial', price: 25 },
+      { name: 'Macarrão Frango Grelhado', price: 22 },
+      { name: 'Macarrão Bacon Especial', price: 27 },
+      { name: 'Refrigerante Lata', price: 6 },
+      { name: 'Suco Natural', price: 8 },
+    ]
+
+    if (neededRevenue > 0) {
+      let remaining = neededRevenue
+      for (let day = 1; day <= 28 && remaining > 20; day++) {
+        const numSales = 4 + Math.floor(Math.random() * 5)
+        for (let i = 0; i < numSales && remaining > 10; i++) {
+          const p = products[Math.floor(Math.random() * products.length)]
+          const qty = Math.max(1, Math.round(Math.min(remaining / p.price, 3 + Math.random() * 4)))
+          const total = Math.round(p.price * qty * 100) / 100
+          saveSale({
+            id: id(),
+            date: `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+            time: '12:00',
+            notes: '',
+            items: [{ productId: id(), productName: p.name, quantity: qty, unitPrice: p.price, total }],
+            total,
+            paymentMethod: payments[Math.floor(Math.random() * payments.length)],
+          })
+          remaining -= total
+        }
+      }
+    }
+
+    if (neededCogs > 0) {
+      const insumos = [
+        { name: 'Macarrão (estoque)', unit: 'kg' },
+        { name: 'Frango', unit: 'kg' },
+        { name: 'Bacon', unit: 'kg' },
+        { name: 'Molho e temperos', unit: 'un' },
+        { name: 'Refrigerantes e sucos', unit: 'cx' },
+      ]
+      const perItem = neededCogs / insumos.length
+      insumos.forEach(item => {
+        savePurchase({
+          id: id(),
+          date: `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-02`,
+          supplierId: '',
+          supplierName: 'Fornecedor (simulação)',
+          notes: '',
+          items: [{ ingredientId: id(), quantity: 10, unit: item.unit, unitPrice: perItem / 10, totalPrice: perItem }],
+          totalValue: perItem,
+        })
+      })
+    }
+
+    setFixedCosts(getFixedCosts())
+    window.location.reload()
+  }
+
   function saveCost(c: FixedCost) {
     saveFixedCost(c)
     setFixedCosts(getFixedCosts())
@@ -69,9 +155,17 @@ export default function DRE() {
 
   return (
     <div className="p-6">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-800">DRE — Demonstração do Resultado</h1>
-        <p className="text-gray-500 text-sm">Visão financeira completa do período</p>
+      <div className="mb-6 flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">DRE — Demonstração do Resultado</h1>
+          <p className="text-gray-500 text-sm">Visão financeira completa do período</p>
+        </div>
+        <button
+          onClick={simulateEbitda25}
+          className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-xl text-sm font-medium shrink-0"
+        >
+          <FlaskConical size={15} /> Simular EBITDA 25%
+        </button>
       </div>
 
       {/* Seletor de período */}
