@@ -18,12 +18,20 @@ function crc16(str: string): string {
   return crc.toString(16).toUpperCase().padStart(4, '0')
 }
 
+// PIX spec (BCB) exige ASCII puro nos campos nome e cidade — remove acentos
+function toAscii(str: string): string {
+  return str.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\x20-\x7E]/g, '').trim()
+}
+
 function buildPixPayload(pixKey: string, amount: number, merchantName: string, city: string): string {
   const f = (id: string, v: string) => `${id}${String(v.length).padStart(2, '0')}${v}`
-  const mai = f('00', 'BR.GOV.BCB.PIX') + f('01', pixKey)
+  const name = (toAscii(merchantName) || 'Estabelecimento').slice(0, 25)
+  const cty  = (toAscii(city) || 'Brasil').slice(0, 15)
+  const key  = pixKey.trim()
+  const mai = f('00', 'BR.GOV.BCB.PIX') + f('01', key)
   let p = f('00', '01') + f('26', mai) + f('52', '0000') + f('53', '986')
   if (amount > 0) p += f('54', amount.toFixed(2))
-  p += f('58', 'BR') + f('59', merchantName.slice(0, 25)) + f('60', city.slice(0, 15))
+  p += f('58', 'BR') + f('59', name) + f('60', cty)
   p += f('62', f('05', '***')) + '6304'
   return p + crc16(p)
 }
