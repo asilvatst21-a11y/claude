@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { getCashSessions, saveCashSession, getOpenSession, getSales, id } from '../store/storage'
+import { getCashSessions, saveCashSession, getOpenSession, getSales, id, deleteCashSession } from '../store/storage'
 import type { CashSession, CashExpense } from '../types'
-import { DollarSign, Plus, Lock, Unlock, AlertTriangle, CheckCircle, X, TrendingDown, Clock } from 'lucide-react'
+import { DollarSign, Plus, Lock, Unlock, AlertTriangle, CheckCircle, X, TrendingDown, Clock, Trash2 } from 'lucide-react'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -320,14 +320,21 @@ export default function Caixa() {
                       {s.status === 'open' ? 'Aberto' : 'Fechado'}
                     </span>
                   </div>
-                  {diff != null && (
-                    <div className={`text-right ${Math.abs(diff) < 0.01 ? 'text-green-600' : diff > 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                      <p className="text-sm font-bold">
-                        {Math.abs(diff) < 0.01 ? '✓ Correto' : diff > 0 ? `+${fmt(diff)}` : fmt(diff)}
-                      </p>
-                      <p className="text-xs text-gray-400">diferença</p>
-                    </div>
-                  )}
+                  <div className="flex items-center gap-3">
+                    {diff != null && (
+                      <div className={`text-right ${Math.abs(diff) < 0.01 ? 'text-green-600' : diff > 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                        <p className="text-sm font-bold">
+                          {Math.abs(diff) < 0.01 ? '✓ Correto' : diff > 0 ? `+${fmt(diff)}` : fmt(diff)}
+                        </p>
+                        <p className="text-xs text-gray-400">diferença</p>
+                      </div>
+                    )}
+                    <button
+                      onClick={() => { deleteCashSession(s.id); reload() }}
+                      className="text-red-300 hover:text-red-500 p-1">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2 text-center text-xs">
                   <div>

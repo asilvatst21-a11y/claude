@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { getFixedCosts, saveFixedCost, deleteFixedCost, getSales, getPurchases, saveSale, savePurchase, id } from '../store/storage'
+import { getFixedCosts, saveFixedCost, deleteFixedCost, getSales, getPurchases, deletePurchase, id } from '../store/storage'
 import type { FixedCost } from '../types'
-import { Plus, Trash2, X, FileText, TrendingUp, FlaskConical, Settings, HelpCircle, Wallet, Banknote } from 'lucide-react'
+import { Plus, Trash2, X, FileText, TrendingUp, FlaskConical, Settings, HelpCircle, Wallet, Banknote, Sparkles } from 'lucide-react'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -78,9 +78,10 @@ export default function DRE() {
   const [depreciation, setDepreciation] = useState(() => parseFloat(localStorage.getItem('ff_dre_dep') || '0'))
   const [showConfig, setShowConfig] = useState(false)
 
-  // Simulação
+  // Simulação (apenas visual — não cria dados reais)
   const [simTarget, setSimTarget] = useState(25)
   const [showSim, setShowSim] = useState(false)
+  const [simActive, setSimActive] = useState(false)
 
   useEffect(() => {
     setFixedCosts(getFixedCosts())
@@ -100,6 +101,9 @@ export default function DRE() {
   const monthStr = `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}`
   const salesFiltered = sales.filter(s => s.date.startsWith(monthStr))
   const purchasesFiltered = purchases.filter(p => p.date.startsWith(monthStr))
+  const simPurchasesInPeriod = purchasesFiltered.filter(p =>
+    p.supplierName.toLowerCase().includes('simulação') || p.supplierName.toLowerCase().includes('simulacao')
+  )
 
   const revenue = salesFiltered.reduce((s, x) => s + x.total, 0)
   const cogs = purchasesFiltered.reduce((s, p) => s + p.totalValue, 0)
@@ -118,84 +122,13 @@ export default function DRE() {
 
   const newCost = (): FixedCost => ({ id: id(), name: '', category: 'outro', monthlyValue: 0, active: true })
 
-  function simulate() {
-    let costs = getFixedCosts()
-    if (costs.filter(c => c.active).length === 0) {
-      const defaults: FixedCost[] = [
-        { id: id(), name: 'Aluguel', category: 'aluguel', monthlyValue: 2500, active: true },
-        { id: id(), name: 'Pró-Labore', category: 'pro_labore', monthlyValue: 3000, active: true },
-        { id: id(), name: 'Energia Elétrica', category: 'energia', monthlyValue: 800, active: true },
-        { id: id(), name: 'Água', category: 'agua', monthlyValue: 200, active: true },
-        { id: id(), name: 'Internet/Telefone', category: 'internet', monthlyValue: 150, active: true },
-      ]
-      defaults.forEach(saveFixedCost)
-      costs = getFixedCosts()
-    }
-
-    const totalF = costs.filter(c => c.active).reduce((s, c) => s + c.monthlyValue, 0)
-    const grossMarginPct = 0.65
-    const targetPct = simTarget / 100
-    const targetRevenue = totalF / (grossMarginPct - targetPct)
-    const targetCogs = targetRevenue * (1 - grossMarginPct)
-
-    const existingRevenue = salesFiltered.reduce((s, x) => s + x.total, 0)
-    const existingCogs = purchasesFiltered.reduce((s, p) => s + p.totalValue, 0)
-    const neededRevenue = targetRevenue - existingRevenue
-    const neededCogs = targetCogs - existingCogs
-
-    const payments: Array<'pix' | 'dinheiro' | 'cartao_debito' | 'cartao_credito'> = ['pix', 'pix', 'dinheiro', 'cartao_debito', 'cartao_credito']
-    const products = [
-      { name: 'Macarrão na Chapa Simples', price: 18 },
-      { name: 'Macarrão na Chapa Especial', price: 25 },
-      { name: 'Macarrão Frango Grelhado', price: 22 },
-      { name: 'Macarrão Bacon Especial', price: 27 },
-      { name: 'Refrigerante Lata', price: 6 },
-      { name: 'Suco Natural', price: 8 },
-    ]
-
-    if (neededRevenue > 0) {
-      let remaining = neededRevenue
-      for (let day = 1; day <= 28 && remaining > 20; day++) {
-        const numSales = 4 + Math.floor(Math.random() * 5)
-        for (let i = 0; i < numSales && remaining > 10; i++) {
-          const p = products[Math.floor(Math.random() * products.length)]
-          const qty = Math.max(1, Math.round(Math.min(remaining / p.price, 3 + Math.random() * 4)))
-          const total = Math.round(p.price * qty * 100) / 100
-          saveSale({
-            id: id(),
-            date: `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-            time: '12:00', notes: '',
-            items: [{ productId: id(), productName: p.name, quantity: qty, unitPrice: p.price, total }],
-            total,
-            paymentMethod: payments[Math.floor(Math.random() * payments.length)],
-          })
-          remaining -= total
-        }
-      }
-    }
-
-    if (neededCogs > 0) {
-      const insumos = [
-        { name: 'Macarrão (estoque)', unit: 'kg' },
-        { name: 'Frango', unit: 'kg' },
-        { name: 'Bacon', unit: 'kg' },
-        { name: 'Molho e temperos', unit: 'un' },
-        { name: 'Refrigerantes e sucos', unit: 'cx' },
-      ]
-      const perItem = neededCogs / insumos.length
-      insumos.forEach(item => {
-        savePurchase({
-          id: id(),
-          date: `${selectedYear}-${String(selectedMonth + 1).padStart(2, '0')}-02`,
-          supplierId: '', supplierName: 'Fornecedor (simulação)', notes: '',
-          items: [{ ingredientId: id(), quantity: 10, unit: item.unit, unitPrice: perItem / 10, totalPrice: perItem }],
-          totalValue: perItem,
-        })
-      })
-    }
-
-    setShowSim(false)
-    setTick(t => t + 1)
+  function clearSimData() {
+    const simPurchases = getPurchases().filter(p =>
+      p.supplierName.toLowerCase().includes('simulação') || p.supplierName.toLowerCase().includes('simulacao')
+    )
+    simPurchases.forEach(p => deletePurchase(p.id))
+    if (simPurchases.length > 0) setTick(t => t + 1)
+    return simPurchases.length
   }
 
   function saveCost(c: FixedCost) {
@@ -218,8 +151,14 @@ export default function DRE() {
     dinheiro: 'Dinheiro', pix: 'PIX', cartao_debito: 'Débito', cartao_credito: 'Crédito'
   }
 
-  // Projected revenue for simulation preview
+  // Projeção de cenário (visual apenas, não salva dados)
   const projRevenue = totalFixed > 0 ? totalFixed / (0.65 - simTarget / 100) : 0
+  const projCogs = projRevenue * 0.35
+  const projGrossProfit = projRevenue * 0.65
+  const projEbitda = projRevenue * (simTarget / 100)
+  const projEbitdaMargin = simTarget
+  const projTaxes = projEbitda > 0 ? projEbitda * (taxRate / 100) : 0
+  const projNetProfit = projEbitda - projTaxes
 
   return (
     <div className="p-4 md:p-6">
@@ -229,14 +168,14 @@ export default function DRE() {
           <h1 className="text-2xl font-bold text-gray-800">DRE — Demonstração do Resultado</h1>
           <p className="text-gray-500 text-sm">Visão financeira completa do período</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={() => setShowConfig(s => !s)}
             className="flex items-center gap-2 border border-gray-200 text-gray-600 hover:bg-gray-50 px-3 py-2 rounded-xl text-sm font-medium">
             <Settings size={15} /> Configurar
           </button>
-          <button onClick={() => setShowSim(s => !s)}
-            className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-xl text-sm font-medium">
-            <FlaskConical size={15} /> Simular Cenário
+          <button onClick={() => { setSimActive(s => !s); setShowSim(true) }}
+            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-colors ${simActive ? 'bg-purple-600 text-white hover:bg-purple-700' : 'border border-purple-300 text-purple-600 hover:bg-purple-50'}`}>
+            <FlaskConical size={15} /> {simActive ? 'Simulação ativa' : 'Simular Cenário'}
           </button>
         </div>
       </div>
@@ -269,39 +208,68 @@ export default function DRE() {
         </div>
       )}
 
-      {/* Painel de simulação */}
+      {/* Painel de simulação — projeção visual, não altera dados */}
       {showSim && (
         <div className="bg-purple-50 border border-purple-200 rounded-xl p-4 mb-5">
           <div className="flex items-center justify-between mb-3">
-            <p className="text-sm font-semibold text-purple-800">Simulador de Cenário — {months[selectedMonth]} {selectedYear}</p>
-            <button onClick={() => setShowSim(false)}><X size={16} className="text-purple-400" /></button>
+            <div className="flex items-center gap-2">
+              <Sparkles size={15} className="text-purple-500" />
+              <p className="text-sm font-semibold text-purple-800">Projeção de Cenário — {months[selectedMonth]} {selectedYear}</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setSimActive(false); setShowSim(false) }}
+                className="text-xs text-purple-500 hover:text-purple-700 underline">
+                Desativar
+              </button>
+              <button onClick={() => setShowSim(false)}><X size={16} className="text-purple-400" /></button>
+            </div>
           </div>
-          <div className="flex items-center gap-3 mb-3">
-            <span className="text-xs text-purple-700 font-medium w-28">Meta EBITDA: <strong>{simTarget}%</strong></span>
+          <div className="flex items-center gap-3 mb-4">
+            <span className="text-xs text-purple-700 font-medium w-28 shrink-0">Meta EBITDA: <strong>{simTarget}%</strong></span>
             <input type="range" min={5} max={45} step={1} value={simTarget}
-              onChange={e => setSimTarget(Number(e.target.value))}
+              onChange={e => { setSimTarget(Number(e.target.value)); setSimActive(true) }}
               className="flex-1 accent-purple-600" />
           </div>
           {totalFixed > 0 && (
-            <div className="grid grid-cols-3 gap-2 text-center mb-3">
-              <div className="bg-white rounded-lg p-2">
-                <p className="text-xs text-gray-500">Receita necessária</p>
-                <p className="text-sm font-bold text-gray-800">{fmt(projRevenue)}</p>
-              </div>
-              <div className="bg-white rounded-lg p-2">
-                <p className="text-xs text-gray-500">CMV (35%)</p>
-                <p className="text-sm font-bold text-gray-800">{fmt(projRevenue * 0.35)}</p>
-              </div>
-              <div className="bg-white rounded-lg p-2">
-                <p className="text-xs text-gray-500">EBITDA</p>
-                <p className="text-sm font-bold text-purple-700">{fmt(projRevenue * (simTarget / 100))}</p>
-              </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-500 border-b border-purple-200">
+                    <th className="text-left pb-1.5 font-medium">Linha</th>
+                    <th className="text-right pb-1.5 font-medium text-gray-700">Real</th>
+                    <th className="text-right pb-1.5 font-medium text-purple-700">Projetado</th>
+                    <th className="text-right pb-1.5 font-medium">Diferença</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-purple-100">
+                  {[
+                    { label: 'Receita', real: revenue, proj: projRevenue },
+                    { label: 'CMV (35%)', real: cogs, proj: projCogs },
+                    { label: 'Lucro Bruto', real: grossProfit, proj: projGrossProfit },
+                    { label: 'Custos Fixos', real: totalFixed, proj: totalFixed },
+                    { label: 'EBITDA', real: ebitda, proj: projEbitda, highlight: true },
+                    { label: 'Lucro Líquido', real: netProfit, proj: projNetProfit },
+                  ].map(row => (
+                    <tr key={row.label} className={row.highlight ? 'font-bold' : ''}>
+                      <td className="py-1.5 text-gray-600">{row.label}</td>
+                      <td className="py-1.5 text-right text-gray-700">{fmt(row.real)}</td>
+                      <td className="py-1.5 text-right text-purple-700">{fmt(row.proj)}</td>
+                      <td className={`py-1.5 text-right ${row.proj - row.real >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        {row.proj - row.real >= 0 ? '+' : ''}{fmt(row.proj - row.real)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="text-xs text-purple-500 mt-2 text-center">
+                Margem EBITDA projetada: <strong>{projEbitdaMargin}%</strong> · Receita necessária: <strong>{fmt(projRevenue)}</strong>
+              </p>
             </div>
           )}
-          <button onClick={simulate}
-            className="w-full bg-purple-600 hover:bg-purple-700 text-white py-2.5 rounded-xl text-sm font-bold">
-            🎯 Gerar simulação com EBITDA de {simTarget}%
-          </button>
+          {totalFixed === 0 && (
+            <p className="text-sm text-purple-600 text-center py-2">Cadastre os custos fixos para ver a projeção.</p>
+          )}
         </div>
       )}
 
@@ -318,15 +286,29 @@ export default function DRE() {
           ))}
         </select>
         <span className="text-sm text-gray-500">{salesFiltered.length} vendas · {purchasesFiltered.length} compras</span>
+        {simPurchasesInPeriod.length > 0 && (
+          <button
+            onClick={() => { clearSimData(); }}
+            className="flex items-center gap-1.5 text-xs text-orange-600 border border-orange-200 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded-lg ml-auto">
+            <Trash2 size={12} /> Limpar {simPurchasesInPeriod.length} compra(s) de simulação
+          </button>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* DRE */}
         <div className="lg:col-span-2 space-y-4">
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-            <h2 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-              <FileText size={18} className="text-orange-500" /> {months[selectedMonth]} {selectedYear}
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-gray-700 flex items-center gap-2">
+                <FileText size={18} className="text-orange-500" /> {months[selectedMonth]} {selectedYear}
+              </h2>
+              {simActive && (
+                <span className="flex items-center gap-1 text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full font-medium">
+                  <Sparkles size={11} /> Projeção: meta {simTarget}%
+                </span>
+              )}
+            </div>
 
             {/* Receita Bruta */}
             <DRERow label="(+) Receita Bruta" value={revenue} total={revenue} highlight="green" bold tip={<Tip id="receita" />} />

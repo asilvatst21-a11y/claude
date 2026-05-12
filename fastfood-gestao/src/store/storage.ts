@@ -149,4 +149,9 @@ export const saveCashSession = (s: CashSession) => {
 export const getOpenSession = (): CashSession | null =>
   getCashSessions().find(s => s.status === 'open') ?? null
 
+export const deleteCashSession = (sid: string) => {
+  set('ff_cash_sessions', getCashSessions().filter(x => x.id !== sid))
+  deleteRecord('cash_sessions', sid).catch(() => {})
+}
+
 export { id }
