@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Camera, Upload, X, Check, AlertCircle, Loader, QrCode } from 'lucide-react'
+import { Camera, Upload, X, Check, AlertCircle, Loader, QrCode, Hash } from 'lucide-react'
 import { Html5Qrcode } from 'html5-qrcode'
 import { getIngredients, getSuppliers, saveIngredient, saveSupplier, savePurchase, id } from '../store/storage'
 import type { Purchase, PurchaseItem, Ingredient, Supplier } from '../types'
@@ -255,40 +255,21 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                 </div>
               )}
 
-              {/* QR Code — opção principal */}
+              {/* Opção 1 — QR Code */}
               <div className="bg-green-50 border border-green-200 rounded-xl p-4">
                 <p className="text-sm font-semibold text-green-800 mb-3 flex items-center gap-2">
-                  <QrCode size={16} /> QR Code da Nota (Recomendado)
+                  <QrCode size={16} /> Opção 1 — QR Code da Nota (Recomendado)
                 </p>
 
                 <input ref={qrFileRef} type="file" accept="image/*" capture="environment" className="hidden"
                   onChange={e => e.target.files?.[0] && handleQRFile(e.target.files[0])} />
 
                 <button onClick={() => qrFileRef.current?.click()}
-                  className="w-full border-2 border-dashed border-green-300 rounded-xl p-6 text-center hover:bg-green-100 transition-colors mb-3">
-                  <QrCode size={32} className="text-green-500 mx-auto mb-2" />
+                  className="w-full border-2 border-dashed border-green-300 rounded-xl p-5 text-center hover:bg-green-100 transition-colors mb-3">
+                  <QrCode size={28} className="text-green-500 mx-auto mb-2" />
                   <p className="font-medium text-gray-700 text-sm">Fotografar o QR Code da nota</p>
-                  <p className="text-xs text-gray-400 mt-1">Mais preciso — busca direto na Sefaz</p>
+                  <p className="text-xs text-gray-400 mt-1">Busca direto na Sefaz — mais preciso</p>
                 </button>
-
-                {/* Chave de acesso */}
-                <div className="mb-3">
-                  <p className="text-xs font-medium text-gray-600 mb-1">Chave de acesso (44 números do rodapé da nota):</p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={chaveAcesso}
-                      onChange={e => setChaveAcesso(e.target.value.replace(/\D/g, '').slice(0, 44))}
-                      placeholder="00000000000000000000000000000000000000000000"
-                      className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-400 font-mono"
-                    />
-                    <button onClick={handleChaveAcesso} disabled={chaveAcesso.replace(/\D/g, '').length !== 44}
-                      className="bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-green-700 whitespace-nowrap">
-                      Buscar
-                    </button>
-                  </div>
-                  <p className="text-xs text-gray-400 mt-1">Funciona mesmo sem QR Code — copie os números do rodapé da nota</p>
-                </div>
 
                 <div className="flex gap-2">
                   <input type="text" value={qrUrl} onChange={e => setQrUrl(e.target.value)}
@@ -301,12 +282,40 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                 </div>
               </div>
 
-              {/* Foto da nota — IA */}
-              <div className="border border-gray-200 rounded-xl p-4">
-                <p className="text-sm font-medium text-gray-600 mb-1 flex items-center gap-2">
-                  <Camera size={16} /> Foto da Nota (IA)
+              {/* Opção 2 — Chave de acesso */}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <p className="text-sm font-semibold text-blue-800 mb-1 flex items-center gap-2">
+                  <Hash size={16} /> Opção 2 — Chave de Acesso (44 dígitos)
                 </p>
-                <p className="text-xs text-gray-400 mb-3">Use quando não há QR Code ou a leitura falhar</p>
+                <p className="text-xs text-blue-600 mb-3">Números impressos no rodapé ou verso da nota fiscal</p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={chaveAcesso}
+                    onChange={e => setChaveAcesso(e.target.value.replace(/\D/g, '').slice(0, 44))}
+                    placeholder="Digite ou cole os 44 números aqui"
+                    className="flex-1 border border-blue-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:border-blue-400 font-mono bg-white"
+                  />
+                  <button
+                    onClick={handleChaveAcesso}
+                    disabled={chaveAcesso.replace(/\D/g, '').length !== 44}
+                    className="bg-blue-600 text-white px-4 py-2.5 rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-blue-700 whitespace-nowrap"
+                  >
+                    Buscar
+                  </button>
+                </div>
+                <p className="text-xs text-blue-500 mt-2">
+                  {chaveAcesso.replace(/\D/g, '').length}/44 dígitos
+                </p>
+              </div>
+
+              {/* Opção 3 — Foto da nota */}
+              <div className="border border-gray-200 rounded-xl p-4">
+                <p className="text-sm font-semibold text-gray-600 mb-1 flex items-center gap-2">
+                  <Camera size={16} /> Opção 3 — Foto da Nota (IA)
+                </p>
+                <p className="text-xs text-gray-400 mb-3">Use quando não há QR Code e não tem a chave de acesso</p>
                 <input ref={fileRef} type="file" accept="image/*" capture="environment" className="hidden"
                   onChange={e => e.target.files?.[0] && handleOCRFile(e.target.files[0])} />
                 <div className="flex gap-2">
