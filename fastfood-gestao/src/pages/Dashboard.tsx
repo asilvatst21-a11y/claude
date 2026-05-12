@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
@@ -92,7 +92,10 @@ export default function Dashboard() {
     localStorage.setItem('ff_sales', JSON.stringify(sim))
   }
 
-  const sales = getSales()
+  const [filterProduct, setFilterProduct] = useState('')
+  const [filterPeriod, setFilterPeriod] = useState('30d')
+
+  const allSales = getSales()
   const ingredients = getIngredients()
   const purchases = getPurchases()
   const fixedCosts = getFixedCosts()
@@ -101,33 +104,64 @@ export default function Dashboard() {
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
   const todayStr = now.toISOString().slice(0, 10)
 
-  const monthSales = useMemo(() => sales.filter(s => s.date.startsWith(thisMonth)), [sales])
-  const todaySales = useMemo(() => sales.filter(s => s.date === todayStr), [sales])
+  // Lista de produtos únicos para o dropdown
+  const allProducts = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const s of allSales) for (const i of s.items) map.set(i.productId, i.productName)
+    return [...map.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name))
+  }, [allSales])
+
+  // Filtro por período
+  const periodStart = useMemo(() => {
+    const d = new Date(now)
+    if (filterPeriod === '7d') d.setDate(d.getDate() - 6)
+    else if (filterPeriod === '30d') d.setDate(d.getDate() - 29)
+    else if (filterPeriod === 'mes') return thisMonth
+    else return null // tudo
+    return d.toISOString().slice(0, 10)
+  }, [filterPeriod])
+
+  // Sales com filtros aplicados
+  const sales = useMemo(() => {
+    let list = allSales
+    if (periodStart) {
+      list = filterPeriod === 'mes'
+        ? list.filter(s => s.date.startsWith(periodStart as string))
+        : list.filter(s => s.date >= (periodStart as string))
+    }
+    if (filterProduct) list = list.filter(s => s.items.some(i => i.productId === filterProduct))
+    return list
+  }, [allSales, filterProduct, periodStart])
+
+  const monthSales = useMemo(() => allSales.filter(s => s.date.startsWith(thisMonth)), [allSales])
+  const todaySales = useMemo(() => allSales.filter(s => s.date === todayStr), [allSales])
 
   const todayRevenue = todaySales.reduce((s, x) => s + x.total, 0)
-  const monthRevenue = monthSales.reduce((s, x) => s + x.total, 0)
-  const monthOrders = monthSales.length
-  const avgTicket = monthOrders > 0 ? monthRevenue / monthOrders : 0
+  const filteredRevenue = sales.reduce((s, x) => s + x.total, 0)
+  const filteredOrders = sales.length
+  const avgTicket = filteredOrders > 0 ? filteredRevenue / filteredOrders : 0
 
+  const monthRevenue = monthSales.reduce((s, x) => s + x.total, 0)
   const lowStock = ingredients.filter(i => i.currentStock <= i.minStock)
   const monthPurchases = purchases.filter(p => p.date.startsWith(thisMonth)).reduce((s, p) => s + p.totalValue, 0)
   const monthFixedCosts = fixedCosts.filter(c => c.active).reduce((s, c) => s + c.monthlyValue, 0)
   const monthProfit = monthRevenue - monthPurchases - monthFixedCosts
 
-  // Faturamento últimos 30 dias
+  // Faturamento por dia (período selecionado)
   const last30 = useMemo(() => {
+    const days = filterPeriod === '7d' ? 7 : 30
     const map: Record<string, number> = {}
-    for (let i = 29; i >= 0; i--) {
+    for (let i = days - 1; i >= 0; i--) {
       const d = new Date(now)
       d.setDate(d.getDate() - i)
       map[d.toISOString().slice(0, 10)] = 0
     }
     for (const s of sales) if (map[s.date] !== undefined) map[s.date] += s.total
     return Object.entries(map).map(([date, value]) => ({
-      day: date.slice(8),
+      day: date.slice(5).replace('-', '/'),
       value: parseFloat(value.toFixed(2)),
     }))
-  }, [sales])
+  }, [sales, filterPeriod])
 
   // Horários de pico
   const hourData = useMemo(() => {
@@ -184,24 +218,59 @@ export default function Dashboard() {
   }, [sales])
 
   const hasData = sales.length > 0
+  const isFiltered = !!filterProduct
 
   return (
     <div className="p-4 md:p-6 space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
-        <p className="text-gray-500 text-sm">
-          {now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-        </p>
+      <div className="flex flex-col gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">Dashboard</h1>
+          <p className="text-gray-500 text-sm">
+            {now.toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+          </p>
+        </div>
+
+        {/* Filtros */}
+        <div className="flex flex-wrap gap-2 items-center">
+          <select
+            value={filterProduct}
+            onChange={e => setFilterProduct(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 bg-white"
+          >
+            <option value="">Todos os produtos</option>
+            {allProducts.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm">
+            {[{ v: '7d', l: '7 dias' }, { v: '30d', l: '30 dias' }, { v: 'mes', l: 'Este mês' }, { v: 'all', l: 'Tudo' }].map(opt => (
+              <button
+                key={opt.v}
+                onClick={() => setFilterPeriod(opt.v)}
+                className={`px-3 py-1.5 ${filterPeriod === opt.v ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+              >
+                {opt.l}
+              </button>
+            ))}
+          </div>
+
+          {isFiltered && (
+            <button onClick={() => setFilterProduct('')} className="text-xs text-orange-500 hover:underline">
+              Limpar filtro
+            </button>
+          )}
+        </div>
       </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card icon={<ShoppingCart className="text-orange-500" size={22} />} label="Vendas Hoje" value={String(todaySales.length)} sub="pedidos" bg="bg-orange-50" />
-        <Card icon={<DollarSign className="text-green-500" size={22} />} label="Receita Hoje" value={fmt(todayRevenue)} sub={`${monthOrders} pedidos no mês`} bg="bg-green-50" />
-        <Card icon={<TrendingUp className="text-blue-500" size={22} />} label="Receita do Mês" value={fmt(monthRevenue)} sub="mês atual" bg="bg-blue-50" />
+        <Card icon={<ShoppingCart className="text-orange-500" size={22} />} label="Vendas Hoje" value={String(todaySales.length)} sub="pedidos hoje" bg="bg-orange-50" />
+        <Card icon={<DollarSign className="text-green-500" size={22} />} label="Receita Hoje" value={fmt(todayRevenue)} sub="dia atual" bg="bg-green-50" />
+        <Card icon={<TrendingUp className="text-blue-500" size={22} />} label={isFiltered ? 'Receita Filtrada' : 'Receita do Período'} value={fmt(filteredRevenue)} sub={`${filteredOrders} pedidos`} bg="bg-blue-50" />
         <Card
           icon={<DollarSign className={monthProfit >= 0 ? 'text-emerald-500' : 'text-red-500'} size={22} />}
-          label="Lucro Estimado"
+          label="Lucro Est. Mês"
           value={fmt(monthProfit)}
           sub={`Ticket médio ${fmt(avgTicket)}`}
           bg={monthProfit >= 0 ? 'bg-emerald-50' : 'bg-red-50'}
@@ -211,7 +280,7 @@ export default function Dashboard() {
       {/* Faturamento 30 dias */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
         <h2 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-          <TrendingUp size={16} className="text-blue-500" /> Faturamento — Últimos 30 dias
+          <TrendingUp size={16} className="text-blue-500" /> Faturamento{isFiltered ? ` — ${allProducts.find(p => p.id === filterProduct)?.name}` : ''} — {filterPeriod === '7d' ? 'Últimos 7 dias' : filterPeriod === 'mes' ? 'Este mês' : filterPeriod === 'all' ? 'Todo o período' : 'Últimos 30 dias'}
         </h2>
         {hasData ? (
           <ResponsiveContainer width="100%" height={200}>
