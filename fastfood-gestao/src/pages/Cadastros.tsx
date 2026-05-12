@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
-import { getProducts, saveProduct, deleteProduct, getIngredients, id } from '../store/storage'
-import type { Product, ProductIngredient } from '../types'
-import { Plus, Trash2, X, Settings, Edit2 } from 'lucide-react'
+import { getProducts, saveProduct, deleteProduct, getIngredients, saveIngredient, id } from '../store/storage'
+import type { Product, ProductIngredient, Ingredient } from '../types'
+import { Plus, Trash2, X, Settings, Edit2, FileText, Check, AlertCircle } from 'lucide-react'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -24,10 +24,35 @@ const emptyProduct = (): Product => ({
   active: true,
 })
 
+interface ParsedLine {
+  name: string
+  quantity: number
+  unit: string
+  ok: boolean
+}
+
+function parseLine(line: string): ParsedLine | null {
+  const trimmed = line.trim()
+  if (!trimmed || trimmed.startsWith('#')) return null
+  const match = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*(g|kg|L|l|ml|un|pct|cx)\s+(.+)$/i)
+  if (!match) return { name: trimmed, quantity: 0, unit: 'un', ok: false }
+  const quantity = parseFloat(match[1].replace(',', '.'))
+  const unit = match[2].toLowerCase() === 'l' ? 'L' : match[2].toLowerCase()
+  return { name: match[3].trim(), quantity, unit, ok: true }
+}
+
 export default function Cadastros() {
   const [products, setProducts] = useState<Product[]>([])
   const [ingredients, setIngredients] = useState(getIngredients())
   const [editProduct, setEditProduct] = useState<Product | null>(null)
+  const [showImport, setShowImport] = useState(false)
+
+  // Import form state
+  const [importName, setImportName] = useState('')
+  const [importCategory, setImportCategory] = useState<Product['category']>('macarrao')
+  const [importPrice, setImportPrice] = useState('')
+  const [importText, setImportText] = useState('')
+  const [importSaved, setImportSaved] = useState(false)
 
   function reload() {
     setProducts(getProducts())
@@ -67,6 +92,50 @@ export default function Cadastros() {
     setEditProduct({ ...editProduct, ingredients: editProduct.ingredients.filter((_, i) => i !== idx) })
   }
 
+  // Parse preview
+  const parsedLines = importText
+    .split('\n')
+    .map(parseLine)
+    .filter(Boolean) as ParsedLine[]
+
+  const validLines = parsedLines.filter(l => l.ok)
+
+  function saveImport() {
+    if (!importName || validLines.length === 0) return
+    const currentIngs = getIngredients()
+    const recipeLinks: ProductIngredient[] = []
+
+    for (const line of validLines) {
+      let ing = currentIngs.find(i => i.name.toLowerCase() === line.name.toLowerCase())
+      if (!ing) {
+        ing = { id: id(), name: line.name, unit: line.unit, currentStock: 0, minStock: 0 } as Ingredient
+        saveIngredient(ing)
+        currentIngs.push(ing)
+      }
+      recipeLinks.push({ ingredientId: ing.id, quantity: line.quantity, unit: line.unit })
+    }
+
+    saveProduct({
+      id: id(),
+      name: importName,
+      category: importCategory,
+      salePrice: parseFloat(importPrice) || 0,
+      ingredients: recipeLinks,
+      active: true,
+    })
+
+    reload()
+    setImportSaved(true)
+    setTimeout(() => {
+      setShowImport(false)
+      setImportName('')
+      setImportCategory('macarrao')
+      setImportPrice('')
+      setImportText('')
+      setImportSaved(false)
+    }, 1500)
+  }
+
   const grouped = products.reduce<Record<string, Product[]>>((acc, p) => {
     acc[p.category] = acc[p.category] || []
     acc[p.category].push(p)
@@ -80,15 +149,119 @@ export default function Cadastros() {
           <h1 className="text-2xl font-bold text-gray-800">Cadastros</h1>
           <p className="text-gray-500 text-sm">Produtos e cardápio</p>
         </div>
-        <button
-          onClick={() => setEditProduct(emptyProduct())}
-          className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 font-medium text-sm"
-        >
-          <Plus size={16} /> Novo Produto
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setShowImport(true)}
+            className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 font-medium text-sm"
+          >
+            <FileText size={16} /> Importar Receita
+          </button>
+          <button
+            onClick={() => setEditProduct(emptyProduct())}
+            className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 font-medium text-sm"
+          >
+            <Plus size={16} /> Novo Produto
+          </button>
+        </div>
       </div>
 
-      {/* Formulário de produto */}
+      {/* Modal Importar Receita */}
+      {showImport && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <div>
+                <h2 className="font-bold text-gray-800">Importar Receita</h2>
+                <p className="text-xs text-gray-400">Digite os ingredientes linha por linha</p>
+              </div>
+              <button onClick={() => setShowImport(false)}><X size={20} className="text-gray-400" /></button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-600 mb-1 block">Nome do prato</label>
+                  <input
+                    value={importName}
+                    onChange={e => setImportName(e.target.value)}
+                    placeholder="Ex: Macarrão, X-Burguer..."
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-600 mb-1 block">Categoria</label>
+                  <select
+                    value={importCategory}
+                    onChange={e => setImportCategory(e.target.value as Product['category'])}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                  >
+                    {categories.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-600 mb-1 block">Preço de venda (R$)</label>
+                  <input
+                    type="number" min={0} step="0.01"
+                    value={importPrice}
+                    onChange={e => setImportPrice(e.target.value)}
+                    placeholder="0,00"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-400"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-600 mb-1 block">
+                  Ingredientes — um por linha no formato: <span className="font-mono bg-gray-100 px-1 rounded">350 g Macarrão</span>
+                </label>
+                <textarea
+                  value={importText}
+                  onChange={e => setImportText(e.target.value)}
+                  rows={10}
+                  placeholder={`350 g Macarrão\n100 g Bacon\n100 g Calabresa\n120 g Frango\n120 g Pernil\n100 g Cebola\n50 g Pimentão\n200 g Tomate\n30 g Alho\n200 g Queijo Parmesão\n200 ml Shoyu`}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:border-blue-400 resize-none"
+                />
+              </div>
+
+              {/* Preview */}
+              {parsedLines.length > 0 && (
+                <div className="bg-gray-50 rounded-lg p-3 space-y-1">
+                  <p className="text-xs font-medium text-gray-600 mb-2">{validLines.length} ingrediente(s) reconhecido(s):</p>
+                  {parsedLines.map((l, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      {l.ok
+                        ? <Check size={12} className="text-green-500 shrink-0" />
+                        : <AlertCircle size={12} className="text-red-400 shrink-0" />
+                      }
+                      <span className={l.ok ? 'text-gray-700' : 'text-red-400'}>
+                        {l.ok ? `${l.quantity} ${l.unit} — ${l.name}` : `Linha inválida: "${l.name}"`}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setShowImport(false)} className="flex-1 px-4 py-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg">
+                  Cancelar
+                </button>
+                <button
+                  onClick={saveImport}
+                  disabled={!importName || validLines.length === 0 || importSaved}
+                  className="flex-1 flex items-center justify-center gap-2 bg-blue-600 text-white py-2 rounded-lg text-sm font-medium disabled:opacity-40 hover:bg-blue-700"
+                >
+                  {importSaved
+                    ? <><Check size={15} /> Salvo!</>
+                    : <><FileText size={15} /> Cadastrar Receita</>
+                  }
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Formulário de edição */}
       {editProduct && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
           <div className="flex justify-between items-center mb-4">
@@ -130,7 +303,6 @@ export default function Cadastros() {
             </div>
           </div>
 
-          {/* Ingredientes do produto */}
           <div className="mb-4">
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-medium text-gray-600">Ingredientes (para precificação)</label>
@@ -187,7 +359,7 @@ export default function Cadastros() {
               </button>
               <button
                 onClick={() => saveAndClose(editProduct)}
-                disabled={!editProduct.name || editProduct.salePrice <= 0}
+                disabled={!editProduct.name}
                 className="bg-orange-500 text-white px-5 py-2 rounded-lg hover:bg-orange-600 text-sm font-medium disabled:opacity-40"
               >
                 Salvar Produto
@@ -197,12 +369,12 @@ export default function Cadastros() {
         </div>
       )}
 
-      {/* Lista de produtos por categoria */}
+      {/* Lista de produtos */}
       {products.length === 0 ? (
         <div className="text-center py-20">
           <Settings size={48} className="text-gray-200 mx-auto mb-3" />
           <p className="text-gray-400">Nenhum produto cadastrado.</p>
-          <p className="text-gray-400 text-sm">Adicione seus lanches para começar a registrar vendas.</p>
+          <p className="text-gray-400 text-sm">Clique em "Importar Receita" ou "Novo Produto" para começar.</p>
         </div>
       ) : (
         <div className="space-y-4">
@@ -228,10 +400,7 @@ export default function Cadastros() {
                       </div>
                       <div className="flex items-center gap-4">
                         <span className="font-semibold text-orange-600">{fmt(p.salePrice)}</span>
-                        <button
-                          onClick={() => setEditProduct({ ...p })}
-                          className="text-blue-400 hover:text-blue-600"
-                        >
+                        <button onClick={() => setEditProduct({ ...p })} className="text-blue-400 hover:text-blue-600">
                           <Edit2 size={15} />
                         </button>
                         <button
