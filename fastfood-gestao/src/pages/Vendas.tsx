@@ -480,7 +480,7 @@ export default function Vendas() {
                     </div>
                   ))}
                 </div>
-                <CheckoutPanel />
+                {CheckoutPanel({})}
               </>
             )}
           </div>
@@ -518,7 +518,7 @@ export default function Vendas() {
                     </div>
                   ))}
                 </div>
-                <CheckoutPanel mobile />
+                {CheckoutPanel({ mobile: true })}
               </div>
             </div>
           )}
