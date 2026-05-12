@@ -1,7 +1,22 @@
 import { useState } from 'react'
 import { getCustomers, saveCustomer, deleteCustomer, getCashbackConfig, saveCashbackConfig, getSales, id } from '../store/storage'
+import { getBusinessId } from '../store/supabase'
+import { supabase } from '../store/supabase'
 import type { Customer, CashbackConfig } from '../types'
-import { Plus, Trash2, X, Check, Users, Gift, Phone, Cake, Search, ChevronDown, ChevronUp, ShoppingBag, ArrowLeft } from 'lucide-react'
+import { Plus, Trash2, X, Check, Users, Gift, Phone, Cake, Search, ChevronDown, ChevronUp, ShoppingBag, ArrowLeft, Link } from 'lucide-react'
+
+function memberSince(iso: string) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const now = new Date()
+  const days = Math.floor((now.getTime() - d.getTime()) / 86400000)
+  if (days === 0) return 'Cadastrado hoje'
+  if (days < 30) return `${days} dia${days > 1 ? 's' : ''} cadastrado`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months} mês${months > 1 ? 'es' : ''} cadastrado`
+  const years = Math.floor(months / 12)
+  return `${years} ano${years > 1 ? 's' : ''} cadastrado`
+}
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -53,8 +68,17 @@ export default function Clientes() {
   const [showCashbackSettings, setShowCashbackSettings] = useState(false)
   const [saved, setSaved] = useState(false)
   const [detailCustomer, setDetailCustomer] = useState<Customer | null>(null)
+  const [linkCopied, setLinkCopied] = useState(false)
 
   const reload = () => setCustomers(getCustomers())
+
+  const registrationLink = `${window.location.origin}/cadastro?b=${getBusinessId()}`
+
+  async function copyLink() {
+    await navigator.clipboard.writeText(registrationLink)
+    setLinkCopied(true)
+    setTimeout(() => setLinkCopied(false), 2500)
+  }
 
   const filtered = customers.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -142,7 +166,10 @@ export default function Clientes() {
           </button>
           <div className="flex-1">
             <h1 className="text-xl font-bold text-gray-800">{c.name}</h1>
-            <p className="text-gray-500 text-xs">{c.phone && formatPhone(c.phone)}{c.birthday && ` · ${birthdayFromISO(c.birthday)}`}</p>
+            <p className="text-gray-500 text-xs">
+              {c.phone && formatPhone(c.phone)}{c.birthday && ` · ${birthdayFromISO(c.birthday)}`}
+              {c.createdAt && <span className="text-orange-400"> · {memberSince(c.createdAt)}</span>}
+            </p>
           </div>
           <button onClick={() => { openEdit(c); setDetailCustomer(null) }}
             className="text-xs text-orange-500 border border-orange-300 px-3 py-1.5 rounded-lg hover:bg-orange-50">
@@ -199,17 +226,28 @@ export default function Clientes() {
 
   return (
     <div className="p-4 md:p-6 space-y-5">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-800">Clientes</h1>
           <p className="text-gray-500 text-sm">{customers.length} cliente{customers.length !== 1 ? 's' : ''} cadastrado{customers.length !== 1 ? 's' : ''}</p>
         </div>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl font-medium text-sm shadow"
-        >
-          <Plus size={16} /> Novo Cliente
-        </button>
+        <div className="flex gap-2">
+          {supabase && (
+            <button
+              onClick={copyLink}
+              title="Copiar link de cadastro para clientes"
+              className={`flex items-center gap-2 px-3 py-2 rounded-xl font-medium text-sm border transition-colors ${linkCopied ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-200 text-gray-600 hover:border-orange-300 hover:text-orange-600'}`}
+            >
+              {linkCopied ? <><Check size={14} /> Copiado!</> : <><Link size={14} /> Link</>}
+            </button>
+          )}
+          <button
+            onClick={openNew}
+            className="flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-xl font-medium text-sm shadow"
+          >
+            <Plus size={16} /> Novo Cliente
+          </button>
+        </div>
       </div>
 
       {/* Aniversariantes do dia */}
@@ -318,6 +356,7 @@ export default function Clientes() {
                   </p>
                 )}
                 {c.totalSpent > 0 && <p className="text-xs text-gray-400">{fmt(c.totalSpent)} gasto</p>}
+                {c.createdAt && <p className="text-xs text-gray-300">{memberSince(c.createdAt)}</p>}
               </div>
               <button
                 onClick={e => { e.stopPropagation(); handleDelete(c.id) }}

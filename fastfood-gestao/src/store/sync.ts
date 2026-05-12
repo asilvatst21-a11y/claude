@@ -1,4 +1,24 @@
 import { supabase, getBusinessId, ENTITY_KEYS } from './supabase'
+import type { Customer } from '../types'
+
+// Salva cliente diretamente para um business_id específico (usado no cadastro público)
+export async function pushCustomerPublic(businessId: string, customer: Customer): Promise<boolean> {
+  if (!supabase) return false
+  try {
+    const { error } = await supabase.from('ff_sync').upsert({
+      id: `customers_${customer.id}`,
+      business_id: businessId,
+      entity_type: 'customers',
+      entity_id: customer.id,
+      data: customer,
+      deleted: false,
+      synced_at: new Date().toISOString(),
+    })
+    return !error
+  } catch {
+    return false
+  }
+}
 
 // Envia um registro para o Supabase (fire-and-forget)
 export async function pushRecord(entityType: string, entityId: string, data: unknown) {
