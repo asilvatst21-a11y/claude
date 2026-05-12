@@ -1,3 +1,94 @@
+const HEADERS = {
+  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+  'Accept-Language': 'pt-BR,pt;q=0.9',
+}
+
+// Portais de consulta NFC-e por código de estado (2 primeiros dígitos da chave)
+const STATE_GET_URLS = {
+  '33': 'https://consultadfe.fazenda.rj.gov.br/consultaNFCe/paginas/resultadoNfce.faces?chNFe=',
+  '35': 'https://www.nfce.fazenda.sp.gov.br/consulta?chNFe=',
+  '31': 'https://nfce.fazenda.mg.gov.br/portalnfce/sistema/consultaarg.xhtml?p1=',
+  '41': 'https://www.fazenda.pr.gov.br/nfce/consulta?chNFe=',
+  '43': 'https://www.sefaz.rs.gov.br/NFCE/NFCE-COM.aspx?chNFe=',
+  '42': 'https://sat.sef.sc.gov.br/nfce/consulta?chNFe=',
+  '29': 'http://nfe.sefaz.ba.gov.br/servicos/nfce/default.aspx?chNFe=',
+  '23': 'http://nfce.sefaz.ce.gov.br/pages/showNFCe.html.faces?chNFe=',
+  '53': 'https://dec.fazenda.df.gov.br/ConsultarNFCe.aspx?chNFe=',
+  '52': 'https://www.economia.go.gov.br/portalnfce/sistema/consultaarg.xhtml?p1=',
+  '51': 'https://www.sefaz.mt.gov.br/nfce/consultanfce?chNFe=',
+  '50': 'https://www.dfe.ms.gov.br/nfce/consulta?chNFe=',
+  '26': 'https://nfce.sefaz.pe.gov.br/nfce-web/consultarNFCe?chNFe=',
+  '27': 'https://nfce.sefaz.al.gov.br/QRCode/consultarNFCe.jsp?chNFe=',
+}
+
+// Portal JSF do RJ — precisa buscar o ViewState antes de fazer POST
+const RJ_FORM_URL = 'https://consultadfe.fazenda.rj.gov.br/consultaNFCe/consultaQRCode.faces'
+
+async function consultarPorChave(chaveLimpa) {
+  const stateCode = chaveLimpa.slice(0, 2)
+
+  // 1. Tenta GET direto no portal do estado detectado
+  const stateUrl = STATE_GET_URLS[stateCode]
+  if (stateUrl) {
+    try {
+      const res = await fetch(stateUrl + chaveLimpa, { headers: HEADERS, redirect: 'follow' })
+      if (res.ok) {
+        const html = await res.text()
+        const data = parseSefazHTML(html, stateUrl + chaveLimpa)
+        if (data.items && data.items.length > 0) return data
+      }
+    } catch { /* continua para o próximo método */ }
+  }
+
+  // 2. Para RJ: faz GET para pegar o ViewState e então POST no portal JSF
+  if (stateCode === '33') {
+    try {
+      const getRes = await fetch(RJ_FORM_URL, { headers: HEADERS, redirect: 'follow' })
+      const formHtml = await getRes.text()
+      const cookies = getRes.headers.get('set-cookie') || ''
+
+      const vsMatch = formHtml.match(/id=["']javax\.faces\.ViewState["'][^>]*value=["']([^"']+)["']/)
+        || formHtml.match(/name=["']javax\.faces\.ViewState["'][^>]*value=["']([^"']+)["']/)
+      const viewState = vsMatch ? vsMatch[1] : 'j_id1:j_id4'
+
+      const formData = new URLSearchParams()
+      formData.append('formulario', 'formulario')
+      formData.append('formulario:chaveAcesso', chaveLimpa)
+      formData.append('formulario:j_idt13', '')
+      formData.append('javax.faces.ViewState', viewState)
+
+      const postRes = await fetch(RJ_FORM_URL, {
+        method: 'POST',
+        headers: {
+          ...HEADERS,
+          'Content-Type': 'application/x-www-form-urlencoded',
+          'Referer': RJ_FORM_URL,
+          ...(cookies ? { Cookie: cookies } : {}),
+        },
+        body: formData.toString(),
+        redirect: 'follow',
+      })
+      const html = await postRes.text()
+      const data = parseSefazHTML(html, RJ_FORM_URL)
+      if (data.items && data.items.length > 0) return data
+    } catch { /* continua */ }
+  }
+
+  // 3. Fallback genérico: tenta GET com ?chNFe= no portal RJ (útil para chaves de acesso impresso)
+  try {
+    const fallbackUrl = `https://consultadfe.fazenda.rj.gov.br/consultaNFCe/paginas/resultadoNfce.faces?chNFe=${chaveLimpa}`
+    const res = await fetch(fallbackUrl, { headers: HEADERS, redirect: 'follow' })
+    if (res.ok) {
+      const html = await res.text()
+      const data = parseSefazHTML(html, fallbackUrl)
+      if (data.items && data.items.length > 0) return data
+    }
+  } catch { /* sem resultado */ }
+
+  return null
+}
+
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
@@ -8,76 +99,35 @@ export default async function handler(req, res) {
   const { url, chave } = req.body
 
   try {
-    let targetUrl = url
-
-    // Se veio chave de acesso, monta a URL de consulta do RJ
+    // Consulta por chave de acesso
     if (chave) {
       const chaveLimpa = chave.replace(/\D/g, '')
       if (chaveLimpa.length !== 44) {
         return res.status(400).json({ error: 'Chave de acesso inválida. Deve ter 44 dígitos.' })
       }
-      targetUrl = `https://consultadfe.fazenda.rj.gov.br/consultaNFCe/consultaQRCode.faces`
 
-      // Faz POST com a chave para o portal do RJ
-      const formData = new URLSearchParams()
-      formData.append('formulario', 'formulario')
-      formData.append('formulario:chaveAcesso', chaveLimpa)
-      formData.append('formulario:j_idt13', '')
-      formData.append('javax.faces.ViewState', '')
+      const stateCode = chaveLimpa.slice(0, 2)
+      const data = await consultarPorChave(chaveLimpa)
 
-      const postRes = await fetch(targetUrl, {
-        method: 'POST',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-          'Content-Type': 'application/x-www-form-urlencoded',
-          'Accept': 'text/html,application/xhtml+xml',
-          'Accept-Language': 'pt-BR,pt;q=0.9',
-          'Referer': targetUrl,
-        },
-        body: formData.toString(),
-        redirect: 'follow'
-      })
-
-      const html = await postRes.text()
-      const data = parseSefazHTML(html, targetUrl)
-
-      if (!data.items || data.items.length === 0) {
-        // Tenta GET direto com a chave
-        const getUrl = `https://consultadfe.fazenda.rj.gov.br/consultaNFCe/paginas/resultadoNfce.faces?chNFe=${chaveLimpa}`
-        const getRes = await fetch(getUrl, {
-          headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml',
-            'Accept-Language': 'pt-BR,pt;q=0.9',
-          },
-          redirect: 'follow'
-        })
-        const html2 = await getRes.text()
-        const data2 = parseSefazHTML(html2, getUrl)
-        if (!data2.items || data2.items.length === 0) {
-          return res.status(500).json({ error: 'Não foi possível extrair os produtos. Verifique se a chave está correta.' })
-        }
-        return res.json(data2)
+      if (!data || !data.items || data.items.length === 0) {
+        const stateSupported = !!STATE_GET_URLS[stateCode]
+        const msg = stateSupported
+          ? `Não foi possível extrair os produtos (estado ${stateCode}). O portal da SEFAZ pode estar indisponível ou a chave pode ser de NF-e (não NFC-e).`
+          : `Estado ${stateCode} não suportado na consulta por chave. Use a foto da nota ou o QR Code.`
+        return res.status(500).json({ error: msg })
       }
 
       return res.json(data)
     }
 
-    // Consulta por URL direta
-    if (!targetUrl) return res.status(400).json({ error: 'URL ou chave não informada.' })
+    // Consulta por URL direta (QR Code)
+    if (!url) return res.status(400).json({ error: 'URL ou chave não informada.' })
 
-    const response = await fetch(targetUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'pt-BR,pt;q=0.9',
-      },
-      redirect: 'follow'
-    })
-
+    const response = await fetch(url, { headers: HEADERS, redirect: 'follow' })
     if (!response.ok) throw new Error(`Erro ao acessar a Sefaz: ${response.status}`)
+
     const html = await response.text()
-    const data = parseSefazHTML(html, response.url || targetUrl)
+    const data = parseSefazHTML(html, response.url || url)
 
     if (!data.items || data.items.length === 0) {
       throw new Error('Não foi possível extrair os produtos da nota.')
@@ -111,7 +161,9 @@ function parseSefazHTML(html, url) {
     /class=["']txtTopo["'][^>]*>([\s\S]*?)<\/div>/i,
     /class=["']txEmp["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
     /class=["']NomeEmit["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
+    /class=["']nome-emitente["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
     /<h4[^>]*>([\s\S]*?)<\/h4>/i,
+    /<h1[^>]*>([\s\S]*?)<\/h1>/i,
   ]
   for (const p of storePatterns) {
     const m = html.match(p)
@@ -128,7 +180,9 @@ function parseSefazHTML(html, url) {
   let total = 0
   const totalPatterns = [
     /class=["'][^"']*totalNumb txtMax[^"']*["'][^>]*>([\s\S]*?)<\/span>/i,
+    /class=["'][^"']*total[^"']*["'][^>]*>([\s\S]*?)<\/[^>]+>/i,
     /Valor a pagar R\$[^<]*<[^>]+>([\s\S]*?)<\/span>/i,
+    /Total\s*R\$\s*([\d.,]+)/i,
   ]
   for (const p of totalPatterns) {
     const m = html.match(p)
@@ -144,18 +198,21 @@ function parseSefazHTML(html, url) {
     const row = rowMatch[1]
 
     const nameMatch = row.match(/class=["']txtTit["'][^>]*>([\s\S]*?)(?:<span class=["']RCod|<\/span>)/)
+      || row.match(/class=["']nome-produto["'][^>]*>([\s\S]*?)<\/[^>]+>/)
     const name = nameMatch ? clean(stripTags(nameMatch[1])) : ''
 
-    const qtdMatch = row.match(/Qtde\.:?\s*([\d.,]+)/i)
+    const qtdMatch = row.match(/Qtde\.:?\s*([\d.,]+)/i) || row.match(/Quantidade:?\s*([\d.,]+)/i)
     const quantity = qtdMatch ? parseBRL(qtdMatch[1]) : 1
 
-    const unMatch = row.match(/UN:\s*([A-Za-z]+)/i)
+    const unMatch = row.match(/UN:\s*([A-Za-z]+)/i) || row.match(/Unidade:\s*([A-Za-z]+)/i)
     const unit = unMatch ? unMatch[1].toLowerCase().slice(0, 3) : 'un'
 
     const unitPriceMatch = row.match(/Vl\. Unit\.:?\s*(?:&nbsp;)?\s*([\d.,]+)/i)
+      || row.match(/Valor Unit\w*:?\s*([\d.,]+)/i)
     const unitPrice = unitPriceMatch ? parseBRL(unitPriceMatch[1]) : 0
 
     const totalMatch = row.match(/class=["']valor["'][^>]*>([\s\S]*?)<\/span>/i)
+      || row.match(/class=["']valor-produto["'][^>]*>([\s\S]*?)<\/[^>]+>/i)
     const totalPrice = totalMatch ? parseBRL(stripTags(totalMatch[1])) : quantity * unitPrice
 
     if (name && name.length > 1 && totalPrice > 0) {
