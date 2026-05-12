@@ -1,7 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, Package, TrendingUp,
-  FileText, BarChart2, Settings, UtensilsCrossed, MoreHorizontal, Users
+  FileText, BarChart2, Settings, UtensilsCrossed, MoreHorizontal, Users, DollarSign
 } from 'lucide-react'
 import { useState } from 'react'
 
@@ -9,11 +9,12 @@ const navMain = [
   { to: '/',         icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/vendas',   icon: ShoppingCart,    label: 'Vendas' },
   { to: '/estoque',  icon: Package,         label: 'Estoque' },
-  { to: '/cadastros',icon: Settings,        label: 'Cadastros' },
+  { to: '/caixa',    icon: DollarSign,      label: 'Caixa' },
 ]
 
 const navMore = [
   { to: '/clientes',     icon: Users,      label: 'Clientes' },
+  { to: '/cadastros',    icon: Settings,   label: 'Cadastros' },
   { to: '/precificacao', icon: TrendingUp, label: 'Precificação' },
   { to: '/dre',          icon: FileText,   label: 'DRE' },
   { to: '/relatorios',   icon: BarChart2,  label: 'Relatórios' },

@@ -10,6 +10,7 @@ import DRE from './pages/DRE'
 import Relatorios from './pages/Relatorios'
 import Cadastros from './pages/Cadastros'
 import Clientes from './pages/Clientes'
+import Caixa from './pages/Caixa'
 import CadastroPublico from './pages/CadastroPublico'
 import Login from './pages/Login'
 import SyncSetup from './components/SyncSetup'
@@ -125,6 +126,7 @@ export default function App() {
                     <Route path="relatorios" element={<Relatorios />} />
                     <Route path="cadastros" element={<Cadastros />} />
                     <Route path="clientes" element={<Clientes />} />
+                    <Route path="caixa" element={<Caixa />} />
                   </Route>
                 </Routes>
               </>

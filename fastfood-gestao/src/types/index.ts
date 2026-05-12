@@ -100,3 +100,21 @@ export interface CashbackConfig {
   enabled: boolean
   percentage: number
 }
+
+export interface CashExpense {
+  id: string
+  description: string
+  amount: number
+  time: string
+}
+
+export interface CashSession {
+  id: string
+  date: string
+  openingBalance: number
+  closingExpected: number
+  closingCounted: number | null
+  expenses: CashExpense[]
+  status: 'open' | 'closed'
+  notes: string
+}
