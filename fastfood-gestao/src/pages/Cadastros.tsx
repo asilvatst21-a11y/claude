@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
-import { getProducts, saveProduct, deleteProduct, getIngredients, saveIngredient, id } from '../store/storage'
+import { getProducts, saveProduct, deleteProduct, getIngredients, saveIngredient, getSales, getPurchases, getCashSessions, getDREEntries, id } from '../store/storage'
+import { deleteRecord } from '../store/sync'
 import type { Product, ProductIngredient, Ingredient } from '../types'
 import { Plus, Trash2, X, Settings, Edit2, FileText, Check, AlertCircle } from 'lucide-react'
 
@@ -41,11 +42,32 @@ function parseLine(line: string): ParsedLine | null {
   return { name: match[3].trim(), quantity, unit, ok: true }
 }
 
+async function clearTransactionalData() {
+  const sales = getSales()
+  const purchases = getPurchases()
+  const sessions = getCashSessions()
+  const dre = getDREEntries()
+
+  // Marca como deletado no Supabase
+  for (const s of sales) await deleteRecord('sales', s.id).catch(() => {})
+  for (const p of purchases) await deleteRecord('purchases', p.id).catch(() => {})
+  for (const c of sessions) await deleteRecord('cash_sessions', c.id).catch(() => {})
+  for (const e of dre) await deleteRecord('dre', e.month + '_' + e.year).catch(() => {})
+
+  // Remove do localStorage
+  localStorage.removeItem('ff_sales')
+  localStorage.removeItem('ff_purchases')
+  localStorage.removeItem('ff_cash_sessions')
+  localStorage.removeItem('ff_dre')
+}
+
 export default function Cadastros() {
   const [products, setProducts] = useState<Product[]>([])
   const [ingredients, setIngredients] = useState(getIngredients())
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [showImport, setShowImport] = useState(false)
+  const [clearing, setClearing] = useState(false)
+  const [cleared, setCleared] = useState(false)
 
   // Import form state
   const [importName, setImportName] = useState('')
@@ -134,6 +156,15 @@ export default function Cadastros() {
       setImportText('')
       setImportSaved(false)
     }, 1500)
+  }
+
+  async function handleClearData() {
+    if (!confirm('Apagar TODAS as vendas, compras, sessões de caixa e lançamentos DRE? Esta ação não pode ser desfeita.')) return
+    setClearing(true)
+    await clearTransactionalData()
+    setClearing(false)
+    setCleared(true)
+    setTimeout(() => setCleared(false), 3000)
   }
 
   const grouped = products.reduce<Record<string, Product[]>>((acc, p) => {
@@ -418,6 +449,26 @@ export default function Cadastros() {
           })}
         </div>
       )}
+
+      {/* Zona de perigo */}
+      <div className="mt-10 border border-red-100 rounded-xl p-5 bg-red-50">
+        <h2 className="font-semibold text-red-600 mb-1 text-sm uppercase tracking-wide">Zona de perigo</h2>
+        <p className="text-xs text-gray-500 mb-3">
+          Apaga permanentemente todas as vendas, compras, sessões de caixa e lançamentos DRE — inclusive na nuvem.
+          Produtos, ingredientes, fornecedores e clientes são mantidos.
+        </p>
+        <button
+          onClick={handleClearData}
+          disabled={clearing || cleared}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            cleared
+              ? 'bg-green-500 text-white'
+              : 'bg-red-500 text-white hover:bg-red-600 disabled:opacity-60'
+          }`}
+        >
+          {cleared ? <><Check size={15} /> Dados apagados!</> : clearing ? 'Apagando...' : <><Trash2 size={15} /> Limpar dados de teste</>}
+        </button>
+      </div>
     </div>
   )
 }
