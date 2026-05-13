@@ -67,6 +67,8 @@ export interface Sale {
   total: number
   paymentMethod: 'dinheiro' | 'cartao_debito' | 'cartao_credito' | 'pix'
   notes: string
+  orderType?: 'balcao' | 'delivery'
+  deliveryFee?: number
   customerId?: string
   customerName?: string
   cashbackUsed?: number
