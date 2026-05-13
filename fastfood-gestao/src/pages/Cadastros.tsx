@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { getProducts, saveProduct, deleteProduct, getIngredients, saveIngredient, getSales, getPurchases, getCashSessions, getDREEntries, id } from '../store/storage'
-import { deleteRecord } from '../store/sync'
+import { getProducts, saveProduct, deleteProduct, getIngredients, saveIngredient, id } from '../store/storage'
+import { supabase, getBusinessId } from '../store/supabase'
 import type { Product, ProductIngredient, Ingredient } from '../types'
 import { Plus, Trash2, X, Settings, Edit2, FileText, Check, AlertCircle } from 'lucide-react'
 
@@ -43,16 +43,14 @@ function parseLine(line: string): ParsedLine | null {
 }
 
 async function clearTransactionalData() {
-  const sales = getSales()
-  const purchases = getPurchases()
-  const sessions = getCashSessions()
-  const dre = getDREEntries()
-
-  // Marca como deletado no Supabase
-  for (const s of sales) await deleteRecord('sales', s.id).catch(() => {})
-  for (const p of purchases) await deleteRecord('purchases', p.id).catch(() => {})
-  for (const c of sessions) await deleteRecord('cash_sessions', c.id).catch(() => {})
-  for (const e of dre) await deleteRecord('dre', e.month + '_' + e.year).catch(() => {})
+  // Bulk update no Supabase: marca todas as entidades transacionais como deletadas em uma query
+  if (supabase) {
+    await supabase
+      .from('ff_sync')
+      .update({ deleted: true, synced_at: new Date().toISOString() })
+      .eq('business_id', getBusinessId())
+      .in('entity_type', ['sales', 'purchases', 'cash_sessions', 'dre'])
+  }
 
   // Remove do localStorage
   localStorage.removeItem('ff_sales')
