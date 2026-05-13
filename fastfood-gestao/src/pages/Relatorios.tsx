@@ -4,7 +4,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid,
   Tooltip, ResponsiveContainer, PieChart, Pie, Cell, Legend
 } from 'recharts'
-import { BarChart2, Trophy, ArrowUpDown } from 'lucide-react'
+import { BarChart2, Trophy, ArrowUpDown, Bike, UtensilsCrossed } from 'lucide-react'
 
 const MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
 
@@ -259,6 +259,120 @@ export default function Relatorios() {
               </div>
             )}
           </div>
+
+          {/* Balcão vs Delivery */}
+          {(() => {
+            const balcaoSales = yearSales.filter(s => !s.orderType || s.orderType === 'balcao')
+            const deliverySales = yearSales.filter(s => s.orderType === 'delivery')
+            const balcaoRevenue = balcaoSales.reduce((s, x) => s + x.total, 0)
+            const deliveryRevenue = deliverySales.reduce((s, x) => s + x.total, 0)
+            const deliveryFeeTotal = deliverySales.reduce((s, x) => s + (x.deliveryFee || 0), 0)
+
+            // Top clientes delivery
+            const deliveryByCustomer: Record<string, { name: string; count: number; spent: number }> = {}
+            deliverySales.forEach(s => {
+              if (!s.customerId || !s.customerName) return
+              if (!deliveryByCustomer[s.customerId]) deliveryByCustomer[s.customerId] = { name: s.customerName, count: 0, spent: 0 }
+              deliveryByCustomer[s.customerId].count++
+              deliveryByCustomer[s.customerId].spent += s.total
+            })
+            const topDeliveryCustomers = Object.values(deliveryByCustomer).sort((a, b) => b.count - a.count).slice(0, 5)
+
+            const pieData = [
+              { name: 'Balcão', value: balcaoSales.length },
+              { name: 'Delivery', value: deliverySales.length },
+            ].filter(d => d.value > 0)
+
+            if (balcaoSales.length === 0 && deliverySales.length === 0) return null
+
+            return (
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+                <h2 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
+                  <Bike size={16} className="text-blue-500" /> Balcão vs Delivery
+                </h2>
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Cards de resumo */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-3 p-4 rounded-xl bg-orange-50 border border-orange-100">
+                      <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
+                        <UtensilsCrossed size={18} className="text-orange-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-orange-500 font-medium uppercase tracking-wide">Balcão</p>
+                        <p className="text-lg font-bold text-gray-800">{balcaoSales.length} pedidos</p>
+                        <p className="text-sm text-orange-600 font-semibold">{fmt(balcaoRevenue)}</p>
+                      </div>
+                      {yearSales.length > 0 && (
+                        <span className="text-2xl font-bold text-orange-300">
+                          {Math.round((balcaoSales.length / yearSales.length) * 100)}%
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 p-4 rounded-xl bg-blue-50 border border-blue-100">
+                      <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+                        <Bike size={18} className="text-blue-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs text-blue-500 font-medium uppercase tracking-wide">Delivery</p>
+                        <p className="text-lg font-bold text-gray-800">{deliverySales.length} pedidos</p>
+                        <p className="text-sm text-blue-600 font-semibold">{fmt(deliveryRevenue)}</p>
+                        {deliveryFeeTotal > 0 && (
+                          <p className="text-xs text-gray-400">Taxas: {fmt(deliveryFeeTotal)}</p>
+                        )}
+                      </div>
+                      {yearSales.length > 0 && (
+                        <span className="text-2xl font-bold text-blue-300">
+                          {Math.round((deliverySales.length / yearSales.length) * 100)}%
+                        </span>
+                      )}
+                    </div>
+                    {deliverySales.length > 0 && (
+                      <div className="text-xs text-gray-500 px-1">
+                        Ticket médio delivery: <span className="font-semibold text-gray-700">{fmt(deliveryRevenue / deliverySales.length)}</span>
+                        {balcaoSales.length > 0 && (
+                          <> · Balcão: <span className="font-semibold text-gray-700">{fmt(balcaoRevenue / balcaoSales.length)}</span></>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Pie + top clientes */}
+                  <div>
+                    {pieData.length > 1 && (
+                      <ResponsiveContainer width="100%" height={140}>
+                        <PieChart>
+                          <Pie data={pieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60}
+                            label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}>
+                            <Cell fill="#f97316" />
+                            <Cell fill="#3b82f6" />
+                          </Pie>
+                          <Tooltip formatter={(v) => [`${v} pedidos`, '']} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    )}
+                    {topDeliveryCustomers.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wide">Top Clientes Delivery</p>
+                        <div className="space-y-1.5">
+                          {topDeliveryCustomers.map((c, i) => (
+                            <div key={c.name} className="flex items-center gap-2">
+                              <span className="text-xs text-gray-400 w-4">{i + 1}</span>
+                              <span className="text-sm text-gray-700 flex-1 truncate">{c.name}</span>
+                              <span className="text-xs font-semibold text-blue-600">{c.count}x</span>
+                              <span className="text-xs text-gray-500">{fmt(c.spent)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {deliverySales.length > 0 && topDeliveryCustomers.length === 0 && (
+                      <p className="text-xs text-gray-400 text-center mt-4">Nenhum cliente identificado nos pedidos delivery.</p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Tabela resumo por mês */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">

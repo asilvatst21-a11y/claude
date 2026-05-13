@@ -3,7 +3,7 @@ import QRCode from 'qrcode'
 import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer, getCashbackConfig, getPixConfig, savePixConfig, id } from '../store/storage'
 import type { PixConfig } from '../store/storage'
 import type { Sale, SaleItem, Customer } from '../types'
-import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2 } from 'lucide-react'
+import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed } from 'lucide-react'
 
 // PIX BRCode (EMV Merchant Presented Mode) com CRC16-CCITT
 function crc16(str: string): string {
@@ -166,6 +166,10 @@ export default function Vendas() {
 
   const cashbackConfig = getCashbackConfig()
 
+  // Delivery
+  const [orderType, setOrderType] = useState<'balcao' | 'delivery'>('balcao')
+  const [deliveryFee, setDeliveryFee] = useState('')
+
   useEffect(() => { setSales(getSales()); setCustomers(getCustomers()) }, [view])
 
   const activeProducts = products.filter(p => p.active)
@@ -177,16 +181,18 @@ export default function Vendas() {
   const cartSubtotal = cart.reduce((s, x) => s + x.total, 0)
   const cashbackDiscount = useCashback && selectedCustomer ? Math.min(selectedCustomer.cashbackBalance, cartSubtotal) : 0
   const cartTotal = Math.max(0, cartSubtotal - cashbackDiscount)
+  const deliveryFeeAmount = orderType === 'delivery' ? (parseFloat(deliveryFee) || 0) : 0
+  const saleTotal = cartTotal + deliveryFeeAmount
   const cashbackEarned = cashbackConfig.enabled && !useCashback ? cartSubtotal * (cashbackConfig.percentage / 100) : 0
   const cartCount = cart.reduce((s, x) => s + x.quantity, 0)
 
   const received = parseFloat(receivedAmount) || 0
-  const troco = payment === 'dinheiro' && received > 0 ? Math.max(0, received - cartTotal) : 0
-  const trocoBadge = payment === 'dinheiro' && received > 0 && received < cartTotal
+  const troco = payment === 'dinheiro' && received > 0 ? Math.max(0, received - saleTotal) : 0
+  const trocoBadge = payment === 'dinheiro' && received > 0 && received < saleTotal
 
   async function openPixQR() {
     if (!pixConfig) return
-    const payload = buildPixPayload(pixConfig.key, cartTotal, pixConfig.merchantName, pixConfig.city)
+    const payload = buildPixPayload(pixConfig.key, saleTotal, pixConfig.merchantName, pixConfig.city)
     const url = await QRCode.toDataURL(payload, { width: 260, margin: 2, color: { dark: '#111', light: '#fff' } })
     setPixQrUrl(url)
     setShowPixQR(true)
@@ -226,7 +232,9 @@ export default function Vendas() {
     if (cart.length === 0) return
     const sale: Sale = {
       id: id(), date: today(), time: nowTime(),
-      items: cart, total: cartTotal, paymentMethod: payment, notes,
+      items: cart, total: saleTotal, paymentMethod: payment, notes,
+      orderType,
+      deliveryFee: deliveryFeeAmount || undefined,
       customerId: selectedCustomer?.id,
       customerName: selectedCustomer?.name,
       cashbackUsed: cashbackDiscount || undefined,
@@ -237,7 +245,7 @@ export default function Vendas() {
     if (selectedCustomer) {
       const updated: Customer = {
         ...selectedCustomer,
-        totalSpent: selectedCustomer.totalSpent + cartTotal,
+        totalSpent: selectedCustomer.totalSpent + saleTotal,
         cashbackBalance: Math.max(0, selectedCustomer.cashbackBalance - cashbackDiscount) + cashbackEarned,
       }
       saveCustomer(updated)
@@ -248,6 +256,8 @@ export default function Vendas() {
     setCart([])
     setNotes('')
     setPayment('pix')
+    setOrderType('balcao')
+    setDeliveryFee('')
     setSelectedCustomer(null)
     setUseCashback(false)
     setReceivedAmount('')
@@ -275,6 +285,30 @@ export default function Vendas() {
   function CheckoutPanel({ mobile = false }: { mobile?: boolean }) {
     return (
       <div className={mobile ? 'p-5 space-y-4' : 'p-4 border-t border-gray-100 space-y-3'}>
+
+        {/* Canal de venda */}
+        <div className="grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => { setOrderType('balcao'); setDeliveryFee('') }}
+            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors ${orderType === 'balcao' ? 'border-orange-400 bg-orange-50 text-orange-700' : 'border-gray-200 text-gray-400 hover:border-gray-300'}`}>
+            <UtensilsCrossed size={15} /> Balcão
+          </button>
+          <button type="button" onClick={() => setOrderType('delivery')}
+            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors ${orderType === 'delivery' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-gray-200 text-gray-400 hover:border-gray-300'}`}>
+            <Bike size={15} /> Delivery
+          </button>
+        </div>
+
+        {orderType === 'delivery' && (
+          <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2">
+            <Bike size={14} className="text-blue-500 shrink-0" />
+            <span className="text-xs text-blue-700 font-medium shrink-0">Taxa de entrega</span>
+            <input type="number" min={0} step="0.50" value={deliveryFee}
+              onChange={e => setDeliveryFee(e.target.value)}
+              placeholder="R$ 0,00"
+              className="flex-1 text-right text-sm font-semibold text-blue-700 bg-transparent focus:outline-none placeholder:text-blue-300 min-w-0" />
+          </div>
+        )}
+
         {/* Cliente */}
         <CustomerPicker customers={customers} selected={selectedCustomer} onSelect={c => { setSelectedCustomer(c); setUseCashback(false) }} />
 
@@ -303,9 +337,15 @@ export default function Vendas() {
               <span>−{fmt(cashbackDiscount)}</span>
             </div>
           )}
+          {deliveryFeeAmount > 0 && (
+            <div className="flex justify-between text-sm text-blue-600">
+              <span className="flex items-center gap-1"><Bike size={12} /> Taxa de entrega</span>
+              <span>+{fmt(deliveryFeeAmount)}</span>
+            </div>
+          )}
           <div className="flex justify-between font-bold text-gray-800">
             <span>Total</span>
-            <span className="text-orange-500 text-lg">{fmt(cartTotal)}</span>
+            <span className="text-orange-500 text-lg">{fmt(saleTotal)}</span>
           </div>
           {cashbackEarned > 0 && selectedCustomer && (
             <p className="text-xs text-green-600 text-right flex items-center justify-end gap-1">
@@ -340,7 +380,7 @@ export default function Vendas() {
             {received > 0 && (
               <div className={`flex justify-between items-center rounded-lg px-3 py-2 ${trocoBadge ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
                 <span className="text-sm font-medium">{trocoBadge ? 'Valor insuficiente' : 'Troco'}</span>
-                <span className="text-lg font-bold">{trocoBadge ? `−${fmt(cartTotal - received)}` : fmt(troco)}</span>
+                <span className="text-lg font-bold">{trocoBadge ? `−${fmt(saleTotal - received)}` : fmt(troco)}</span>
               </div>
             )}
           </div>
@@ -398,7 +438,7 @@ export default function Vendas() {
 
         <button type="button" onClick={submitSale} disabled={payment === 'dinheiro' && received > 0 && trocoBadge}
           className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2">
-          <Check size={16} /> Confirmar · {fmt(cartTotal)}
+          <Check size={16} /> Confirmar · {fmt(saleTotal)}
         </button>
         <button type="button" onClick={() => { setCart([]); setUseCashback(false); setSelectedCustomer(null) }}
           className="w-full text-xs text-gray-400 hover:text-red-400">Limpar carrinho</button>
@@ -500,7 +540,7 @@ export default function Vendas() {
                 className="w-full bg-orange-500 text-white py-3 rounded-xl font-bold flex items-center justify-between px-5">
                 <span className="bg-white text-orange-500 rounded-full w-6 h-6 text-xs font-bold flex items-center justify-center">{cartCount}</span>
                 <span>Ver pedido{selectedCustomer ? ` · ${selectedCustomer.name.split(' ')[0]}` : ''}</span>
-                <span>{fmt(cartTotal)}</span>
+                <span>{fmt(saleTotal)}</span>
               </button>
             </div>
           )}
@@ -547,7 +587,7 @@ export default function Vendas() {
             <div className="p-5 text-center">
               <img src={pixQrUrl} alt="QR Code PIX" className="mx-auto rounded-xl" width={220} height={220} />
               <div className="mt-4 bg-green-50 rounded-xl px-4 py-3">
-                <p className="text-2xl font-bold text-green-600">{fmt(cartTotal)}</p>
+                <p className="text-2xl font-bold text-green-600">{fmt(saleTotal)}</p>
                 <p className="text-xs text-green-500 mt-0.5">Escaneie com qualquer banco</p>
               </div>
               {pixConfig && (
@@ -598,13 +638,19 @@ export default function Vendas() {
                 {[...filtered].reverse().map(sale => (
                   <div key={sale.id} className="flex items-start justify-between py-2.5 border-b border-gray-50 last:border-0">
                     <div className="flex-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {sale.orderType === 'delivery' && (
+                          <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full shrink-0">
+                            <Bike size={10} /> Delivery
+                          </span>
+                        )}
                         <p className="text-sm font-medium text-gray-700">
                           {sale.items.map(i => `${i.quantity}x ${i.productName}`).join(' · ')}
                         </p>
                       </div>
                       <p className="text-xs text-gray-400 mt-0.5">
                         {sale.time} · {PAYMENT_LABEL[sale.paymentMethod]}
+                        {sale.deliveryFee ? ` · entrega ${fmt(sale.deliveryFee)}` : ''}
                         {sale.customerName && <span className="text-orange-500"> · {sale.customerName}</span>}
                         {sale.cashbackUsed ? ` · cashback −${fmt(sale.cashbackUsed)}` : ''}
                         {sale.notes && ` · ${sale.notes}`}
