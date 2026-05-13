@@ -79,17 +79,22 @@ export async function pullFromCloud(): Promise<boolean> {
       .eq('business_id', getBusinessId())
       .eq('deleted', false)
 
-    if (error || !data || data.length === 0) return false
+    if (error) return false
 
     const grouped: Record<string, unknown[]> = {}
-    for (const row of data) {
+    for (const row of (data ?? [])) {
       if (!grouped[row.entity_type]) grouped[row.entity_type] = []
       grouped[row.entity_type].push(row.data)
     }
 
-    for (const [entityType, items] of Object.entries(grouped)) {
-      const localKey = ENTITY_KEYS[entityType]
-      if (localKey) localStorage.setItem(localKey, JSON.stringify(items))
+    // Sobrescreve o localStorage com os dados da nuvem.
+    // Chaves ausentes na nuvem são explicitamente limpas — nuvem é fonte de verdade.
+    for (const [entityType, localKey] of Object.entries(ENTITY_KEYS)) {
+      if (grouped[entityType]) {
+        localStorage.setItem(localKey, JSON.stringify(grouped[entityType]))
+      } else {
+        localStorage.removeItem(localKey)
+      }
     }
 
     localStorage.setItem('ff_last_pull', new Date().toISOString())
