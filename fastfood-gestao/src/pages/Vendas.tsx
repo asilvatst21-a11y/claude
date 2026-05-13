@@ -4,6 +4,7 @@ import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer
 import type { PixConfig } from '../store/storage'
 import type { Sale, SaleItem, Customer } from '../types'
 import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed } from 'lucide-react'
+import { supabase, getBusinessId } from '../store/supabase'
 
 // PIX BRCode (EMV Merchant Presented Mode) com CRC16-CCITT
 function crc16(str: string): string {
@@ -294,6 +295,33 @@ export default function Vendas() {
   function removeSale(sid: string) {
     deleteSale(sid)
     setSales(getSales())
+  }
+
+  const [clearingAll, setClearingAll] = useState(false)
+  const [clearedAll, setClearedAll] = useState(false)
+
+  async function clearAllSales() {
+    if (!confirm(`Apagar TODAS as ${sales.length} vendas do histórico? Esta ação não pode ser desfeita.`)) return
+    setClearingAll(true)
+    const allSales = getSales()
+    if (supabase && allSales.length > 0) {
+      // Bulk upsert marcando todas como deleted=true (contorna restrição de DELETE no RLS)
+      const records = allSales.map(s => ({
+        id: `sales_${s.id}`,
+        business_id: getBusinessId(),
+        entity_type: 'sales',
+        entity_id: s.id,
+        data: {} as Record<string, unknown>,
+        deleted: true,
+        synced_at: new Date().toISOString(),
+      }))
+      await supabase.from('ff_sync').upsert(records)
+    }
+    localStorage.removeItem('ff_sales')
+    setSales([])
+    setClearingAll(false)
+    setClearedAll(true)
+    setTimeout(() => setClearedAll(false), 3000)
   }
 
   // Bloco reutilizável do checkout (desktop + mobile)
@@ -665,9 +693,20 @@ export default function Vendas() {
                 <button onClick={clearDateFilter} className="text-xs text-gray-400 hover:text-orange-500 underline">Limpar</button>
               )}
             </div>
-            <div className="flex justify-between text-sm mb-3">
+            <div className="flex justify-between items-center text-sm mb-3">
               <span className="text-gray-500">{filtered.length} pedido{filtered.length !== 1 ? 's' : ''}{filterProduct && ` · ${productQtySold} unid.`}</span>
-              <span className="font-semibold text-green-600">{fmt(totalDay)}</span>
+              <div className="flex items-center gap-3">
+                <span className="font-semibold text-green-600">{fmt(totalDay)}</span>
+                {sales.length > 0 && (
+                  <button
+                    onClick={clearAllSales}
+                    disabled={clearingAll || clearedAll}
+                    className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg font-medium transition-colors ${clearedAll ? 'bg-green-100 text-green-600' : 'bg-red-50 text-red-500 hover:bg-red-100'}`}
+                  >
+                    {clearedAll ? <><Check size={11} /> Apagado!</> : clearingAll ? 'Apagando...' : <><Trash2 size={11} /> Apagar tudo</>}
+                  </button>
+                )}
+              </div>
             </div>
             {filtered.length === 0 ? (
               <p className="text-gray-400 text-sm text-center py-6">Nenhum pedido encontrado.</p>
