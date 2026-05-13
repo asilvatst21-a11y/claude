@@ -3,7 +3,7 @@ import {
   BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, PieChart, Pie, Cell, Legend,
 } from 'recharts'
-import { getSales, getIngredients, getPurchases, getFixedCosts, id as genId, getMonthlyTarget, saveMonthlyTarget } from '../store/storage'
+import { getSales, getIngredients, getPurchases, getFixedCosts, getMonthlyTarget, saveMonthlyTarget } from '../store/storage'
 import type { MonthlyTarget } from '../store/storage'
 import {
   ShoppingCart, DollarSign, Package, AlertTriangle,
@@ -25,74 +25,7 @@ const PAYMENT_LABELS: Record<string, string> = {
 
 const DAY_LABELS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-function generateSimulation() {
-  const prods = [
-    { id: 'sim_mac1', name: 'Macarrão Tradicional', cat: 'macarrao', price: 22 },
-    { id: 'sim_mac2', name: 'Macarrão Especial', cat: 'macarrao', price: 28 },
-    { id: 'sim_burg', name: 'X-Burguer', cat: 'hamburguer', price: 20 },
-    { id: 'sim_hot', name: 'Cachorro Quente', cat: 'cachorro_quente', price: 12 },
-    { id: 'sim_ref', name: 'Refrigerante Lata', cat: 'bebida', price: 6 },
-    { id: 'sim_agua', name: 'Água Mineral', cat: 'bebida', price: 4 },
-    { id: 'sim_suco', name: 'Suco Natural', cat: 'bebida', price: 9 },
-  ]
-  const foods = prods.slice(0, 4)
-  const drinks = prods.slice(4)
-  const payments = ['dinheiro', 'pix', 'pix', 'pix', 'cartao_debito', 'cartao_credito']
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth() + 1
-  const daysInPrevMonth = new Date(year, month - 1, 0).getDate()
-
-  const sales: object[] = []
-
-  for (let day = 1; day <= daysInPrevMonth; day++) {
-    const dateStr = `${year}-${String(month - 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-    const dow = new Date(dateStr).getDay()
-    const isWeekend = dow === 0 || dow === 5 || dow === 6
-    const numOrders = isWeekend ? 20 + Math.floor(Math.random() * 15) : 10 + Math.floor(Math.random() * 10)
-
-    for (let o = 0; o < numOrders; o++) {
-      const isPeakLunch = Math.random() > 0.4
-      const isPeakDinner = Math.random() > 0.5
-      let hour: number
-      if (isPeakLunch && !isPeakDinner) hour = 11 + Math.floor(Math.random() * 3)
-      else if (isPeakDinner) hour = 18 + Math.floor(Math.random() * 3)
-      else hour = 9 + Math.floor(Math.random() * 12)
-      const time = `${String(hour).padStart(2, '0')}:${String(Math.floor(Math.random() * 60)).padStart(2, '0')}`
-
-      const food = foods[Math.floor(Math.random() * foods.length)]
-      const qty = Math.random() > 0.85 ? 2 : 1
-      const items: object[] = [{ productId: food.id, productName: food.name, quantity: qty, unitPrice: food.price, total: food.price * qty }]
-      let total = food.price * qty
-
-      if (Math.random() > 0.35) {
-        const drink = drinks[Math.floor(Math.random() * drinks.length)]
-        items.push({ productId: drink.id, productName: drink.name, quantity: 1, unitPrice: drink.price, total: drink.price })
-        total += drink.price
-      }
-
-      sales.push({
-        id: genId(),
-        date: dateStr,
-        time,
-        items,
-        total,
-        paymentMethod: payments[Math.floor(Math.random() * payments.length)],
-        notes: '',
-      })
-    }
-  }
-
-  return sales
-}
-
 export default function Dashboard() {
-  const rawSales = getSales()
-  if (rawSales.length === 0) {
-    const sim = generateSimulation()
-    localStorage.setItem('ff_sales', JSON.stringify(sim))
-  }
-
   const [filterProduct, setFilterProduct] = useState('')
   const [filterPeriod, setFilterPeriod] = useState('30d')
 
