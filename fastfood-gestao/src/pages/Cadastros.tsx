@@ -42,14 +42,15 @@ function parseLine(line: string): ParsedLine | null {
   return { name: match[3].trim(), quantity, unit, ok: true }
 }
 
-async function clearTransactionalData() {
-  // Bulk update no Supabase: marca todas as entidades transacionais como deletadas em uma query
+async function clearTransactionalData(): Promise<string | null> {
+  // Remove as linhas diretamente do Supabase (delete é mais seguro que update com RLS)
   if (supabase) {
-    await supabase
+    const { error } = await supabase
       .from('ff_sync')
-      .update({ deleted: true, synced_at: new Date().toISOString() })
+      .delete()
       .eq('business_id', getBusinessId())
       .in('entity_type', ['sales', 'purchases', 'cash_sessions', 'dre'])
+    if (error) return error.message
   }
 
   // Remove do localStorage
@@ -57,6 +58,7 @@ async function clearTransactionalData() {
   localStorage.removeItem('ff_purchases')
   localStorage.removeItem('ff_cash_sessions')
   localStorage.removeItem('ff_dre')
+  return null
 }
 
 export default function Cadastros() {
@@ -66,6 +68,7 @@ export default function Cadastros() {
   const [showImport, setShowImport] = useState(false)
   const [clearing, setClearing] = useState(false)
   const [cleared, setCleared] = useState(false)
+  const [clearError, setClearError] = useState<string | null>(null)
 
   // Import form state
   const [importName, setImportName] = useState('')
@@ -159,10 +162,15 @@ export default function Cadastros() {
   async function handleClearData() {
     if (!confirm('Apagar TODAS as vendas, compras, sessões de caixa e lançamentos DRE? Esta ação não pode ser desfeita.')) return
     setClearing(true)
-    await clearTransactionalData()
+    setClearError(null)
+    const err = await clearTransactionalData()
     setClearing(false)
-    setCleared(true)
-    setTimeout(() => setCleared(false), 3000)
+    if (err) {
+      setClearError(err)
+    } else {
+      setCleared(true)
+      setTimeout(() => setCleared(false), 4000)
+    }
   }
 
   const grouped = products.reduce<Record<string, Product[]>>((acc, p) => {
@@ -466,6 +474,11 @@ export default function Cadastros() {
         >
           {cleared ? <><Check size={15} /> Dados apagados!</> : clearing ? 'Apagando...' : <><Trash2 size={15} /> Limpar dados de teste</>}
         </button>
+        {clearError && (
+          <p className="mt-2 text-xs text-red-600 bg-red-100 rounded-lg px-3 py-2">
+            Erro ao limpar nuvem: {clearError}
+          </p>
+        )}
       </div>
     </div>
   )
