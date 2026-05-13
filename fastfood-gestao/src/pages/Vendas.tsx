@@ -150,7 +150,10 @@ export default function Vendas() {
   const [useCashback, setUseCashback] = useState(false)
   const [showCheckout, setShowCheckout] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [filterMode, setFilterMode] = useState<'day' | 'range'>('day')
   const [filterDate, setFilterDate] = useState(today())
+  const [filterDateFrom, setFilterDateFrom] = useState(today())
+  const [filterDateTo, setFilterDateTo] = useState(today())
   const [filterProduct, setFilterProduct] = useState('')
 
   // Troco
@@ -267,7 +270,9 @@ export default function Vendas() {
   }
 
   // Histórico
-  const byDate = filterDate ? sales.filter(s => s.date === filterDate) : sales
+  const byDate = filterMode === 'day'
+    ? (filterDate ? sales.filter(s => s.date === filterDate) : sales)
+    : sales.filter(s => s.date >= filterDateFrom && s.date <= filterDateTo)
   const filtered = filterProduct
     ? byDate.filter(s => s.items.some(i => i.productId === filterProduct))
     : byDate
@@ -275,6 +280,16 @@ export default function Vendas() {
   const productQtySold = filterProduct
     ? filtered.reduce((sum, s) => sum + s.items.filter(i => i.productId === filterProduct).reduce((q, i) => q + i.quantity, 0), 0)
     : 0
+
+  function clearDateFilter() {
+    setFilterDate(today())
+    setFilterDateFrom(today())
+    setFilterDateTo(today())
+    setFilterProduct('')
+  }
+  const dateFilterActive = filterMode === 'day'
+    ? filterDate !== today()
+    : filterDateFrom !== today() || filterDateTo !== today()
 
   function removeSale(sid: string) {
     deleteSale(sid)
@@ -614,8 +629,31 @@ export default function Vendas() {
         <div className="flex-1 overflow-y-auto p-4">
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
             <div className="flex flex-wrap gap-2 mb-3">
-              <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
-                className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400" />
+              {/* Modo: Dia / Período */}
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm shrink-0">
+                <button
+                  onClick={() => setFilterMode('day')}
+                  className={`px-3 py-1.5 font-medium transition-colors ${filterMode === 'day' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
+                >Dia</button>
+                <button
+                  onClick={() => setFilterMode('range')}
+                  className={`px-3 py-1.5 font-medium transition-colors ${filterMode === 'range' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
+                >Período</button>
+              </div>
+
+              {filterMode === 'day' ? (
+                <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400" />
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-orange-400" />
+                  <span className="text-gray-400 text-xs shrink-0">até</span>
+                  <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-orange-400" />
+                </div>
+              )}
+
               <select value={filterProduct} onChange={e => setFilterProduct(e.target.value)}
                 className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 flex-1 min-w-0">
                 <option value="">Todos os produtos</option>
@@ -623,8 +661,8 @@ export default function Vendas() {
                   <option key={i.productId} value={i.productId}>{i.productName}</option>
                 ))}
               </select>
-              {(filterProduct || filterDate !== today()) && (
-                <button onClick={() => { setFilterProduct(''); setFilterDate(today()) }} className="text-xs text-gray-400 hover:text-orange-500 underline">Limpar</button>
+              {(filterProduct || dateFilterActive) && (
+                <button onClick={clearDateFilter} className="text-xs text-gray-400 hover:text-orange-500 underline">Limpar</button>
               )}
             </div>
             <div className="flex justify-between text-sm mb-3">
