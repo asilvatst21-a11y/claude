@@ -457,28 +457,69 @@ export default function Cadastros() {
       )}
 
       {/* Zona de perigo */}
-      <div className="mt-10 border border-red-100 rounded-xl p-5 bg-red-50">
+      <div className="mt-10 border border-red-100 rounded-xl p-5 bg-red-50 space-y-4">
         <h2 className="font-semibold text-red-600 mb-1 text-sm uppercase tracking-wide">Zona de perigo</h2>
-        <p className="text-xs text-gray-500 mb-3">
-          Apaga permanentemente todas as vendas, compras, sessões de caixa e lançamentos DRE — inclusive na nuvem.
-          Produtos, ingredientes, fornecedores e clientes são mantidos.
-        </p>
-        <button
-          onClick={handleClearData}
-          disabled={clearing || cleared}
-          className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            cleared
-              ? 'bg-green-500 text-white'
-              : 'bg-red-500 text-white hover:bg-red-600 disabled:opacity-60'
-          }`}
-        >
-          {cleared ? <><Check size={15} /> Dados apagados!</> : clearing ? 'Apagando...' : <><Trash2 size={15} /> Limpar dados de teste</>}
-        </button>
-        {clearError && (
-          <p className="mt-2 text-xs text-red-600 bg-red-100 rounded-lg px-3 py-2">
-            Erro ao limpar nuvem: {clearError}
+
+        {/* Ignorar vendas antigas */}
+        {(() => {
+          const resetDate = localStorage.getItem('ff_sales_reset_after')
+          function setResetToday() {
+            const today = new Date().toISOString().slice(0, 10)
+            localStorage.setItem('ff_sales_reset_after', today)
+            localStorage.removeItem('ff_sales')
+            window.location.reload()
+          }
+          function clearReset() {
+            localStorage.removeItem('ff_sales_reset_after')
+            window.location.reload()
+          }
+          return (
+            <div>
+              <p className="text-xs text-gray-600 font-medium mb-1">Ignorar vendas de teste</p>
+              <p className="text-xs text-gray-400 mb-2">
+                Define uma data de corte — vendas anteriores a ela nunca são restauradas da nuvem, mesmo que outro dispositivo sincronize.
+              </p>
+              {resetDate ? (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-lg font-medium">
+                    Ignorando vendas antes de {resetDate}
+                  </span>
+                  <button onClick={clearReset} className="text-xs text-gray-400 hover:text-red-500 underline">Remover filtro</button>
+                </div>
+              ) : (
+                <button
+                  onClick={setResetToday}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-orange-500 text-white hover:bg-orange-600"
+                >
+                  <Check size={15} /> Ignorar todas as vendas anteriores a hoje
+                </button>
+              )}
+            </div>
+          )
+        })()}
+
+        <div className="border-t border-red-100 pt-4">
+          <p className="text-xs text-gray-500 mb-3">
+            Apaga permanentemente todas as vendas, compras, sessões de caixa e lançamentos DRE — inclusive na nuvem.
+            Produtos, ingredientes, fornecedores e clientes são mantidos.
           </p>
-        )}
+          <button
+            onClick={handleClearData}
+            disabled={clearing || cleared}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              cleared
+                ? 'bg-green-500 text-white'
+                : 'bg-red-500 text-white hover:bg-red-600 disabled:opacity-60'
+            }`}
+          >
+            {cleared ? <><Check size={15} /> Dados apagados!</> : clearing ? 'Apagando...' : <><Trash2 size={15} /> Limpar dados de teste</>}
+          </button>
+          {clearError && (
+            <p className="mt-2 text-xs text-red-600 bg-red-100 rounded-lg px-3 py-2">
+              Erro ao limpar nuvem: {clearError}
+            </p>
+          )}
+        </div>
       </div>
     </div>
   )

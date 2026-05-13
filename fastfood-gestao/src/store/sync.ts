@@ -87,6 +87,13 @@ export async function pullFromCloud(): Promise<boolean> {
       grouped[row.entity_type].push(row.data)
     }
 
+    // Vendas: ignora registros anteriores à data de reset (se configurada)
+    const salesResetDate = localStorage.getItem('ff_sales_reset_after')
+    if (salesResetDate && grouped['sales']) {
+      grouped['sales'] = (grouped['sales'] as Array<{ date?: string }>)
+        .filter(s => s.date && s.date >= salesResetDate)
+    }
+
     // Sobrescreve o localStorage com os dados da nuvem.
     // Chaves ausentes na nuvem são explicitamente limpas — nuvem é fonte de verdade.
     for (const [entityType, localKey] of Object.entries(ENTITY_KEYS)) {
