@@ -700,16 +700,16 @@ export default function Vendas() {
 
       {/* Modal: retirar ingredientes */}
       {pendingProduct && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
-            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center sm:p-4">
+          <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-sm max-h-[70vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-gray-100 shrink-0">
               <div>
                 <h2 className="font-bold text-gray-800">{pendingProduct.name}</h2>
                 <p className="text-sm text-orange-500 font-semibold">{fmt(pendingProduct.salePrice)}</p>
               </div>
               <button onClick={() => setPendingProduct(null)}><X size={20} className="text-gray-400" /></button>
             </div>
-            <div className="p-5">
+            <div className="overflow-y-auto flex-1 px-4 py-3">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Retirar ingredientes</p>
               <div className="space-y-2">
                 {pendingProduct.ingredients.map(pi => {
@@ -733,9 +733,11 @@ export default function Vendas() {
                   )
                 })}
               </div>
+            </div>
+            <div className="p-4 border-t border-gray-100 shrink-0">
               <button
                 onClick={confirmAddToCart}
-                className="mt-4 w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+                className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
               >
                 <Plus size={15} /> Adicionar ao pedido
                 {pendingRemovals.size > 0 && <span className="text-orange-200 font-normal text-xs">· sem {pendingRemovals.size} ingrediente{pendingRemovals.size > 1 ? 's' : ''}</span>}
