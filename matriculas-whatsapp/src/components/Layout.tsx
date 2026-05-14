@@ -24,7 +24,7 @@ export default function Layout() {
       <aside className="w-64 bg-brand-700 flex flex-col">
         <div className="px-6 py-5 border-b border-brand-600">
           <div className="bg-white rounded-lg p-2 mb-3">
-            <img src="/logo.svg" alt="LOG20" className="h-10 w-full object-contain" />
+            <img src="/logo.png" alt="LOG20" className="h-10 w-full object-contain" />
           </div>
           <h1 className="text-white text-lg font-bold tracking-tight">PDV Crítico</h1>
           <p className="text-brand-200 text-xs">Sistema de Disparos</p>
