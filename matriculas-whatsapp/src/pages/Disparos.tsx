@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { enviarMensagemWhatsApp, formatarMensagem } from '../lib/zapi'
 import type { Matricula, Cliente } from '../types'
-import { Upload, FileSpreadsheet, CheckCircle, XCircle, Send, AlertTriangle } from 'lucide-react'
+import { FileSpreadsheet, CheckCircle, XCircle, Send, AlertTriangle } from 'lucide-react'
 
 interface LinhaPreview {
   matricula: string
