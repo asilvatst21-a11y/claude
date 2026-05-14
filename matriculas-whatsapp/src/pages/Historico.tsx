@@ -21,7 +21,7 @@ export default function Historico() {
   useEffect(() => { carregar() }, [])
 
   const statusIcon = (s: Disparo['status']) => {
-    if (s === 'enviado') return <CheckCircle size={15} className="text-green-500" />
+    if (s === 'enviado') return <CheckCircle size={15} className="text-brand-600" />
     if (s === 'erro') return <XCircle size={15} className="text-red-500" />
     return <Clock size={15} className="text-yellow-500" />
   }
@@ -33,7 +33,7 @@ export default function Historico() {
   }
 
   const statusColor: Record<Disparo['status'], string> = {
-    enviado: 'text-green-600 bg-green-50',
+    enviado: 'text-brand-700 bg-brand-50',
     erro: 'text-red-600 bg-red-50',
     pendente: 'text-yellow-600 bg-yellow-50',
   }

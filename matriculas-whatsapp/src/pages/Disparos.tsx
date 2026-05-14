@@ -184,7 +184,7 @@ export default function Disparos() {
           <div
             {...getRootProps()}
             className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${
-              isDragActive ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-green-400 hover:bg-gray-50'
+              isDragActive ? 'border-brand-500 bg-brand-50' : 'border-gray-300 hover:border-brand-500 hover:bg-gray-50'
             }`}
           >
             <input {...getInputProps()} />
@@ -205,11 +205,11 @@ export default function Disparos() {
       {etapa === 'preview' && (
         <div className="space-y-6">
           <div className="flex gap-3 flex-wrap">
-            <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center gap-2">
-              <CheckCircle size={18} className="text-green-600" />
+            <div className="bg-brand-50 border border-brand-200 rounded-lg px-4 py-3 flex items-center gap-2">
+              <CheckCircle size={18} className="text-brand-700" />
               <div>
-                <p className="text-xs text-green-700">Mensagens a enviar</p>
-                <p className="text-xl font-bold text-green-700">{totalMensagens}</p>
+                <p className="text-xs text-brand-700">Mensagens a enviar</p>
+                <p className="text-xl font-bold text-brand-700">{totalMensagens}</p>
               </div>
             </div>
             <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 flex items-center gap-2">
@@ -240,7 +240,7 @@ export default function Disparos() {
               value={template}
               onChange={e => setTemplate(e.target.value)}
               rows={5}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
             />
           </div>
 
@@ -260,7 +260,7 @@ export default function Disparos() {
                   }`}
                 >
                   {valido
-                    ? <CheckCircle size={14} className="text-green-500 shrink-0" />
+                    ? <CheckCircle size={14} className="text-brand-600 shrink-0" />
                     : <XCircle size={14} className="text-red-400 shrink-0" />
                   }
                   <span className="font-mono text-gray-700 w-16 shrink-0 text-xs">{l.matricula}</span>
@@ -285,7 +285,7 @@ export default function Disparos() {
             <button
               onClick={disparar}
               disabled={enviando || totalMensagens === 0}
-              className="flex items-center gap-2 px-5 py-2 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg font-medium"
+              className="flex items-center gap-2 px-5 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-lg font-medium"
             >
               <Send size={16} />
               {enviando ? `Enviando... ${progresso}%` : `Disparar ${totalMensagens} mensagens`}
@@ -294,7 +294,7 @@ export default function Disparos() {
 
           {enviando && (
             <div className="w-full bg-gray-200 rounded-full h-2">
-              <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: `${progresso}%` }} />
+              <div className="bg-brand-500 h-2 rounded-full transition-all" style={{ width: `${progresso}%` }} />
             </div>
           )}
         </div>
@@ -303,11 +303,11 @@ export default function Disparos() {
       {etapa === 'resultado' && (
         <div className="space-y-6">
           <div className="flex gap-4">
-            <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center gap-2">
-              <CheckCircle size={18} className="text-green-600" />
+            <div className="bg-brand-50 border border-brand-200 rounded-lg px-4 py-3 flex items-center gap-2">
+              <CheckCircle size={18} className="text-brand-700" />
               <div>
-                <p className="text-xs text-green-700">Enviados com sucesso</p>
-                <p className="text-xl font-bold text-green-700">{resultados.filter(r => r.enviado).length}</p>
+                <p className="text-xs text-brand-700">Enviados com sucesso</p>
+                <p className="text-xl font-bold text-brand-700">{resultados.filter(r => r.enviado).length}</p>
               </div>
             </div>
             <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex items-center gap-2">
@@ -324,7 +324,7 @@ export default function Disparos() {
               {resultados.map((r, i) => (
                 <div key={i} className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-100 text-sm">
                   {r.enviado
-                    ? <CheckCircle size={15} className="text-green-500 shrink-0" />
+                    ? <CheckCircle size={15} className="text-brand-600 shrink-0" />
                     : <XCircle size={15} className="text-red-500 shrink-0" />
                   }
                   <span className="font-mono text-gray-700 w-16 shrink-0 text-xs">{r.matricula}</span>

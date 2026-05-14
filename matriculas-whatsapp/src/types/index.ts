@@ -1,3 +1,12 @@
+export interface Usuario {
+  id: string
+  filial: string
+  login: string
+  senha: string
+  nome: string | null
+  created_at: string
+}
+
 export interface Matricula {
   id: string
   numero: string
