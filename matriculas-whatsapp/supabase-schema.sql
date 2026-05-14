@@ -1,6 +1,22 @@
 -- Schema para o projeto Matriculas WhatsApp
 -- Execute este SQL no SQL Editor do seu projeto Supabase
 
+-- Tabela de usuários (login)
+create table if not exists usuarios (
+  id uuid primary key default gen_random_uuid(),
+  filial text not null,
+  login text not null,
+  senha text not null,
+  nome text,
+  created_at timestamptz not null default now(),
+  unique(filial, login)
+);
+
+-- Usuário padrão (altere a senha depois!)
+insert into usuarios (filial, login, senha, nome)
+values ('CDD PETROPOLIS', 'admin', 'admin123', 'Administrador')
+on conflict (filial, login) do nothing;
+
 -- Tabela de matrículas
 create table if not exists matriculas (
   id uuid primary key default gen_random_uuid(),
@@ -54,11 +70,13 @@ values ('fotos-clientes', 'fotos-clientes', true)
 on conflict (id) do nothing;
 
 -- RLS: acesso público para leitura (ajuste conforme sua necessidade de auth)
+alter table usuarios enable row level security;
 alter table matriculas enable row level security;
 alter table clientes enable row level security;
 alter table vinculos enable row level security;
 alter table disparos enable row level security;
 
+create policy "Acesso total" on usuarios for all using (true);
 create policy "Acesso total" on matriculas for all using (true);
 create policy "Acesso total" on clientes for all using (true);
 create policy "Acesso total" on vinculos for all using (true);

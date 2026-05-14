@@ -55,7 +55,7 @@ export default function Dashboard() {
 
   const colorMap: Record<string, string> = {
     blue: 'bg-blue-50 text-blue-700',
-    green: 'bg-green-50 text-green-700',
+    green: 'bg-brand-50 text-brand-700',
     purple: 'bg-purple-50 text-purple-700',
     red: 'bg-red-50 text-red-700',
   }

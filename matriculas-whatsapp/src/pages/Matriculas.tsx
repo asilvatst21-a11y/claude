@@ -75,7 +75,7 @@ export default function Matriculas() {
         <h2 className="text-2xl font-bold text-gray-900">Matrículas</h2>
         <button
           onClick={abrirNovo}
-          className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+          className="flex items-center gap-2 bg-accent-500 hover:bg-accent-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
         >
           <Plus size={16} /> Nova Matrícula
         </button>
@@ -87,7 +87,7 @@ export default function Matriculas() {
           value={busca}
           onChange={e => setBusca(e.target.value)}
           placeholder="Buscar por número, nome ou WhatsApp..."
-          className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+          className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
       </div>
 
@@ -118,7 +118,7 @@ export default function Matriculas() {
                 <td className="px-4 py-3">
                   <button onClick={() => toggleAtivo(m)} className="flex items-center gap-1 text-xs">
                     {m.ativo
-                      ? <><ToggleRight size={18} className="text-green-500" /><span className="text-green-600">Ativo</span></>
+                      ? <><ToggleRight size={18} className="text-brand-600" /><span className="text-brand-700">Ativo</span></>
                       : <><ToggleLeft size={18} className="text-gray-400" /><span className="text-gray-500">Inativo</span></>
                     }
                   </button>
@@ -151,7 +151,7 @@ export default function Matriculas() {
                 <input
                   value={form.numero}
                   onChange={e => setForm(f => ({ ...f, numero: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                   placeholder="Ex: 12345"
                 />
               </div>
@@ -160,7 +160,7 @@ export default function Matriculas() {
                 <input
                   value={form.nome ?? ''}
                   onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                   placeholder="Nome do titular"
                 />
               </div>
@@ -169,7 +169,7 @@ export default function Matriculas() {
                 <input
                   value={form.whatsapp}
                   onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                   placeholder="Ex: 11999998888"
                 />
                 <p className="text-xs text-gray-400 mt-1">Apenas números com DDD, sem traços ou parênteses</p>
@@ -194,7 +194,7 @@ export default function Matriculas() {
               <button
                 onClick={salvar}
                 disabled={loading || !form.numero || !form.whatsapp}
-                className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg font-medium"
+                className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-lg font-medium"
               >
                 {loading ? 'Salvando...' : 'Salvar'}
               </button>

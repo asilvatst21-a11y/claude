@@ -106,7 +106,7 @@ export default function Clientes() {
         <h2 className="text-2xl font-bold text-gray-900">Clientes</h2>
         <button
           onClick={abrirNovo}
-          className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          className="flex items-center gap-2 bg-accent-500 hover:bg-accent-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
         >
           <Plus size={16} /> Novo Cliente
         </button>
@@ -118,7 +118,7 @@ export default function Clientes() {
           value={busca}
           onChange={e => setBusca(e.target.value)}
           placeholder="Buscar por nome ou código..."
-          className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+          className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
         />
       </div>
 
@@ -180,7 +180,7 @@ export default function Clientes() {
                 <input
                   value={form.codigo}
                   onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                   placeholder="Ex: CLI-001"
                 />
               </div>
@@ -189,7 +189,7 @@ export default function Clientes() {
                 <input
                   value={form.nome}
                   onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                   placeholder="Nome do cliente"
                 />
               </div>
@@ -202,7 +202,7 @@ export default function Clientes() {
                 </p>
                 <div
                   onClick={() => inputFoto.current?.click()}
-                  className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center gap-2 cursor-pointer hover:border-green-400 hover:bg-green-50 transition-colors"
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center gap-2 cursor-pointer hover:border-brand-500 hover:bg-brand-50 transition-colors"
                 >
                   {fotoPreview
                     ? <img src={fotoPreview} alt="preview" className="max-h-40 rounded object-contain" />
@@ -228,7 +228,7 @@ export default function Clientes() {
                   value={form.observacoes ?? ''}
                   onChange={e => setForm(f => ({ ...f, observacoes: e.target.value }))}
                   rows={3}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
                   placeholder="Ex: Subir a escada à direita da entrada principal"
                 />
               </div>
@@ -240,7 +240,7 @@ export default function Clientes() {
               <button
                 onClick={salvar}
                 disabled={loading || !form.nome || !form.codigo}
-                className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg font-medium"
+                className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-lg font-medium"
               >
                 {loading ? 'Salvando...' : 'Salvar'}
               </button>
