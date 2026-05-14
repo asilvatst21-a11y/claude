@@ -4,6 +4,13 @@ export interface Usuario {
   login: string
   senha: string
   nome: string | null
+  admin: boolean
+  created_at: string
+}
+
+export interface Filial {
+  id: string
+  nome: string
   created_at: string
 }
 

@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Users, CreditCard, Upload, MessageSquare, BarChart2, LogOut, Building2 } from 'lucide-react'
+import { Users, CreditCard, Upload, MessageSquare, BarChart2, LogOut, Building2, Shield } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
 const navItems = [
@@ -8,6 +8,9 @@ const navItems = [
   { to: '/clientes', label: 'Clientes', icon: Users },
   { to: '/disparos', label: 'Disparar Mensagens', icon: Upload },
   { to: '/historico', label: 'Histórico', icon: MessageSquare },
+]
+const adminItems = [
+  { to: '/admin', label: 'Administração', icon: Shield },
 ]
 
 export default function Layout() {
@@ -48,6 +51,27 @@ export default function Layout() {
               {label}
             </NavLink>
           ))}
+          {usuario?.admin && (
+            <>
+              <div className="pt-3 pb-1 px-3 text-xs uppercase tracking-wider text-brand-300">Admin</div>
+              {adminItems.map(({ to, label, icon: Icon }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) =>
+                    `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                      isActive
+                        ? 'bg-accent-500 text-white'
+                        : 'text-brand-100 hover:bg-brand-600 hover:text-white'
+                    }`
+                  }
+                >
+                  <Icon size={18} />
+                  {label}
+                </NavLink>
+              ))}
+            </>
+          )}
         </nav>
 
         <div className="p-3 border-t border-brand-600">

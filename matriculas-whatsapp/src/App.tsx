@@ -7,6 +7,7 @@ import Matriculas from './pages/Matriculas'
 import Clientes from './pages/Clientes'
 import Disparos from './pages/Disparos'
 import Historico from './pages/Historico'
+import Admin from './pages/Admin'
 
 function ProtectedRoutes() {
   const { usuario, loading } = useAuth()
@@ -33,6 +34,7 @@ export default function App() {
             <Route path="/clientes" element={<Clientes />} />
             <Route path="/disparos" element={<Disparos />} />
             <Route path="/historico" element={<Historico />} />
+            <Route path="/admin" element={<Admin />} />
           </Route>
         </Routes>
       </BrowserRouter>
