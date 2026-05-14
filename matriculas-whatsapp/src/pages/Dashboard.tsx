@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
 import { CreditCard, Users, CheckCircle, XCircle } from 'lucide-react'
 
 interface Stats {
@@ -11,6 +12,7 @@ interface Stats {
 }
 
 export default function Dashboard() {
+  const { usuario } = useAuth()
   const [stats, setStats] = useState<Stats>({
     totalMatriculas: 0,
     matriculasAtivas: 0,
@@ -20,6 +22,8 @@ export default function Dashboard() {
   })
 
   useEffect(() => {
+    if (!usuario) return
+    const filial = usuario.filial
     async function load() {
       const [
         { count: totalMatriculas },
@@ -28,11 +32,11 @@ export default function Dashboard() {
         { count: disparosEnviados },
         { count: disparosErro },
       ] = await Promise.all([
-        supabase.from('matriculas').select('*', { count: 'exact', head: true }),
-        supabase.from('matriculas').select('*', { count: 'exact', head: true }).eq('ativo', true),
-        supabase.from('clientes').select('*', { count: 'exact', head: true }),
-        supabase.from('disparos').select('*', { count: 'exact', head: true }).eq('status', 'enviado'),
-        supabase.from('disparos').select('*', { count: 'exact', head: true }).eq('status', 'erro'),
+        supabase.from('matriculas').select('*', { count: 'exact', head: true }).eq('filial', filial),
+        supabase.from('matriculas').select('*', { count: 'exact', head: true }).eq('filial', filial).eq('ativo', true),
+        supabase.from('clientes').select('*', { count: 'exact', head: true }).eq('filial', filial),
+        supabase.from('disparos').select('*', { count: 'exact', head: true }).eq('filial', filial).eq('status', 'enviado'),
+        supabase.from('disparos').select('*', { count: 'exact', head: true }).eq('filial', filial).eq('status', 'erro'),
       ])
       setStats({
         totalMatriculas: totalMatriculas ?? 0,
@@ -43,7 +47,7 @@ export default function Dashboard() {
       })
     }
     load()
-  }, [])
+  }, [usuario?.filial])
 
   const cards = [
     { label: 'Total de Matrículas', value: stats.totalMatriculas, icon: CreditCard, color: 'blue' },

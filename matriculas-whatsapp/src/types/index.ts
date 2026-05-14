@@ -9,6 +9,7 @@ export interface Usuario {
 
 export interface Matricula {
   id: string
+  filial: string
   numero: string
   whatsapp: string
   nome: string | null
@@ -18,6 +19,7 @@ export interface Matricula {
 
 export interface Cliente {
   id: string
+  filial: string
   codigo: string
   nome: string
   foto_url: string | null
@@ -37,6 +39,7 @@ export interface Vinculo {
 
 export interface Disparo {
   id: string
+  filial: string | null
   matricula_id: string | null
   cliente_id: string | null
   whatsapp: string

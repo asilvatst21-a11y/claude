@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
 import type { Cliente } from '../types'
 import { Plus, Pencil, Trash2, Search, Upload, Image } from 'lucide-react'
 
-const EMPTY: Omit<Cliente, 'id' | 'created_at' | 'foto_url'> = {
+const EMPTY: Omit<Cliente, 'id' | 'created_at' | 'foto_url' | 'filial'> = {
   codigo: '',
   nome: '',
   observacoes: '',
 }
 
 export default function Clientes() {
+  const { usuario } = useAuth()
   const [lista, setLista] = useState<Cliente[]>([])
   const [busca, setBusca] = useState('')
   const [modal, setModal] = useState(false)
@@ -21,14 +23,16 @@ export default function Clientes() {
   const inputFoto = useRef<HTMLInputElement>(null)
 
   async function carregar() {
+    if (!usuario) return
     const { data } = await supabase
       .from('clientes')
       .select('*')
+      .eq('filial', usuario.filial)
       .order('nome')
     setLista(data ?? [])
   }
 
-  useEffect(() => { carregar() }, [])
+  useEffect(() => { carregar() }, [usuario?.filial])
 
   const filtrados = lista.filter(c =>
     c.nome.toLowerCase().includes(busca.toLowerCase()) ||
@@ -77,12 +81,13 @@ export default function Clientes() {
       }
     }
 
+    if (!usuario) return
     const payload = { ...form, foto_url }
 
     if (editId) {
       await supabase.from('clientes').update(payload).eq('id', editId)
     } else {
-      await supabase.from('clientes').insert(payload)
+      await supabase.from('clientes').insert({ ...payload, filial: usuario.filial })
     }
 
     setLoading(false)
