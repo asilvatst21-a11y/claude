@@ -57,6 +57,7 @@ export interface SaleItem {
   quantity: number
   unitPrice: number
   total: number
+  removedIngredients?: Array<{ id: string; name: string }>
 }
 
 export interface Sale {

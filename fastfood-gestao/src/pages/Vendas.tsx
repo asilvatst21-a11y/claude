@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import QRCode from 'qrcode'
-import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer, getCashbackConfig, getPixConfig, savePixConfig, id } from '../store/storage'
+import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer, getCashbackConfig, getPixConfig, savePixConfig, getIngredients, id } from '../store/storage'
 import type { PixConfig } from '../store/storage'
 import type { Sale, SaleItem, Customer } from '../types'
 import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed } from 'lucide-react'
@@ -138,9 +138,16 @@ function CustomerPicker({
   )
 }
 
+// Chave única por item do carrinho (mesmo produto pode ter specs diferentes)
+function cartItemKey(productId: string, removed?: Array<{ id: string; name: string }>) {
+  if (!removed || removed.length === 0) return productId
+  return `${productId}:${removed.map(r => r.id).sort().join(',')}`
+}
+
 export default function Vendas() {
   const [view, setView] = useState<'pdv' | 'historico'>('pdv')
   const [products] = useState(getProducts)
+  const [ingredients] = useState(getIngredients)
   const [customers, setCustomers] = useState<Customer[]>(getCustomers)
   const [sales, setSales] = useState<Sale[]>(() => getSales())
   const [cart, setCart] = useState<SaleItem[]>([])
@@ -173,6 +180,10 @@ export default function Vendas() {
   // Delivery
   const [orderType, setOrderType] = useState<'balcao' | 'delivery'>('balcao')
   const [deliveryFee, setDeliveryFee] = useState('')
+
+  // Modal de personalização de ingredientes
+  const [pendingProduct, setPendingProduct] = useState<(typeof products)[0] | null>(null)
+  const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set())
 
   useEffect(() => { setSales(getSales()); setCustomers(getCustomers()) }, [view])
 
@@ -209,23 +220,49 @@ export default function Vendas() {
     setEditPixConfig(false)
   }
 
-  function addToCart(productId: string) {
+  function handleProductTap(productId: string) {
     const p = products.find(x => x.id === productId)
     if (!p) return
+    // Produto sem ingredientes cadastrados → adiciona direto
+    if (p.ingredients.length === 0) {
+      addToCartDirect(p, [])
+      return
+    }
+    setPendingProduct(p)
+    setPendingRemovals(new Set())
+  }
+
+  function addToCartDirect(p: (typeof products)[0], removed: Array<{ id: string; name: string }>) {
+    const key = cartItemKey(p.id, removed)
     setCart(prev => {
-      const idx = prev.findIndex(x => x.productId === productId)
+      const idx = prev.findIndex(x => cartItemKey(x.productId, x.removedIngredients) === key)
       if (idx >= 0) {
         const next = [...prev]
         next[idx] = { ...next[idx], quantity: next[idx].quantity + 1, total: (next[idx].quantity + 1) * next[idx].unitPrice }
         return next
       }
-      return [...prev, { productId: p.id, productName: p.name, quantity: 1, unitPrice: p.salePrice, total: p.salePrice }]
+      return [...prev, {
+        productId: p.id, productName: p.name, quantity: 1, unitPrice: p.salePrice, total: p.salePrice,
+        removedIngredients: removed.length > 0 ? removed : undefined,
+      }]
     })
   }
 
-  function changeQty(productId: string, delta: number) {
+  function confirmAddToCart() {
+    if (!pendingProduct) return
+    const removed = pendingProduct.ingredients
+      .filter(pi => pendingRemovals.has(pi.ingredientId))
+      .map(pi => {
+        const ing = ingredients.find(i => i.id === pi.ingredientId)
+        return { id: pi.ingredientId, name: ing?.name ?? pi.ingredientId }
+      })
+    addToCartDirect(pendingProduct, removed)
+    setPendingProduct(null)
+  }
+
+  function changeQty(key: string, delta: number) {
     setCart(prev => prev.flatMap(x => {
-      if (x.productId !== productId) return [x]
+      if (cartItemKey(x.productId, x.removedIngredients) !== key) return [x]
       const q = x.quantity + delta
       if (q <= 0) return []
       return [{ ...x, quantity: q, total: q * x.unitPrice }]
@@ -526,13 +563,13 @@ export default function Vendas() {
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-2 lg:grid-cols-3 gap-3">
                   {visibleProducts.map(p => {
-                    const inCart = cart.find(x => x.productId === p.id)
+                    const cartQty = cart.filter(x => x.productId === p.id).reduce((s, x) => s + x.quantity, 0)
                     return (
-                      <button key={p.id} onClick={() => addToCart(p.id)}
-                        className={`relative flex flex-col items-start p-4 rounded-xl border-2 text-left transition-all active:scale-95 ${inCart ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white hover:border-orange-300 hover:bg-orange-50'}`}>
-                        {inCart && (
+                      <button key={p.id} onClick={() => handleProductTap(p.id)}
+                        className={`relative flex flex-col items-start p-4 rounded-xl border-2 text-left transition-all active:scale-95 ${cartQty > 0 ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white hover:border-orange-300 hover:bg-orange-50'}`}>
+                        {cartQty > 0 && (
                           <span className="absolute top-2 right-2 w-6 h-6 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
-                            {inCart.quantity}
+                            {cartQty}
                           </span>
                         )}
                         <span className="text-sm font-semibold text-gray-800 leading-tight mb-1 pr-6">{p.name}</span>
@@ -559,17 +596,25 @@ export default function Vendas() {
             ) : (
               <>
                 <div className="flex-1 p-4 space-y-2">
-                  {cart.map(item => (
-                    <div key={item.productId} className="flex items-center gap-2">
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => changeQty(item.productId, -1)} className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center"><Minus size={12} /></button>
-                        <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
-                        <button onClick={() => changeQty(item.productId, 1)} className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center"><Plus size={12} /></button>
+                  {cart.map(item => {
+                    const key = cartItemKey(item.productId, item.removedIngredients)
+                    return (
+                      <div key={key} className="flex items-start gap-2">
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <button onClick={() => changeQty(key, -1)} className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center"><Minus size={12} /></button>
+                          <span className="w-6 text-center text-sm font-bold">{item.quantity}</span>
+                          <button onClick={() => changeQty(key, 1)} className="w-7 h-7 rounded-lg bg-gray-100 hover:bg-gray-200 flex items-center justify-center"><Plus size={12} /></button>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm text-gray-700 truncate block">{item.productName}</span>
+                          {item.removedIngredients && item.removedIngredients.length > 0 && (
+                            <span className="text-xs text-red-400">sem {item.removedIngredients.map(r => r.name).join(', sem ')}</span>
+                          )}
+                        </div>
+                        <span className="text-sm font-semibold text-orange-600 mt-0.5">{fmt(item.total)}</span>
                       </div>
-                      <span className="flex-1 text-sm text-gray-700 truncate">{item.productName}</span>
-                      <span className="text-sm font-semibold text-orange-600">{fmt(item.total)}</span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
                 {CheckoutPanel({})}
               </>
@@ -597,17 +642,25 @@ export default function Vendas() {
                   <button onClick={() => setShowCheckout(false)}><X size={20} className="text-gray-400" /></button>
                 </div>
                 <div className="overflow-y-auto flex-1 px-5 pt-3 space-y-2">
-                  {cart.map(item => (
-                    <div key={item.productId} className="flex items-center gap-3">
-                      <div className="flex items-center gap-1">
-                        <button onClick={() => changeQty(item.productId, -1)} className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center"><Minus size={13} /></button>
-                        <span className="w-6 text-center font-bold">{item.quantity}</span>
-                        <button onClick={() => changeQty(item.productId, 1)} className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center"><Plus size={13} /></button>
+                  {cart.map(item => {
+                    const key = cartItemKey(item.productId, item.removedIngredients)
+                    return (
+                      <div key={key} className="flex items-start gap-3">
+                        <div className="flex items-center gap-1 mt-0.5">
+                          <button onClick={() => changeQty(key, -1)} className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center"><Minus size={13} /></button>
+                          <span className="w-6 text-center font-bold">{item.quantity}</span>
+                          <button onClick={() => changeQty(key, 1)} className="w-8 h-8 rounded-lg bg-gray-100 flex items-center justify-center"><Plus size={13} /></button>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm text-gray-700 block">{item.productName}</span>
+                          {item.removedIngredients && item.removedIngredients.length > 0 && (
+                            <span className="text-xs text-red-400">sem {item.removedIngredients.map(r => r.name).join(', sem ')}</span>
+                          )}
+                        </div>
+                        <span className="font-semibold text-orange-600 mt-0.5">{fmt(item.total)}</span>
                       </div>
-                      <span className="flex-1 text-sm text-gray-700">{item.productName}</span>
-                      <span className="font-semibold text-orange-600">{fmt(item.total)}</span>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
                 {CheckoutPanel({ mobile: true })}
               </div>
@@ -639,6 +692,53 @@ export default function Vendas() {
               <button onClick={() => { setShowPixQR(false); submitSale() }}
                 className="mt-4 w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
                 <Check size={16} /> Confirmar pagamento recebido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: retirar ingredientes */}
+      {pendingProduct && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <div>
+                <h2 className="font-bold text-gray-800">{pendingProduct.name}</h2>
+                <p className="text-sm text-orange-500 font-semibold">{fmt(pendingProduct.salePrice)}</p>
+              </div>
+              <button onClick={() => setPendingProduct(null)}><X size={20} className="text-gray-400" /></button>
+            </div>
+            <div className="p-5">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Retirar ingredientes</p>
+              <div className="space-y-2">
+                {pendingProduct.ingredients.map(pi => {
+                  const ing = ingredients.find(i => i.id === pi.ingredientId)
+                  if (!ing) return null
+                  const checked = pendingRemovals.has(pi.ingredientId)
+                  return (
+                    <button
+                      key={pi.ingredientId}
+                      type="button"
+                      onClick={() => setPendingRemovals(prev => {
+                        const next = new Set(prev)
+                        next.has(pi.ingredientId) ? next.delete(pi.ingredientId) : next.add(pi.ingredientId)
+                        return next
+                      })}
+                      className={`w-full flex items-center justify-between px-4 py-2.5 rounded-xl border-2 text-sm transition-colors ${checked ? 'border-red-300 bg-red-50 text-red-700' : 'border-gray-200 text-gray-700 hover:border-gray-300'}`}
+                    >
+                      <span>{ing.name}</span>
+                      <span className="text-xs font-medium">{checked ? '✕ retirar' : '✓ incluir'}</span>
+                    </button>
+                  )
+                })}
+              </div>
+              <button
+                onClick={confirmAddToCart}
+                className="mt-4 w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+              >
+                <Plus size={15} /> Adicionar ao pedido
+                {pendingRemovals.size > 0 && <span className="text-orange-200 font-normal text-xs">· sem {pendingRemovals.size} ingrediente{pendingRemovals.size > 1 ? 's' : ''}</span>}
               </button>
             </div>
           </div>
@@ -722,7 +822,10 @@ export default function Vendas() {
                           </span>
                         )}
                         <p className="text-sm font-medium text-gray-700">
-                          {sale.items.map(i => `${i.quantity}x ${i.productName}`).join(' · ')}
+                          {sale.items.map(i => {
+                            const sem = i.removedIngredients?.length ? ` (sem ${i.removedIngredients.map(r => r.name).join(', ')})` : ''
+                            return `${i.quantity}x ${i.productName}${sem}`
+                          }).join(' · ')}
                         </p>
                       </div>
                       <p className="text-xs text-gray-400 mt-0.5">
