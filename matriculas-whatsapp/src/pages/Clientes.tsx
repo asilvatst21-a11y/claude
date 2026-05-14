@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import type { Cliente } from '../types'
-import { Plus, Pencil, Trash2, Search, Upload, User } from 'lucide-react'
+import { Plus, Pencil, Trash2, Search, Upload, Image } from 'lucide-react'
 
 const EMPTY: Omit<Cliente, 'id' | 'created_at' | 'foto_url'> = {
+  codigo: '',
   nome: '',
-  cpf: '',
-  email: '',
   observacoes: '',
 }
 
@@ -33,8 +32,7 @@ export default function Clientes() {
 
   const filtrados = lista.filter(c =>
     c.nome.toLowerCase().includes(busca.toLowerCase()) ||
-    (c.cpf ?? '').includes(busca) ||
-    (c.email ?? '').toLowerCase().includes(busca.toLowerCase())
+    c.codigo.toLowerCase().includes(busca.toLowerCase())
   )
 
   function abrirNovo() {
@@ -46,7 +44,7 @@ export default function Clientes() {
   }
 
   function abrirEditar(c: Cliente) {
-    setForm({ nome: c.nome, cpf: c.cpf ?? '', email: c.email ?? '', observacoes: c.observacoes ?? '' })
+    setForm({ codigo: c.codigo, nome: c.nome, observacoes: c.observacoes ?? '' })
     setEditId(c.id)
     setFotoFile(null)
     setFotoPreview(c.foto_url)
@@ -119,99 +117,119 @@ export default function Clientes() {
         <input
           value={busca}
           onChange={e => setBusca(e.target.value)}
-          placeholder="Buscar por nome, CPF ou e-mail..."
+          placeholder="Buscar por nome ou código..."
           className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {filtrados.length === 0 && (
-          <p className="col-span-3 text-center py-10 text-gray-400">Nenhum cliente encontrado</p>
-        )}
-        {filtrados.map(c => (
-          <div key={c.id} className="bg-white rounded-xl border border-gray-200 p-4 flex gap-4">
-            <div className="shrink-0">
-              {c.foto_url
-                ? <img src={c.foto_url} alt={c.nome} className="w-14 h-14 rounded-full object-cover" />
-                : <div className="w-14 h-14 rounded-full bg-gray-100 flex items-center justify-center">
-                    <User size={24} className="text-gray-400" />
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Código</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Nome</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Foto</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Observações</th>
+              <th className="text-right px-4 py-3 font-medium text-gray-600">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtrados.length === 0 && (
+              <tr>
+                <td colSpan={5} className="text-center py-10 text-gray-400">Nenhum cliente encontrado</td>
+              </tr>
+            )}
+            {filtrados.map(c => (
+              <tr key={c.id} className="border-b border-gray-100 hover:bg-gray-50">
+                <td className="px-4 py-3 font-mono font-medium text-gray-900">{c.codigo}</td>
+                <td className="px-4 py-3 text-gray-700">{c.nome}</td>
+                <td className="px-4 py-3">
+                  {c.foto_url
+                    ? <img src={c.foto_url} alt="foto" className="w-10 h-10 rounded object-cover border border-gray-200" />
+                    : <div className="w-10 h-10 rounded bg-gray-100 flex items-center justify-center">
+                        <Image size={16} className="text-gray-400" />
+                      </div>
+                  }
+                </td>
+                <td className="px-4 py-3 text-gray-500 text-xs max-w-xs truncate">{c.observacoes || '—'}</td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex justify-end gap-2">
+                    <button onClick={() => abrirEditar(c)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded">
+                      <Pencil size={15} />
+                    </button>
+                    <button onClick={() => excluir(c)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                      <Trash2 size={15} />
+                    </button>
                   </div>
-              }
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-900 truncate">{c.nome}</p>
-              {c.cpf && <p className="text-xs text-gray-500">CPF: {c.cpf}</p>}
-              {c.email && <p className="text-xs text-gray-500 truncate">{c.email}</p>}
-              {c.observacoes && <p className="text-xs text-gray-400 mt-1 truncate">{c.observacoes}</p>}
-            </div>
-            <div className="flex flex-col gap-1 shrink-0">
-              <button onClick={() => abrirEditar(c)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded">
-                <Pencil size={14} />
-              </button>
-              <button onClick={() => excluir(c)} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
-                <Trash2 size={14} />
-              </button>
-            </div>
-          </div>
-        ))}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
       {modal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">
               {editId ? 'Editar Cliente' : 'Novo Cliente'}
             </h3>
-            <div className="flex flex-col items-center mb-4">
-              <div
-                onClick={() => inputFoto.current?.click()}
-                className="w-24 h-24 rounded-full border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-green-400 overflow-hidden"
-              >
-                {fotoPreview
-                  ? <img src={fotoPreview} alt="preview" className="w-full h-full object-cover" />
-                  : <div className="flex flex-col items-center text-gray-400 text-xs text-center">
-                      <Upload size={20} />
-                      <span className="mt-1">Foto</span>
-                    </div>
-                }
-              </div>
-              <input ref={inputFoto} type="file" accept="image/*" className="hidden" onChange={selecionarFoto} />
-              <p className="text-xs text-gray-400 mt-1">Clique para selecionar foto</p>
-            </div>
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Código do Cliente *</label>
+                <input
+                  value={form.codigo}
+                  onChange={e => setForm(f => ({ ...f, codigo: e.target.value }))}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Ex: CLI-001"
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome *</label>
                 <input
                   value={form.nome}
                   onChange={e => setForm(f => ({ ...f, nome: e.target.value }))}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Nome do cliente"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">CPF</label>
-                <input
-                  value={form.cpf ?? ''}
-                  onChange={e => setForm(f => ({ ...f, cpf: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="000.000.000-00"
-                />
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Foto de referência
+                </label>
+                <p className="text-xs text-gray-400 mb-2">
+                  Foto enviada junto com a mensagem de disparo (ex: foto da entrada, escada, etc.)
+                </p>
+                <div
+                  onClick={() => inputFoto.current?.click()}
+                  className="border-2 border-dashed border-gray-300 rounded-lg p-4 flex flex-col items-center gap-2 cursor-pointer hover:border-green-400 hover:bg-green-50 transition-colors"
+                >
+                  {fotoPreview
+                    ? <img src={fotoPreview} alt="preview" className="max-h-40 rounded object-contain" />
+                    : <>
+                        <Upload size={24} className="text-gray-400" />
+                        <span className="text-sm text-gray-500">Clique para selecionar foto</span>
+                      </>
+                  }
+                </div>
+                <input ref={inputFoto} type="file" accept="image/*" className="hidden" onChange={selecionarFoto} />
+                {fotoPreview && (
+                  <button
+                    onClick={() => { setFotoFile(null); setFotoPreview(null) }}
+                    className="text-xs text-red-500 hover:text-red-700 mt-1"
+                  >
+                    Remover foto
+                  </button>
+                )}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
-                <input
-                  type="email"
-                  value={form.email ?? ''}
-                  onChange={e => setForm(f => ({ ...f, email: e.target.value }))}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Observações</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Observações / Instruções</label>
                 <textarea
                   value={form.observacoes ?? ''}
                   onChange={e => setForm(f => ({ ...f, observacoes: e.target.value }))}
                   rows={3}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
+                  placeholder="Ex: Subir a escada à direita da entrada principal"
                 />
               </div>
             </div>
@@ -221,7 +239,7 @@ export default function Clientes() {
               </button>
               <button
                 onClick={salvar}
-                disabled={loading || !form.nome}
+                disabled={loading || !form.nome || !form.codigo}
                 className="px-4 py-2 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg font-medium"
               >
                 {loading ? 'Salvando...' : 'Salvar'}
