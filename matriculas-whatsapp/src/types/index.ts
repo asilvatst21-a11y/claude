@@ -9,9 +9,8 @@ export interface Matricula {
 
 export interface Cliente {
   id: string
+  codigo: string
   nome: string
-  cpf: string | null
-  email: string | null
   foto_url: string | null
   observacoes: string | null
   created_at: string

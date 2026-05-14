@@ -2,15 +2,17 @@ import { useCallback, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
-import { enviarMensagemWhatsApp, formatarMensagem } from '../lib/zapi'
+import { enviarMensagemWhatsApp, enviarImagemWhatsApp, formatarMensagem } from '../lib/zapi'
 import type { Matricula, Cliente } from '../types'
 import { FileSpreadsheet, CheckCircle, XCircle, Send, AlertTriangle } from 'lucide-react'
 
 interface LinhaPreview {
   matricula: string
   cliente: string
+  codigoCliente: string
   whatsapp?: string
   foto_url?: string
+  observacoes?: string
   status: 'encontrado' | 'nao_encontrado'
 }
 
@@ -19,7 +21,12 @@ interface ResultadoDisparo extends LinhaPreview {
   erro?: string
 }
 
-const TEMPLATE_PADRAO = `Olá! Informamos que a matrícula *{{matricula}}* está vinculada ao cliente *{{cliente}}*. Em caso de dúvidas, entre em contato conosco.`
+const TEMPLATE_PADRAO = `Olá motorista! Hoje você tem entrega no cliente *{{cliente}}* ({{codigo}}).
+
+Seguem as informações de acesso:
+{{observacoes}}
+
+Em caso de dúvidas, entre em contato conosco.`
 
 export default function Disparos() {
   const [linhas, setLinhas] = useState<LinhaPreview[]>([])
@@ -53,20 +60,24 @@ export default function Disparos() {
     const { data: clientesDB } = await supabase.from('clientes').select('*')
 
     const matMap = new Map<string, Matricula>((matriculasDB ?? []).map(m => [m.numero.trim(), m]))
-    const cliMap = new Map<string, Cliente>((clientesDB ?? []).map(c => [c.nome.trim().toLowerCase(), c]))
+    // busca por código OU nome do cliente
+    const cliMapCodigo = new Map<string, Cliente>((clientesDB ?? []).map(c => [c.codigo.trim().toLowerCase(), c]))
+    const cliMapNome = new Map<string, Cliente>((clientesDB ?? []).map(c => [c.nome.trim().toLowerCase(), c]))
 
     const preview: LinhaPreview[] = rows.map(row => {
       const numMatricula = String(row[colMatricula]).trim()
       const nomeCliente = String(row[colCliente]).trim()
 
       const mat = matMap.get(numMatricula)
-      const cli = cliMap.get(nomeCliente.toLowerCase())
+      const cli = cliMapCodigo.get(nomeCliente.toLowerCase()) ?? cliMapNome.get(nomeCliente.toLowerCase())
 
       return {
         matricula: numMatricula,
-        cliente: nomeCliente,
+        cliente: cli?.nome ?? nomeCliente,
+        codigoCliente: cli?.codigo ?? nomeCliente,
         whatsapp: mat?.whatsapp,
         foto_url: cli?.foto_url ?? undefined,
+        observacoes: cli?.observacoes ?? undefined,
         status: mat ? 'encontrado' : 'nao_encontrado',
       }
     })
@@ -101,9 +112,24 @@ export default function Disparos() {
       const mensagem = formatarMensagem(template, {
         matricula: linha.matricula,
         cliente: linha.cliente,
+        codigo: linha.codigoCliente,
+        observacoes: linha.observacoes ?? '',
       })
 
-      const { sucesso, erro } = await enviarMensagemWhatsApp(linha.whatsapp!, mensagem)
+      let sucesso: boolean
+      let erro: string | undefined
+
+      if (linha.foto_url) {
+        // envia imagem com a mensagem como legenda
+        const resultado = await enviarImagemWhatsApp(linha.whatsapp!, linha.foto_url, mensagem)
+        sucesso = resultado.sucesso
+        erro = resultado.erro
+      } else {
+        // envia só texto
+        const resultado = await enviarMensagemWhatsApp(linha.whatsapp!, mensagem)
+        sucesso = resultado.sucesso
+        erro = resultado.erro
+      }
 
       await supabase.from('disparos').insert({
         whatsapp: linha.whatsapp!,

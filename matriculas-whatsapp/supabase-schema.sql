@@ -14,13 +14,17 @@ create table if not exists matriculas (
 -- Tabela de clientes
 create table if not exists clientes (
   id uuid primary key default gen_random_uuid(),
+  codigo text not null unique,
   nome text not null,
-  cpf text,
-  email text,
   foto_url text,
   observacoes text,
   created_at timestamptz not null default now()
 );
+
+-- Migração: se a tabela já existia, execute isso separadamente:
+-- alter table clientes add column if not exists codigo text not null default '';
+-- alter table clientes drop column if exists cpf;
+-- alter table clientes drop column if exists email;
 
 -- Tabela de vínculos matrícula <-> cliente
 create table if not exists vinculos (
