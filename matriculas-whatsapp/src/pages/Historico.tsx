@@ -1,24 +1,28 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
 import type { Disparo } from '../types'
 import { CheckCircle, XCircle, Clock, RefreshCw } from 'lucide-react'
 
 export default function Historico() {
+  const { usuario } = useAuth()
   const [lista, setLista] = useState<Disparo[]>([])
   const [loading, setLoading] = useState(true)
 
   async function carregar() {
+    if (!usuario) return
     setLoading(true)
     const { data } = await supabase
       .from('disparos')
       .select('*')
+      .eq('filial', usuario.filial)
       .order('created_at', { ascending: false })
       .limit(200)
     setLista(data ?? [])
     setLoading(false)
   }
 
-  useEffect(() => { carregar() }, [])
+  useEffect(() => { carregar() }, [usuario?.filial])
 
   const statusIcon = (s: Disparo['status']) => {
     if (s === 'enviado') return <CheckCircle size={15} className="text-brand-600" />

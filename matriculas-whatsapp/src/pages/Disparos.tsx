@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
 import { enviarMensagemWhatsApp, enviarImagemWhatsApp, formatarMensagem } from '../lib/zapi'
 import type { Matricula, Cliente } from '../types'
 import { FileSpreadsheet, CheckCircle, XCircle, Send, AlertTriangle, Image } from 'lucide-react'
@@ -28,6 +29,7 @@ const TEMPLATE_PADRAO = `Olá motorista! Hoje você tem entrega no cliente *{{no
 {{observacoes}}`
 
 export default function Disparos() {
+  const { usuario } = useAuth()
   const [linhas, setLinhas] = useState<LinhaPreview[]>([])
   const [resultados, setResultados] = useState<ResultadoDisparo[]>([])
   const [template, setTemplate] = useState(TEMPLATE_PADRAO)
@@ -54,9 +56,11 @@ export default function Disparos() {
     const colMotorista = colunas.find(c => /motorista/i.test(c)) ?? colunas[0]
     const colClientes = colunas.find(c => /^clientes$/i.test(c)) ?? colunas[1]
 
-    // Busca matrículas e clientes do banco
-    const { data: matriculasDB } = await supabase.from('matriculas').select('*').eq('ativo', true)
-    const { data: clientesDB } = await supabase.from('clientes').select('*')
+    if (!usuario) return
+
+    // Busca matrículas e clientes do banco (apenas da filial do usuário)
+    const { data: matriculasDB } = await supabase.from('matriculas').select('*').eq('filial', usuario.filial).eq('ativo', true)
+    const { data: clientesDB } = await supabase.from('clientes').select('*').eq('filial', usuario.filial)
 
     // Normaliza códigos removendo zeros à esquerda para comparação
     const normalizar = (s: string) => s.trim().replace(/^0+/, '') || '0'
@@ -97,7 +101,7 @@ export default function Disparos() {
     setLinhas(preview)
     setResultados([])
     setEtapa('preview')
-  }, [])
+  }, [usuario?.filial])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -147,6 +151,7 @@ export default function Disparos() {
       }
 
       await supabase.from('disparos').insert({
+        filial: usuario?.filial ?? null,
         whatsapp: linha.whatsapp!,
         mensagem,
         status: sucesso ? 'enviado' : 'erro',

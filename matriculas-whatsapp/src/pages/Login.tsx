@@ -1,18 +1,26 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
+import { supabase } from '../lib/supabase'
 import { Lock, Building2, User, Loader2 } from 'lucide-react'
-
-const FILIAIS = ['CDD PETROPOLIS']
 
 export default function Login() {
   const navigate = useNavigate()
   const { entrar } = useAuth()
-  const [filial, setFilial] = useState(FILIAIS[0])
+  const [filiais, setFiliais] = useState<string[]>([])
+  const [filial, setFilial] = useState('')
   const [login, setLogin] = useState('')
   const [senha, setSenha] = useState('')
   const [erro, setErro] = useState('')
   const [loading, setLoading] = useState(false)
+
+  useEffect(() => {
+    supabase.from('filiais').select('nome').order('nome').then(({ data }) => {
+      const nomes = (data ?? []).map(f => f.nome)
+      setFiliais(nomes)
+      if (nomes.length > 0) setFilial(nomes[0])
+    })
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -46,7 +54,7 @@ export default function Login() {
                 onChange={e => setFilial(e.target.value)}
                 className="w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white appearance-none"
               >
-                {FILIAIS.map(f => <option key={f}>{f}</option>)}
+                {filiais.map(f => <option key={f}>{f}</option>)}
               </select>
             </div>
           </div>

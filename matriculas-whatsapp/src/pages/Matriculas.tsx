@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../lib/auth'
 import type { Matricula } from '../types'
 import { Plus, Pencil, Trash2, Search, ToggleLeft, ToggleRight } from 'lucide-react'
 
-const EMPTY: Omit<Matricula, 'id' | 'created_at'> = {
+const EMPTY: Omit<Matricula, 'id' | 'created_at' | 'filial'> = {
   numero: '',
   whatsapp: '',
   nome: '',
@@ -11,6 +12,7 @@ const EMPTY: Omit<Matricula, 'id' | 'created_at'> = {
 }
 
 export default function Matriculas() {
+  const { usuario } = useAuth()
   const [lista, setLista] = useState<Matricula[]>([])
   const [busca, setBusca] = useState('')
   const [modal, setModal] = useState(false)
@@ -19,14 +21,16 @@ export default function Matriculas() {
   const [loading, setLoading] = useState(false)
 
   async function carregar() {
+    if (!usuario) return
     const { data } = await supabase
       .from('matriculas')
       .select('*')
+      .eq('filial', usuario.filial)
       .order('created_at', { ascending: false })
     setLista(data ?? [])
   }
 
-  useEffect(() => { carregar() }, [])
+  useEffect(() => { carregar() }, [usuario?.filial])
 
   const filtrados = lista.filter(m =>
     m.numero.toLowerCase().includes(busca.toLowerCase()) ||
@@ -47,11 +51,12 @@ export default function Matriculas() {
   }
 
   async function salvar() {
+    if (!usuario) return
     setLoading(true)
     if (editId) {
       await supabase.from('matriculas').update(form).eq('id', editId)
     } else {
-      await supabase.from('matriculas').insert(form)
+      await supabase.from('matriculas').insert({ ...form, filial: usuario.filial })
     }
     setLoading(false)
     setModal(false)
