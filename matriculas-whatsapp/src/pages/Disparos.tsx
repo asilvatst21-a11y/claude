@@ -25,10 +25,7 @@ interface ResultadoDisparo extends LinhaPreview {
 
 const TEMPLATE_PADRAO = `Olá motorista! Hoje você tem entrega no cliente *{{nomeCliente}}* (Cód: {{codigoCliente}}).
 
-Seguem as informações de acesso:
-{{observacoes}}
-
-Em caso de dúvidas, entre em contato conosco.`
+{{observacoes}}`
 
 export default function Disparos() {
   const [linhas, setLinhas] = useState<LinhaPreview[]>([])
@@ -61,8 +58,11 @@ export default function Disparos() {
     const { data: matriculasDB } = await supabase.from('matriculas').select('*').eq('ativo', true)
     const { data: clientesDB } = await supabase.from('clientes').select('*')
 
-    const matMap = new Map<string, Matricula>((matriculasDB ?? []).map(m => [m.numero.trim(), m]))
-    const cliMap = new Map<string, Cliente>((clientesDB ?? []).map(c => [c.codigo.trim(), c]))
+    // Normaliza códigos removendo zeros à esquerda para comparação
+    const normalizar = (s: string) => s.trim().replace(/^0+/, '') || '0'
+
+    const matMap = new Map<string, Matricula>((matriculasDB ?? []).map(m => [normalizar(m.numero), m]))
+    const cliMap = new Map<string, Cliente>((clientesDB ?? []).map(c => [normalizar(c.codigo), c]))
 
     const preview: LinhaPreview[] = []
 
@@ -75,16 +75,16 @@ export default function Disparos() {
       // Clientes separados por "/"
       const codigosClientes = clientesStr.split('/').map(c => c.trim()).filter(Boolean)
 
-      const mat = matMap.get(numMotorista)
+      const mat = matMap.get(normalizar(numMotorista))
 
       for (const codigoCliente of codigosClientes) {
-        const cli = cliMap.get(codigoCliente)
+        const cli = cliMap.get(normalizar(codigoCliente))
 
         preview.push({
           matricula: numMotorista,
           nomeMotorista: mat?.nome ?? null,
           whatsapp: mat?.whatsapp,
-          codigoCliente,
+          codigoCliente: cli?.codigo ?? codigoCliente,
           nomeCliente: cli?.nome ?? codigoCliente,
           foto_url: cli?.foto_url ?? undefined,
           observacoes: cli?.observacoes ?? undefined,
@@ -109,9 +109,13 @@ export default function Disparos() {
   })
 
   async function disparar() {
-    const aptos = linhas.filter(l => l.statusMatricula === 'encontrado' && l.whatsapp)
+    const aptos = linhas.filter(l =>
+      l.statusMatricula === 'encontrado' &&
+      l.statusCliente === 'encontrado' &&
+      l.whatsapp
+    )
     if (aptos.length === 0) {
-      alert('Nenhum motorista com WhatsApp cadastrado encontrado.')
+      alert('Nenhum disparo válido — verifique se motorista e cliente estão cadastrados.')
       return
     }
 
@@ -165,7 +169,9 @@ export default function Disparos() {
     setEtapa('upload')
   }
 
-  const totalMensagens = linhas.filter(l => l.statusMatricula === 'encontrado').length
+  const totalMensagens = linhas.filter(l =>
+    l.statusMatricula === 'encontrado' && l.statusCliente === 'encontrado'
+  ).length
   const semWhatsapp = linhas.filter(l => l.statusMatricula === 'nao_encontrado').length
   const clientesNaoCadastrados = linhas.filter(l => l.statusCliente === 'nao_encontrado').length
 
@@ -244,21 +250,23 @@ export default function Disparos() {
               <span className="text-gray-400">Motorista → Cliente</span>
             </div>
             <div className="max-h-72 overflow-y-auto">
-              {linhas.map((l, i) => (
+              {linhas.map((l, i) => {
+                const valido = l.statusMatricula === 'encontrado' && l.statusCliente === 'encontrado'
+                return (
                 <div
                   key={i}
                   className={`flex items-center gap-3 px-4 py-2.5 border-b border-gray-100 text-sm ${
-                    l.statusMatricula === 'nao_encontrado' ? 'opacity-40' : ''
+                    !valido ? 'opacity-40' : ''
                   }`}
                 >
-                  {l.statusMatricula === 'encontrado'
+                  {valido
                     ? <CheckCircle size={14} className="text-green-500 shrink-0" />
                     : <XCircle size={14} className="text-red-400 shrink-0" />
                   }
                   <span className="font-mono text-gray-700 w-16 shrink-0 text-xs">{l.matricula}</span>
                   <span className="text-gray-400 text-xs shrink-0">→</span>
                   <span className="font-mono text-xs text-gray-600 w-24 shrink-0">{l.codigoCliente}</span>
-                  <span className="text-gray-700 truncate flex-1">{l.nomeCliente !== l.codigoCliente ? l.nomeCliente : <em className="text-gray-400">não cadastrado</em>}</span>
+                  <span className="text-gray-700 truncate flex-1">{l.statusCliente === 'encontrado' ? l.nomeCliente : <em className="text-gray-400">cliente não cadastrado</em>}</span>
                   {l.foto_url && l.statusCliente === 'encontrado' && (
                     <Image size={14} className="text-blue-400 shrink-0" />
                   )}
@@ -266,7 +274,7 @@ export default function Disparos() {
                     <span className="text-red-400 text-xs shrink-0">sem WhatsApp</span>
                   )}
                 </div>
-              ))}
+              )})}
             </div>
           </div>
 
