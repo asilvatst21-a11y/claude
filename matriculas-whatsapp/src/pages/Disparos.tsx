@@ -4,16 +4,18 @@ import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { enviarMensagemWhatsApp, enviarImagemWhatsApp, formatarMensagem } from '../lib/zapi'
 import type { Matricula, Cliente } from '../types'
-import { FileSpreadsheet, CheckCircle, XCircle, Send, AlertTriangle } from 'lucide-react'
+import { FileSpreadsheet, CheckCircle, XCircle, Send, AlertTriangle, Image } from 'lucide-react'
 
 interface LinhaPreview {
   matricula: string
-  cliente: string
-  codigoCliente: string
+  nomeMotorista: string | null
   whatsapp?: string
+  codigoCliente: string
+  nomeCliente: string
   foto_url?: string
   observacoes?: string
-  status: 'encontrado' | 'nao_encontrado'
+  statusMatricula: 'encontrado' | 'nao_encontrado'
+  statusCliente: 'encontrado' | 'nao_encontrado'
 }
 
 interface ResultadoDisparo extends LinhaPreview {
@@ -21,7 +23,7 @@ interface ResultadoDisparo extends LinhaPreview {
   erro?: string
 }
 
-const TEMPLATE_PADRAO = `Olá motorista! Hoje você tem entrega no cliente *{{cliente}}* ({{codigo}}).
+const TEMPLATE_PADRAO = `Olá motorista! Hoje você tem entrega no cliente *{{nomeCliente}}* (Cód: {{codigoCliente}}).
 
 Seguem as informações de acesso:
 {{observacoes}}
@@ -50,37 +52,47 @@ export default function Disparos() {
       return
     }
 
-    // Detecta colunas de matrícula e cliente (case-insensitive)
+    // Detecta colunas Motorista e Clientes
     const colunas = Object.keys(rows[0])
-    const colMatricula = colunas.find(c => /matr/i.test(c)) ?? colunas[0]
-    const colCliente = colunas.find(c => /cliente|nome/i.test(c)) ?? colunas[1]
+    const colMotorista = colunas.find(c => /motorista/i.test(c)) ?? colunas[0]
+    const colClientes = colunas.find(c => /^clientes$/i.test(c)) ?? colunas[1]
 
-    // Busca todas as matrículas e clientes do banco
+    // Busca matrículas e clientes do banco
     const { data: matriculasDB } = await supabase.from('matriculas').select('*').eq('ativo', true)
     const { data: clientesDB } = await supabase.from('clientes').select('*')
 
     const matMap = new Map<string, Matricula>((matriculasDB ?? []).map(m => [m.numero.trim(), m]))
-    // busca por código OU nome do cliente
-    const cliMapCodigo = new Map<string, Cliente>((clientesDB ?? []).map(c => [c.codigo.trim().toLowerCase(), c]))
-    const cliMapNome = new Map<string, Cliente>((clientesDB ?? []).map(c => [c.nome.trim().toLowerCase(), c]))
+    const cliMap = new Map<string, Cliente>((clientesDB ?? []).map(c => [c.codigo.trim(), c]))
 
-    const preview: LinhaPreview[] = rows.map(row => {
-      const numMatricula = String(row[colMatricula]).trim()
-      const nomeCliente = String(row[colCliente]).trim()
+    const preview: LinhaPreview[] = []
 
-      const mat = matMap.get(numMatricula)
-      const cli = cliMapCodigo.get(nomeCliente.toLowerCase()) ?? cliMapNome.get(nomeCliente.toLowerCase())
+    for (const row of rows) {
+      const numMotorista = String(row[colMotorista]).trim()
+      const clientesStr = String(row[colClientes]).trim()
 
-      return {
-        matricula: numMatricula,
-        cliente: cli?.nome ?? nomeCliente,
-        codigoCliente: cli?.codigo ?? nomeCliente,
-        whatsapp: mat?.whatsapp,
-        foto_url: cli?.foto_url ?? undefined,
-        observacoes: cli?.observacoes ?? undefined,
-        status: mat ? 'encontrado' : 'nao_encontrado',
+      if (!numMotorista || !clientesStr) continue
+
+      // Clientes separados por "/"
+      const codigosClientes = clientesStr.split('/').map(c => c.trim()).filter(Boolean)
+
+      const mat = matMap.get(numMotorista)
+
+      for (const codigoCliente of codigosClientes) {
+        const cli = cliMap.get(codigoCliente)
+
+        preview.push({
+          matricula: numMotorista,
+          nomeMotorista: mat?.nome ?? null,
+          whatsapp: mat?.whatsapp,
+          codigoCliente,
+          nomeCliente: cli?.nome ?? codigoCliente,
+          foto_url: cli?.foto_url ?? undefined,
+          observacoes: cli?.observacoes ?? undefined,
+          statusMatricula: mat ? 'encontrado' : 'nao_encontrado',
+          statusCliente: cli ? 'encontrado' : 'nao_encontrado',
+        })
       }
-    })
+    }
 
     setLinhas(preview)
     setResultados([])
@@ -97,9 +109,9 @@ export default function Disparos() {
   })
 
   async function disparar() {
-    const encontrados = linhas.filter(l => l.status === 'encontrado' && l.whatsapp)
-    if (encontrados.length === 0) {
-      alert('Nenhuma matrícula com WhatsApp válido encontrada para disparar.')
+    const aptos = linhas.filter(l => l.statusMatricula === 'encontrado' && l.whatsapp)
+    if (aptos.length === 0) {
+      alert('Nenhum motorista com WhatsApp cadastrado encontrado.')
       return
     }
 
@@ -107,25 +119,24 @@ export default function Disparos() {
     setProgresso(0)
     const res: ResultadoDisparo[] = []
 
-    for (let i = 0; i < encontrados.length; i++) {
-      const linha = encontrados[i]
+    for (let i = 0; i < aptos.length; i++) {
+      const linha = aptos[i]
       const mensagem = formatarMensagem(template, {
         matricula: linha.matricula,
-        cliente: linha.cliente,
-        codigo: linha.codigoCliente,
+        nomeMotorista: linha.nomeMotorista ?? '',
+        codigoCliente: linha.codigoCliente,
+        nomeCliente: linha.nomeCliente,
         observacoes: linha.observacoes ?? '',
       })
 
       let sucesso: boolean
       let erro: string | undefined
 
-      if (linha.foto_url) {
-        // envia imagem com a mensagem como legenda
+      if (linha.foto_url && linha.statusCliente === 'encontrado') {
         const resultado = await enviarImagemWhatsApp(linha.whatsapp!, linha.foto_url, mensagem)
         sucesso = resultado.sucesso
         erro = resultado.erro
       } else {
-        // envia só texto
         const resultado = await enviarMensagemWhatsApp(linha.whatsapp!, mensagem)
         sucesso = resultado.sucesso
         erro = resultado.erro
@@ -139,7 +150,7 @@ export default function Disparos() {
       })
 
       res.push({ ...linha, enviado: sucesso, erro })
-      setProgresso(Math.round(((i + 1) / encontrados.length) * 100))
+      setProgresso(Math.round(((i + 1) / aptos.length) * 100))
     }
 
     setResultados(res)
@@ -154,86 +165,105 @@ export default function Disparos() {
     setEtapa('upload')
   }
 
-  const encontrados = linhas.filter(l => l.status === 'encontrado').length
-  const naoEncontrados = linhas.filter(l => l.status === 'nao_encontrado').length
+  const totalMensagens = linhas.filter(l => l.statusMatricula === 'encontrado').length
+  const semWhatsapp = linhas.filter(l => l.statusMatricula === 'nao_encontrado').length
+  const clientesNaoCadastrados = linhas.filter(l => l.statusCliente === 'nao_encontrado').length
 
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="p-8 max-w-4xl">
       <h2 className="text-2xl font-bold text-gray-900 mb-6">Disparar Mensagens</h2>
 
       {etapa === 'upload' && (
-        <div
-          {...getRootProps()}
-          className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${
-            isDragActive ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-green-400 hover:bg-gray-50'
-          }`}
-        >
-          <input {...getInputProps()} />
-          <FileSpreadsheet size={40} className="mx-auto mb-3 text-gray-400" />
-          <p className="text-gray-700 font-medium">Arraste um arquivo Excel ou CSV aqui</p>
-          <p className="text-sm text-gray-400 mt-1">ou clique para selecionar</p>
-          <p className="text-xs text-gray-400 mt-3">O arquivo deve ter colunas de Matrícula e Cliente/Nome</p>
+        <div>
+          <div
+            {...getRootProps()}
+            className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${
+              isDragActive ? 'border-green-400 bg-green-50' : 'border-gray-300 hover:border-green-400 hover:bg-gray-50'
+            }`}
+          >
+            <input {...getInputProps()} />
+            <FileSpreadsheet size={40} className="mx-auto mb-3 text-gray-400" />
+            <p className="text-gray-700 font-medium">Arraste o arquivo Excel aqui</p>
+            <p className="text-sm text-gray-400 mt-1">ou clique para selecionar</p>
+          </div>
+          <div className="mt-4 bg-blue-50 border border-blue-200 rounded-lg p-4 text-sm text-blue-700">
+            <p className="font-medium mb-1">Formato esperado da planilha:</p>
+            <ul className="list-disc list-inside space-y-0.5 text-xs">
+              <li>Coluna <strong>Motorista</strong>: número da matrícula (ex: 442)</li>
+              <li>Coluna <strong>Clientes</strong>: códigos separados por / (ex: 0021663/0010140)</li>
+            </ul>
+          </div>
         </div>
       )}
 
       {etapa === 'preview' && (
         <div className="space-y-6">
-          <div className="flex gap-4">
+          <div className="flex gap-3 flex-wrap">
             <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center gap-2">
               <CheckCircle size={18} className="text-green-600" />
               <div>
-                <p className="text-xs text-green-700">Encontradas</p>
-                <p className="text-xl font-bold text-green-700">{encontrados}</p>
+                <p className="text-xs text-green-700">Mensagens a enviar</p>
+                <p className="text-xl font-bold text-green-700">{totalMensagens}</p>
               </div>
             </div>
-            <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 flex items-center gap-2">
-              <XCircle size={18} className="text-red-500" />
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3 flex items-center gap-2">
+              <AlertTriangle size={18} className="text-yellow-600" />
               <div>
-                <p className="text-xs text-red-600">Não encontradas</p>
-                <p className="text-xl font-bold text-red-600">{naoEncontrados}</p>
+                <p className="text-xs text-yellow-700">Motoristas não cadastrados</p>
+                <p className="text-xl font-bold text-yellow-700">{semWhatsapp}</p>
+              </div>
+            </div>
+            <div className="bg-orange-50 border border-orange-200 rounded-lg px-4 py-3 flex items-center gap-2">
+              <AlertTriangle size={18} className="text-orange-500" />
+              <div>
+                <p className="text-xs text-orange-600">Clientes sem cadastro</p>
+                <p className="text-xl font-bold text-orange-600">{clientesNaoCadastrados}</p>
               </div>
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Mensagem a ser enviada
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Mensagem a ser enviada</label>
             <p className="text-xs text-gray-400 mb-2">
-              Use <code className="bg-gray-100 px-1 rounded">{'{{matricula}}'}</code> e{' '}
-              <code className="bg-gray-100 px-1 rounded">{'{{cliente}}'}</code> como variáveis
+              Variáveis disponíveis:{' '}
+              {['{{matricula}}', '{{nomeMotorista}}', '{{codigoCliente}}', '{{nomeCliente}}', '{{observacoes}}'].map(v => (
+                <code key={v} className="bg-gray-100 px-1 rounded mx-0.5">{v}</code>
+              ))}
             </p>
             <textarea
               value={template}
               onChange={e => setTemplate(e.target.value)}
-              rows={4}
+              rows={5}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-green-500 resize-none"
             />
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 text-xs font-medium text-gray-500">
-              PREVIEW — {linhas.length} linhas do arquivo
+            <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 text-xs font-medium text-gray-500 flex justify-between">
+              <span>PREVIEW — {linhas.length} disparos expandidos</span>
+              <span className="text-gray-400">Motorista → Cliente</span>
             </div>
-            <div className="max-h-64 overflow-y-auto">
+            <div className="max-h-72 overflow-y-auto">
               {linhas.map((l, i) => (
                 <div
                   key={i}
                   className={`flex items-center gap-3 px-4 py-2.5 border-b border-gray-100 text-sm ${
-                    l.status === 'nao_encontrado' ? 'opacity-50' : ''
+                    l.statusMatricula === 'nao_encontrado' ? 'opacity-40' : ''
                   }`}
                 >
-                  {l.status === 'encontrado'
-                    ? <CheckCircle size={15} className="text-green-500 shrink-0" />
-                    : <AlertTriangle size={15} className="text-yellow-500 shrink-0" />
+                  {l.statusMatricula === 'encontrado'
+                    ? <CheckCircle size={14} className="text-green-500 shrink-0" />
+                    : <XCircle size={14} className="text-red-400 shrink-0" />
                   }
-                  <span className="font-mono text-gray-700 w-24 shrink-0">{l.matricula}</span>
-                  <span className="text-gray-600 truncate">{l.cliente}</span>
-                  {l.whatsapp && (
-                    <span className="text-gray-400 text-xs ml-auto shrink-0">{l.whatsapp}</span>
+                  <span className="font-mono text-gray-700 w-16 shrink-0 text-xs">{l.matricula}</span>
+                  <span className="text-gray-400 text-xs shrink-0">→</span>
+                  <span className="font-mono text-xs text-gray-600 w-24 shrink-0">{l.codigoCliente}</span>
+                  <span className="text-gray-700 truncate flex-1">{l.nomeCliente !== l.codigoCliente ? l.nomeCliente : <em className="text-gray-400">não cadastrado</em>}</span>
+                  {l.foto_url && l.statusCliente === 'encontrado' && (
+                    <Image size={14} className="text-blue-400 shrink-0" />
                   )}
-                  {l.status === 'nao_encontrado' && (
-                    <span className="text-yellow-600 text-xs ml-auto shrink-0">Não cadastrada</span>
+                  {l.statusMatricula === 'nao_encontrado' && (
+                    <span className="text-red-400 text-xs shrink-0">sem WhatsApp</span>
                   )}
                 </div>
               ))}
@@ -246,23 +276,17 @@ export default function Disparos() {
             </button>
             <button
               onClick={disparar}
-              disabled={enviando || encontrados === 0}
+              disabled={enviando || totalMensagens === 0}
               className="flex items-center gap-2 px-5 py-2 text-sm bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white rounded-lg font-medium"
             >
               <Send size={16} />
-              {enviando
-                ? `Enviando... ${progresso}%`
-                : `Disparar para ${encontrados} matrículas`
-              }
+              {enviando ? `Enviando... ${progresso}%` : `Disparar ${totalMensagens} mensagens`}
             </button>
           </div>
 
           {enviando && (
             <div className="w-full bg-gray-200 rounded-full h-2">
-              <div
-                className="bg-green-500 h-2 rounded-full transition-all"
-                style={{ width: `${progresso}%` }}
-              />
+              <div className="bg-green-500 h-2 rounded-full transition-all" style={{ width: `${progresso}%` }} />
             </div>
           )}
         </div>
@@ -295,9 +319,11 @@ export default function Disparos() {
                     ? <CheckCircle size={15} className="text-green-500 shrink-0" />
                     : <XCircle size={15} className="text-red-500 shrink-0" />
                   }
-                  <span className="font-mono text-gray-700 w-24 shrink-0">{r.matricula}</span>
-                  <span className="text-gray-600 truncate">{r.cliente}</span>
-                  {r.erro && <span className="text-red-500 text-xs ml-auto shrink-0 truncate max-w-40">{r.erro}</span>}
+                  <span className="font-mono text-gray-700 w-16 shrink-0 text-xs">{r.matricula}</span>
+                  <span className="text-gray-400 text-xs shrink-0">→</span>
+                  <span className="font-mono text-xs text-gray-600 w-24 shrink-0">{r.codigoCliente}</span>
+                  <span className="text-gray-600 truncate flex-1">{r.nomeCliente}</span>
+                  {r.erro && <span className="text-red-500 text-xs ml-auto truncate max-w-40">{r.erro}</span>}
                 </div>
               ))}
             </div>
