@@ -1,4 +1,4 @@
-import type { Product, Ingredient, Supplier, Purchase, Sale, FixedCost, DREEntry, Customer, CashbackConfig, CashSession } from '../types'
+import type { Product, Ingredient, Supplier, Purchase, Sale, FixedCost, DREEntry, Customer, CashbackConfig, CashSession, VariableCost } from '../types'
 import { pushRecord, deleteRecord } from './sync'
 
 function get<T>(key: string): T[] {
@@ -99,6 +99,22 @@ export const saveFixedCost = (c: FixedCost) => {
 export const deleteFixedCost = (fid: string) => {
   set('ff_fixed_costs', getFixedCosts().filter(x => x.id !== fid))
   deleteRecord('fixed_costs', fid).catch(() => {})
+}
+
+// Variable Costs (por mês)
+export const getVariableCosts = () => get<VariableCost>('ff_variable_costs')
+export const getVariableCostsForMonth = (month: string) =>
+  getVariableCosts().filter(c => c.month === month)
+export const saveVariableCost = (c: VariableCost) => {
+  const list = getVariableCosts()
+  const idx = list.findIndex(x => x.id === c.id)
+  idx >= 0 ? list.splice(idx, 1, c) : list.push(c)
+  set('ff_variable_costs', list)
+  pushRecord('variable_costs', c.id, c).catch(() => {})
+}
+export const deleteVariableCost = (vid: string) => {
+  set('ff_variable_costs', getVariableCosts().filter(x => x.id !== vid))
+  deleteRecord('variable_costs', vid).catch(() => {})
 }
 
 // DRE Entries

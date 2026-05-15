@@ -84,6 +84,13 @@ export interface FixedCost {
   active: boolean
 }
 
+export interface VariableCost {
+  id: string
+  name: string
+  value: number
+  month: string // 'YYYY-MM'
+}
+
 export interface DREEntry {
   month: string
   year: number
