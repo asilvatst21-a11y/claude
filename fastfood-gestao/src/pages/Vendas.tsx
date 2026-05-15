@@ -3,7 +3,7 @@ import QRCode from 'qrcode'
 import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer, getCashbackConfig, getPixConfig, savePixConfig, getIngredients, id } from '../store/storage'
 import type { PixConfig } from '../store/storage'
 import type { Sale, SaleItem, Customer } from '../types'
-import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed } from 'lucide-react'
+import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed, Maximize2, Minimize2 } from 'lucide-react'
 import { supabase, getBusinessId } from '../store/supabase'
 
 // PIX BRCode (EMV Merchant Presented Mode) com CRC16-CCITT
@@ -163,6 +163,18 @@ export default function Vendas() {
   const [filterDateFrom, setFilterDateFrom] = useState(today())
   const [filterDateTo, setFilterDateTo] = useState(today())
   const [filterProduct, setFilterProduct] = useState('')
+
+  // Tela cheia
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  useEffect(() => {
+    function onFsChange() { setIsFullscreen(!!document.fullscreenElement) }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {})
+    else document.exitFullscreen().catch(() => {})
+  }
 
   // Troco
   const [receivedAmount, setReceivedAmount] = useState('')
@@ -529,7 +541,7 @@ export default function Vendas() {
   return (
     <div className="flex flex-col h-full">
       {/* Abas */}
-      <div className="flex border-b border-gray-200 bg-white px-4 pt-4 gap-1 shrink-0">
+      <div className="flex border-b border-gray-200 bg-white px-4 pt-4 gap-1 shrink-0 items-end">
         <button onClick={() => setView('pdv')}
           className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'pdv' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-gray-700'}`}>
           <ShoppingCart size={15} /> PDV
@@ -537,6 +549,13 @@ export default function Vendas() {
         <button onClick={() => setView('historico')}
           className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'historico' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-gray-700'}`}>
           <ClipboardList size={15} /> Histórico
+        </button>
+        <button
+          onClick={toggleFullscreen}
+          title={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+          className="ml-auto mb-1 p-2 rounded-lg text-gray-400 hover:text-orange-500 hover:bg-orange-50 transition-colors"
+        >
+          {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
         </button>
       </div>
 

@@ -63,12 +63,10 @@ type GateRenderProps = { lock: () => void; openSetup: () => void }
 
 function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }) {
   const PASSWORD_KEY = 'ff_dre_password'
-  const SESSION_KEY  = 'ff_dre_unlocked'
 
   const stored = localStorage.getItem(PASSWORD_KEY)
-  const [unlocked, setUnlocked] = useState(() =>
-    !stored || sessionStorage.getItem(SESSION_KEY) === '1'
-  )
+  // Sempre começa bloqueado ao montar (navegar para a aba) se senha estiver configurada
+  const [unlocked, setUnlocked] = useState(!stored)
   const [input, setInput] = useState('')
   const [showInput, setShowInput] = useState(false)
   const [error, setError] = useState(false)
@@ -83,7 +81,6 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
   function tryUnlock() {
     const pwd = localStorage.getItem(PASSWORD_KEY)
     if (input === pwd) {
-      sessionStorage.setItem(SESSION_KEY, '1')
       setUnlocked(true)
       setError(false)
     } else {
@@ -94,7 +91,6 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
   }
 
   function lock() {
-    sessionStorage.removeItem(SESSION_KEY)
     setUnlocked(false)
     setInput('')
   }
