@@ -59,7 +59,9 @@ function Tip({ id: tipId }: { id: string }) {
 }
 
 // ── Gate de senha ────────────────────────────────────────────────────────────
-function DREGate({ children }: { children: React.ReactNode }) {
+type GateRenderProps = { lock: () => void; openSetup: () => void }
+
+function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }) {
   const PASSWORD_KEY = 'ff_dre_password'
   const SESSION_KEY  = 'ff_dre_unlocked'
 
@@ -206,12 +208,7 @@ function DREGate({ children }: { children: React.ReactNode }) {
         </div>
       )}
 
-      {/* Passa os controles de senha como props via cloneElement seria complexo,
-          então exportamos as ações via callbacks no children */}
-      {typeof children === 'function'
-        ? (children as (props: { lock: () => void; openSetup: () => void }) => React.ReactNode)({ lock, openSetup: () => setShowSetup(true) })
-        : children
-      }
+      {render({ lock, openSetup: () => setShowSetup(true) })}
     </>
   )
 }
@@ -219,11 +216,9 @@ function DREGate({ children }: { children: React.ReactNode }) {
 // ── DRE principal ─────────────────────────────────────────────────────────────
 export default function DRE() {
   return (
-    <DREGate>
-      {({ lock, openSetup }: { lock: () => void; openSetup: () => void }) => (
-        <DREContent lock={lock} openSetup={openSetup} />
-      )}
-    </DREGate>
+    <DREGate render={({ lock, openSetup }) => (
+      <DREContent lock={lock} openSetup={openSetup} />
+    )} />
   )
 }
 
