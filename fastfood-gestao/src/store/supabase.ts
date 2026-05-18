@@ -43,6 +43,24 @@ export async function signInWithGoogle() {
   })
 }
 
+export async function sendDreResetCode() {
+  if (!supabase) return { error: 'Supabase não configurado', email: null }
+  const { data } = await supabase.auth.getUser()
+  const email = data.user?.email
+  if (!email) return { error: 'Usuário não autenticado', email: null }
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: false },
+  })
+  return { error: error?.message || null, email }
+}
+
+export async function verifyDreResetCode(email: string, token: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' })
+  return { error: error?.message || null }
+}
+
 export async function verifyAccountPassword(password: string) {
   if (!supabase) return { error: 'Supabase não configurado' }
   const { data } = await supabase.auth.getUser()
