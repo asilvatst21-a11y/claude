@@ -136,11 +136,12 @@ export default function App() {
       <Routes>
         <Route path="/cadastro" element={<CadastroPublico />} />
         <Route path="/planos" element={<Planos />} />
+        <Route path="/login" element={<Login />} />
         <Route
           path="/*"
           element={
             supabase && !session ? (
-              <Login />
+              <Planos />
             ) : (
               <ProfileContext.Provider value={profile}>
                 <SyncSetup session={session} />
