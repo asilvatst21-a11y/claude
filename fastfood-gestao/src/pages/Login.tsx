@@ -28,12 +28,16 @@ export default function Login() {
 
     setShowResend(false)
     setLoading(true)
+    console.log('🔐 Login attempt:', email)
     if (mode === 'login') {
       const { error: err } = await signInWithEmail(email, password)
+      console.log('📨 signInWithEmail result:', err ? `Error: ${err}` : 'Success')
       if (err) {
+        console.log('❌ Login error:', err)
         setError(translateError(err))
         if (err.includes('Email not confirmed')) setShowResend(true)
       } else {
+        console.log('✅ Login successful, navigating to /')
         navigate('/')
       }
     } else {
@@ -41,6 +45,7 @@ export default function Login() {
       if (err) setError(translateError(err))
       else setSuccess('Conta criada! Verifique seu e-mail para confirmar o cadastro.')
     }
+    console.log('ℹ️ Setting loading to false')
     setLoading(false)
   }
 
