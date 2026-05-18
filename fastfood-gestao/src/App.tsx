@@ -61,7 +61,7 @@ export default function App() {
       if (s) {
         setBusinessId(s.user.id)
         fetchProfile(s.user.id)
-        pullFromCloud()
+        pullFromCloud().finally(() => setAppState('ready'))
       }
     })
     return () => subscription.unsubscribe()
