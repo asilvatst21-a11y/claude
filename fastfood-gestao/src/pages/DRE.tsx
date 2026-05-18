@@ -220,18 +220,18 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
                 <input
                   type="text"
                   inputMode="numeric"
-                  maxLength={6}
+                  maxLength={8}
                   value={resetCode}
                   onChange={e => setResetCode(e.target.value.replace(/\D/g, ''))}
                   onKeyDown={e => e.key === 'Enter' && handleVerifyCode()}
-                  placeholder="000000"
+                  placeholder="00000000"
                   autoFocus
                   className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-center text-2xl tracking-[0.5em] font-mono focus:outline-none focus:border-orange-400 mb-3"
                 />
                 {resetError && <p className="text-xs text-red-500 mb-3">{resetError}</p>}
                 <button
                   onClick={handleVerifyCode}
-                  disabled={resetLoading || resetCode.length < 6}
+                  disabled={resetLoading || resetCode.length < 8}
                   className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white py-2.5 rounded-xl font-bold text-sm"
                 >
                   {resetLoading ? 'Verificando...' : 'Confirmar código'}
