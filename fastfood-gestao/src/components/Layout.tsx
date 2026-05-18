@@ -2,9 +2,10 @@ import { NavLink, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, Package, TrendingUp,
   FileText, BarChart2, Settings, UtensilsCrossed, MoreHorizontal, Users, DollarSign, BookOpen,
-  ChevronLeft, ChevronRight,
+  ChevronLeft, ChevronRight, LogOut,
 } from 'lucide-react'
 import { useState } from 'react'
+import { supabase, signOut } from '../store/supabase'
 
 const navMain = [
   { to: '/',         icon: LayoutDashboard, label: 'Dashboard' },
@@ -74,15 +75,22 @@ export default function Layout() {
           ))}
         </nav>
 
-        {/* Toggle + versão */}
-        <div className={`border-t border-orange-500 ${collapsed ? 'flex flex-col items-center py-3 gap-2' : 'p-4 flex items-center justify-between'}`}>
-          {!collapsed && (
-            <span className="text-orange-200 text-xs">v1.0.0 · FastFood</span>
+        {/* Rodapé: logout + toggle */}
+        <div className={`border-t border-orange-500 ${collapsed ? 'flex flex-col items-center py-3 gap-2' : 'p-3 flex items-center justify-between gap-2'}`}>
+          {supabase && (
+            <button
+              onClick={() => { signOut(); localStorage.clear(); window.location.href = '/' }}
+              title="Sair"
+              className={`flex items-center gap-2 text-orange-200 hover:bg-orange-500 hover:text-white rounded-lg p-1.5 transition-colors text-xs font-medium ${collapsed ? '' : 'flex-1'}`}
+            >
+              <LogOut size={15} className="shrink-0" />
+              {!collapsed && 'Sair'}
+            </button>
           )}
           <button
             onClick={toggleSidebar}
             title={collapsed ? 'Expandir menu' : 'Recolher menu'}
-            className="p-1.5 rounded-lg text-orange-200 hover:bg-orange-500 hover:text-white transition-colors"
+            className="p-1.5 rounded-lg text-orange-200 hover:bg-orange-500 hover:text-white transition-colors shrink-0"
           >
             {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>

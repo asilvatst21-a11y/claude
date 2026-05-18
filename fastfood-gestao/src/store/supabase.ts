@@ -19,6 +19,22 @@ export function setBusinessId(bid: string) {
   localStorage.setItem('ff_business_id', bid)
 }
 
+export async function signInWithEmail(email: string, password: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  return { error: error?.message || null }
+}
+
+export async function signUpWithEmail(email: string, password: string, businessName: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { business_name: businessName } },
+  })
+  return { error: error?.message || null }
+}
+
 export async function signInWithGoogle() {
   if (!supabase) return
   await supabase.auth.signInWithOAuth({
