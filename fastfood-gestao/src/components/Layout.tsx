@@ -47,15 +47,16 @@ export default function Layout() {
 
       {/* Sidebar — desktop */}
       <aside
-        className={`hidden md:flex flex-col bg-orange-600 text-white shadow-lg transition-all duration-200 ${collapsed ? 'w-16' : 'w-60'}`}
+        className={`hidden md:flex flex-col text-white shadow-lg transition-all duration-200 ${collapsed ? 'w-16' : 'w-60'}`}
+        style={{ background: '#0F0F0F' }}
       >
         {/* Logo */}
-        <div className={`border-b border-orange-500 flex items-center ${collapsed ? 'justify-center p-4' : 'p-5 gap-2'}`}>
-          <UtensilsCrossed size={22} className="shrink-0" />
+        <div className={`flex items-center ${collapsed ? 'justify-center p-4' : 'p-5 gap-2'}`} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <UtensilsCrossed size={22} className="shrink-0" style={{ color: '#F5C542' }} />
           {!collapsed && (
             <div>
-              <p className="font-bold text-lg leading-tight">FastFood</p>
-              <p className="text-orange-200 text-xs">Sistema de Gestão</p>
+              <p className="font-bold text-lg leading-tight text-white">FastFood</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Sistema de Gestão</p>
             </div>
           )}
         </div>
@@ -70,9 +71,12 @@ export default function Layout() {
                 target="_blank"
                 rel="noopener noreferrer"
                 title={collapsed ? label : undefined}
-                className={`flex items-center rounded-lg text-sm font-medium transition-colors text-orange-100 hover:bg-orange-500 ${
+                className={`flex items-center rounded-lg text-sm font-medium transition-colors ${
                   collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'
                 }`}
+                style={{ color: 'rgba(255,255,255,0.5)' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
               >
                 <Icon size={18} className="shrink-0" />
                 {!collapsed && label}
@@ -86,8 +90,20 @@ export default function Layout() {
               className={({ isActive }) =>
                 `flex items-center rounded-lg text-sm font-medium transition-colors ${
                   collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'
-                } ${isActive ? 'bg-white text-orange-600' : 'text-orange-100 hover:bg-orange-500'}`
+                } ${isActive ? '' : ''}`
               }
+              style={({ isActive }) => isActive
+                ? { background: '#F5C542', color: '#0F0F0F' }
+                : { color: 'rgba(255,255,255,0.65)' }
+              }
+              onMouseEnter={e => {
+                if (!(e.currentTarget as HTMLElement).style.background.includes('#F5C542'))
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)'
+              }}
+              onMouseLeave={e => {
+                if (!(e.currentTarget as HTMLElement).style.background.includes('#F5C542'))
+                  (e.currentTarget as HTMLElement).style.background = 'transparent'
+              }}
             >
               <Icon size={18} className="shrink-0" />
               {!collapsed && label}
@@ -99,12 +115,12 @@ export default function Layout() {
         {/* Rodapé: plano + logout + toggle */}
         {profile && !collapsed && (
           <div className="px-3 pb-1">
-            <span className="inline-block bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+            <span className="inline-block text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: '#F5C542', color: '#0F0F0F' }}>
               {PLAN_LABELS[profile.plan]}
             </span>
           </div>
         )}
-        <div className={`border-t border-orange-500 ${collapsed ? 'flex flex-col items-center py-3 gap-2' : 'p-3 flex items-center justify-between gap-2'}`}>
+        <div className={`${collapsed ? 'flex flex-col items-center py-3 gap-2' : 'p-3 flex items-center justify-between gap-2'}`} style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
           {supabase && (
             <button
               onClick={() => {
@@ -117,7 +133,10 @@ export default function Layout() {
                 window.location.href = '/'
               }}
               title="Sair"
-              className={`flex items-center gap-2 text-orange-200 hover:bg-orange-500 hover:text-white rounded-lg p-1.5 transition-colors text-xs font-medium ${collapsed ? '' : 'flex-1'}`}
+              className={`flex items-center gap-2 rounded-lg p-1.5 transition-colors text-xs font-medium ${collapsed ? '' : 'flex-1'}`}
+              style={{ color: 'rgba(255,255,255,0.4)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = 'white' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
             >
               <LogOut size={15} className="shrink-0" />
               {!collapsed && 'Sair'}
@@ -126,7 +145,10 @@ export default function Layout() {
           <button
             onClick={toggleSidebar}
             title={collapsed ? 'Expandir menu' : 'Recolher menu'}
-            className="p-1.5 rounded-lg text-orange-200 hover:bg-orange-500 hover:text-white transition-colors shrink-0"
+            className="p-1.5 rounded-lg transition-colors shrink-0"
+            style={{ color: 'rgba(255,255,255,0.4)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = 'white' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
           >
             {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
@@ -139,8 +161,8 @@ export default function Layout() {
         <TrialBanner />
 
         {/* Header mobile */}
-        <header className="md:hidden bg-orange-600 text-white px-4 py-3 flex items-center gap-2 shadow">
-          <UtensilsCrossed size={20} />
+        <header className="md:hidden text-white px-4 py-3 flex items-center gap-2 shadow" style={{ background: '#0F0F0F' }}>
+          <UtensilsCrossed size={20} style={{ color: '#F5C542' }} />
           <p className="font-bold text-base">FastFood Gestão</p>
         </header>
 
@@ -159,7 +181,7 @@ export default function Layout() {
               onClick={() => setShowMore(false)}
               className={({ isActive }) =>
                 `flex-1 flex flex-col items-center py-2 text-xs font-medium transition-colors ${
-                  isActive ? 'text-orange-600' : 'text-gray-400'
+                  isActive ? 'text-[#c49a20]' : 'text-gray-400'
                 }`
               }
             >
@@ -196,7 +218,7 @@ export default function Layout() {
                   onClick={() => setShowMore(false)}
                   className={({ isActive }) =>
                     `flex-1 flex flex-col items-center py-2 px-1 rounded-xl text-xs font-medium transition-colors ${
-                      isActive ? 'bg-orange-50 text-orange-600' : 'text-gray-500 hover:bg-gray-50'
+                      isActive ? 'bg-yellow-50 text-[#c49a20]' : 'text-gray-500 hover:bg-gray-50'
                     }`
                   }
                 >

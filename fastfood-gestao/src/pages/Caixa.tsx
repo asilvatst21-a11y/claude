@@ -121,8 +121,8 @@ export default function Caixa() {
           {!session && (
             <div className="bg-white rounded-xl border border-gray-200 p-6 max-w-md">
               <div className="flex items-center gap-3 mb-4">
-                <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center">
-                  <Unlock size={20} className="text-orange-500" />
+                <div className="w-10 h-10 bg-yellow-100 rounded-full flex items-center justify-center">
+                  <Unlock size={20} className="text-[#F5C542]" />
                 </div>
                 <div>
                   <h2 className="font-bold text-gray-800">Abrir Caixa</h2>
@@ -136,11 +136,11 @@ export default function Caixa() {
                   value={openingBalance}
                   onChange={e => setOpeningBalance(e.target.value)}
                   placeholder="0,00"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#F5C542]"
                 />
               </div>
               <button onClick={openCaixa}
-                className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-bold text-sm">
+                className="w-full bg-[#F5C542] hover:bg-[#d4a72c] text-[#0F0F0F] py-3 rounded-xl font-bold text-sm">
                 Abrir Caixa
               </button>
             </div>
@@ -215,10 +215,10 @@ export default function Caixa() {
                 <div className="flex gap-2">
                   <input value={expDesc} onChange={e => setExpDesc(e.target.value)}
                     placeholder="Descrição (ex: Compra de gás)"
-                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400" />
+                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]" />
                   <input type="number" min={0} step="0.01" value={expAmount} onChange={e => setExpAmount(e.target.value)}
                     placeholder="R$ 0,00"
-                    className="w-28 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400" />
+                    className="w-28 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]" />
                   <button onClick={addExpense} disabled={!expDesc.trim() || !expAmount}
                     className="bg-red-500 hover:bg-red-600 disabled:opacity-40 text-white px-4 py-2.5 rounded-xl text-sm font-bold">
                     <Plus size={16} />
@@ -265,7 +265,7 @@ export default function Caixa() {
                     <input type="number" min={0} step="0.01" value={countedAmount}
                       onChange={e => setCountedAmount(e.target.value)}
                       placeholder="0,00"
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400" />
+                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#F5C542]" />
                   </div>
 
                   {countedAmount && (
@@ -284,7 +284,7 @@ export default function Caixa() {
                     <textarea value={closingNotes} onChange={e => setClosingNotes(e.target.value)}
                       placeholder="Opcional..."
                       rows={2}
-                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-400 resize-none" />
+                      className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-[#F5C542] resize-none" />
                   </div>
 
                   <button onClick={closeCaixa}

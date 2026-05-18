@@ -28,10 +28,10 @@ export default function ResetPassword({ onDone }: { onDone: () => void }) {
       <div className="w-full max-w-md space-y-6">
         <div className="text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg mb-4">
-            <UtensilsCrossed size={32} className="text-orange-500" />
+            <UtensilsCrossed size={32} className="text-[#F5C542]" />
           </div>
           <h1 className="text-3xl font-black text-white">FastFood Gestão</h1>
-          <p className="text-orange-200 text-sm mt-1">Redefinir senha</p>
+          <p className="text-yellow-200 text-sm mt-1">Redefinir senha</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-2xl p-6 space-y-4">
@@ -53,7 +53,7 @@ export default function ResetPassword({ onDone }: { onDone: () => void }) {
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     placeholder="Mínimo 6 caracteres"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:border-orange-400"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:border-[#F5C542]"
                     autoFocus
                   />
                   <button type="button" onClick={() => setShowPwd(v => !v)}
@@ -70,7 +70,7 @@ export default function ResetPassword({ onDone }: { onDone: () => void }) {
                   value={confirm}
                   onChange={e => setConfirm(e.target.value)}
                   placeholder="Repita a senha"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
                 />
               </div>
 
@@ -83,7 +83,7 @@ export default function ResetPassword({ onDone }: { onDone: () => void }) {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm transition-colors"
+                className="w-full bg-[#F5C542] hover:bg-[#d4a72c] disabled:opacity-60 text-[#0F0F0F] font-bold py-3 rounded-xl text-sm transition-colors"
               >
                 {loading ? 'Salvando...' : 'Salvar nova senha'}
               </button>

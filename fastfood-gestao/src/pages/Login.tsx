@@ -89,10 +89,10 @@ export default function Login() {
         {/* Logo */}
         <div className="text-center">
           <div className="inline-flex items-center justify-center w-16 h-16 bg-white rounded-2xl shadow-lg mb-4">
-            <UtensilsCrossed size={32} className="text-orange-500" />
+            <UtensilsCrossed size={32} className="text-[#F5C542]" />
           </div>
           <h1 className="text-3xl font-black text-white">FastFood Gestão</h1>
-          <p className="text-orange-200 text-sm mt-1">Sistema completo para seu estabelecimento</p>
+          <p className="text-yellow-200 text-sm mt-1">Sistema completo para seu estabelecimento</p>
         </div>
 
         {/* Card */}
@@ -103,20 +103,20 @@ export default function Login() {
             <div className="grid grid-cols-2 border-b border-gray-100">
               <button
                 onClick={() => { setMode('login'); setError(''); setSuccess(''); setShowResend(false) }}
-                className={`py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${mode === 'login' ? 'text-orange-600 border-b-2 border-orange-500' : 'text-gray-400 hover:text-gray-600'}`}
+                className={`py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${mode === 'login' ? 'text-[#c49a20] border-b-2 border-[#F5C542]' : 'text-gray-400 hover:text-gray-600'}`}
               >
                 <LogIn size={15} /> Entrar
               </button>
               <button
                 onClick={() => { setMode('register'); setError(''); setSuccess(''); setShowResend(false) }}
-                className={`py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${mode === 'register' ? 'text-orange-600 border-b-2 border-orange-500' : 'text-gray-400 hover:text-gray-600'}`}
+                className={`py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${mode === 'register' ? 'text-[#c49a20] border-b-2 border-[#F5C542]' : 'text-gray-400 hover:text-gray-600'}`}
               >
                 <UserPlus size={15} /> Criar conta
               </button>
             </div>
           ) : (
             <div className="border-b border-gray-100 px-5 py-3.5 flex items-center gap-2">
-              <button onClick={() => { setMode('login'); setError(''); setSuccess('') }} className="text-orange-500 hover:text-orange-600">
+              <button onClick={() => { setMode('login'); setError(''); setSuccess('') }} className="text-[#F5C542] hover:text-[#c49a20]">
                 <ChevronLeft size={18} />
               </button>
               <span className="text-sm font-semibold text-gray-700">Recuperar senha</span>
@@ -134,7 +134,7 @@ export default function Login() {
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     placeholder="seu@email.com"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
                     autoComplete="email"
                     autoFocus
                   />
@@ -144,7 +144,7 @@ export default function Login() {
                 <button
                   type="submit"
                   disabled={loading || !!success}
-                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm transition-colors"
+                  className="w-full bg-[#F5C542] hover:bg-[#d4a72c] disabled:opacity-60 text-[#0F0F0F] font-bold py-3 rounded-xl text-sm transition-colors"
                 >
                   {loading ? 'Enviando...' : 'Enviar link de recuperação'}
                 </button>
@@ -159,7 +159,7 @@ export default function Login() {
                     value={businessName}
                     onChange={e => setBusinessName(e.target.value)}
                     placeholder="Ex: Burguer do João, Lanchonete Central..."
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
                     autoComplete="organization"
                   />
                 </div>
@@ -172,7 +172,7 @@ export default function Login() {
                   value={email}
                   onChange={e => setEmail(e.target.value)}
                   placeholder="seu@email.com"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
                   autoComplete="email"
                 />
               </div>
@@ -185,7 +185,7 @@ export default function Login() {
                     value={password}
                     onChange={e => setPassword(e.target.value)}
                     placeholder={mode === 'register' ? 'Mínimo 6 caracteres' : '••••••••'}
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:border-orange-400"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:border-[#F5C542]"
                     autoComplete={mode === 'register' ? 'new-password' : 'current-password'}
                   />
                   <button type="button" onClick={() => setShowPwd(v => !v)}
@@ -203,7 +203,7 @@ export default function Login() {
                       type="button"
                       onClick={handleResend}
                       disabled={resendLoading}
-                      className="text-orange-600 font-semibold underline hover:no-underline disabled:opacity-60"
+                      className="text-[#c49a20] font-semibold underline hover:no-underline disabled:opacity-60"
                     >
                       {resendLoading ? 'Reenviando...' : 'Reenviar e-mail de confirmação'}
                     </button>
@@ -219,7 +219,7 @@ export default function Login() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm transition-colors"
+                className="w-full bg-[#F5C542] hover:bg-[#d4a72c] disabled:opacity-60 text-[#0F0F0F] font-bold py-3 rounded-xl text-sm transition-colors"
               >
                 {loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'}
               </button>
@@ -228,7 +228,7 @@ export default function Login() {
                 <button
                   type="button"
                   onClick={() => { setMode('forgot'); setError(''); setSuccess(''); setShowResend(false) }}
-                  className="w-full text-center text-xs text-gray-400 hover:text-orange-500 transition-colors"
+                  className="w-full text-center text-xs text-gray-400 hover:text-[#F5C542] transition-colors"
                 >
                   Esqueceu a senha?
                 </button>
@@ -268,7 +268,7 @@ export default function Login() {
           </div>
         </div>
 
-        <p className="text-center text-orange-200 text-xs">
+        <p className="text-center text-yellow-200 text-xs">
           FastFood Gestão · Cada negócio, sua própria conta
         </p>
       </div>

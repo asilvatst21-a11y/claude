@@ -19,7 +19,7 @@ export default function TrialBanner() {
 
   return (
     <div className={`flex items-center gap-3 px-4 py-2.5 text-xs font-medium ${
-      urgent ? 'bg-red-500 text-white' : 'bg-orange-500 text-white'
+      urgent ? 'bg-red-500 text-white' : 'bg-[#F5C542] text-[#0F0F0F]'
     }`}>
       <AlertTriangle size={14} className="shrink-0" />
       <span className="flex-1">

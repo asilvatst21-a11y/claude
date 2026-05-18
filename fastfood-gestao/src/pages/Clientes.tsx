@@ -169,12 +169,12 @@ export default function Clientes() {
               <h1 className="text-lg font-bold text-gray-800">{c.name}</h1>
               <p className="text-gray-500 text-xs">
                 {c.phone && formatPhone(c.phone)}{c.birthday && ` · ${birthdayFromISO(c.birthday)}`}
-                {c.createdAt && <span className="text-orange-500"> · {memberSince(c.createdAt)}</span>}
+                {c.createdAt && <span className="text-[#F5C542]"> · {memberSince(c.createdAt)}</span>}
               </p>
             </div>
             <button
               onClick={() => { openEdit(c); setDetailCustomer(null) }}
-              className="text-xs text-orange-500 border border-orange-300 px-3 py-1.5 rounded-lg hover:bg-orange-50 transition-colors"
+              className="text-xs text-[#F5C542] border border-[#F5C542]/50 px-3 py-1.5 rounded-lg hover:bg-yellow-50 transition-colors"
             >
               Editar
             </button>
@@ -183,9 +183,9 @@ export default function Clientes() {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div className="grid grid-cols-3 gap-3">
-            <div className="bg-orange-50 rounded-xl p-3 text-center border border-orange-100">
+            <div className="bg-yellow-50 rounded-xl p-3 text-center border border-yellow-100">
               <p className="text-xs text-gray-500 mb-1">Compras</p>
-              <p className="text-xl font-bold text-orange-600">{customerSales.length}</p>
+              <p className="text-xl font-bold text-[#c49a20]">{customerSales.length}</p>
             </div>
             <div className="bg-green-50 rounded-xl p-3 text-center border border-green-100">
               <p className="text-xs text-gray-500 mb-1">Total gasto</p>
@@ -199,7 +199,7 @@ export default function Clientes() {
 
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
             <h2 className="font-semibold text-gray-700 mb-3 flex items-center gap-2 text-sm">
-              <ShoppingBag size={15} className="text-orange-500" /> Histórico de Compras
+              <ShoppingBag size={15} className="text-[#F5C542]" /> Histórico de Compras
             </h2>
             {customerSales.length === 0 ? (
               <p className="text-gray-400 text-sm text-center py-6">Nenhuma compra registrada ainda.</p>
@@ -236,13 +236,13 @@ export default function Clientes() {
         <div className="flex gap-1">
           <button
             onClick={() => setView('lista')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'lista' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'lista' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:text-gray-700'}`}
           >
             <Users size={15} /> Clientes
           </button>
           <button
             onClick={() => setView('cashback')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'cashback' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-gray-700'}`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'cashback' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:text-gray-700'}`}
           >
             <Gift size={15} /> Cashback
           </button>
@@ -252,14 +252,14 @@ export default function Clientes() {
             <button
               onClick={copyLink}
               title="Copiar link de cadastro para clientes"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs border transition-colors ${linkCopied ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-200 text-gray-600 hover:border-orange-300 hover:text-orange-600'}`}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg font-medium text-xs border transition-colors ${linkCopied ? 'bg-green-50 border-green-300 text-green-700' : 'border-gray-200 text-gray-600 hover:border-[#F5C542]/50 hover:text-[#c49a20]'}`}
             >
               {linkCopied ? <><Check size={13} /> Copiado!</> : <><Link size={13} /> Link</>}
             </button>
           )}
           <button
             onClick={openNew}
-            className="flex items-center gap-1.5 bg-orange-500 hover:bg-orange-600 text-white px-3 py-1.5 rounded-lg font-medium text-xs shadow transition-colors"
+            className="flex items-center gap-1.5 bg-[#F5C542] hover:bg-[#d4a72c] text-[#0F0F0F] px-3 py-1.5 rounded-lg font-medium text-xs shadow transition-colors"
           >
             <Plus size={14} /> Novo
           </button>
@@ -286,7 +286,7 @@ export default function Clientes() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Buscar por nome ou telefone..."
-              className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+              className="w-full border border-gray-200 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
             />
           </div>
 
@@ -305,10 +305,10 @@ export default function Clientes() {
                 <div
                   key={c.id}
                   onClick={() => setDetailCustomer(c)}
-                  className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-3 cursor-pointer hover:border-orange-200 transition-colors"
+                  className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center gap-3 cursor-pointer hover:border-[#F5C542]/30 transition-colors"
                 >
-                  <div className="w-10 h-10 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
-                    <span className="text-orange-600 font-bold text-sm">{c.name.slice(0, 2).toUpperCase()}</span>
+                  <div className="w-10 h-10 rounded-full bg-yellow-100 flex items-center justify-center shrink-0">
+                    <span className="text-[#c49a20] font-bold text-sm">{c.name.slice(0, 2).toUpperCase()}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
@@ -373,9 +373,9 @@ export default function Clientes() {
                   <input
                     type="range" min={1} max={20} value={cashback.percentage}
                     onChange={e => updatePercentage(Number(e.target.value))}
-                    className="flex-1 accent-orange-500"
+                    className="flex-1 accent-[#F5C542]"
                   />
-                  <span className="text-lg font-bold text-orange-500 w-12 text-right">{cashback.percentage}%</span>
+                  <span className="text-lg font-bold text-[#F5C542] w-12 text-right">{cashback.percentage}%</span>
                 </div>
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
                   <span>1%</span><span>5%</span><span>10%</span><span>15%</span><span>20%</span>
@@ -389,7 +389,7 @@ export default function Clientes() {
 
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
             <h3 className="font-semibold text-gray-700 text-sm mb-3 flex items-center gap-2">
-              <Gift size={14} className="text-orange-500" /> Saldo por cliente
+              <Gift size={14} className="text-[#F5C542]" /> Saldo por cliente
             </h3>
             {customers.filter(c => c.cashbackBalance > 0).length === 0 ? (
               <p className="text-gray-400 text-sm text-center py-4">Nenhum cliente com saldo de cashback.</p>
@@ -398,8 +398,8 @@ export default function Clientes() {
                 {customers.filter(c => c.cashbackBalance > 0).map(c => (
                   <div key={c.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                     <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
-                        <span className="text-orange-600 font-bold text-xs">{c.name.slice(0, 2).toUpperCase()}</span>
+                      <div className="w-7 h-7 rounded-full bg-yellow-100 flex items-center justify-center shrink-0">
+                        <span className="text-[#c49a20] font-bold text-xs">{c.name.slice(0, 2).toUpperCase()}</span>
                       </div>
                       <span className="text-sm text-gray-700">{c.name}</span>
                     </div>
@@ -427,7 +427,7 @@ export default function Clientes() {
                   value={form.name}
                   onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                   placeholder="Nome do cliente"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
                 />
               </div>
               <div>
@@ -439,7 +439,7 @@ export default function Clientes() {
                   onChange={e => handlePhoneChange(e.target.value)}
                   placeholder="(11) 99999-9999"
                   inputMode="numeric"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
                 />
               </div>
               <div>
@@ -451,13 +451,13 @@ export default function Clientes() {
                   onChange={e => handleBirthdayChange(e.target.value)}
                   placeholder="DD/MM/AAAA"
                   inputMode="numeric"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
                 />
               </div>
               <button
                 onClick={handleSave}
                 disabled={!form.name.trim()}
-                className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 text-white rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors"
+                className="w-full py-3 bg-[#F5C542] hover:bg-[#d4a72c] disabled:opacity-40 text-[#0F0F0F] rounded-xl font-semibold flex items-center justify-center gap-2 transition-colors"
               >
                 <Check size={16} /> {editId ? 'Salvar alterações' : 'Cadastrar cliente'}
               </button>

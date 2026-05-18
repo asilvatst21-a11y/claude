@@ -157,8 +157,8 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
       <>
       <div className="flex flex-col items-center justify-center min-h-[60vh] p-6">
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 w-full max-w-sm text-center">
-          <div className="w-14 h-14 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Lock size={24} className="text-orange-500" />
+          <div className="w-14 h-14 bg-yellow-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Lock size={24} className="text-[#F5C542]" />
           </div>
           <h2 className="text-lg font-bold text-gray-800 mb-1">DRE Protegido</h2>
           <p className="text-sm text-gray-400 mb-6">Digite a senha para acessar os dados financeiros</p>
@@ -170,7 +170,7 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
               onKeyDown={e => e.key === 'Enter' && tryUnlock()}
               placeholder="Senha"
               autoFocus
-              className={`w-full border-2 rounded-xl px-4 py-3 text-center text-lg tracking-widest focus:outline-none transition-colors ${error ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-orange-400'}`}
+              className={`w-full border-2 rounded-xl px-4 py-3 text-center text-lg tracking-widest focus:outline-none transition-colors ${error ? 'border-red-400 bg-red-50' : 'border-gray-200 focus:border-[#F5C542]'}`}
             />
             <button
               type="button"
@@ -183,14 +183,14 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
           {error && <p className="text-xs text-red-500 mb-3">Senha incorreta</p>}
           <button
             onClick={tryUnlock}
-            className="w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-bold text-sm"
+            className="w-full bg-[#F5C542] hover:bg-[#d4a72c] text-[#0F0F0F] py-3 rounded-xl font-bold text-sm"
           >
             Entrar
           </button>
           <button
             type="button"
             onClick={openReset}
-            className="mt-3 text-xs text-gray-400 hover:text-orange-500 transition-colors"
+            className="mt-3 text-xs text-gray-400 hover:text-[#F5C542] transition-colors"
           >
             Esqueci a senha do DRE
           </button>
@@ -203,7 +203,7 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <KeyRound size={18} className="text-orange-500" />
+                <KeyRound size={18} className="text-[#F5C542]" />
                 <h2 className="font-bold text-gray-800">Redefinir senha do DRE</h2>
               </div>
               <button onClick={closeReset}><X size={20} className="text-gray-400" /></button>
@@ -211,8 +211,8 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
 
             {resetStep === 'code' && (
               <>
-                <div className="flex items-start gap-2 bg-orange-50 rounded-xl p-3 mb-4">
-                  <Mail size={15} className="text-orange-500 shrink-0 mt-0.5" />
+                <div className="flex items-start gap-2 bg-yellow-50 rounded-xl p-3 mb-4">
+                  <Mail size={15} className="text-[#F5C542] shrink-0 mt-0.5" />
                   <p className="text-xs text-orange-700">
                     Código enviado para <strong>{resetEmail}</strong>. Verifique sua caixa de entrada e insira o código de 8 dígitos.
                   </p>
@@ -226,13 +226,13 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
                   onKeyDown={e => e.key === 'Enter' && handleVerifyCode()}
                   placeholder="00000000"
                   autoFocus
-                  className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-center text-2xl tracking-[0.5em] font-mono focus:outline-none focus:border-orange-400 mb-3"
+                  className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-center text-2xl tracking-[0.5em] font-mono focus:outline-none focus:border-[#F5C542] mb-3"
                 />
                 {resetError && <p className="text-xs text-red-500 mb-3">{resetError}</p>}
                 <button
                   onClick={handleVerifyCode}
                   disabled={resetLoading || resetCode.length < 8}
-                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white py-2.5 rounded-xl font-bold text-sm"
+                  className="w-full bg-[#F5C542] hover:bg-[#d4a72c] disabled:opacity-60 text-[#0F0F0F] py-2.5 rounded-xl font-bold text-sm"
                 >
                   {resetLoading ? 'Verificando...' : 'Confirmar código'}
                 </button>
@@ -250,7 +250,7 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
                       onChange={e => setResetNewPwd(e.target.value)}
                       placeholder="Nova senha (mín. 4 caracteres)"
                       autoFocus
-                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:border-orange-400"
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:border-[#F5C542]"
                     />
                     <button type="button" onClick={() => setShowResetPwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                       {showResetPwd ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -262,12 +262,12 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
                     onChange={e => setResetConfirmPwd(e.target.value)}
                     onKeyDown={e => e.key === 'Enter' && handleSaveNewDrePwd()}
                     placeholder="Confirmar nova senha"
-                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
                   />
                   {resetError && <p className="text-xs text-red-500">{resetError}</p>}
                   <button
                     onClick={handleSaveNewDrePwd}
-                    className="w-full bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl font-bold text-sm"
+                    className="w-full bg-[#F5C542] hover:bg-[#d4a72c] text-[#0F0F0F] py-2.5 rounded-xl font-bold text-sm"
                   >
                     Salvar nova senha
                   </button>
@@ -306,7 +306,7 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
                   value={newPwd}
                   onChange={e => setNewPwd(e.target.value)}
                   placeholder="Nova senha (mín. 4 caracteres)"
-                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
                 />
                 <button type="button" onClick={() => setShowNewPwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
                   {showNewPwd ? <EyeOff size={15} /> : <Eye size={15} />}
@@ -318,10 +318,10 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
                 onChange={e => setConfirmPwd(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && savePassword()}
                 placeholder="Confirmar senha"
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
               />
               {setupError && <p className="text-xs text-red-500">{setupError}</p>}
-              <button onClick={savePassword} className="w-full bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl font-bold text-sm">
+              <button onClick={savePassword} className="w-full bg-[#F5C542] hover:bg-[#d4a72c] text-[#0F0F0F] py-2.5 rounded-xl font-bold text-sm">
                 Salvar senha
               </button>
               {localStorage.getItem(PASSWORD_KEY) && (
@@ -480,7 +480,7 @@ function DREContent({ lock, openSetup }: { lock: () => void; openSetup: () => vo
           </button>
           {hasPwd && (
             <button onClick={lock}
-              className="flex items-center gap-2 border border-orange-200 text-orange-600 hover:bg-orange-50 px-3 py-2 rounded-xl text-sm font-medium">
+              className="flex items-center gap-2 border border-[#F5C542]/30 text-[#c49a20] hover:bg-yellow-50 px-3 py-2 rounded-xl text-sm font-medium">
               <Lock size={15} /> Bloquear
             </button>
           )}
@@ -505,7 +505,7 @@ function DREContent({ lock, openSetup }: { lock: () => void; openSetup: () => vo
             <div className="flex items-center gap-2">
               <input type="range" min={0} max={30} step={0.5} value={taxRate}
                 onChange={e => saveTaxRate(parseFloat(e.target.value))}
-                className="flex-1 accent-orange-500" />
+                className="flex-1 accent-[#F5C542]" />
               <span className="text-sm font-bold text-gray-700 w-12 text-right">{taxRate.toFixed(1)}%</span>
             </div>
             <p className="text-xs text-gray-400 mt-1">Simples Nacional ≈ 6% · Lucro Presumido ≈ 11%</p>
@@ -517,7 +517,7 @@ function DREContent({ lock, openSetup }: { lock: () => void; openSetup: () => vo
             <input type="number" min={0} step={50} value={depreciation || ''}
               onChange={e => saveDepreciation(parseFloat(e.target.value) || 0)}
               placeholder="0"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" />
             <p className="text-xs text-gray-400 mt-1">Equipamentos, utensílios, reforma, etc.</p>
           </div>
         </div>
@@ -588,11 +588,11 @@ function DREContent({ lock, openSetup }: { lock: () => void; openSetup: () => vo
       {/* Seletor de período */}
       <div className="flex items-center gap-3 mb-6 flex-wrap">
         <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400">
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]">
           {months.map((m, i) => <option key={i} value={i}>{m}</option>)}
         </select>
         <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400">
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]">
           {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map(y => (
             <option key={y} value={y}>{y}</option>
           ))}
@@ -600,7 +600,7 @@ function DREContent({ lock, openSetup }: { lock: () => void; openSetup: () => vo
         <span className="text-sm text-gray-500">{salesFiltered.length} vendas · {purchasesFiltered.length} compras</span>
         {simPurchasesInPeriod.length > 0 && (
           <button onClick={clearSimData}
-            className="flex items-center gap-1.5 text-xs text-orange-600 border border-orange-200 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded-lg ml-auto">
+            className="flex items-center gap-1.5 text-xs text-[#c49a20] border border-[#F5C542]/30 bg-yellow-50 hover:bg-yellow-100 px-3 py-1.5 rounded-lg ml-auto">
             <Trash2 size={12} /> Limpar {simPurchasesInPeriod.length} compra(s) de simulação
           </button>
         )}
@@ -612,7 +612,7 @@ function DREContent({ lock, openSetup }: { lock: () => void; openSetup: () => vo
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold text-gray-700 flex items-center gap-2">
-                <FileText size={18} className="text-orange-500" /> {months[selectedMonth]} {selectedYear}
+                <FileText size={18} className="text-[#F5C542]" /> {months[selectedMonth]} {selectedYear}
               </h2>
               {simActive && (
                 <span className="flex items-center gap-1 text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full font-medium">
@@ -726,13 +726,13 @@ function DREContent({ lock, openSetup }: { lock: () => void; openSetup: () => vo
             <div className="flex items-center justify-between mb-4">
               <h2 className="font-semibold text-gray-700 text-sm">Custos Fixos Mensais</h2>
               <button onClick={() => setEditCost(newCost())}
-                className="flex items-center gap-1 text-orange-500 hover:text-orange-700 text-sm font-medium">
+                className="flex items-center gap-1 text-[#F5C542] hover:text-orange-700 text-sm font-medium">
                 <Plus size={16} /> Adicionar
               </button>
             </div>
 
             {editCost && (
-              <div className="border border-orange-200 rounded-lg p-3 mb-4 bg-orange-50">
+              <div className="border border-[#F5C542]/30 rounded-lg p-3 mb-4 bg-yellow-50">
                 <div className="flex justify-between mb-2">
                   <span className="text-xs font-medium text-orange-700">Novo Custo Fixo</span>
                   <button onClick={() => setEditCost(null)}><X size={14} className="text-gray-400" /></button>
@@ -750,7 +750,7 @@ function DREContent({ lock, openSetup }: { lock: () => void; openSetup: () => vo
                   onChange={e => setEditCost({ ...editCost, monthlyValue: parseFloat(e.target.value) || 0 })}
                   className="w-full border border-gray-200 rounded px-2 py-1.5 text-sm mb-2 focus:outline-none" />
                 <button onClick={() => saveCost(editCost)}
-                  className="w-full bg-orange-500 text-white rounded py-1.5 text-sm font-medium hover:bg-orange-600">
+                  className="w-full bg-[#F5C542] text-[#0F0F0F] rounded py-1.5 text-sm font-medium hover:bg-[#d4a72c]">
                   Salvar
                 </button>
               </div>
@@ -762,7 +762,7 @@ function DREContent({ lock, openSetup }: { lock: () => void; openSetup: () => vo
                   <div className="flex items-center gap-2">
                     <input type="checkbox" checked={c.active}
                       onChange={() => { saveFixedCost({ ...c, active: !c.active }); setFixedCosts(getFixedCosts()) }}
-                      className="accent-orange-500" />
+                      className="accent-[#F5C542]" />
                     <div>
                       <p className="text-sm font-medium text-gray-700">{c.name}</p>
                       <p className="text-xs text-gray-400">{categoryOptions.find(o => o.value === c.category)?.label}</p>

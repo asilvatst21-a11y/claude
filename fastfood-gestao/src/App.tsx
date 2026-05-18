@@ -114,9 +114,9 @@ export default function App() {
 
   if (appState === 'loading') {
     return (
-      <div className="h-screen flex items-center justify-center bg-orange-50">
+      <div className="h-screen flex items-center justify-center bg-yellow-50">
         <div className="text-center">
-          <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <div className="w-10 h-10 border-4 border-[#F5C542] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-gray-600 text-sm">Carregando...</p>
         </div>
       </div>
