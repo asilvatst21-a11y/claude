@@ -2,7 +2,7 @@ import { NavLink, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, Package, TrendingUp,
   FileText, BarChart2, Settings, UtensilsCrossed, MoreHorizontal, Users, DollarSign, BookOpen,
-  ChevronLeft, ChevronRight, LogOut,
+  ChevronLeft, ChevronRight, LogOut, CreditCard,
 } from 'lucide-react'
 import { useState } from 'react'
 import { supabase, signOut } from '../store/supabase'
@@ -15,12 +15,13 @@ const navMain = [
 ]
 
 const navMore = [
-  { to: '/clientes',     icon: Users,      label: 'Clientes' },
-  { to: '/cadastros',    icon: Settings,   label: 'Cadastros' },
-  { to: '/precificacao', icon: TrendingUp, label: 'Precificação' },
-  { to: '/dre',          icon: FileText,   label: 'DRE' },
-  { to: '/relatorios',   icon: BarChart2,  label: 'Relatórios' },
-  { to: '/ajuda',        icon: BookOpen,   label: 'Ajuda' },
+  { to: '/clientes',     icon: Users,       label: 'Clientes' },
+  { to: '/cadastros',    icon: Settings,    label: 'Cadastros' },
+  { to: '/precificacao', icon: TrendingUp,  label: 'Precificação' },
+  { to: '/dre',          icon: FileText,    label: 'DRE' },
+  { to: '/relatorios',   icon: BarChart2,   label: 'Relatórios' },
+  { to: '/planos',       icon: CreditCard,  label: 'Planos' },
+  { to: '/ajuda',        icon: BookOpen,    label: 'Ajuda' },
 ]
 
 const navAll = [...navMain, ...navMore]
