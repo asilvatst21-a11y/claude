@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 
 const WHATSAPP_MSG = encodeURIComponent('Olá, tenho interesse no plano Rede do FastFood Gestão')
-const WHATSAPP_URL = `https://wa.me?text=${WHATSAPP_MSG}`
+const WHATSAPP_URL = `https://wa.me/5522997457197?text=${WHATSAPP_MSG}`
 
 const problems = [
   { icon: '📦', title: 'Estoque descontrolado', desc: 'Ingredientes acabam sem aviso, pedidos são cancelados.' },
