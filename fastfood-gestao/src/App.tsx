@@ -31,38 +31,25 @@ export default function App() {
   const [isRecovery, setIsRecovery] = useState(false)
   const [profile, setProfile] = useState<Profile | null>(null)
 
-  const isPublicRoute = ['/cadastro', '/planos'].includes(window.location.pathname)
+  const isPublicRoute = ['/cadastro', '/planos', '/login'].includes(window.location.pathname)
 
   async function fetchProfile(userId: string) {
     if (!supabase) return
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('profiles')
       .select('plan, trial_ends_at, plan_expires_at')
       .eq('id', userId)
       .single()
+    if (error) {
+      console.error('Error fetching profile:', error)
+      return
+    }
     if (data) setProfile(data as Profile)
   }
 
+  // Always listen to auth state changes, regardless of route
   useEffect(() => {
-    if (isPublicRoute) { setAppState('ready'); return }
-
-    if (!supabase) {
-      setAppState('ready')
-      return
-    }
-
-    supabase.auth.getSession().then(({ data }) => {
-      const s = data.session
-      setSession(s)
-      if (s) {
-        setBusinessId(s.user.id)
-        fetchProfile(s.user.id)
-        pullFromCloud().finally(() => setAppState('ready'))
-      } else {
-        setAppState('ready')
-      }
-    })
-
+    if (!supabase) return
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       if (event === 'PASSWORD_RECOVERY') {
         setSession(s)
@@ -74,11 +61,29 @@ export default function App() {
       if (s) {
         setBusinessId(s.user.id)
         fetchProfile(s.user.id)
-        pullFromCloud()
+        pullFromCloud().finally(() => setAppState('ready'))
       }
     })
-
     return () => subscription.unsubscribe()
+  }, [])
+
+  // Initial session load for protected routes
+  useEffect(() => {
+    if (isPublicRoute || !supabase) {
+      setAppState('ready')
+      return
+    }
+    supabase.auth.getSession().then(({ data }) => {
+      const s = data.session
+      setSession(s)
+      if (s) {
+        setBusinessId(s.user.id)
+        fetchProfile(s.user.id)
+        pullFromCloud().finally(() => setAppState('ready'))
+      } else {
+        setAppState('ready')
+      }
+    })
   }, [isPublicRoute])
 
   useEffect(() => {
@@ -119,18 +124,6 @@ export default function App() {
 
   if (isRecovery) return <ResetPassword onDone={() => setIsRecovery(false)} />
 
-  // Se tem perfil e plano expirado, bloqueia acesso (exceto /planos e /cadastro)
-  if (session && profile && !isPlanActive(profile) && !isPublicRoute) {
-    return (
-      <BrowserRouter>
-        <Routes>
-          <Route path="/planos" element={<Planos />} />
-          <Route path="*" element={<ExpiredScreen />} />
-        </Routes>
-      </BrowserRouter>
-    )
-  }
-
   return (
     <BrowserRouter>
       <Routes>
@@ -140,7 +133,9 @@ export default function App() {
         <Route
           path="/*"
           element={
-            supabase && !session ? (
+            session && profile && !isPlanActive(profile) && !isPublicRoute ? (
+              <ExpiredScreen />
+            ) : supabase && !session ? (
               <Planos />
             ) : (
               <ProfileContext.Provider value={profile}>
