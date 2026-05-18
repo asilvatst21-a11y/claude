@@ -124,18 +124,6 @@ export default function App() {
 
   if (isRecovery) return <ResetPassword onDone={() => setIsRecovery(false)} />
 
-  // Se tem perfil e plano expirado, bloqueia acesso (exceto /planos e /cadastro)
-  if (session && profile && !isPlanActive(profile) && !isPublicRoute) {
-    return (
-      <BrowserRouter>
-        <Routes>
-          <Route path="/planos" element={<Planos />} />
-          <Route path="*" element={<ExpiredScreen />} />
-        </Routes>
-      </BrowserRouter>
-    )
-  }
-
   return (
     <BrowserRouter>
       <Routes>
@@ -145,7 +133,9 @@ export default function App() {
         <Route
           path="/*"
           element={
-            supabase && !session ? (
+            session && profile && !isPlanActive(profile) && !isPublicRoute ? (
+              <ExpiredScreen />
+            ) : supabase && !session ? (
               <Planos />
             ) : (
               <ProfileContext.Provider value={profile}>
