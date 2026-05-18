@@ -35,11 +35,15 @@ export default function App() {
 
   async function fetchProfile(userId: string) {
     if (!supabase) return
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('profiles')
       .select('plan, trial_ends_at, plan_expires_at')
       .eq('id', userId)
       .single()
+    if (error) {
+      console.error('Error fetching profile:', error)
+      return
+    }
     if (data) setProfile(data as Profile)
   }
 

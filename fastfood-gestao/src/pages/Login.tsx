@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { UtensilsCrossed, Eye, EyeOff, LogIn, UserPlus, Shield, ChevronLeft } from 'lucide-react'
 import { signInWithEmail, signUpWithEmail, signInWithGoogle, resendConfirmation, sendPasswordReset } from '../store/supabase'
 
 type Mode = 'login' | 'register' | 'forgot'
 
 export default function Login() {
+  const navigate = useNavigate()
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -31,6 +33,8 @@ export default function Login() {
       if (err) {
         setError(translateError(err))
         if (err.includes('Email not confirmed')) setShowResend(true)
+      } else {
+        navigate('/')
       }
     } else {
       const { error: err } = await signUpWithEmail(email, password, businessName)
