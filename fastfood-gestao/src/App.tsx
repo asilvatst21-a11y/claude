@@ -17,6 +17,7 @@ import Planos from './pages/Planos'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
 import ExpiredScreen from './components/ExpiredScreen'
+import FeatureGate from './components/FeatureGate'
 import SyncSetup from './components/SyncSetup'
 import { pullFromCloud, hasNewData } from './store/sync'
 import { supabase, setBusinessId } from './store/supabase'
@@ -145,12 +146,12 @@ export default function App() {
                     <Route index element={<Dashboard />} />
                     <Route path="vendas" element={<Vendas />} />
                     <Route path="estoque" element={<Estoque />} />
-                    <Route path="precificacao" element={<Precificacao />} />
-                    <Route path="dre" element={<DRE />} />
-                    <Route path="relatorios" element={<Relatorios />} />
+                    <Route path="precificacao" element={<FeatureGate feature="precificacao"><Precificacao /></FeatureGate>} />
+                    <Route path="dre" element={<FeatureGate feature="dre"><DRE /></FeatureGate>} />
+                    <Route path="relatorios" element={<FeatureGate feature="relatorios"><Relatorios /></FeatureGate>} />
                     <Route path="cadastros" element={<Cadastros />} />
-                    <Route path="clientes" element={<Clientes />} />
-                    <Route path="caixa" element={<Caixa />} />
+                    <Route path="clientes" element={<FeatureGate feature="clientes"><Clientes /></FeatureGate>} />
+                    <Route path="caixa" element={<FeatureGate feature="caixa"><Caixa /></FeatureGate>} />
                     <Route path="ajuda" element={<Ajuda />} />
                     <Route path="planos" element={<Planos />} />
                   </Route>

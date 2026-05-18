@@ -7,6 +7,8 @@ import {
 import { useState } from 'react'
 import { supabase, signOut } from '../store/supabase'
 import TrialBanner from './TrialBanner'
+import { useProfile } from '../store/ProfileContext'
+import { PLAN_LABELS } from '../store/permissions'
 
 const navMain = [
   { to: '/',         icon: LayoutDashboard, label: 'Dashboard' },
@@ -28,6 +30,7 @@ const navMore = [
 const navAll = [...navMain, ...navMore]
 
 export default function Layout() {
+  const profile = useProfile()
   const [showMore, setShowMore] = useState(false)
   const [collapsed, setCollapsed] = useState(
     () => localStorage.getItem('ff_sidebar_collapsed') === '1'
@@ -93,7 +96,14 @@ export default function Layout() {
           )}
         </nav>
 
-        {/* Rodapé: logout + toggle */}
+        {/* Rodapé: plano + logout + toggle */}
+        {profile && !collapsed && (
+          <div className="px-3 pb-1">
+            <span className="inline-block bg-orange-500 text-white text-xs font-bold px-2 py-0.5 rounded-full">
+              {PLAN_LABELS[profile.plan]}
+            </span>
+          </div>
+        )}
         <div className={`border-t border-orange-500 ${collapsed ? 'flex flex-col items-center py-3 gap-2' : 'p-3 flex items-center justify-between gap-2'}`}>
           {supabase && (
             <button
