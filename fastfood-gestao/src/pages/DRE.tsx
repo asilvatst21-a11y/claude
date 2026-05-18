@@ -214,7 +214,7 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
                 <div className="flex items-start gap-2 bg-orange-50 rounded-xl p-3 mb-4">
                   <Mail size={15} className="text-orange-500 shrink-0 mt-0.5" />
                   <p className="text-xs text-orange-700">
-                    Código enviado para <strong>{resetEmail}</strong>. Verifique sua caixa de entrada e insira o código de 6 dígitos.
+                    Código enviado para <strong>{resetEmail}</strong>. Verifique sua caixa de entrada e insira o código de 8 dígitos.
                   </p>
                 </div>
                 <input
