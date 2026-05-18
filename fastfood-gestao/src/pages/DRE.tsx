@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { getFixedCosts, saveFixedCost, deleteFixedCost, getSales, getPurchases, deletePurchase, getVariableCostsForMonth, saveVariableCost, deleteVariableCost, id } from '../store/storage'
 import type { FixedCost, VariableCost } from '../types'
-import { Plus, Trash2, X, FileText, TrendingUp, FlaskConical, Settings, HelpCircle, Wallet, Banknote, Sparkles, Lock, Eye, EyeOff, KeyRound } from 'lucide-react'
-import { verifyAccountPassword } from '../store/supabase'
+import { Plus, Trash2, X, FileText, TrendingUp, FlaskConical, Settings, HelpCircle, Wallet, Banknote, Sparkles, Lock, Eye, EyeOff, KeyRound, Mail } from 'lucide-react'
+import { sendDreResetCode, verifyDreResetCode } from '../store/supabase'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -79,22 +79,43 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
   const [setupError, setSetupError] = useState('')
   const [showNewPwd, setShowNewPwd] = useState(false)
 
-  // Redefinição via senha da conta
-  const [showReset, setShowReset] = useState(false)
-  const [accountPwd, setAccountPwd] = useState('')
-  const [showAccountPwd, setShowAccountPwd] = useState(false)
+  // Redefinição via e-mail (OTP)
+  type ResetStep = 'idle' | 'code' | 'newpwd'
+  const [resetStep, setResetStep] = useState<ResetStep>('idle')
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetCode, setResetCode] = useState('')
   const [resetLoading, setResetLoading] = useState(false)
   const [resetError, setResetError] = useState('')
+  const [resetNewPwd, setResetNewPwd] = useState('')
+  const [resetConfirmPwd, setResetConfirmPwd] = useState('')
+  const [showResetPwd, setShowResetPwd] = useState(false)
 
-  async function handleReset() {
+  async function openReset() {
+    setResetCode(''); setResetError(''); setResetNewPwd(''); setResetConfirmPwd('')
+    setResetLoading(true)
+    setResetStep('code')
+    const { error, email } = await sendDreResetCode()
+    setResetLoading(false)
+    if (error) { setResetError(error); return }
+    setResetEmail(email!)
+  }
+  function closeReset() { setResetStep('idle'); setResetCode(''); setResetError('') }
+
+  async function handleVerifyCode() {
     setResetError('')
     setResetLoading(true)
-    const { error } = await verifyAccountPassword(accountPwd)
+    const { error } = await verifyDreResetCode(resetEmail, resetCode.trim())
     setResetLoading(false)
-    if (error) { setResetError('Senha da conta incorreta'); return }
-    setShowReset(false)
-    setAccountPwd('')
-    setShowSetup(true)
+    if (error) { setResetError('Código inválido ou expirado'); return }
+    setResetStep('newpwd')
+  }
+
+  function handleSaveNewDrePwd() {
+    if (resetNewPwd.length < 4) { setResetError('Mínimo 4 caracteres'); return }
+    if (resetNewPwd !== resetConfirmPwd) { setResetError('As senhas não coincidem'); return }
+    localStorage.setItem(PASSWORD_KEY, resetNewPwd)
+    closeReset()
+    setUnlocked(true)
   }
 
   function tryUnlock() {
@@ -168,7 +189,7 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
           </button>
           <button
             type="button"
-            onClick={() => { setShowReset(true); setResetError(''); setAccountPwd('') }}
+            onClick={openReset}
             className="mt-3 text-xs text-gray-400 hover:text-orange-500 transition-colors"
           >
             Esqueci a senha do DRE
@@ -176,8 +197,8 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
         </div>
       </div>
 
-      {/* Modal de reset via senha da conta */}
-      {showReset && (
+      {/* Modal de reset via e-mail OTP */}
+      {resetStep !== 'idle' && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
             <div className="flex items-center justify-between mb-4">
@@ -185,35 +206,74 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
                 <KeyRound size={18} className="text-orange-500" />
                 <h2 className="font-bold text-gray-800">Redefinir senha do DRE</h2>
               </div>
-              <button onClick={() => { setShowReset(false); setAccountPwd('') }}>
-                <X size={20} className="text-gray-400" />
-              </button>
+              <button onClick={closeReset}><X size={20} className="text-gray-400" /></button>
             </div>
-            <p className="text-xs text-gray-500 mb-4">
-              Confirme a senha da sua conta para redefinir a senha do DRE.
-            </p>
-            <div className="relative mb-3">
-              <input
-                type={showAccountPwd ? 'text' : 'password'}
-                value={accountPwd}
-                onChange={e => setAccountPwd(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleReset()}
-                placeholder="Senha da sua conta"
-                autoFocus
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:border-orange-400"
-              />
-              <button type="button" onClick={() => setShowAccountPwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                {showAccountPwd ? <EyeOff size={15} /> : <Eye size={15} />}
-              </button>
-            </div>
-            {resetError && <p className="text-xs text-red-500 mb-3">{resetError}</p>}
-            <button
-              onClick={handleReset}
-              disabled={resetLoading || !accountPwd}
-              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white py-2.5 rounded-xl font-bold text-sm"
-            >
-              {resetLoading ? 'Verificando...' : 'Confirmar e redefinir'}
-            </button>
+
+            {resetStep === 'code' && (
+              <>
+                <div className="flex items-start gap-2 bg-orange-50 rounded-xl p-3 mb-4">
+                  <Mail size={15} className="text-orange-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-orange-700">
+                    Código enviado para <strong>{resetEmail}</strong>. Verifique sua caixa de entrada e insira o código de 6 dígitos.
+                  </p>
+                </div>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={resetCode}
+                  onChange={e => setResetCode(e.target.value.replace(/\D/g, ''))}
+                  onKeyDown={e => e.key === 'Enter' && handleVerifyCode()}
+                  placeholder="000000"
+                  autoFocus
+                  className="w-full border-2 border-gray-200 rounded-xl px-4 py-3 text-center text-2xl tracking-[0.5em] font-mono focus:outline-none focus:border-orange-400 mb-3"
+                />
+                {resetError && <p className="text-xs text-red-500 mb-3">{resetError}</p>}
+                <button
+                  onClick={handleVerifyCode}
+                  disabled={resetLoading || resetCode.length < 6}
+                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white py-2.5 rounded-xl font-bold text-sm"
+                >
+                  {resetLoading ? 'Verificando...' : 'Confirmar código'}
+                </button>
+              </>
+            )}
+
+            {resetStep === 'newpwd' && (
+              <>
+                <p className="text-xs text-gray-500 mb-4">Identidade confirmada. Defina a nova senha do DRE.</p>
+                <div className="space-y-3">
+                  <div className="relative">
+                    <input
+                      type={showResetPwd ? 'text' : 'password'}
+                      value={resetNewPwd}
+                      onChange={e => setResetNewPwd(e.target.value)}
+                      placeholder="Nova senha (mín. 4 caracteres)"
+                      autoFocus
+                      className="w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:border-orange-400"
+                    />
+                    <button type="button" onClick={() => setShowResetPwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                      {showResetPwd ? <EyeOff size={15} /> : <Eye size={15} />}
+                    </button>
+                  </div>
+                  <input
+                    type={showResetPwd ? 'text' : 'password'}
+                    value={resetConfirmPwd}
+                    onChange={e => setResetConfirmPwd(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && handleSaveNewDrePwd()}
+                    placeholder="Confirmar nova senha"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                  />
+                  {resetError && <p className="text-xs text-red-500">{resetError}</p>}
+                  <button
+                    onClick={handleSaveNewDrePwd}
+                    className="w-full bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-xl font-bold text-sm"
+                  >
+                    Salvar nova senha
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
