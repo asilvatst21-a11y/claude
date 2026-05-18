@@ -13,6 +13,7 @@ import Clientes from './pages/Clientes'
 import Caixa from './pages/Caixa'
 import Ajuda from './pages/Ajuda'
 import CadastroPublico from './pages/CadastroPublico'
+import Planos from './pages/Planos'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
 import SyncSetup from './components/SyncSetup'
@@ -27,7 +28,7 @@ export default function App() {
   const [isRecovery, setIsRecovery] = useState(false)
 
   // Public registration page never needs auth
-  const isPublicRoute = window.location.pathname === '/cadastro'
+  const isPublicRoute = ['/cadastro', '/planos'].includes(window.location.pathname)
 
   useEffect(() => {
     if (isPublicRoute) { setAppState('ready'); return }
@@ -121,6 +122,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/cadastro" element={<CadastroPublico />} />
+        <Route path="/planos" element={<Planos />} />
         <Route
           path="/*"
           element={
@@ -141,6 +143,7 @@ export default function App() {
                     <Route path="clientes" element={<Clientes />} />
                     <Route path="caixa" element={<Caixa />} />
                     <Route path="ajuda" element={<Ajuda />} />
+                    <Route path="planos" element={<Planos />} />
                   </Route>
                 </Routes>
               </>
