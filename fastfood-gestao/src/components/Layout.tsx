@@ -79,7 +79,15 @@ export default function Layout() {
         <div className={`border-t border-orange-500 ${collapsed ? 'flex flex-col items-center py-3 gap-2' : 'p-3 flex items-center justify-between gap-2'}`}>
           {supabase && (
             <button
-              onClick={() => { signOut(); localStorage.clear(); window.location.href = '/' }}
+              onClick={() => {
+                signOut()
+                const drePassword = localStorage.getItem('ff_dre_password')
+                const sidebarCollapsed = localStorage.getItem('ff_sidebar_collapsed')
+                localStorage.clear()
+                if (drePassword) localStorage.setItem('ff_dre_password', drePassword)
+                if (sidebarCollapsed) localStorage.setItem('ff_sidebar_collapsed', sidebarCollapsed)
+                window.location.href = '/'
+              }}
               title="Sair"
               className={`flex items-center gap-2 text-orange-200 hover:bg-orange-500 hover:text-white rounded-lg p-1.5 transition-colors text-xs font-medium ${collapsed ? '' : 'flex-1'}`}
             >

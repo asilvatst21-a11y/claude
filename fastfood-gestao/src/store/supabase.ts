@@ -43,6 +43,15 @@ export async function signInWithGoogle() {
   })
 }
 
+export async function verifyAccountPassword(password: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { data } = await supabase.auth.getUser()
+  const email = data.user?.email
+  if (!email) return { error: 'Usuário não autenticado' }
+  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  return { error: error?.message || null }
+}
+
 export async function sendPasswordReset(email: string) {
   if (!supabase) return { error: 'Supabase não configurado' }
   const { error } = await supabase.auth.resetPasswordForEmail(email, {

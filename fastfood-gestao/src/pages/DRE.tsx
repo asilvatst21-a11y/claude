@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { getFixedCosts, saveFixedCost, deleteFixedCost, getSales, getPurchases, deletePurchase, getVariableCostsForMonth, saveVariableCost, deleteVariableCost, id } from '../store/storage'
 import type { FixedCost, VariableCost } from '../types'
-import { Plus, Trash2, X, FileText, TrendingUp, FlaskConical, Settings, HelpCircle, Wallet, Banknote, Sparkles, Lock, Unlock, Eye, EyeOff } from 'lucide-react'
+import { Plus, Trash2, X, FileText, TrendingUp, FlaskConical, Settings, HelpCircle, Wallet, Banknote, Sparkles, Lock, Eye, EyeOff, KeyRound } from 'lucide-react'
+import { verifyAccountPassword } from '../store/supabase'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -78,6 +79,24 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
   const [setupError, setSetupError] = useState('')
   const [showNewPwd, setShowNewPwd] = useState(false)
 
+  // Redefinição via senha da conta
+  const [showReset, setShowReset] = useState(false)
+  const [accountPwd, setAccountPwd] = useState('')
+  const [showAccountPwd, setShowAccountPwd] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetError, setResetError] = useState('')
+
+  async function handleReset() {
+    setResetError('')
+    setResetLoading(true)
+    const { error } = await verifyAccountPassword(accountPwd)
+    setResetLoading(false)
+    if (error) { setResetError('Senha da conta incorreta'); return }
+    setShowReset(false)
+    setAccountPwd('')
+    setShowSetup(true)
+  }
+
   function tryUnlock() {
     const pwd = localStorage.getItem(PASSWORD_KEY)
     if (input === pwd) {
@@ -114,6 +133,7 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
   // Tela de bloqueio
   if (!unlocked) {
     return (
+      <>
       <div className="flex flex-col items-center justify-center min-h-[60vh] p-6">
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 w-full max-w-sm text-center">
           <div className="w-14 h-14 bg-orange-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -146,8 +166,58 @@ function DREGate({ render }: { render: (p: GateRenderProps) => React.ReactNode }
           >
             Entrar
           </button>
+          <button
+            type="button"
+            onClick={() => { setShowReset(true); setResetError(''); setAccountPwd('') }}
+            className="mt-3 text-xs text-gray-400 hover:text-orange-500 transition-colors"
+          >
+            Esqueci a senha do DRE
+          </button>
         </div>
       </div>
+
+      {/* Modal de reset via senha da conta */}
+      {showReset && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <KeyRound size={18} className="text-orange-500" />
+                <h2 className="font-bold text-gray-800">Redefinir senha do DRE</h2>
+              </div>
+              <button onClick={() => { setShowReset(false); setAccountPwd('') }}>
+                <X size={20} className="text-gray-400" />
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mb-4">
+              Confirme a senha da sua conta para redefinir a senha do DRE.
+            </p>
+            <div className="relative mb-3">
+              <input
+                type={showAccountPwd ? 'text' : 'password'}
+                value={accountPwd}
+                onChange={e => setAccountPwd(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleReset()}
+                placeholder="Senha da sua conta"
+                autoFocus
+                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none focus:border-orange-400"
+              />
+              <button type="button" onClick={() => setShowAccountPwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
+                {showAccountPwd ? <EyeOff size={15} /> : <Eye size={15} />}
+              </button>
+            </div>
+            {resetError && <p className="text-xs text-red-500 mb-3">{resetError}</p>}
+            <button
+              onClick={handleReset}
+              disabled={resetLoading || !accountPwd}
+              className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white py-2.5 rounded-xl font-bold text-sm"
+            >
+              {resetLoading ? 'Verificando...' : 'Confirmar e redefinir'}
+            </button>
+          </div>
+        </div>
+      )}
+      </>
     )
   }
 
@@ -351,7 +421,7 @@ function DREContent({ lock, openSetup }: { lock: () => void; openSetup: () => vo
           {hasPwd && (
             <button onClick={lock}
               className="flex items-center gap-2 border border-orange-200 text-orange-600 hover:bg-orange-50 px-3 py-2 rounded-xl text-sm font-medium">
-              <Unlock size={15} /> Bloquear
+              <Lock size={15} /> Bloquear
             </button>
           )}
           <button onClick={() => setShowConfig(s => !s)}
