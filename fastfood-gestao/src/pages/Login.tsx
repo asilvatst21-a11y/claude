@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { UtensilsCrossed, Eye, EyeOff, LogIn, UserPlus, Shield } from 'lucide-react'
-import { signInWithEmail, signUpWithEmail, signInWithGoogle } from '../store/supabase'
+import { signInWithEmail, signUpWithEmail, signInWithGoogle, resendConfirmation } from '../store/supabase'
 
 type Mode = 'login' | 'register'
 
@@ -13,6 +13,8 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
+  const [showResend, setShowResend] = useState(false)
+  const [resendLoading, setResendLoading] = useState(false)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -22,16 +24,33 @@ export default function Login() {
     if (mode === 'register' && !businessName.trim()) { setError('Informe o nome do estabelecimento'); return }
     if (password.length < 6) { setError('Senha deve ter pelo menos 6 caracteres'); return }
 
+    setShowResend(false)
     setLoading(true)
     if (mode === 'login') {
       const { error: err } = await signInWithEmail(email, password)
-      if (err) setError(translateError(err))
+      if (err) {
+        setError(translateError(err))
+        if (err.includes('Email not confirmed')) setShowResend(true)
+      }
     } else {
       const { error: err } = await signUpWithEmail(email, password, businessName)
       if (err) setError(translateError(err))
       else setSuccess('Conta criada! Verifique seu e-mail para confirmar o cadastro.')
     }
     setLoading(false)
+  }
+
+  async function handleResend() {
+    setResendLoading(true)
+    const { error: err } = await resendConfirmation(email)
+    setResendLoading(false)
+    if (err) {
+      setError('Não foi possível reenviar: ' + err)
+    } else {
+      setShowResend(false)
+      setError('')
+      setSuccess('E-mail de confirmação reenviado! Verifique sua caixa de entrada.')
+    }
   }
 
   function translateError(msg: string) {
@@ -61,13 +80,13 @@ export default function Login() {
           {/* Abas */}
           <div className="grid grid-cols-2 border-b border-gray-100">
             <button
-              onClick={() => { setMode('login'); setError(''); setSuccess('') }}
+              onClick={() => { setMode('login'); setError(''); setSuccess(''); setShowResend(false) }}
               className={`py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${mode === 'login' ? 'text-orange-600 border-b-2 border-orange-500' : 'text-gray-400 hover:text-gray-600'}`}
             >
               <LogIn size={15} /> Entrar
             </button>
             <button
-              onClick={() => { setMode('register'); setError(''); setSuccess('') }}
+              onClick={() => { setMode('register'); setError(''); setSuccess(''); setShowResend(false) }}
               className={`py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${mode === 'register' ? 'text-orange-600 border-b-2 border-orange-500' : 'text-gray-400 hover:text-gray-600'}`}
             >
               <UserPlus size={15} /> Criar conta
@@ -121,8 +140,18 @@ export default function Login() {
               </div>
 
               {error && (
-                <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl px-4 py-2.5">
-                  {error}
+                <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl px-4 py-2.5 space-y-2">
+                  <p>{error}</p>
+                  {showResend && (
+                    <button
+                      type="button"
+                      onClick={handleResend}
+                      disabled={resendLoading}
+                      className="text-orange-600 font-semibold underline hover:no-underline disabled:opacity-60"
+                    >
+                      {resendLoading ? 'Reenviando...' : 'Reenviar e-mail de confirmação'}
+                    </button>
+                  )}
                 </div>
               )}
               {success && (
