@@ -16,9 +16,12 @@ import CadastroPublico from './pages/CadastroPublico'
 import Planos from './pages/Planos'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
+import ExpiredScreen from './components/ExpiredScreen'
 import SyncSetup from './components/SyncSetup'
 import { pullFromCloud, hasNewData } from './store/sync'
 import { supabase, setBusinessId } from './store/supabase'
+import { ProfileContext, isPlanActive } from './store/ProfileContext'
+import type { Profile } from './store/ProfileContext'
 
 type AppState = 'loading' | 'ready'
 
@@ -26,34 +29,40 @@ export default function App() {
   const [appState, setAppState] = useState<AppState>('loading')
   const [session, setSession] = useState<Session | null>(null)
   const [isRecovery, setIsRecovery] = useState(false)
+  const [profile, setProfile] = useState<Profile | null>(null)
 
-  // Public registration page never needs auth
   const isPublicRoute = ['/cadastro', '/planos'].includes(window.location.pathname)
+
+  async function fetchProfile(userId: string) {
+    if (!supabase) return
+    const { data } = await supabase
+      .from('profiles')
+      .select('plan, trial_ends_at, plan_expires_at')
+      .eq('id', userId)
+      .single()
+    if (data) setProfile(data as Profile)
+  }
 
   useEffect(() => {
     if (isPublicRoute) { setAppState('ready'); return }
 
     if (!supabase) {
-      // No Supabase configured: run fully offline
       setAppState('ready')
       return
     }
 
-    // Get initial session
     supabase.auth.getSession().then(({ data }) => {
       const s = data.session
       setSession(s)
-
       if (s) {
-        // Use the auth user's ID as the business_id for consistent cross-device data
         setBusinessId(s.user.id)
+        fetchProfile(s.user.id)
         pullFromCloud().finally(() => setAppState('ready'))
       } else {
         setAppState('ready')
       }
     })
 
-    // Listen for auth state changes (login / logout / token refresh)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
       if (event === 'PASSWORD_RECOVERY') {
         setSession(s)
@@ -64,6 +73,7 @@ export default function App() {
       setSession(s)
       if (s) {
         setBusinessId(s.user.id)
+        fetchProfile(s.user.id)
         pullFromCloud()
       }
     })
@@ -71,26 +81,19 @@ export default function App() {
     return () => subscription.unsubscribe()
   }, [isPublicRoute])
 
-  // Realtime subscription — only when logged in
   useEffect(() => {
     if (!supabase || !session) return
-
     const businessId = session.user.id
     const channel = supabase
       .channel('ff_sync_changes')
-      .on(
-        'postgres_changes',
+      .on('postgres_changes',
         { event: '*', schema: 'public', table: 'ff_sync', filter: `business_id=eq.${businessId}` },
-        () => {
-          pullFromCloud().then(ok => { if (ok) window.location.reload() })
-        }
+        () => { pullFromCloud().then(ok => { if (ok) window.location.reload() }) }
       )
       .subscribe()
-
     return () => { supabase!.removeChannel(channel) }
   }, [session])
 
-  // Fallback: sync when tab becomes visible (covers non-realtime cases)
   useEffect(() => {
     if (!supabase || !session) return
     function onVisible() {
@@ -114,8 +117,18 @@ export default function App() {
     )
   }
 
-  if (isRecovery) {
-    return <ResetPassword onDone={() => setIsRecovery(false)} />
+  if (isRecovery) return <ResetPassword onDone={() => setIsRecovery(false)} />
+
+  // Se tem perfil e plano expirado, bloqueia acesso (exceto /planos e /cadastro)
+  if (session && profile && !isPlanActive(profile) && !isPublicRoute) {
+    return (
+      <BrowserRouter>
+        <Routes>
+          <Route path="/planos" element={<Planos />} />
+          <Route path="*" element={<ExpiredScreen />} />
+        </Routes>
+      </BrowserRouter>
+    )
   }
 
   return (
@@ -129,7 +142,7 @@ export default function App() {
             supabase && !session ? (
               <Login />
             ) : (
-              <>
+              <ProfileContext.Provider value={profile}>
                 <SyncSetup session={session} />
                 <Routes>
                   <Route path="/" element={<Layout />}>
@@ -146,7 +159,7 @@ export default function App() {
                     <Route path="planos" element={<Planos />} />
                   </Route>
                 </Routes>
-              </>
+              </ProfileContext.Provider>
             )
           }
         />

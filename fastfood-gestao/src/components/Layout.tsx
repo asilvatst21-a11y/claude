@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { useState } from 'react'
 import { supabase, signOut } from '../store/supabase'
+import TrialBanner from './TrialBanner'
 
 const navMain = [
   { to: '/',         icon: LayoutDashboard, label: 'Dashboard' },
@@ -108,6 +109,8 @@ export default function Layout() {
 
       {/* Content */}
       <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+
+        <TrialBanner />
 
         {/* Header mobile */}
         <header className="md:hidden bg-orange-600 text-white px-4 py-3 flex items-center gap-2 shadow">

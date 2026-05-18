@@ -65,6 +65,9 @@ type Plan = {
   action: 'cadastro' | 'whatsapp'
 }
 
+const MP_STARTER = 'https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=59ecf64a203546d09535317d47a5e4ae'
+const MP_PRO     = 'https://www.mercadopago.com.br/subscriptions/checkout?preapproval_plan_id=ffb6736c2a1d48ba8c55ad93deb4f777'
+
 const plans: Plan[] = [
   {
     name: 'Starter',
@@ -82,7 +85,7 @@ const plans: Plan[] = [
   },
   {
     name: 'Pro',
-    price: 'R$197',
+    price: 'R$150',
     period: '/mês · até 3 filiais',
     highlight: true,
     badge: 'Mais Popular',
@@ -99,7 +102,7 @@ const plans: Plan[] = [
   },
   {
     name: 'Rede',
-    price: 'R$397',
+    price: 'R$249',
     period: '/mês · filiais ilimitadas',
     items: [
       'Tudo do Pro',
@@ -114,15 +117,21 @@ const plans: Plan[] = [
 ]
 
 function PlanCard({ plan }: { plan: Plan }) {
+  const mpUrl = plan.name === 'Starter' ? MP_STARTER : plan.name === 'Pro' ? MP_PRO : null
   const btn = plan.action === 'whatsapp'
     ? <a href={WHATSAPP_URL} target="_blank" rel="noopener noreferrer"
         className={`mt-6 w-full flex items-center justify-center gap-2 py-3 rounded-xl font-bold text-sm transition-colors ${plan.ctaStyle}`}>
         <MessageCircle size={15} /> {plan.cta}
       </a>
-    : <Link to="/cadastro"
-        className={`mt-6 w-full flex items-center justify-center py-3 rounded-xl font-bold text-sm transition-colors ${plan.ctaStyle}`}>
-        {plan.cta}
-      </Link>
+    : mpUrl
+      ? <a href={mpUrl} target="_blank" rel="noopener noreferrer"
+          className={`mt-6 w-full flex items-center justify-center py-3 rounded-xl font-bold text-sm transition-colors ${plan.ctaStyle}`}>
+          {plan.cta}
+        </a>
+      : <Link to="/cadastro"
+          className={`mt-6 w-full flex items-center justify-center py-3 rounded-xl font-bold text-sm transition-colors ${plan.ctaStyle}`}>
+          {plan.cta}
+        </Link>
 
   return (
     <div className={`relative flex flex-col rounded-2xl p-6 ${
