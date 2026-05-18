@@ -43,6 +43,20 @@ export async function signInWithGoogle() {
   })
 }
 
+export async function sendPasswordReset(email: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin,
+  })
+  return { error: error?.message || null }
+}
+
+export async function updatePassword(newPassword: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  return { error: error?.message || null }
+}
+
 export async function resendConfirmation(email: string) {
   if (!supabase) return { error: 'Supabase não configurado' }
   const { error } = await supabase.auth.resend({ type: 'signup', email })

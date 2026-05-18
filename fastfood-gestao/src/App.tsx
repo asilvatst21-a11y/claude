@@ -14,6 +14,7 @@ import Caixa from './pages/Caixa'
 import Ajuda from './pages/Ajuda'
 import CadastroPublico from './pages/CadastroPublico'
 import Login from './pages/Login'
+import ResetPassword from './pages/ResetPassword'
 import SyncSetup from './components/SyncSetup'
 import { pullFromCloud, hasNewData } from './store/sync'
 import { supabase, setBusinessId } from './store/supabase'
@@ -23,6 +24,7 @@ type AppState = 'loading' | 'ready'
 export default function App() {
   const [appState, setAppState] = useState<AppState>('loading')
   const [session, setSession] = useState<Session | null>(null)
+  const [isRecovery, setIsRecovery] = useState(false)
 
   // Public registration page never needs auth
   const isPublicRoute = window.location.pathname === '/cadastro'
@@ -51,7 +53,13 @@ export default function App() {
     })
 
     // Listen for auth state changes (login / logout / token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setSession(s)
+        setIsRecovery(true)
+        setAppState('ready')
+        return
+      }
       setSession(s)
       if (s) {
         setBusinessId(s.user.id)
@@ -103,6 +111,10 @@ export default function App() {
         </div>
       </div>
     )
+  }
+
+  if (isRecovery) {
+    return <ResetPassword onDone={() => setIsRecovery(false)} />
   }
 
   return (

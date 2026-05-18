@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { UtensilsCrossed, Eye, EyeOff, LogIn, UserPlus, Shield } from 'lucide-react'
-import { signInWithEmail, signUpWithEmail, signInWithGoogle, resendConfirmation } from '../store/supabase'
+import { UtensilsCrossed, Eye, EyeOff, LogIn, UserPlus, Shield, ChevronLeft } from 'lucide-react'
+import { signInWithEmail, signUpWithEmail, signInWithGoogle, resendConfirmation, sendPasswordReset } from '../store/supabase'
 
-type Mode = 'login' | 'register'
+type Mode = 'login' | 'register' | 'forgot'
 
 export default function Login() {
   const [mode, setMode] = useState<Mode>('login')
@@ -38,6 +38,18 @@ export default function Login() {
       else setSuccess('Conta criada! Verifique seu e-mail para confirmar o cadastro.')
     }
     setLoading(false)
+  }
+
+  async function handleForgot(e: React.FormEvent) {
+    e.preventDefault()
+    setError('')
+    setSuccess('')
+    if (!email) { setError('Informe seu e-mail'); return }
+    setLoading(true)
+    const { error: err } = await sendPasswordReset(email)
+    setLoading(false)
+    if (err) setError(err)
+    else setSuccess('E-mail de recuperação enviado! Verifique sua caixa de entrada.')
   }
 
   async function handleResend() {
@@ -78,22 +90,57 @@ export default function Login() {
         <div className="bg-white rounded-2xl shadow-2xl overflow-hidden">
 
           {/* Abas */}
-          <div className="grid grid-cols-2 border-b border-gray-100">
-            <button
-              onClick={() => { setMode('login'); setError(''); setSuccess(''); setShowResend(false) }}
-              className={`py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${mode === 'login' ? 'text-orange-600 border-b-2 border-orange-500' : 'text-gray-400 hover:text-gray-600'}`}
-            >
-              <LogIn size={15} /> Entrar
-            </button>
-            <button
-              onClick={() => { setMode('register'); setError(''); setSuccess(''); setShowResend(false) }}
-              className={`py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${mode === 'register' ? 'text-orange-600 border-b-2 border-orange-500' : 'text-gray-400 hover:text-gray-600'}`}
-            >
-              <UserPlus size={15} /> Criar conta
-            </button>
-          </div>
+          {mode !== 'forgot' ? (
+            <div className="grid grid-cols-2 border-b border-gray-100">
+              <button
+                onClick={() => { setMode('login'); setError(''); setSuccess(''); setShowResend(false) }}
+                className={`py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${mode === 'login' ? 'text-orange-600 border-b-2 border-orange-500' : 'text-gray-400 hover:text-gray-600'}`}
+              >
+                <LogIn size={15} /> Entrar
+              </button>
+              <button
+                onClick={() => { setMode('register'); setError(''); setSuccess(''); setShowResend(false) }}
+                className={`py-3.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${mode === 'register' ? 'text-orange-600 border-b-2 border-orange-500' : 'text-gray-400 hover:text-gray-600'}`}
+              >
+                <UserPlus size={15} /> Criar conta
+              </button>
+            </div>
+          ) : (
+            <div className="border-b border-gray-100 px-5 py-3.5 flex items-center gap-2">
+              <button onClick={() => { setMode('login'); setError(''); setSuccess('') }} className="text-orange-500 hover:text-orange-600">
+                <ChevronLeft size={18} />
+              </button>
+              <span className="text-sm font-semibold text-gray-700">Recuperar senha</span>
+            </div>
+          )}
 
           <div className="p-6 space-y-4">
+            {mode === 'forgot' ? (
+              <form onSubmit={handleForgot} className="space-y-3">
+                <p className="text-xs text-gray-500">Informe seu e-mail e enviaremos um link para redefinir sua senha.</p>
+                <div>
+                  <label className="text-xs font-semibold text-gray-600 block mb-1.5">E-mail</label>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={e => setEmail(e.target.value)}
+                    placeholder="seu@email.com"
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-400"
+                    autoComplete="email"
+                    autoFocus
+                  />
+                </div>
+                {error && <div className="bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl px-4 py-2.5">{error}</div>}
+                {success && <div className="bg-green-50 border border-green-200 text-green-700 text-xs rounded-xl px-4 py-2.5">{success}</div>}
+                <button
+                  type="submit"
+                  disabled={loading || !!success}
+                  className="w-full bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-bold py-3 rounded-xl text-sm transition-colors"
+                >
+                  {loading ? 'Enviando...' : 'Enviar link de recuperação'}
+                </button>
+              </form>
+            ) : (
             <form onSubmit={handleSubmit} className="space-y-3">
               {mode === 'register' && (
                 <div>
@@ -167,7 +214,18 @@ export default function Login() {
               >
                 {loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Criar conta'}
               </button>
+
+              {mode === 'login' && (
+                <button
+                  type="button"
+                  onClick={() => { setMode('forgot'); setError(''); setSuccess(''); setShowResend(false) }}
+                  className="w-full text-center text-xs text-gray-400 hover:text-orange-500 transition-colors"
+                >
+                  Esqueceu a senha?
+                </button>
+              )}
             </form>
+            )}
 
             {/* Divisor */}
             <div className="flex items-center gap-3">
