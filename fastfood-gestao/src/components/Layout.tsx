@@ -59,7 +59,22 @@ export default function Layout() {
 
         {/* Nav */}
         <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
-          {navAll.map(({ to, icon: Icon, label }) => (
+          {navAll.map(({ to, icon: Icon, label }) =>
+            to === '/planos' ? (
+              <a
+                key={to}
+                href="/planos"
+                target="_blank"
+                rel="noopener noreferrer"
+                title={collapsed ? label : undefined}
+                className={`flex items-center rounded-lg text-sm font-medium transition-colors text-orange-100 hover:bg-orange-500 ${
+                  collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'
+                }`}
+              >
+                <Icon size={18} className="shrink-0" />
+                {!collapsed && label}
+              </a>
+            ) : (
             <NavLink
               key={to}
               to={to}
@@ -74,7 +89,8 @@ export default function Layout() {
               <Icon size={18} className="shrink-0" />
               {!collapsed && label}
             </NavLink>
-          ))}
+            )
+          )}
         </nav>
 
         {/* Rodapé: logout + toggle */}

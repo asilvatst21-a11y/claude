@@ -171,6 +171,22 @@ export default function Planos() {
   return (
     <div className="min-h-screen bg-gray-50">
 
+      {/* Barra de acesso */}
+      <div className="bg-[#1c1410] border-b border-white/10">
+        <div className="max-w-5xl mx-auto px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-white">
+            <UtensilsCrossed size={16} className="text-orange-500" />
+            <span className="text-sm font-bold">FastFood Gestão</span>
+          </div>
+          <Link
+            to="/login"
+            className="text-sm font-semibold text-orange-400 hover:text-orange-300 transition-colors border border-orange-500/40 hover:border-orange-400 px-4 py-1.5 rounded-lg"
+          >
+            Entrar →
+          </Link>
+        </div>
+      </div>
+
       {/* Hero */}
       <section className="bg-[#1c1410] text-white">
         <div className="max-w-5xl mx-auto px-6 py-16 text-center">
