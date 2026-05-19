@@ -1,0 +1,210 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── NextAuth Models ──────────────────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  username      String?   @unique
+  email         String    @unique
+  emailVerified DateTime?
+  image         String?
+  password      String?
+  country       String?
+  bio           String?
+  locale        String    @default("pt")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  sessions      Session[]
+  leagueMembers LeagueMember[]
+  predictions   Prediction[]
+  achievements  UserAchievement[]
+}
+
+// ─── League ───────────────────────────────────────────────────────────────────
+
+enum LeagueVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+model League {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  visibility  LeagueVisibility @default(PUBLIC)
+  inviteCode  String           @unique @default(cuid())
+  logoUrl     String?
+  season      String           @default("2026")
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  members LeagueMember[]
+}
+
+enum LeagueRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model LeagueMember {
+  id          String     @id @default(cuid())
+  userId      String
+  leagueId    String
+  role        LeagueRole @default(MEMBER)
+  totalPoints Int        @default(0)
+  joinedAt    DateTime   @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, leagueId])
+}
+
+// ─── Match ────────────────────────────────────────────────────────────────────
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  FINISHED
+  POSTPONED
+  CANCELLED
+}
+
+enum MatchStage {
+  GROUP
+  ROUND_OF_16
+  QUARTER_FINAL
+  SEMI_FINAL
+  THIRD_PLACE
+  FINAL
+}
+
+model Match {
+  id           String      @id @default(cuid())
+  externalId   String?     @unique
+  homeTeam     String
+  awayTeam     String
+  homeTeamFlag String?
+  awayTeamFlag String?
+  homeScore    Int?
+  awayScore    Int?
+  startsAt     DateTime
+  status       MatchStatus @default(SCHEDULED)
+  stage        MatchStage  @default(GROUP)
+  group        String?
+  round        String?
+  venue        String?
+  lastSyncedAt DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  predictions Prediction[]
+}
+
+// ─── Prediction ───────────────────────────────────────────────────────────────
+
+enum PredictionResult {
+  EXACT_SCORE
+  CORRECT_RESULT_AND_DIFF
+  CORRECT_WINNER
+  CORRECT_DRAW
+  WRONG
+}
+
+model Prediction {
+  id          String            @id @default(cuid())
+  userId      String
+  matchId     String
+  homeScore   Int
+  awayScore   Int
+  points      Int               @default(0)
+  bonusPoints Int               @default(0)
+  result      PredictionResult?
+  lockedAt    DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, matchId])
+}
+
+// ─── Achievements ─────────────────────────────────────────────────────────────
+
+enum AchievementType {
+  EXACT_SCORE_3X
+  LEAGUE_CHAMPION
+  PERFECT_ROUND
+  FIRST_PREDICTION
+  SHARP_SHOOTER
+}
+
+model Achievement {
+  id          String          @id @default(cuid())
+  type        AchievementType @unique
+  name        String
+  description String
+  icon        String
+
+  users UserAchievement[]
+}
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  userId        String
+  achievementId String
+  unlockedAt    DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+}
