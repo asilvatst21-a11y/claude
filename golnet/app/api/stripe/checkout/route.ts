@@ -2,8 +2,8 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 
 const PRICE_IDS: Record<string, string> = {
-  pro: "price_pro_monthly",
-  enterprise: "price_enterprise_monthly",
+  pro: "price_1TZFwDGmTrsVJdJ55n2KPbWS",
+  enterprise: "price_1TZFwnGmTrsVJdJ5d1c3WffE",
 };
 
 export async function GET(req: Request) {
