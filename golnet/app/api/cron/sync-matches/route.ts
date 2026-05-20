@@ -48,6 +48,8 @@ export async function GET(req: Request) {
         where: { matchId: match.id, result: null },
       });
 
+      const round = match.round ?? "Fase de Grupos";
+
       for (const pred of predictions) {
         const { result, points, bonusPoints } = calculatePoints({
           predHome: pred.homeScore,
@@ -66,6 +68,21 @@ export async function GET(req: Request) {
           where: { userId: pred.userId },
           data: { totalPoints: { increment: points + bonusPoints } },
         });
+
+        const total = points + bonusPoints;
+
+        const memberships = await prisma.leagueMember.findMany({
+          where: { userId: pred.userId },
+          select: { leagueId: true },
+        });
+
+        for (const { leagueId } of memberships) {
+          await prisma.roundRanking.upsert({
+            where: { leagueId_userId_round: { leagueId, userId: pred.userId, round } },
+            create: { leagueId, userId: pred.userId, round, points: total },
+            update: { points: { increment: total } },
+          });
+        }
       }
     }
 
