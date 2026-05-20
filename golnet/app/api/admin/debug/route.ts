@@ -4,7 +4,7 @@ export async function GET() {
   const API_KEY = process.env.API_FOOTBALL_KEY ?? "";
 
   const res = await fetch("https://v3.football.api-sports.io/fixtures?league=71&season=2026", {
-    headers: { "x-apisports-key": API_KEY },
+    headers: { "x-rapidapi-key": API_KEY, "x-apisports-key": API_KEY },
     cache: "no-store",
   });
 
