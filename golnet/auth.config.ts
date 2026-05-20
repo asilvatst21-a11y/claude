@@ -1,6 +1,4 @@
 import type { NextAuthConfig } from "next-auth";
-import GoogleProvider from "next-auth/providers/google";
-import Credentials from "next-auth/providers/credentials";
 
 export const authConfig: NextAuthConfig = {
   session: { strategy: "jwt" },
@@ -8,18 +6,13 @@ export const authConfig: NextAuthConfig = {
     signIn: "/login",
     error: "/login",
   },
-  providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-    }),
-    Credentials({ credentials: {} , authorize: () => null }),
-  ],
+  providers: [],
   callbacks: {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
-      const isPublic = ["/", "/login", "/register", "/forgot-password"].includes(nextUrl.pathname)
-        || nextUrl.pathname.startsWith("/api/auth");
+      const isPublic =
+        ["/", "/login", "/register", "/forgot-password"].includes(nextUrl.pathname) ||
+        nextUrl.pathname.startsWith("/api/auth");
       if (isPublic) return true;
       return isLoggedIn;
     },
