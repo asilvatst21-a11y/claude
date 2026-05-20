@@ -6,11 +6,11 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "GolNet — Bolão da Copa do Mundo",
+  title: "PalpitaAí — Bolão da Copa do Mundo",
   description: "Faça seus palpites, crie ligas e dispute com amigos na Copa do Mundo 2026.",
   manifest: "/manifest.json",
   openGraph: {
-    title: "GolNet — Bolão da Copa",
+    title: "PalpitaAí — Bolão da Copa",
     description: "O melhor bolão da Copa do Mundo 2026.",
     type: "website",
   },

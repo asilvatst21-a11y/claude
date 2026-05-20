@@ -1,4 +1,4 @@
-export const metadata = { title: "Regras — GolNet" };
+export const metadata = { title: "Regras — PalpitaAí" };
 
 const rules = [
   {
@@ -38,7 +38,7 @@ export default function RulesPage() {
   return (
     <div className="max-w-2xl">
       <h1 className="text-2xl font-bold text-white mb-2">Regras do bolão</h1>
-      <p className="text-zinc-400 mb-8">Tudo que você precisa saber para jogar no GolNet.</p>
+      <p className="text-zinc-400 mb-8">Tudo que você precisa saber para jogar no PalpitaAí.</p>
 
       <div className="flex flex-col gap-6">
         {rules.map((section) => (

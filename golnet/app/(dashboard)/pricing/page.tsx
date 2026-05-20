@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import Link from "next/link";
 
-export const metadata = { title: "Planos — GolNet" };
+export const metadata = { title: "Planos — PalpitaAí" };
 
 const plans = [
   {

@@ -1,6 +1,6 @@
 import { LoginForm } from "@/components/auth/login-form";
 
-export const metadata = { title: "Login — GolNet" };
+export const metadata = { title: "Login — PalpitaAí" };
 
 export default function LoginPage() {
   return (

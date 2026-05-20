@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import Image from "next/image";
 
-export const metadata = { title: "Ranking — GolNet" };
+export const metadata = { title: "Ranking — PalpitaAí" };
 
 export default async function RankingsPage() {
   const session = await auth();

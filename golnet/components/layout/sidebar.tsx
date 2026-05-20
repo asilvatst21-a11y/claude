@@ -25,7 +25,7 @@ export function Sidebar() {
     <aside className="h-screen w-60 bg-zinc-950 border-r border-zinc-800 flex flex-col">
       <div className="p-6 border-b border-zinc-800">
         <span className="text-2xl font-bold text-white">
-          <span className="text-green-400">Gol</span>Net
+          <span className="text-green-400">Palpita</span>Aí
         </span>
       </div>
 

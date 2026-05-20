@@ -10,7 +10,7 @@ export default async function Home() {
     <main className="min-h-screen bg-zinc-950 flex flex-col items-center justify-center p-6 text-center">
       <div className="max-w-2xl w-full">
         <h1 className="text-6xl font-bold text-white mb-4">
-          <span className="text-green-400">Gol</span>Net
+          <span className="text-green-400">Palpita</span>Aí
         </h1>
         <p className="text-xl text-zinc-400 mb-2">
           O bolão oficial da Copa do Mundo 2026

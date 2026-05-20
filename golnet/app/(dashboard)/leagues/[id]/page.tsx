@@ -3,7 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { CopyInviteButton } from "./copy-invite-button";
 
-export const metadata = { title: "Liga — GolNet" };
+export const metadata = { title: "Liga — PalpitaAí" };
 
 export default async function LeagueDetailPage({
   params,

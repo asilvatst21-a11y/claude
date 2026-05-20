@@ -4,7 +4,7 @@ const ACHIEVEMENT_DEFINITIONS = [
   {
     type: "FIRST_PREDICTION" as const,
     name: "Primeiro Palpite",
-    description: "Fez seu primeiro palpite no GolNet.",
+    description: "Fez seu primeiro palpite no PalpitaAí.",
     icon: "🎯",
   },
   {

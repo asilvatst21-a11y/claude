@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { seedAchievements } from "@/lib/achievements";
 
-export const metadata = { title: "Perfil — GolNet" };
+export const metadata = { title: "Perfil — PalpitaAí" };
 
 export default async function ProfilePage() {
   const session = await auth();

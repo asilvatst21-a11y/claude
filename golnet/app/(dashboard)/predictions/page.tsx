@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { MatchCard } from "@/components/predictions/match-card";
 
-export const metadata = { title: "Palpites — GolNet" };
+export const metadata = { title: "Palpites — PalpitaAí" };
 
 export default async function PredictionsPage() {
   const session = await auth();

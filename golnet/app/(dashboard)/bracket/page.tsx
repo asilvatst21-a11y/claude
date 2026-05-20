@@ -4,7 +4,7 @@ import type { Match, Prediction, MatchStage } from "@/types";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 
-export const metadata = { title: "Chaveamento — GolNet" };
+export const metadata = { title: "Chaveamento — PalpitaAí" };
 
 const GROUPS = ["A", "B", "C", "D", "E", "F", "G", "H"];
 

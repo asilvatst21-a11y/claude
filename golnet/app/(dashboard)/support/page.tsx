@@ -2,7 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { SupportForm } from "@/components/support/support-form";
 
-export const metadata = { title: "Suporte — GolNet" };
+export const metadata = { title: "Suporte — PalpitaAí" };
 
 export default async function SupportPage() {
   const session = await auth();

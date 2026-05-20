@@ -48,7 +48,7 @@ export function LoginForm() {
     <div className="w-full max-w-md">
       <div className="text-center mb-8">
         <h1 className="text-3xl font-bold text-white">
-          <span className="text-green-400">Gol</span>Net
+          <span className="text-green-400">Palpita</span>Aí
         </h1>
         <p className="text-zinc-400 mt-2">Faça login para jogar</p>
       </div>
