@@ -12,7 +12,7 @@ export default async function AdminPage() {
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold text-white mb-6">Painel Administrativo</h1>
-      <AdminPanel matchStats={{ total, leagues: [] }} />
+      <AdminPanel matchStats={{ total }} />
     </div>
   );
 }
