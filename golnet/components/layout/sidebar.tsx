@@ -13,6 +13,8 @@ const nav = [
   { href: "/rankings", label: "Ranking", icon: "📊" },
   { href: "/rules", label: "Regras", icon: "📖" },
   { href: "/profile", label: "Perfil", icon: "👤" },
+  { href: "/pricing", label: "Planos", icon: "💎" },
+  { href: "/support", label: "Suporte", icon: "💬" },
   { href: "/admin", label: "Admin", icon: "⚙️" },
 ];
 

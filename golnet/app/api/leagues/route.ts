@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { getUserPlan } from "@/lib/plans";
 
 const createSchema = z.object({
   name: z.string().min(3).max(60),
@@ -40,6 +41,31 @@ export async function POST(req: Request) {
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
+  }
+
+  // Plan enforcement: check owned leagues limit
+  const user = await prisma.user.findUnique({
+    where: { id: session.user.id },
+    select: { plan: true },
+  });
+
+  const planConfig = getUserPlan(user?.plan ?? "FREE");
+
+  if (planConfig.maxOwnedLeagues !== Infinity) {
+    const ownedCount = await prisma.leagueMember.count({
+      where: { userId: session.user.id, role: "OWNER" },
+    });
+
+    if (ownedCount >= planConfig.maxOwnedLeagues) {
+      return NextResponse.json(
+        {
+          error: "Limite do plano Free atingido",
+          message: `Você já criou ${ownedCount} liga(s). Faça upgrade para criar mais.`,
+          upgrade: true,
+        },
+        { status: 403 }
+      );
+    }
   }
 
   const league = await prisma.league.create({
