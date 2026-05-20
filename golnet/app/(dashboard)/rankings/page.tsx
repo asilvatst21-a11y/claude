@@ -17,7 +17,7 @@ export default async function RankingsPage() {
   const userIds = members.map((m) => m.userId);
   const users = await prisma.user.findMany({
     where: { id: { in: userIds } },
-    select: { id: true, name: true, username: true, image: true },
+    select: { id: true, name: true, username: true, image: true, plan: true },
   });
   const usersMap = Object.fromEntries(users.map((u) => [u.id, u]));
 
@@ -69,7 +69,11 @@ export default async function RankingsPage() {
                       </div>
                     )}
                     <div>
-                      <div className="text-sm font-medium text-white">{entry.name}</div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-medium text-white">{entry.name}</span>
+                        {entry.plan === "PRO" && <span title="Pro">⭐</span>}
+                        {entry.plan === "ENTERPRISE" && <span title="Empresarial">🏢</span>}
+                      </div>
                       {entry.username && <div className="text-xs text-zinc-500">@{entry.username}</div>}
                     </div>
                   </div>
