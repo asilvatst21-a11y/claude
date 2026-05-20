@@ -1,26 +1,39 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { seedAchievements } from "@/lib/achievements";
 
 export const metadata = { title: "Perfil — GolNet" };
 
 export default async function ProfilePage() {
   const session = await auth();
-  const user = await prisma.user.findUnique({
-    where: { id: session?.user?.id },
-    select: {
-      name: true,
-      username: true,
-      email: true,
-      image: true,
-      country: true,
-      bio: true,
-      createdAt: true,
-      _count: { select: { predictions: true, leagueMembers: true } },
-    },
-  });
+  const userId = session?.user?.id ?? "";
+
+  // Ensure achievement definitions exist
+  await seedAchievements();
+
+  const [user, userAchievements, allAchievements] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        name: true,
+        username: true,
+        email: true,
+        image: true,
+        country: true,
+        bio: true,
+        createdAt: true,
+        _count: { select: { predictions: true, leagueMembers: true } },
+      },
+    }),
+    prisma.userAchievement.findMany({
+      where: { userId },
+      include: { achievement: true },
+    }),
+    prisma.achievement.findMany(),
+  ]);
 
   const predictions = await prisma.prediction.findMany({
-    where: { userId: session?.user?.id, result: { not: null } },
+    where: { userId, result: { not: null } },
     select: { points: true, bonusPoints: true, result: true },
   });
 
@@ -93,10 +106,47 @@ export default async function ProfilePage() {
       </div>
 
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-        <h3 className="font-semibold text-white mb-4">Conquistas</h3>
-        <p className="text-sm text-zinc-500">
-          Faça palpites para desbloquear conquistas. 🏅
-        </p>
+        <h3 className="font-semibold text-white mb-4">
+          Conquistas{" "}
+          <span className="text-sm font-normal text-zinc-500">
+            ({userAchievements.length}/{allAchievements.length})
+          </span>
+        </h3>
+        {allAchievements.length === 0 ? (
+          <p className="text-sm text-zinc-500">Faça palpites para desbloquear conquistas. 🏅</p>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {allAchievements.map((achievement) => {
+              const unlocked = userAchievements.find(
+                (ua) => ua.achievementId === achievement.id
+              );
+              return (
+                <div
+                  key={achievement.id}
+                  className={`rounded-xl p-4 border text-center transition-all ${
+                    unlocked
+                      ? "bg-green-500/10 border-green-500/30"
+                      : "bg-zinc-800/50 border-zinc-700 opacity-50"
+                  }`}
+                >
+                  <div className="text-3xl mb-2">{achievement.icon}</div>
+                  <p className="text-sm font-semibold text-white">
+                    {achievement.name}
+                  </p>
+                  <p className="text-xs text-zinc-400 mt-1">
+                    {achievement.description}
+                  </p>
+                  {unlocked && (
+                    <p className="text-xs text-green-400 mt-2">
+                      Desbloqueada em{" "}
+                      {new Date(unlocked.unlockedAt).toLocaleDateString("pt-BR")}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
