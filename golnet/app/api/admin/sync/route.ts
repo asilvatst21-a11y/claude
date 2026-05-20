@@ -1,25 +1,17 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { fetchFixturesByDate, mapApiStatus } from "@/lib/api-football";
 import { calculatePoints } from "@/lib/scoring";
 
-export const runtime = "nodejs";
-export const maxDuration = 60;
-
-const BEARER = process.env.CRON_SECRET;
-
-function authorize(req: Request) {
-  const auth = req.headers.get("authorization");
-  return auth === `Bearer ${BEARER}`;
-}
-
-export async function GET(req: Request) {
-  if (!authorize(req)) {
+export async function POST(req: Request) {
+  const session = await auth();
+  if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const today = new Date().toISOString().split("T")[0];
-  const fixtures = await fetchFixturesByDate(today).catch(() => []);
+  const fixtures = await fetchFixturesByDate(today);
 
   let synced = 0;
 

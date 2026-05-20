@@ -13,6 +13,7 @@ const nav = [
   { href: "/rankings", label: "Ranking", icon: "📊" },
   { href: "/rules", label: "Regras", icon: "📖" },
   { href: "/profile", label: "Perfil", icon: "👤" },
+  { href: "/admin", label: "Admin", icon: "⚙️" },
 ];
 
 export function Sidebar() {
