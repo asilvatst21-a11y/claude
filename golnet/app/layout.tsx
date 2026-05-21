@@ -5,7 +5,7 @@ import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
-const BASE_URL = "https://claude-one-peach.vercel.app";
+const BASE_URL = "https://palpitai.vercel.app";
 
 export const metadata: Metadata = {
   title: "PalpitaAí — Bolão de Palpites",
