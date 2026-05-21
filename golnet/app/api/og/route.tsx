@@ -32,35 +32,8 @@ export async function GET() {
           }}
         />
 
-        {/* Badge */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "8px",
-            background: "rgba(34,197,94,0.1)",
-            border: "1px solid rgba(34,197,94,0.3)",
-            borderRadius: "9999px",
-            padding: "8px 20px",
-            marginBottom: "32px",
-          }}
-        >
-          <div
-            style={{
-              width: "10px",
-              height: "10px",
-              borderRadius: "50%",
-              background: "#22c55e",
-              display: "flex",
-            }}
-          />
-          <span style={{ color: "#4ade80", fontSize: "20px", fontWeight: 600 }}>
-            Copa do Mundo 2026
-          </span>
-        </div>
-
         {/* Logo */}
-        <div style={{ display: "flex", fontSize: "96px", fontWeight: 800, letterSpacing: "-2px" }}>
+        <div style={{ display: "flex", fontSize: "96px", fontWeight: 800, letterSpacing: "-2px", marginBottom: "16px" }}>
           <span style={{ color: "#22c55e" }}>Palpita</span>
           <span style={{ color: "#ffffff" }}>Aí</span>
         </div>
@@ -70,20 +43,32 @@ export async function GET() {
           style={{
             color: "#a1a1aa",
             fontSize: "28px",
-            marginTop: "16px",
             textAlign: "center",
             maxWidth: "700px",
+            margin: "0",
           }}
         >
-          Faça seus palpites, crie ligas e dispute com amigos
+          Seu bolão de palpites favorito
+        </p>
+
+        <p
+          style={{
+            color: "#52525b",
+            fontSize: "20px",
+            textAlign: "center",
+            maxWidth: "600px",
+            marginTop: "12px",
+          }}
+        >
+          Crie ligas, convide amigos e dispute o ranking em tempo real
         </p>
 
         {/* Stats row */}
         <div style={{ display: "flex", gap: "48px", marginTop: "48px" }}>
           {[
-            { icon: "⚽", label: "Palpites" },
+            { icon: "🎯", label: "Palpites" },
             { icon: "🏆", label: "Ligas" },
-            { icon: "🎯", label: "Placares exatos" },
+            { icon: "📊", label: "Rankings" },
           ].map(({ icon, label }) => (
             <div
               key={label}

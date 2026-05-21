@@ -8,13 +8,13 @@ const inter = Inter({ subsets: ["latin"] });
 const BASE_URL = "https://claude-one-peach.vercel.app";
 
 export const metadata: Metadata = {
-  title: "PalpitaAí — Bolão da Copa do Mundo 2026",
-  description: "Faça seus palpites, crie ligas e dispute com amigos na Copa do Mundo 2026. Ranking em tempo real, H2H e muito mais.",
+  title: "PalpitaAí — Bolão de Palpites",
+  description: "Crie ligas, faça palpites e dispute com amigos em tempo real. O seu bolão favorito.",
   manifest: "/manifest.json",
   metadataBase: new URL(BASE_URL),
   openGraph: {
-    title: "PalpitaAí — Bolão da Copa do Mundo 2026",
-    description: "Faça seus palpites, crie ligas e dispute com amigos na Copa do Mundo 2026.",
+    title: "PalpitaAí — Bolão de Palpites",
+    description: "Crie ligas, faça palpites e dispute com amigos em tempo real.",
     url: BASE_URL,
     siteName: "PalpitaAí",
     type: "website",
@@ -24,17 +24,17 @@ export const metadata: Metadata = {
         url: "/api/og",
         width: 1200,
         height: 630,
-        alt: "PalpitaAí — Bolão da Copa do Mundo 2026",
+        alt: "PalpitaAí — Bolão de Palpites",
       },
     ],
   },
   twitter: {
     card: "summary_large_image",
-    title: "PalpitaAí — Bolão da Copa do Mundo 2026",
-    description: "Faça seus palpites, crie ligas e dispute com amigos na Copa do Mundo 2026.",
+    title: "PalpitaAí — Bolão de Palpites",
+    description: "Crie ligas, faça palpites e dispute com amigos em tempo real.",
     images: ["/api/og"],
   },
-  keywords: ["bolão", "copa do mundo", "2026", "palpites", "futebol", "liga"],
+  keywords: ["bolão", "palpites", "ligas", "ranking", "futebol", "esportes"],
 };
 
 export const viewport: Viewport = {
