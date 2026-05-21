@@ -7,6 +7,7 @@ import type { Match, Prediction } from "@/types";
 import { isPredictionLocked } from "@/lib/scoring";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { MatchStatsModal } from "./match-stats-modal";
 
 interface MatchCardProps {
   match: Match & { predictions?: Prediction[] };
@@ -28,6 +29,7 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [showStats, setShowStats] = useState(false);
 
   const locked = isPredictionLocked(new Date(match.startsAt));
 
@@ -79,8 +81,26 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
           {match.status !== "LIVE" && (
             <span>{statusLabel[match.status]}</span>
           )}
+          <button
+            onClick={() => setShowStats(true)}
+            className="text-zinc-500 hover:text-green-400 transition-colors"
+            title="Ver estatísticas"
+          >
+            📊
+          </button>
         </div>
       </div>
+
+      {showStats && (
+        <MatchStatsModal
+          matchId={match.id}
+          homeTeam={match.homeTeam}
+          awayTeam={match.awayTeam}
+          homeTeamFlag={match.homeTeamFlag ?? null}
+          awayTeamFlag={match.awayTeamFlag ?? null}
+          onClose={() => setShowStats(false)}
+        />
+      )}
 
       <div className="flex items-center gap-3">
         <div className="flex-1 flex flex-col items-center gap-1">

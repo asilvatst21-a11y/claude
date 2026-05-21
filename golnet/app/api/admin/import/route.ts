@@ -41,6 +41,8 @@ export async function POST(req: Request) {
     const data = {
       homeTeam: fixture.teams.home.name,
       awayTeam: fixture.teams.away.name,
+      homeTeamId: fixture.teams.home.id,
+      awayTeamId: fixture.teams.away.id,
       homeTeamFlag: fixture.teams.home.logo,
       awayTeamFlag: fixture.teams.away.logo,
       startsAt: new Date(fixture.fixture.date),

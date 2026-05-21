@@ -142,6 +142,8 @@ model Match {
   externalId   String?     @unique
   homeTeam     String
   awayTeam     String
+  homeTeamId   Int?
+  awayTeamId   Int?
   homeTeamFlag String?
   awayTeamFlag String?
   homeScore    Int?

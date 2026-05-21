@@ -11,8 +11,8 @@ export type ApiFixture = {
     venue: { name: string };
   };
   teams: {
-    home: { name: string; logo: string };
-    away: { name: string; logo: string };
+    home: { id: number; name: string; logo: string; winner?: boolean | null };
+    away: { id: number; name: string; logo: string; winner?: boolean | null };
   };
   goals: { home: number | null; away: number | null };
   league: { round: string };
@@ -96,6 +96,14 @@ export function mapApiStage(round: string): MatchStage {
   if (round.includes("3rd Place Final")) return "THIRD_PLACE";
   if (round.includes("Final")) return "FINAL";
   return "GROUP";
+}
+
+export async function fetchHeadToHead(homeId: number, awayId: number, last = 5): Promise<ApiFixture[]> {
+  return apiFetch<ApiFixture[]>(`/fixtures/headtohead?h2h=${homeId}-${awayId}&last=${last}`);
+}
+
+export async function fetchTeamLastMatches(teamId: number, last = 5): Promise<ApiFixture[]> {
+  return apiFetch<ApiFixture[]>(`/fixtures?team=${teamId}&last=${last}`);
 }
 
 export function extractGroup(round: string): string | null {
