@@ -8,27 +8,29 @@ export default async function PredictionsPage() {
   const session = await auth();
   const userId = session?.user?.id ?? "";
 
-  const matches = await prisma.match.findMany({
-    include: {
-      predictions: { where: { userId }, take: 1 },
-    },
-    orderBy: { startsAt: "asc" },
-  });
+  const [allMatches, leagueCount, competitions] = await Promise.all([
+    prisma.match.findMany({
+      include: { predictions: { where: { userId }, take: 1 } },
+      orderBy: { startsAt: "asc" },
+    }),
+    prisma.leagueMember.count({ where: { userId } }),
+    prisma.match.findMany({
+      where: { leagueId: { not: null } },
+      select: { leagueId: true, leagueName: true, leagueSeason: true },
+      distinct: ["leagueId", "leagueSeason"],
+      orderBy: { leagueName: "asc" },
+    }),
+  ]);
 
-  // Get all unique rounds in order
-  const allRounds = Array.from(new Set(matches.map((m) => m.round).filter(Boolean))) as string[];
-
-  // Current round = first round with at least one SCHEDULED or LIVE match
-  const currentRound =
-    allRounds.find((r) => matches.some((m) => m.round === r && (m.status === "SCHEDULED" || m.status === "LIVE"))) ??
-    allRounds[allRounds.length - 1] ??
-    null;
+  const availableCompetitions = competitions
+    .filter((c) => c.leagueId && c.leagueName)
+    .map((c) => ({ leagueId: c.leagueId!, leagueName: c.leagueName!, leagueSeason: c.leagueSeason }));
 
   return (
     <PredictionsView
-      matches={matches}
-      allRounds={allRounds}
-      currentRound={currentRound}
+      matches={allMatches}
+      competitions={availableCompetitions}
+      isInLeague={leagueCount > 0}
       userId={userId}
     />
   );
