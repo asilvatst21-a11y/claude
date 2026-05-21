@@ -27,12 +27,14 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
   const [away, setAway] = useState(existing?.awayScore?.toString() ?? "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const locked = isPredictionLocked(new Date(match.startsAt));
 
   const handleSave = async () => {
     setSaving(true);
-    await fetch("/api/predictions", {
+    setSaveError(null);
+    const res = await fetch("/api/predictions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -42,9 +44,14 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
       }),
     });
     setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-    onSaved?.();
+    if (res.ok) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+      onSaved?.();
+    } else {
+      const data = await res.json();
+      setSaveError(data.error ?? "Erro ao salvar");
+    }
   };
 
   const resultColor: Record<string, string> = {
@@ -113,33 +120,38 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
             )}
           </div>
         ) : (
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min={0}
-              max={30}
-              value={home}
-              onChange={(e) => setHome(e.target.value)}
-              className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-lg py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
-            />
-            <span className="text-zinc-500 font-bold">x</span>
-            <input
-              type="number"
-              min={0}
-              max={30}
-              value={away}
-              onChange={(e) => setAway(e.target.value)}
-              className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-lg py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
-            />
-            <Button
-              size="sm"
-              className="ml-auto"
-              onClick={handleSave}
-              loading={saving}
-              disabled={home === "" || away === ""}
-            >
-              {saved ? "Salvo!" : "Salvar"}
-            </Button>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                max={30}
+                value={home}
+                onChange={(e) => setHome(e.target.value)}
+                className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-lg py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
+              />
+              <span className="text-zinc-500 font-bold">x</span>
+              <input
+                type="number"
+                min={0}
+                max={30}
+                value={away}
+                onChange={(e) => setAway(e.target.value)}
+                className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-lg py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
+              />
+              <Button
+                size="sm"
+                className="ml-auto"
+                onClick={handleSave}
+                loading={saving}
+                disabled={home === "" || away === ""}
+              >
+                {saved ? "✓ Salvo!" : "Salvar"}
+              </Button>
+            </div>
+            {saveError && (
+              <p className="text-xs text-red-400">{saveError}</p>
+            )}
           </div>
         )}
       </div>
