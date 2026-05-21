@@ -27,7 +27,8 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
   const [home, setHome] = useState(existing?.homeScore?.toString() ?? "");
   const [away, setAway] = useState(existing?.awayScore?.toString() ?? "");
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  const [isSaved, setIsSaved] = useState(!!existing);
+  const [isEditing, setIsEditing] = useState(!existing);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showStats, setShowStats] = useState(false);
 
@@ -47,8 +48,8 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
     });
     setSaving(false);
     if (res.ok) {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setIsSaved(true);
+      setIsEditing(false);
       onSaved?.();
     } else {
       const data = await res.json();
@@ -69,6 +70,7 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
       "bg-zinc-900 border rounded-xl p-4 flex flex-col gap-3",
       match.status === "LIVE" ? "border-green-500/50 shadow-green-500/10 shadow-lg" : "border-zinc-800"
     )}>
+      {/* Header */}
       <div className="flex items-center justify-between text-xs text-zinc-500">
         <span>{match.group ? `Grupo ${match.group}` : match.stage.replace(/_/g, " ")}</span>
         <div className="flex items-center gap-2">
@@ -78,16 +80,7 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
               Ao vivo
             </span>
           )}
-          {match.status !== "LIVE" && (
-            <span>{statusLabel[match.status]}</span>
-          )}
-          <button
-            onClick={() => setShowStats(true)}
-            className="text-zinc-500 hover:text-green-400 transition-colors"
-            title="Ver estatísticas"
-          >
-            📊
-          </button>
+          {match.status !== "LIVE" && <span>{statusLabel[match.status]}</span>}
         </div>
       </div>
 
@@ -102,6 +95,7 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
         />
       )}
 
+      {/* Teams */}
       <div className="flex items-center gap-3">
         <div className="flex-1 flex flex-col items-center gap-1">
           {match.homeTeamFlag && <img src={match.homeTeamFlag} alt="" className="w-8 h-8 object-contain" />}
@@ -126,6 +120,7 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
         </div>
       </div>
 
+      {/* Prediction area */}
       <div className="border-t border-zinc-800 pt-3">
         {locked ? (
           <div className="flex items-center justify-between text-sm">
@@ -138,6 +133,19 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
                 +{(existing.points ?? 0) + (existing.bonusPoints ?? 0)} pts
               </span>
             )}
+          </div>
+        ) : isSaved && !isEditing ? (
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-2 text-sm text-green-400 font-medium">
+              <span>✓</span>
+              Palpite: {home} x {away}
+            </span>
+            <button
+              onClick={() => setIsEditing(true)}
+              className="text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-lg px-3 py-1.5 transition-colors"
+            >
+              Editar
+            </button>
           </div>
         ) : (
           <div className="flex flex-col gap-2">
@@ -159,22 +167,38 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
                 onChange={(e) => setAway(e.target.value)}
                 className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-lg py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
               />
-              <Button
-                size="sm"
-                className="ml-auto"
-                onClick={handleSave}
-                loading={saving}
-                disabled={home === "" || away === ""}
-              >
-                {saved ? "✓ Salvo!" : "Salvar"}
-              </Button>
+              <div className="flex gap-2 ml-auto">
+                {isSaved && (
+                  <button
+                    onClick={() => { setIsEditing(false); setHome(existing?.homeScore?.toString() ?? home); setAway(existing?.awayScore?.toString() ?? away); }}
+                    className="text-xs text-zinc-400 hover:text-white border border-zinc-700 rounded-lg px-3 py-1.5 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                )}
+                <Button
+                  size="sm"
+                  onClick={handleSave}
+                  loading={saving}
+                  disabled={home === "" || away === ""}
+                >
+                  Salvar
+                </Button>
+              </div>
             </div>
-            {saveError && (
-              <p className="text-xs text-red-400">{saveError}</p>
-            )}
+            {saveError && <p className="text-xs text-red-400">{saveError}</p>}
           </div>
         )}
       </div>
+
+      {/* Raio-X button */}
+      <button
+        onClick={() => setShowStats(true)}
+        className="w-full flex items-center justify-center gap-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs text-zinc-400 hover:text-white transition-colors border border-zinc-700/50"
+      >
+        <span>⚡</span>
+        Raio-X do jogo
+      </button>
     </div>
   );
 }
