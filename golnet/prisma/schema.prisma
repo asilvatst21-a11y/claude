@@ -140,6 +140,9 @@ enum MatchStage {
 model Match {
   id           String      @id @default(cuid())
   externalId   String?     @unique
+  leagueId     Int?
+  leagueName   String?
+  leagueSeason Int?
   homeTeam     String
   awayTeam     String
   homeTeamId   Int?

@@ -39,6 +39,9 @@ export async function POST(req: Request) {
     const isFinished = status === "FINISHED";
 
     const data = {
+      leagueId: fixture.league.id,
+      leagueName: fixture.league.name,
+      leagueSeason: fixture.league.season,
       homeTeam: fixture.teams.home.name,
       awayTeam: fixture.teams.away.name,
       homeTeamId: fixture.teams.home.id,

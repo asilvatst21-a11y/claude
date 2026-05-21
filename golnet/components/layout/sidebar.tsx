@@ -11,6 +11,7 @@ const nav = [
   { href: "/bracket", label: "Chaveamento", icon: "📋" },
   { href: "/leagues", label: "Ligas", icon: "🏆" },
   { href: "/rankings", label: "Ranking", icon: "📊" },
+  { href: "/standings", label: "Classificação", icon: "🏅" },
   { href: "/rules", label: "Regras", icon: "📖" },
   { href: "/profile", label: "Perfil", icon: "👤" },
   { href: "/pricing", label: "Planos", icon: "💎" },
