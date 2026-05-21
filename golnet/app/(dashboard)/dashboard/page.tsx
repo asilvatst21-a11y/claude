@@ -12,7 +12,7 @@ async function getStats(userId: string) {
     prisma.leagueMember.count({ where: { userId } }),
   ]);
 
-  const totalPoints = predictions.reduce((s, p) => s + p.points + p.bonusPoints, 0);
+  const totalPoints = predictions.reduce((s: number, p) => s + p.points + p.bonusPoints, 0);
   const exactScores = predictions.filter((p) => p.result === "EXACT_SCORE").length;
   const accuracy = predictions.length > 0
     ? Math.round((predictions.filter((p) => p.result !== "WRONG").length / predictions.length) * 100)
