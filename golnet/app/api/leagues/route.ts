@@ -8,6 +8,11 @@ const createSchema = z.object({
   name: z.string().min(3).max(60),
   description: z.string().max(200).optional(),
   visibility: z.enum(["PUBLIC", "PRIVATE"]).default("PUBLIC"),
+  ptsExactScore: z.number().int().min(1).max(100).optional(),
+  ptsCorrectDiff: z.number().int().min(0).max(100).optional(),
+  ptsCorrectWinner: z.number().int().min(0).max(100).optional(),
+  ptsCorrectDraw: z.number().int().min(0).max(100).optional(),
+  ptsKnockoutBonus: z.number().int().min(0).max(100).optional(),
 });
 
 export async function GET() {
@@ -68,9 +73,19 @@ export async function POST(req: Request) {
     }
   }
 
+  const isPro = ["PRO", "ENTERPRISE"].includes(user?.plan ?? "FREE");
+  const { ptsExactScore, ptsCorrectDiff, ptsCorrectWinner, ptsCorrectDraw, ptsKnockoutBonus, ...baseData } = parsed.data;
+
   const league = await prisma.league.create({
     data: {
-      ...parsed.data,
+      ...baseData,
+      ...(isPro && {
+        ptsExactScore: ptsExactScore ?? 10,
+        ptsCorrectDiff: ptsCorrectDiff ?? 7,
+        ptsCorrectWinner: ptsCorrectWinner ?? 5,
+        ptsCorrectDraw: ptsCorrectDraw ?? 4,
+        ptsKnockoutBonus: ptsKnockoutBonus ?? 3,
+      }),
       members: {
         create: { userId: session.user.id, role: "OWNER" },
       },

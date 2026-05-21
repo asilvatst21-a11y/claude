@@ -92,6 +92,12 @@ model League {
   inviteCode  String           @unique @default(cuid())
   logoUrl     String?
   season      String           @default("2026")
+  // Custom scoring (PRO only — defaults match the standard rules)
+  ptsExactScore     Int @default(10)
+  ptsCorrectDiff    Int @default(7)
+  ptsCorrectWinner  Int @default(5)
+  ptsCorrectDraw    Int @default(4)
+  ptsKnockoutBonus  Int @default(3)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 

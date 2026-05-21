@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { fetchFixturesByDate, mapApiStatus } from "@/lib/api-football";
-import { calculatePoints } from "@/lib/scoring";
+import { calculatePoints, pointsFromResult, type ScoringRules } from "@/lib/scoring";
 import { isAdmin } from "@/lib/admin";
 
 export async function POST() {
@@ -45,6 +45,7 @@ export async function POST() {
       });
 
       for (const pred of predictions) {
+        // Calculate result using default rules (stored on Prediction for reference)
         const { result, points, bonusPoints } = calculatePoints({
           predHome: pred.homeScore,
           predAway: pred.awayScore,
@@ -58,10 +59,31 @@ export async function POST() {
           data: { result, points, bonusPoints },
         });
 
-        await prisma.leagueMember.updateMany({
+        // Update each league the user belongs to using that league's custom rules
+        const memberships = await prisma.leagueMember.findMany({
           where: { userId: pred.userId },
-          data: { totalPoints: { increment: points + bonusPoints } },
+          include: {
+            league: {
+              select: {
+                ptsExactScore: true,
+                ptsCorrectDiff: true,
+                ptsCorrectWinner: true,
+                ptsCorrectDraw: true,
+                ptsKnockoutBonus: true,
+              },
+            },
+          },
         });
+
+        for (const membership of memberships) {
+          const rules: ScoringRules = membership.league;
+          const leaguePoints = pointsFromResult(result, match.stage, rules);
+
+          await prisma.leagueMember.update({
+            where: { id: membership.id },
+            data: { totalPoints: { increment: leaguePoints } },
+          });
+        }
       }
     }
 
