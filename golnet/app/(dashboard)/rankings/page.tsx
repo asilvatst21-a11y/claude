@@ -32,7 +32,7 @@ export default async function RankingsPage() {
   return (
     <div>
       <h1 className="text-2xl font-bold text-white mb-2">Ranking Geral</h1>
-      <p className="text-zinc-400 mb-6">Copa do Mundo 2026 — Top 50 jogadores</p>
+      <p className="text-zinc-400 mb-6">Top 50 jogadores</p>
 
       {myRank > 0 && (
         <div className="bg-green-500/10 border border-green-500/30 rounded-xl px-5 py-3 mb-6 flex items-center justify-between">

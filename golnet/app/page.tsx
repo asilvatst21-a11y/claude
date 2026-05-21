@@ -10,17 +10,12 @@ export default async function Home() {
     <main className="min-h-screen bg-[#09090b] text-white">
       {/* ── Hero ─────────────────────────────────────────────────────────────── */}
       <section className="flex flex-col items-center justify-center text-center px-6 pt-24 pb-20">
-        <div className="inline-flex items-center gap-2 bg-green-500/10 border border-green-500/30 rounded-full px-4 py-1.5 text-sm text-green-400 font-medium mb-8">
-          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
-          Copa do Mundo 2026 — EUA, Canadá e México
-        </div>
-
         <h1 className="text-6xl sm:text-7xl font-extrabold tracking-tight mb-4">
           <span className="text-green-400">Palpita</span>Aí
         </h1>
 
         <p className="text-xl sm:text-2xl text-zinc-300 font-medium mb-4">
-          O bolão oficial da Copa do Mundo 2026
+          Seu bolão de palpites favorito
         </p>
 
         <p className="text-zinc-500 max-w-xl mb-10 text-lg">
@@ -171,7 +166,7 @@ export default async function Home() {
 
       {/* ── Footer ───────────────────────────────────────────────────────────── */}
       <footer className="border-t border-zinc-800 py-8 text-center text-zinc-500 text-sm">
-        &copy; 2026 PalpitaAí &mdash; Feito com ❤️ para os fãs da Copa
+        &copy; 2026 PalpitaAí &mdash; Feito com ❤️ para quem ama um bolão
       </footer>
     </main>
   );
