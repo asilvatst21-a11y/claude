@@ -2,10 +2,12 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { AdminPanel } from "@/components/admin/admin-panel";
+import { isAdmin } from "@/lib/admin";
 
 export default async function AdminPage() {
   const session = await auth();
   if (!session) redirect("/login");
+  if (!isAdmin(session.user?.email)) redirect("/dashboard");
 
   const total = await prisma.match.count();
 

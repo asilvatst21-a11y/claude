@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { isAdmin } from "@/lib/admin";
 
 const updateSchema = z.object({
   plan: z.enum(["FREE", "PRO", "ENTERPRISE"]),
@@ -14,6 +15,9 @@ export async function POST(
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
+  }
+  if (!isAdmin(session.user.email)) {
+    return NextResponse.json({ error: "Acesso negado" }, { status: 403 });
   }
 
   const body = await req.json();

@@ -15,11 +15,11 @@ const nav = [
   { href: "/profile", label: "Perfil", icon: "👤" },
   { href: "/pricing", label: "Planos", icon: "💎" },
   { href: "/support", label: "Suporte", icon: "💬" },
-  { href: "/admin", label: "Admin", icon: "⚙️" },
 ];
 
-export function Sidebar() {
+export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   const pathname = usePathname();
+  const links = isAdmin ? [...nav, { href: "/admin", label: "Admin", icon: "⚙️" }] : nav;
 
   return (
     <aside className="h-screen w-60 bg-zinc-950 border-r border-zinc-800 flex flex-col">
@@ -30,7 +30,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 p-4 flex flex-col gap-1">
-        {nav.map(({ href, label, icon }) => (
+        {links.map(({ href, label, icon }) => (
           <Link
             key={href}
             href={href}

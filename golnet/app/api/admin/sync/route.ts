@@ -3,11 +3,15 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { fetchFixturesByDate, mapApiStatus } from "@/lib/api-football";
 import { calculatePoints } from "@/lib/scoring";
+import { isAdmin } from "@/lib/admin";
 
 export async function POST() {
   const session = await auth();
   if (!session) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  if (!isAdmin(session.user?.email)) {
+    return NextResponse.json({ error: "Acesso negado" }, { status: 403 });
   }
 
   const today = new Date().toISOString().split("T")[0];

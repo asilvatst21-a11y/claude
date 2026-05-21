@@ -1,22 +1,15 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { isAdmin } from "@/lib/admin";
 
 export async function GET() {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   }
-
-  // Simple admin check — only allow users with email ending in @admin or specific env var
-  // In production, implement proper role-based access
-  const adminEmails = (process.env.ADMIN_EMAILS ?? "").split(",").map((e) => e.trim());
-  const userEmail = session.user.email ?? "";
-  if (!adminEmails.includes(userEmail) && adminEmails[0] !== "") {
-    // Fall through to allow access in development when ADMIN_EMAILS is not set
-    if (adminEmails[0] !== "") {
-      return NextResponse.json({ error: "Acesso negado" }, { status: 403 });
-    }
+  if (!isAdmin(session.user.email)) {
+    return NextResponse.json({ error: "Acesso negado" }, { status: 403 });
   }
 
   const users = await prisma.user.findMany({
@@ -32,7 +25,5 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
-  const total = users.length;
-
-  return NextResponse.json({ users, total });
+  return NextResponse.json({ users, total: users.length });
 }
