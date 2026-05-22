@@ -4,6 +4,7 @@ import { seedAchievements } from "@/lib/achievements";
 import { CityEditor } from "./city-editor";
 import { BioEditor } from "./bio-editor";
 import { ProfileVisibilityToggle } from "./profile-visibility-toggle";
+import { SharePredictionButton } from "@/components/share-prediction-button";
 import { teamLogo } from "@/lib/utils";
 
 export const metadata = { title: "Perfil — PalpitaAí" };
@@ -217,6 +218,18 @@ export default async function ProfilePage() {
                       {resultLabel[pred.result] ?? pred.result}
                       {pts > 0 && ` +${pts}`}
                     </span>
+                  )}
+                  {pred.result && pred.result !== "WRONG" && (
+                    <SharePredictionButton
+                      homeTeam={m.homeTeam}
+                      awayTeam={m.awayTeam}
+                      homeScore={m.homeScore ?? 0}
+                      awayScore={m.awayScore ?? 0}
+                      predHome={pred.homeScore}
+                      predAway={pred.awayScore}
+                      result={pred.result}
+                      points={pts}
+                    />
                   )}
                 </div>
               );

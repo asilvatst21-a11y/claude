@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import Image from "next/image";
 import Link from "next/link";
 import { teamLogo } from "@/lib/utils";
+import { SharePredictionButton } from "@/components/share-prediction-button";
 
 export async function generateMetadata({ params }: { params: { username: string } }) {
   const user = await prisma.user.findUnique({
@@ -230,6 +231,18 @@ export default async function PublicProfilePage({ params }: { params: { username
                       {resultLabel[pred.result] ?? pred.result}
                       {pts > 0 && ` +${pts}`}
                     </span>
+                  )}
+                  {pred.result && pred.result !== "WRONG" && (
+                    <SharePredictionButton
+                      homeTeam={m.homeTeam}
+                      awayTeam={m.awayTeam}
+                      homeScore={m.homeScore ?? 0}
+                      awayScore={m.awayScore ?? 0}
+                      predHome={pred.homeScore}
+                      predAway={pred.awayScore}
+                      result={pred.result}
+                      points={pts}
+                    />
                   )}
                 </div>
               );

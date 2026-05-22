@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { sendPushToUser } from "@/lib/push";
 
 const createSchema = z.object({
   matchIds: z.array(z.string()).min(1).max(10),
@@ -52,15 +53,26 @@ export async function POST(req: Request) {
   const matches = await prisma.match.findMany({ where: { id: { in: matchIds } }, select: { id: true } });
   if (matches.length !== matchIds.length) return NextResponse.json({ error: "Um ou mais jogos não encontrados" }, { status: 400 });
 
-  const duel = await prisma.duel.create({
-    data: {
-      creatorId: userId,
-      opponentId: opponentId ?? null,
-      status: opponentId ? "PENDING" : "PENDING",
-      expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
-      matches: { create: matchIds.map((matchId) => ({ matchId })) },
-    },
-  });
+  const [duel, creator] = await Promise.all([
+    prisma.duel.create({
+      data: {
+        creatorId: userId,
+        opponentId: opponentId ?? null,
+        status: "PENDING",
+        expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+        matches: { create: matchIds.map((matchId) => ({ matchId })) },
+      },
+    }),
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
+  ]);
+
+  if (opponentId) {
+    sendPushToUser(opponentId, {
+      title: "Desafio X1 recebido! ⚔️",
+      body: `${creator?.name ?? "Alguém"} te desafiou para um duelo. Aceite antes que expire!`,
+      url: "/x1",
+    }).catch(() => {});
+  }
 
   return NextResponse.json(duel, { status: 201 });
 }

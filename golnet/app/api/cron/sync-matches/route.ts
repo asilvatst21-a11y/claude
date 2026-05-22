@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { fetchFixturesByIds, mapApiStatus } from "@/lib/api-football";
 import { calculatePoints } from "@/lib/scoring";
+import { sendPushToUser } from "@/lib/push";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -149,6 +150,34 @@ async function runSync(): Promise<{ synced: number }> {
         ? duel.creatorId : duel.opponentId;
 
       await prisma.duel.update({ where: { id: duel.id }, data: { status: "FINISHED", winnerId } });
+    }));
+  }
+
+  // Notify users with predictions on matches starting in the next 15–30 min
+  const now = new Date();
+  const notifyFrom = new Date(now.getTime() + 15 * 60 * 1000);
+  const notifyTo   = new Date(now.getTime() + 30 * 60 * 1000);
+
+  const upcomingMatches = await prisma.match.findMany({
+    where: { status: "SCHEDULED", startsAt: { gte: notifyFrom, lte: notifyTo } },
+    select: { id: true, homeTeam: true, awayTeam: true },
+  });
+
+  if (upcomingMatches.length > 0) {
+    const matchIds = upcomingMatches.map((m) => m.id);
+    const preds = await prisma.prediction.findMany({
+      where: { matchId: { in: matchIds } },
+      select: { userId: true, matchId: true },
+    });
+    const matchById = Object.fromEntries(upcomingMatches.map((m) => [m.id, m]));
+    await Promise.allSettled(preds.map((p) => {
+      const m = matchById[p.matchId];
+      if (!m) return Promise.resolve();
+      return sendPushToUser(p.userId, {
+        title: "Jogo começando em breve! ⏰",
+        body: `${m.homeTeam} x ${m.awayTeam} — você tem um palpite registrado.`,
+        url: "/predictions",
+      });
     }));
   }
 

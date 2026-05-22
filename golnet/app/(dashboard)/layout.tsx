@@ -4,6 +4,8 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { MobileNav } from "@/components/layout/mobile-nav";
 import { isAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
+import { PushPermission } from "@/components/push-permission";
+import { ServiceWorkerRegistrar } from "@/components/service-worker-registrar";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -22,6 +24,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
         {children}
       </main>
       <MobileNav isAdmin={admin} pendingDuels={pendingDuels} />
+      <PushPermission />
+      <ServiceWorkerRegistrar />
     </div>
   );
 }
