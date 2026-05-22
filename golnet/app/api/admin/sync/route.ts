@@ -14,8 +14,14 @@ export async function POST() {
     return NextResponse.json({ error: "Acesso negado" }, { status: 403 });
   }
 
-  const today = new Date().toISOString().split("T")[0];
-  const fixtures = await fetchFixturesByDate(today);
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+
+  const [todayFixtures, yesterdayFixtures] = await Promise.all([
+    fetchFixturesByDate(today).catch(() => []),
+    fetchFixturesByDate(yesterday).catch(() => []),
+  ]);
+  const fixtures = [...todayFixtures, ...yesterdayFixtures];
 
   let synced = 0;
 

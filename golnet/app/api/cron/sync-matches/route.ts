@@ -18,8 +18,15 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const today = new Date().toISOString().split("T")[0];
-  const fixtures = await fetchFixturesByDate(today).catch(() => []);
+  // Use São Paulo timezone so late-night matches (after 21h local = midnight UTC) are found
+  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+
+  const [todayFixtures, yesterdayFixtures] = await Promise.all([
+    fetchFixturesByDate(today).catch(() => []),
+    fetchFixturesByDate(yesterday).catch(() => []),
+  ]);
+  const fixtures = [...todayFixtures, ...yesterdayFixtures];
 
   let synced = 0;
 
