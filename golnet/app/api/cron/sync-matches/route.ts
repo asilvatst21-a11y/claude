@@ -18,123 +18,144 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Use São Paulo timezone so late-night matches (after 21h local = midnight UTC) are found
-  const today = new Date().toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
-  const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", { timeZone: "America/Sao_Paulo" });
+  const spTz = { timeZone: "America/Sao_Paulo" };
+  const today = new Date().toLocaleDateString("en-CA", spTz);
+  const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", spTz);
 
+  // Fetch both dates in parallel
   const [todayFixtures, yesterdayFixtures] = await Promise.all([
     fetchFixturesByDate(today).catch(() => []),
     fetchFixturesByDate(yesterday).catch(() => []),
   ]);
-  const fixtures = [...todayFixtures, ...yesterdayFixtures];
+
+  // Only keep yesterday's fixtures that are still LIVE or unfinished
+  const filteredYesterday = yesterdayFixtures.filter((f) => {
+    const s = f.fixture.status.short;
+    return s === "1H" || s === "HT" || s === "2H" || s === "ET" || s === "P" || s === "BT";
+  });
+
+  const fixtures = [...todayFixtures, ...filteredYesterday];
+  if (fixtures.length === 0) return NextResponse.json({ synced: 0, at: new Date() });
+
+  // Batch-fetch all relevant matches from DB in one query
+  const externalIds = fixtures.map((f) => String(f.fixture.id));
+  const dbMatches = await prisma.match.findMany({
+    where: { externalId: { in: externalIds } },
+  });
+  const matchMap = Object.fromEntries(dbMatches.map((m) => [m.externalId!, m]));
 
   let synced = 0;
+  const finishedMatchIds: string[] = [];
 
-  for (const fixture of fixtures) {
-    const match = await prisma.match.findUnique({
-      where: { externalId: String(fixture.fixture.id) },
-    });
-    if (!match) continue;
+  // Update all matches in parallel batches of 5
+  const chunks = [];
+  for (let i = 0; i < fixtures.length; i += 5) chunks.push(fixtures.slice(i, i + 5));
 
-    const status = mapApiStatus(fixture.fixture.status.short);
-    const homeScore = fixture.goals.home;
-    const awayScore = fixture.goals.away;
+  for (const chunk of chunks) {
+    await Promise.all(chunk.map(async (fixture) => {
+      const match = matchMap[String(fixture.fixture.id)];
+      if (!match) return;
 
-    await prisma.match.update({
-      where: { id: match.id },
-      data: {
-        homeScore: homeScore ?? undefined,
-        awayScore: awayScore ?? undefined,
-        status,
-        lastSyncedAt: new Date(),
-      },
-    });
+      const status = mapApiStatus(fixture.fixture.status.short);
+      const homeScore = fixture.goals.home;
+      const awayScore = fixture.goals.away;
 
-    if (status === "FINISHED" && homeScore !== null && awayScore !== null) {
-      const predictions = await prisma.prediction.findMany({
-        where: { matchId: match.id, result: null },
-      });
-
-      const round = match.round ?? "Fase de Grupos";
-
-      for (const pred of predictions) {
-        const { result, points, bonusPoints } = calculatePoints({
-          predHome: pred.homeScore,
-          predAway: pred.awayScore,
-          realHome: homeScore,
-          realAway: awayScore,
-          stage: match.stage,
-        });
-
-        await prisma.prediction.update({
-          where: { id: pred.id },
-          data: { result, points, bonusPoints },
-        });
-
-        await prisma.leagueMember.updateMany({
-          where: { userId: pred.userId },
-          data: { totalPoints: { increment: points + bonusPoints } },
-        });
-
-        const total = points + bonusPoints;
-
-        const memberships = await prisma.leagueMember.findMany({
-          where: { userId: pred.userId },
-          select: { leagueId: true },
-        });
-
-        for (const { leagueId } of memberships) {
-          await prisma.roundRanking.upsert({
-            where: { leagueId_userId_round: { leagueId, userId: pred.userId, round } },
-            create: { leagueId, userId: pred.userId, round, points: total },
-            update: { points: { increment: total } },
-          });
-        }
-      }
-
-      // Calculate duel predictions for this match
-      const duelPreds = await prisma.duelPrediction.findMany({
-        where: { matchId: match.id, result: null },
-      });
-      for (const dp of duelPreds) {
-        const { result, points, bonusPoints } = calculatePoints({
-          predHome: dp.homeScore, predAway: dp.awayScore,
-          realHome: homeScore, realAway: awayScore, stage: match.stage,
-        });
-        await prisma.duelPrediction.update({
-          where: { id: dp.id },
-          data: { result, points, bonusPoints },
-        });
-      }
-
-      // Check if all matches in any duel are finished → determine winner
-      const affectedDuels = await prisma.duel.findMany({
-        where: { status: "ACTIVE", matches: { some: { matchId: match.id } } },
-        include: {
-          matches: { include: { match: { select: { status: true } } } },
-          predictions: true,
+      await prisma.match.update({
+        where: { id: match.id },
+        data: {
+          homeScore: homeScore ?? undefined,
+          awayScore: awayScore ?? undefined,
+          status,
+          lastSyncedAt: new Date(),
         },
       });
 
-      for (const duel of affectedDuels) {
-        const allDone = duel.matches.every((m) => m.match.status === "FINISHED" || m.match.status === "POSTPONED" || m.match.status === "CANCELLED");
-        if (!allDone) continue;
+      synced++;
 
-        const sumPoints = (uid: string) =>
-          duel.predictions.filter((p) => p.userId === uid).reduce((s, p) => s + p.points + p.bonusPoints, 0);
-
-        const creatorPts = sumPoints(duel.creatorId);
-        const opponentPts = duel.opponentId ? sumPoints(duel.opponentId) : 0;
-        const winnerId = creatorPts >= opponentPts ? duel.creatorId : duel.opponentId;
-
-        await prisma.duel.update({
-          where: { id: duel.id },
-          data: { status: "FINISHED", winnerId },
-        });
+      if (status === "FINISHED" && homeScore !== null && awayScore !== null) {
+        finishedMatchIds.push(match.id);
       }
-    }
+    }));
+  }
 
-    synced++;
+  // Process finished matches: calculate points for regular + duel predictions
+  if (finishedMatchIds.length > 0) {
+    // Batch-fetch all unscored predictions for finished matches
+    const [regularPreds, duelPreds] = await Promise.all([
+      prisma.prediction.findMany({ where: { matchId: { in: finishedMatchIds }, result: null } }),
+      prisma.duelPrediction.findMany({ where: { matchId: { in: finishedMatchIds }, result: null } }),
+    ]);
+
+    const matchById = Object.fromEntries(dbMatches.map((m) => [m.id, m]));
+
+    // Score regular predictions
+    await Promise.all(regularPreds.map(async (pred) => {
+      const match = matchById[pred.matchId];
+      if (!match || match.homeScore === null || match.awayScore === null) return;
+
+      const { result, points, bonusPoints } = calculatePoints({
+        predHome: pred.homeScore, predAway: pred.awayScore,
+        realHome: match.homeScore, realAway: match.awayScore, stage: match.stage,
+      });
+
+      const round = match.round ?? "Fase de Grupos";
+      const total = points + bonusPoints;
+
+      await prisma.prediction.update({ where: { id: pred.id }, data: { result, points, bonusPoints } });
+
+      const memberships = await prisma.leagueMember.findMany({
+        where: { userId: pred.userId }, select: { id: true, leagueId: true },
+      });
+
+      await Promise.all([
+        prisma.leagueMember.updateMany({ where: { userId: pred.userId }, data: { totalPoints: { increment: total } } }),
+        ...memberships.map((m) =>
+          prisma.roundRanking.upsert({
+            where: { leagueId_userId_round: { leagueId: m.leagueId, userId: pred.userId, round } },
+            create: { leagueId: m.leagueId, userId: pred.userId, round, points: total },
+            update: { points: { increment: total } },
+          })
+        ),
+      ]);
+    }));
+
+    // Score duel predictions
+    await Promise.all(duelPreds.map(async (dp) => {
+      const match = matchById[dp.matchId];
+      if (!match || match.homeScore === null || match.awayScore === null) return;
+
+      const { result, points, bonusPoints } = calculatePoints({
+        predHome: dp.homeScore, predAway: dp.awayScore,
+        realHome: match.homeScore, realAway: match.awayScore, stage: match.stage,
+      });
+
+      await prisma.duelPrediction.update({ where: { id: dp.id }, data: { result, points, bonusPoints } });
+    }));
+
+    // Check duels that might be fully finished
+    const affectedDuels = await prisma.duel.findMany({
+      where: { status: "ACTIVE", matches: { some: { matchId: { in: finishedMatchIds } } } },
+      include: {
+        matches: { include: { match: { select: { id: true, status: true } } } },
+        predictions: true,
+      },
+    });
+
+    await Promise.all(affectedDuels.map(async (duel) => {
+      const allDone = duel.matches.every((m) =>
+        m.match.status === "FINISHED" || m.match.status === "POSTPONED" || m.match.status === "CANCELLED"
+      );
+      if (!allDone) return;
+
+      const sum = (uid: string) =>
+        duel.predictions.filter((p) => p.userId === uid).reduce((s, p) => s + p.points + p.bonusPoints, 0);
+
+      const creatorPts = sum(duel.creatorId);
+      const opponentPts = duel.opponentId ? sum(duel.opponentId) : 0;
+      const winnerId = creatorPts >= opponentPts ? duel.creatorId : duel.opponentId;
+
+      await prisma.duel.update({ where: { id: duel.id }, data: { status: "FINISHED", winnerId } });
+    }));
   }
 
   return NextResponse.json({ synced, at: new Date() });
