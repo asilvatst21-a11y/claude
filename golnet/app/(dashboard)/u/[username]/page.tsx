@@ -55,7 +55,7 @@ export default async function PublicProfilePage({ params }: { params: { username
     );
   }
 
-  const [predictions, achievements, leaguePoints] = await Promise.all([
+  const [predictions, achievements, leaguePoints, duels] = await Promise.all([
     prisma.prediction.findMany({
       where: { userId: user.id, result: { not: null } },
       include: {
@@ -80,6 +80,13 @@ export default async function PublicProfilePage({ params }: { params: { username
       where: { userId: user.id },
       _sum: { totalPoints: true },
     }),
+    prisma.duel.findMany({
+      where: {
+        OR: [{ creatorId: user.id }, { opponentId: user.id }],
+        status: "FINISHED",
+      },
+      select: { winnerId: true },
+    }),
   ]);
 
   const totalPoints = leaguePoints._sum.totalPoints ?? 0;
@@ -87,6 +94,10 @@ export default async function PublicProfilePage({ params }: { params: { username
   const accuracy = predictions.length > 0
     ? Math.round((predictions.filter((p) => p.result !== "WRONG").length / predictions.length) * 100)
     : 0;
+
+  const duelWins = duels.filter((d) => d.winnerId === user.id).length;
+  const duelLosses = duels.length - duelWins;
+  const duelWinrate = duels.length > 0 ? Math.round((duelWins / duels.length) * 100) : null;
 
   const formatDate = (d: Date | string) =>
     new Date(d).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
@@ -142,6 +153,33 @@ export default async function PublicProfilePage({ params }: { params: { username
         ))}
       </div>
 
+      {/* X1 Duel stats */}
+      {duels.length > 0 && (
+        <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-5">
+          <h2 className="text-sm font-semibold text-zinc-300 mb-3">X1 Duelos ⚔️</h2>
+          <div className="flex items-center gap-6">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-green-400">{duelWins}</p>
+              <p className="text-xs text-zinc-500 mt-0.5">Vitórias</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-red-400">{duelLosses}</p>
+              <p className="text-xs text-zinc-500 mt-0.5">Derrotas</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-white">{duels.length}</p>
+              <p className="text-xs text-zinc-500 mt-0.5">Total</p>
+            </div>
+            {duelWinrate !== null && (
+              <div className="ml-auto text-right">
+                <p className="text-2xl font-bold text-yellow-400">{duelWinrate}%</p>
+                <p className="text-xs text-zinc-500 mt-0.5">Winrate</p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Achievements */}
       {achievements.length > 0 && (
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-5">
@@ -175,27 +213,18 @@ export default async function PublicProfilePage({ params }: { params: { username
               const pts = pred.points + pred.bonusPoints;
               return (
                 <div key={pred.id} className="flex items-center gap-3 px-4 py-3">
-                  {/* Teams */}
                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                    {m.homeTeamFlag && (
-                      <img src={teamLogo(m.homeTeamFlag) ?? ""} alt="" className="w-4 h-4 object-contain shrink-0" />
-                    )}
+                    {m.homeTeamFlag && <img src={teamLogo(m.homeTeamFlag) ?? ""} alt="" className="w-4 h-4 object-contain shrink-0" />}
                     <span className="text-xs text-zinc-300 truncate">{m.homeTeam}</span>
                     <span className="text-zinc-600 text-xs shrink-0">x</span>
-                    {m.awayTeamFlag && (
-                      <img src={teamLogo(m.awayTeamFlag) ?? ""} alt="" className="w-4 h-4 object-contain shrink-0" />
-                    )}
+                    {m.awayTeamFlag && <img src={teamLogo(m.awayTeamFlag) ?? ""} alt="" className="w-4 h-4 object-contain shrink-0" />}
                     <span className="text-xs text-zinc-300 truncate">{m.awayTeam}</span>
                   </div>
-
-                  {/* Prediction vs real */}
                   <div className="text-xs text-zinc-400 shrink-0">
                     <span className="text-white font-medium">{pred.homeScore}–{pred.awayScore}</span>
                     <span className="text-zinc-600 mx-1">/</span>
                     <span>{m.homeScore ?? "?"}–{m.awayScore ?? "?"}</span>
                   </div>
-
-                  {/* Result badge */}
                   {pred.result && (
                     <span className={`text-xs font-medium px-2 py-0.5 rounded-full shrink-0 ${resultColor[pred.result] ?? ""}`}>
                       {resultLabel[pred.result] ?? pred.result}
