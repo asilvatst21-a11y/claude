@@ -111,6 +111,7 @@ type MatchSyncResult = {
   predsScored: boolean;
 };
 type CronLogEntry = { id: string; trigger: string; synced: number; durationMs: number; error: string | null; createdAt: string };
+type ImportedLeague = { leagueId: number; leagueName: string | null; leagueSeason: number | null; matchCount: number };
 
 type AdminUser = {
   id: string;
@@ -283,6 +284,107 @@ function formatSyncAge(isoString: string): string {
   return `há ${Math.floor(hours / 24)}d`;
 }
 
+function ImportedLeaguesTab() {
+  const [leagues, setLeagues] = useState<ImportedLeague[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/imported-leagues");
+      setLeagues(await res.json());
+    } finally { setLoading(false); }
+  };
+
+  const handleDelete = async (league: ImportedLeague) => {
+    const key = `${league.leagueId}-${league.leagueSeason}`;
+    setDeleting(key);
+    setConfirm(null);
+    try {
+      const res = await fetch("/api/admin/imported-leagues", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leagueId: league.leagueId, season: league.leagueSeason }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setLeagues((prev) => prev?.filter(
+          (l) => !(l.leagueId === league.leagueId && l.leagueSeason === league.leagueSeason)
+        ) ?? null);
+        alert(`${data.deleted} partidas removidas.`);
+      }
+    } finally { setDeleting(null); }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p className="text-sm text-zinc-400">Ligas com partidas importadas no banco</p>
+        <button onClick={load} disabled={loading} className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-medium rounded-lg transition-colors">
+          {loading ? "Carregando..." : leagues ? "Atualizar" : "Carregar ligas"}
+        </button>
+      </div>
+
+      <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg px-4 py-3 mb-4 text-xs text-yellow-400">
+        ⚠️ Excluir uma liga remove todas as partidas, palpites e duelos associados. Os pontos já computados nos membros de liga <strong>não</strong> são revertidos.
+      </div>
+
+      {leagues && (
+        <div className="space-y-2">
+          {leagues.length === 0 && (
+            <p className="text-sm text-zinc-500 text-center py-8">Nenhuma liga importada encontrada.</p>
+          )}
+          {leagues.map((league) => {
+            const key = `${league.leagueId}-${league.leagueSeason}`;
+            const isDeleting = deleting === key;
+            const isConfirming = confirm === key;
+
+            return (
+              <div key={key} className="flex items-center justify-between bg-zinc-800 rounded-lg px-4 py-3">
+                <div>
+                  <span className="text-sm font-medium text-white">{league.leagueName ?? `Liga ${league.leagueId}`}</span>
+                  <span className="text-xs text-zinc-500 ml-2">
+                    Temporada {league.leagueSeason} · {league.matchCount} partidas
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {isConfirming ? (
+                    <>
+                      <span className="text-xs text-red-400">Confirmar exclusão?</span>
+                      <button
+                        onClick={() => handleDelete(league)}
+                        disabled={isDeleting}
+                        className="px-3 py-1.5 bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+                      >
+                        {isDeleting ? "Excluindo..." : "Sim, excluir"}
+                      </button>
+                      <button
+                        onClick={() => setConfirm(null)}
+                        className="px-3 py-1.5 border border-zinc-600 text-zinc-400 hover:text-white text-xs rounded-lg transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setConfirm(key)}
+                      className="px-3 py-1.5 border border-red-800 text-red-400 hover:bg-red-950/40 text-xs font-medium rounded-lg transition-colors"
+                    >
+                      Excluir liga
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ForceResyncSection() {
   const [externalId, setExternalId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -421,7 +523,7 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
   const currentYear = new Date().getFullYear();
   const [season, setSeason] = useState(currentYear);
   const [activeCountry, setActiveCountry] = useState("Brasil");
-  const [activeTab, setActiveTab] = useState<"jogos" | "usuarios" | "logs">("jogos");
+  const [activeTab, setActiveTab] = useState<"jogos" | "ligas" | "usuarios" | "logs">("jogos");
   const [importingId, setImportingId] = useState<number | null>(null);
   const [importResults, setImportResults] = useState<Record<number, ImportResult>>({});
   const [syncing, setSyncing] = useState(false);
@@ -473,6 +575,16 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
           }`}
         >
           Jogos
+        </button>
+        <button
+          onClick={() => setActiveTab("ligas")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "ligas"
+              ? "border-green-500 text-green-400"
+              : "border-transparent text-zinc-400 hover:text-white"
+          }`}
+        >
+          Ligas
         </button>
         <button
           onClick={() => setActiveTab("usuarios")}
@@ -634,6 +746,13 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
             </div>
           </section>
         </div>
+      )}
+
+      {activeTab === "ligas" && (
+        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-5">Ligas Importadas</h2>
+          <ImportedLeaguesTab />
+        </section>
       )}
 
       {activeTab === "usuarios" && (
