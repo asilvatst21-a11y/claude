@@ -200,5 +200,6 @@ export const BRAZIL_STATES: StateData[] = [
 ];
 
 export function getCitiesByState(uf: string): string[] {
-  return BRAZIL_STATES.find((s) => s.uf === uf)?.cities ?? [];
+  const cities = BRAZIL_STATES.find((s) => s.uf === uf)?.cities ?? [];
+  return [...cities].sort((a, b) => a.localeCompare(b, "pt-BR"));
 }

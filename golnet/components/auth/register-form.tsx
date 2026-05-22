@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { BRAZIL_STATES, getCitiesByState } from "@/lib/cities";
 
+const OTHER_CITY = "__other__";
+
 const schema = z.object({
   name: z.string().min(2, "Mínimo 2 caracteres").max(50),
   username: z
@@ -20,7 +22,7 @@ const schema = z.object({
   email: z.string().email("Email inválido"),
   password: z.string().min(8, "Mínimo 8 caracteres"),
   state: z.string().min(1, "Selecione seu estado"),
-  city: z.string().min(1, "Selecione sua cidade"),
+  city: z.string().min(1, "Informe sua cidade"),
 });
 
 type FormData = z.infer<typeof schema>;
@@ -29,17 +31,37 @@ export function RegisterForm() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [selectedState, setSelectedState] = useState("");
+  const [selectedCity, setSelectedCity] = useState("");
+  const [customCity, setCustomCity] = useState("");
 
   const { register, handleSubmit, setValue, formState: { errors, isSubmitting } } = useForm<FormData>({
     resolver: zodResolver(schema),
   });
 
   const cities = getCitiesByState(selectedState);
+  const isOther = selectedCity === OTHER_CITY;
 
   const handleStateChange = (uf: string) => {
     setSelectedState(uf);
+    setSelectedCity("");
+    setCustomCity("");
     setValue("state", uf, { shouldValidate: true });
     setValue("city", "", { shouldValidate: false });
+  };
+
+  const handleCityChange = (val: string) => {
+    setSelectedCity(val);
+    setCustomCity("");
+    if (val !== OTHER_CITY) {
+      setValue("city", val, { shouldValidate: true });
+    } else {
+      setValue("city", "", { shouldValidate: false });
+    }
+  };
+
+  const handleCustomCityChange = (val: string) => {
+    setCustomCity(val);
+    setValue("city", val, { shouldValidate: true });
   };
 
   const onSubmit = async (data: FormData) => {
@@ -100,13 +122,29 @@ export function RegisterForm() {
             <select
               className={selectClass}
               disabled={!selectedState}
-              {...register("city")}
+              value={selectedCity}
+              onChange={(e) => handleCityChange(e.target.value)}
             >
               <option value="">{selectedState ? "Selecione sua cidade" : "Selecione o estado primeiro"}</option>
               {cities.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
+              {selectedState && (
+                <option value={OTHER_CITY}>Não encontrei minha cidade...</option>
+              )}
             </select>
+            <input type="hidden" {...register("city")} />
+
+            {isOther && (
+              <input
+                type="text"
+                placeholder="Digite o nome da sua cidade"
+                value={customCity}
+                onChange={(e) => handleCustomCityChange(e.target.value)}
+                className="mt-2 w-full rounded-lg bg-zinc-800 border border-zinc-600 px-3 py-2.5 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+                autoFocus
+              />
+            )}
             {errors.city && <p className="text-xs text-red-400 mt-1">{errors.city.message}</p>}
           </div>
 

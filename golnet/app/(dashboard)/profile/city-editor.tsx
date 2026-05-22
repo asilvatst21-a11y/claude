@@ -3,22 +3,33 @@
 import { useState } from "react";
 import { BRAZIL_STATES, getCitiesByState } from "@/lib/cities";
 
+const OTHER_CITY = "__other__";
+
 export function CityEditor({ currentState, currentCity }: { currentState: string | null; currentCity: string | null }) {
   const [editing, setEditing] = useState(false);
   const [state, setState] = useState(currentState ?? "");
-  const [city, setCity] = useState(currentCity ?? "");
+  const [citySelect, setCitySelect] = useState(currentCity ?? "");
+  const [customCity, setCustomCity] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   const cities = getCitiesByState(state);
+  const isOther = citySelect === OTHER_CITY;
+  const finalCity = isOther ? customCity : citySelect;
+
+  const handleStateChange = (uf: string) => {
+    setState(uf);
+    setCitySelect("");
+    setCustomCity("");
+  };
 
   const handleSave = async () => {
-    if (!state || !city) return;
+    if (!state || !finalCity) return;
     setSaving(true);
     await fetch("/api/profile", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ state, city }),
+      body: JSON.stringify({ state, city: finalCity }),
     });
     setSaving(false);
     setSaved(true);
@@ -54,7 +65,7 @@ export function CityEditor({ currentState, currentCity }: { currentState: string
         <select
           className={selectClass}
           value={state}
-          onChange={(e) => { setState(e.target.value); setCity(""); }}
+          onChange={(e) => handleStateChange(e.target.value)}
         >
           <option value="">Estado</option>
           {BRAZIL_STATES.map((s) => (
@@ -63,26 +74,39 @@ export function CityEditor({ currentState, currentCity }: { currentState: string
         </select>
         <select
           className={selectClass}
-          value={city}
+          value={citySelect}
           disabled={!state}
-          onChange={(e) => setCity(e.target.value)}
+          onChange={(e) => { setCitySelect(e.target.value); setCustomCity(""); }}
         >
           <option value="">{state ? "Cidade" : "Selecione o estado"}</option>
           {cities.map((c) => (
             <option key={c} value={c}>{c}</option>
           ))}
+          {state && <option value={OTHER_CITY}>Não encontrei minha cidade...</option>}
         </select>
       </div>
+
+      {isOther && (
+        <input
+          type="text"
+          placeholder="Digite o nome da sua cidade"
+          value={customCity}
+          onChange={(e) => setCustomCity(e.target.value)}
+          className="w-full rounded-lg bg-zinc-800 border border-zinc-600 px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+          autoFocus
+        />
+      )}
+
       <div className="flex gap-2">
         <button
           onClick={handleSave}
-          disabled={!state || !city || saving}
+          disabled={!state || !finalCity || saving}
           className="px-4 py-2 rounded-lg bg-green-500 hover:bg-green-400 disabled:opacity-40 text-black text-sm font-semibold transition-colors"
         >
           {saving ? "Salvando..." : "Salvar"}
         </button>
         <button
-          onClick={() => { setEditing(false); setState(currentState ?? ""); setCity(currentCity ?? ""); }}
+          onClick={() => { setEditing(false); setState(currentState ?? ""); setCitySelect(currentCity ?? ""); setCustomCity(""); }}
           className="px-4 py-2 rounded-lg border border-zinc-700 text-zinc-400 hover:text-white text-sm transition-colors"
         >
           Cancelar
