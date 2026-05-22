@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server";
+import { auth } from "@/auth";
+import { isAdmin } from "@/lib/admin";
 
 export async function GET(req: Request) {
+  const session = await auth();
+  if (!session || !isAdmin(session.user?.email)) {
+    return NextResponse.json({ error: "Acesso negado" }, { status: 403 });
+  }
+
   const API_KEY = process.env.API_FOOTBALL_KEY ?? "";
   const { searchParams } = new URL(req.url);
   const fixtureId = searchParams.get("fixture") ?? "1535214";
@@ -21,6 +28,5 @@ export async function GET(req: Request) {
       goals: fixture.goals,
       teams: { home: fixture.teams.home.name, away: fixture.teams.away.name },
     } : null,
-    raw: json.response?.slice(0, 1),
   });
 }
