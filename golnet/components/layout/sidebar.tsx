@@ -57,7 +57,7 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
   return (
     <>
       {/* ── MOBILE: bottom navigation bar ── */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950 border-t border-zinc-800 flex items-stretch h-16 safe-area-inset-bottom">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-zinc-950 border-t border-zinc-800 flex items-stretch h-16">
         {bottomNav.map(({ href, label, icon }) => (
           <Link
             key={href}
@@ -142,16 +142,15 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
             </span>
           )}
           {collapsed && <span className="text-2xl">⚽</span>}
-          <button
-            onClick={() => setCollapsed((v) => !v)}
-            className={cn(
-              "flex items-center justify-center w-7 h-7 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors shrink-0",
-              collapsed && "hidden"
-            )}
-            aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
-          >
-            <ChevronLeftIcon />
-          </button>
+          {!collapsed && (
+            <button
+              onClick={() => setCollapsed(true)}
+              className="flex items-center justify-center w-7 h-7 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors shrink-0"
+              aria-label="Recolher menu"
+            >
+              <ChevronLeftIcon />
+            </button>
+          )}
         </div>
 
         {collapsed && (

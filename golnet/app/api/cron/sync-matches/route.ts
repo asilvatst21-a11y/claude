@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { fetchLiveMatches, fetchFinishedMatches } from "@/lib/api-football";
+import { fetchFixturesByDate, mapApiStatus } from "@/lib/api-football";
 import { calculatePoints } from "@/lib/scoring";
 
 export const runtime = "nodejs";
@@ -18,20 +18,18 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const [live, finished] = await Promise.all([
-    fetchLiveMatches().catch(() => []),
-    fetchFinishedMatches().catch(() => []),
-  ]);
+  const today = new Date().toISOString().split("T")[0];
+  const fixtures = await fetchFixturesByDate(today).catch(() => []);
 
-  const all = [...live, ...finished];
+  let synced = 0;
 
-  for (const fixture of all) {
+  for (const fixture of fixtures) {
     const match = await prisma.match.findUnique({
       where: { externalId: String(fixture.fixture.id) },
     });
     if (!match) continue;
 
-    const isFinished = fixture.fixture.status.short === "FT";
+    const status = mapApiStatus(fixture.fixture.status.short);
     const homeScore = fixture.goals.home;
     const awayScore = fixture.goals.away;
 
@@ -40,15 +38,17 @@ export async function GET(req: Request) {
       data: {
         homeScore: homeScore ?? undefined,
         awayScore: awayScore ?? undefined,
-        status: isFinished ? "FINISHED" : "LIVE",
+        status,
         lastSyncedAt: new Date(),
       },
     });
 
-    if (isFinished && homeScore !== null && awayScore !== null) {
+    if (status === "FINISHED" && homeScore !== null && awayScore !== null) {
       const predictions = await prisma.prediction.findMany({
         where: { matchId: match.id, result: null },
       });
+
+      const round = match.round ?? "Fase de Grupos";
 
       for (const pred of predictions) {
         const { result, points, bonusPoints } = calculatePoints({
@@ -68,9 +68,26 @@ export async function GET(req: Request) {
           where: { userId: pred.userId },
           data: { totalPoints: { increment: points + bonusPoints } },
         });
+
+        const total = points + bonusPoints;
+
+        const memberships = await prisma.leagueMember.findMany({
+          where: { userId: pred.userId },
+          select: { leagueId: true },
+        });
+
+        for (const { leagueId } of memberships) {
+          await prisma.roundRanking.upsert({
+            where: { leagueId_userId_round: { leagueId, userId: pred.userId, round } },
+            create: { leagueId, userId: pred.userId, round, points: total },
+            update: { points: { increment: total } },
+          });
+        }
       }
     }
+
+    synced++;
   }
 
-  return NextResponse.json({ synced: all.length, at: new Date() });
+  return NextResponse.json({ synced, at: new Date() });
 }

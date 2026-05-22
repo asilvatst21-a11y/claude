@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { isPredictionLocked } from "@/lib/scoring";
+import { checkAndUnlockAchievements } from "@/lib/achievements";
 
 const schema = z.object({
   matchId: z.string(),
@@ -55,6 +56,9 @@ export async function POST(req: Request) {
     create: { userId: session.user.id, matchId, homeScore, awayScore },
     update: { homeScore, awayScore },
   });
+
+  // Check and unlock achievements after saving prediction (fire-and-forget)
+  checkAndUnlockAchievements(session.user.id).catch(console.error);
 
   return NextResponse.json(prediction);
 }

@@ -1,10 +1,11 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
-export const metadata = { title: "Dashboard — GolNet" };
+export const metadata = { title: "Dashboard — PalpitaAí" };
 
 async function getStats(userId: string) {
-  const [predictions, leagueCount] = await Promise.all([
+  const [allPredictions, evaluatedPredictions, leagueCount] = await Promise.all([
+    prisma.prediction.count({ where: { userId } }),
     prisma.prediction.findMany({
       where: { userId, result: { not: null } },
       select: { points: true, bonusPoints: true, result: true },
@@ -12,13 +13,13 @@ async function getStats(userId: string) {
     prisma.leagueMember.count({ where: { userId } }),
   ]);
 
-  const totalPoints = predictions.reduce((s, p) => s + p.points + p.bonusPoints, 0);
-  const exactScores = predictions.filter((p) => p.result === "EXACT_SCORE").length;
-  const accuracy = predictions.length > 0
-    ? Math.round((predictions.filter((p) => p.result !== "WRONG").length / predictions.length) * 100)
+  const totalPoints = evaluatedPredictions.reduce((s: number, p) => s + p.points + p.bonusPoints, 0);
+  const exactScores = evaluatedPredictions.filter((p) => p.result === "EXACT_SCORE").length;
+  const accuracy = evaluatedPredictions.length > 0
+    ? Math.round((evaluatedPredictions.filter((p) => p.result !== "WRONG").length / evaluatedPredictions.length) * 100)
     : 0;
 
-  return { totalPoints, exactScores, accuracy, leagueCount, totalPredictions: predictions.length };
+  return { totalPoints, exactScores, accuracy, leagueCount, totalPredictions: allPredictions };
 }
 
 export default async function DashboardPage() {
@@ -38,7 +39,7 @@ export default async function DashboardPage() {
       <h1 className="text-2xl font-bold text-white mb-1">
         Olá, {session?.user?.name?.split(" ")[0]} 👋
       </h1>
-      <p className="text-zinc-400 mb-8">Bem-vindo ao GolNet — Copa do Mundo 2026</p>
+      <p className="text-zinc-400 mb-8">Bem-vindo ao PalpitaAí</p>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4 mb-10">
         {cards.map(({ label, value, icon }) => (

@@ -45,25 +45,36 @@ model VerificationToken {
 
 // ─── User ─────────────────────────────────────────────────────────────────────
 
-model User {
-  id            String    @id @default(cuid())
-  name          String?
-  username      String?   @unique
-  email         String    @unique
-  emailVerified DateTime?
-  image         String?
-  password      String?
-  country       String?
-  bio           String?
-  locale        String    @default("pt")
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+enum UserPlan {
+  FREE
+  PRO
+  ENTERPRISE
+}
 
-  accounts      Account[]
-  sessions      Session[]
-  leagueMembers LeagueMember[]
-  predictions   Prediction[]
-  achievements  UserAchievement[]
+model User {
+  id                   String    @id @default(cuid())
+  name                 String?
+  username             String?   @unique
+  email                String    @unique
+  emailVerified        DateTime?
+  image                String?
+  password             String?
+  country              String?
+  bio                  String?
+  locale               String    @default("pt")
+  plan                 UserPlan  @default(FREE)
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  planExpiresAt        DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  accounts        Account[]
+  sessions        Session[]
+  leagueMembers   LeagueMember[]
+  predictions     Prediction[]
+  achievements    UserAchievement[]
+  supportTickets  SupportTicket[]
 }
 
 // ─── League ───────────────────────────────────────────────────────────────────
@@ -81,6 +92,12 @@ model League {
   inviteCode  String           @unique @default(cuid())
   logoUrl     String?
   season      String           @default("2026")
+  // Custom scoring (PRO only — defaults match the standard rules)
+  ptsExactScore     Int @default(10)
+  ptsCorrectDiff    Int @default(7)
+  ptsCorrectWinner  Int @default(5)
+  ptsCorrectDraw    Int @default(4)
+  ptsKnockoutBonus  Int @default(3)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
@@ -129,8 +146,13 @@ enum MatchStage {
 model Match {
   id           String      @id @default(cuid())
   externalId   String?     @unique
+  leagueId     Int?
+  leagueName   String?
+  leagueSeason Int?
   homeTeam     String
   awayTeam     String
+  homeTeamId   Int?
+  awayTeamId   Int?
   homeTeamFlag String?
   awayTeamFlag String?
   homeScore    Int?
@@ -207,4 +229,47 @@ model UserAchievement {
   achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
 
   @@unique([userId, achievementId])
+}
+
+// ─── Support ──────────────────────────────────────────────────────────────────
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+model SupportTicket {
+  id        String       @id @default(cuid())
+  userId    String
+  subject   String
+  message   String       @db.Text
+  status    TicketStatus @default(OPEN)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Password Reset ───────────────────────────────────────────────────────────
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// ─── Round Ranking ────────────────────────────────────────────────────────────
+
+model RoundRanking {
+  id       String   @id @default(cuid())
+  leagueId String
+  userId   String
+  round    String
+  points   Int
+  createdAt DateTime @default(now())
+
+  @@unique([leagueId, userId, round])
 }
