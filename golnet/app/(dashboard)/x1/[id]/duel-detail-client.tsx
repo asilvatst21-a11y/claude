@@ -90,32 +90,43 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
       .map((p) => [p.matchId, { home: String(p.homeScore), away: String(p.awayScore) }])
   );
   const [scores, setScores] = useState<Record<string, { home: string; away: string }>>(myPreds);
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [editingMatchIds, setEditingMatchIds] = useState<Set<string>>(new Set());
+  const [savingMatchId, setSavingMatchId] = useState<string | null>(null);
+  const [matchErrors, setMatchErrors] = useState<Record<string, string>>({});
   const [accepting, setAccepting] = useState(false);
   const [declining, setDeclining] = useState(false);
   const [copied, setCopied] = useState(false);
 
-  const handleSave = async () => {
-    setSaving(true);
-    setSaveMsg(null);
-    const predictions = Object.entries(scores)
-      .filter(([, v]) => v.home !== "" && v.away !== "")
-      .map(([matchId, v]) => ({ matchId, homeScore: Number(v.home), awayScore: Number(v.away) }));
-
+  const handleSaveMatch = async (matchId: string) => {
+    const score = scores[matchId];
+    if (!score || score.home === "" || score.away === "") return;
+    setSavingMatchId(matchId);
+    setMatchErrors((e) => ({ ...e, [matchId]: "" }));
     const res = await fetch(`/api/duels/${duel.id}/predict`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ predictions }),
+      body: JSON.stringify({
+        predictions: [{ matchId, homeScore: Number(score.home), awayScore: Number(score.away) }],
+      }),
     });
-    setSaving(false);
+    setSavingMatchId(null);
     if (res.ok) {
-      setSaveMsg("Palpites salvos!");
-      setTimeout(() => { setSaveMsg(null); router.refresh(); }, 1500);
+      setEditingMatchIds((prev) => { const next = new Set(prev); next.delete(matchId); return next; });
+      router.refresh();
     } else {
       const data = await res.json();
-      setSaveMsg(data.error ?? "Erro ao salvar");
+      setMatchErrors((e) => ({ ...e, [matchId]: data.error ?? "Erro ao salvar" }));
     }
+  };
+
+  const startEdit = (matchId: string, pred: { homeScore: number; awayScore: number }) => {
+    setScores((p) => ({ ...p, [matchId]: { home: String(pred.homeScore), away: String(pred.awayScore) } }));
+    setEditingMatchIds((prev) => new Set(prev).add(matchId));
+  };
+
+  const cancelEdit = (matchId: string, pred: { homeScore: number; awayScore: number }) => {
+    setScores((p) => ({ ...p, [matchId]: { home: String(pred.homeScore), away: String(pred.awayScore) } }));
+    setEditingMatchIds((prev) => { const next = new Set(prev); next.delete(matchId); return next; });
   };
 
   const handleAccept = async () => {
@@ -291,14 +302,15 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                   {/* My prediction */}
                   <div>
                     <p className="text-xs text-zinc-500 mb-1.5">Seu palpite</p>
-                    {locked || myPred ? (
-                      <div className="flex items-center gap-1">
+                    {locked ? (
+                      <div className="flex items-center gap-1.5 text-sm">
+                        <span>🔒</span>
                         {myPred ? (
                           <>
-                            <span className="text-sm font-bold text-white">{myPred.homeScore} — {myPred.awayScore}</span>
+                            <span className="font-bold text-white">{myPred.homeScore} — {myPred.awayScore}</span>
                             {myPred.result && (
-                              <span className={`text-xs ml-1 ${resultColor[myPred.result] ?? ""}`}>
-                                · {resultLabel[myPred.result] ?? ""} (+{myPred.points + myPred.bonusPoints})
+                              <span className={`text-xs ${resultColor[myPred.result] ?? ""}`}>
+                                +{myPred.points + myPred.bonusPoints}pts
                               </span>
                             )}
                           </>
@@ -306,19 +318,57 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                           <span className="text-xs text-zinc-600">Sem palpite</span>
                         )}
                       </div>
+                    ) : myPred && !editingMatchIds.has(matchId) ? (
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-green-400 text-sm">✓</span>
+                        <span className="text-sm font-bold text-white">{myPred.homeScore} — {myPred.awayScore}</span>
+                        {myPred.result && (
+                          <span className={`text-xs ${resultColor[myPred.result] ?? ""}`}>
+                            +{myPred.points + myPred.bonusPoints}pts
+                          </span>
+                        )}
+                        <button
+                          onClick={() => startEdit(matchId, myPred)}
+                          className="text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-lg px-2 py-0.5 transition-colors"
+                        >
+                          Editar
+                        </button>
+                      </div>
                     ) : (
-                      <div className="flex items-center gap-1">
-                        <ScoreInput
-                          value={localScore.home}
-                          onChange={(v) => setScores((p) => ({ ...p, [matchId]: { ...p[matchId] ?? { home: "", away: "" }, home: v } }))}
-                          disabled={false}
-                        />
-                        <span className="text-zinc-600">—</span>
-                        <ScoreInput
-                          value={localScore.away}
-                          onChange={(v) => setScores((p) => ({ ...p, [matchId]: { ...p[matchId] ?? { home: "", away: "" }, away: v } }))}
-                          disabled={false}
-                        />
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-1">
+                          <ScoreInput
+                            value={localScore.home}
+                            onChange={(v) => setScores((p) => ({ ...p, [matchId]: { ...p[matchId] ?? { home: "", away: "" }, home: v } }))}
+                            disabled={savingMatchId === matchId}
+                          />
+                          <span className="text-zinc-600">—</span>
+                          <ScoreInput
+                            value={localScore.away}
+                            onChange={(v) => setScores((p) => ({ ...p, [matchId]: { ...p[matchId] ?? { home: "", away: "" }, away: v } }))}
+                            disabled={savingMatchId === matchId}
+                          />
+                        </div>
+                        <div className="flex gap-1.5">
+                          {myPred && (
+                            <button
+                              onClick={() => cancelEdit(matchId, myPred)}
+                              className="text-xs text-zinc-400 hover:text-white border border-zinc-700 rounded-lg px-2 py-1 transition-colors"
+                            >
+                              Cancelar
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleSaveMatch(matchId)}
+                            disabled={savingMatchId === matchId || localScore.home === "" || localScore.away === ""}
+                            className="text-xs bg-green-500 hover:bg-green-400 disabled:opacity-40 text-black font-semibold rounded-lg px-3 py-1 transition-colors"
+                          >
+                            {savingMatchId === matchId ? "..." : "Salvar"}
+                          </button>
+                        </div>
+                        {matchErrors[matchId] && (
+                          <p className="text-xs text-red-400">{matchErrors[matchId]}</p>
+                        )}
                       </div>
                     )}
                   </div>
@@ -350,21 +400,6 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
         })}
       </div>
 
-      {/* Save button */}
-      {isParticipant && duel.status === "ACTIVE" && (
-        <div className="mt-6 flex items-center gap-3 justify-end">
-          {saveMsg && (
-            <span className={`text-sm ${saveMsg.includes("alvo") ? "text-green-400" : "text-red-400"}`}>{saveMsg}</span>
-          )}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-6 py-2.5 bg-green-500 hover:bg-green-400 disabled:opacity-40 text-black text-sm font-semibold rounded-lg transition-colors"
-          >
-            {saving ? "Salvando..." : "Salvar palpites"}
-          </button>
-        </div>
-      )}
     </div>
   );
 }
