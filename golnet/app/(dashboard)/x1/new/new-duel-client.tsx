@@ -26,8 +26,17 @@ export function NewDuelClient({ matches }: { matches: Match[] }) {
   const [error, setError] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Group matches by league
-  const grouped = matches.reduce<Record<string, Match[]>>((acc, m) => {
+  const allLeagues = Array.from(new Set(matches.map((m) => m.leagueName ?? "Outros")));
+  const [filterLeague, setFilterLeague] = useState<string | null>(allLeagues.length === 1 ? allLeagues[0] : null);
+
+  const leagueMatches = filterLeague ? matches.filter((m) => (m.leagueName ?? "Outros") === filterLeague) : matches;
+  const allRounds = Array.from(new Set(leagueMatches.map((m) => m.round).filter(Boolean))) as string[];
+  const [filterRound, setFilterRound] = useState<string | null>(null);
+
+  const visibleMatches = filterRound ? leagueMatches.filter((m) => m.round === filterRound) : leagueMatches;
+
+  // Group visible matches by league
+  const grouped = visibleMatches.reduce<Record<string, Match[]>>((acc, m) => {
     const key = m.leagueName ?? "Outros";
     (acc[key] ??= []).push(m);
     return acc;
@@ -106,6 +115,40 @@ export function NewDuelClient({ matches }: { matches: Match[] }) {
           <p className="text-sm text-zinc-400 mb-4">
             Selecione os jogos do duelo ({selectedIds.size} selecionado{selectedIds.size !== 1 ? "s" : ""})
           </p>
+
+          {/* League filter */}
+          {allLeagues.length > 1 && (
+            <div className="flex flex-wrap gap-2 mb-3">
+              <button
+                onClick={() => { setFilterLeague(null); setFilterRound(null); }}
+                className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${!filterLeague ? "bg-green-500/20 border-green-500/40 text-green-400" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white"}`}
+              >
+                Todas
+              </button>
+              {allLeagues.map((l) => (
+                <button key={l} onClick={() => { setFilterLeague(l); setFilterRound(null); }}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${filterLeague === l ? "bg-green-500/20 border-green-500/40 text-green-400" : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white"}`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Round filter */}
+          {allRounds.length > 1 && (
+            <div className="mb-4">
+              <select
+                value={filterRound ?? ""}
+                onChange={(e) => setFilterRound(e.target.value || null)}
+                className="w-full max-w-xs bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              >
+                <option value="">Todas as rodadas</option>
+                {allRounds.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          )}
+
           <div className="space-y-6">
             {Object.entries(grouped).map(([league, leagueMatches]) => (
               <div key={league}>

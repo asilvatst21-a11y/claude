@@ -225,7 +225,7 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
       </div>
 
       {/* Accept / Decline (for invitee) */}
-      {!isCreator && duel.status === "PENDING" && !duel.opponent && (
+      {!isCreator && duel.status === "PENDING" && (!duel.opponent || duel.opponent.id === currentUserId) && (
         <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-6">
           <p className="text-sm font-medium text-yellow-400 mb-3">Você foi desafiado para um X1!</p>
           <div className="flex gap-3">

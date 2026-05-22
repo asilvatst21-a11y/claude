@@ -103,27 +103,52 @@ export function PredictionsView({ matches, competitions, isInLeague }: Predictio
     ? matches.filter((m) => m.leagueId === selectedComp.leagueId)
     : matches;
 
-  const allRounds = Array.from(new Set(compMatches.map((m) => m.round).filter(Boolean))) as string[];
+  const allStages = Array.from(new Set(compMatches.map((m) => m.stage).filter(Boolean))) as string[];
+  const defaultStage =
+    allStages.find((s) => compMatches.some((m) => m.stage === s && (m.status === "SCHEDULED" || m.status === "LIVE"))) ??
+    allStages[0] ?? null;
+  const [selectedStage, setSelectedStage] = useState<string | null>(defaultStage);
+
+  const stageMatches = selectedStage && allStages.length > 1
+    ? compMatches.filter((m) => m.stage === selectedStage)
+    : compMatches;
+
+  const allRounds = Array.from(new Set(stageMatches.map((m) => m.round).filter(Boolean))) as string[];
 
   const defaultRound =
-    allRounds.find((r) => compMatches.some((m) => m.round === r && (m.status === "SCHEDULED" || m.status === "LIVE"))) ??
+    allRounds.find((r) => stageMatches.some((m) => m.round === r && (m.status === "SCHEDULED" || m.status === "LIVE"))) ??
     allRounds[allRounds.length - 1] ??
     null;
 
   const [selectedRound, setSelectedRound] = useState<string | null>(defaultRound);
 
-  // Reset round when competition changes
+  // Reset stage and round when competition changes
   const handleCompChange = (comp: Competition | null) => {
     setSelectedComp(comp);
     if (comp) {
       try { localStorage.setItem(COMP_STORAGE_KEY, String(comp.leagueId)); } catch { /* ignore */ }
     }
     const newMatches = comp ? matches.filter((m) => m.leagueId === comp.leagueId) : matches;
-    const newRounds = Array.from(new Set(newMatches.map((m) => m.round).filter(Boolean))) as string[];
+    const newStages = Array.from(new Set(newMatches.map((m) => m.stage).filter(Boolean))) as string[];
+    const newStage =
+      newStages.find((s) => newMatches.some((m) => m.stage === s && (m.status === "SCHEDULED" || m.status === "LIVE"))) ??
+      newStages[0] ?? null;
+    setSelectedStage(newStage);
+    const afterStage = newStage && newStages.length > 1 ? newMatches.filter((m) => m.stage === newStage) : newMatches;
+    const newRounds = Array.from(new Set(afterStage.map((m) => m.round).filter(Boolean))) as string[];
     const newDefault =
-      newRounds.find((r) => newMatches.some((m) => m.round === r && (m.status === "SCHEDULED" || m.status === "LIVE"))) ??
-      newRounds[newRounds.length - 1] ??
-      null;
+      newRounds.find((r) => afterStage.some((m) => m.round === r && (m.status === "SCHEDULED" || m.status === "LIVE"))) ??
+      newRounds[newRounds.length - 1] ?? null;
+    setSelectedRound(newDefault);
+  };
+
+  const handleStageChange = (stage: string) => {
+    setSelectedStage(stage);
+    const afterStage = stageMatches.filter((m) => m.stage === stage);
+    const newRounds = Array.from(new Set(afterStage.map((m) => m.round).filter(Boolean))) as string[];
+    const newDefault =
+      newRounds.find((r) => afterStage.some((m) => m.round === r && (m.status === "SCHEDULED" || m.status === "LIVE"))) ??
+      newRounds[newRounds.length - 1] ?? null;
     setSelectedRound(newDefault);
   };
 
@@ -141,7 +166,7 @@ export function PredictionsView({ matches, competitions, isInLeague }: Predictio
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const roundMatches = selectedRound ? compMatches.filter((m) => m.round === selectedRound) : compMatches;
+  const roundMatches = selectedRound ? stageMatches.filter((m) => m.round === selectedRound) : stageMatches;
   const currentIndex = allRounds.indexOf(selectedRound ?? "");
   const hasPrev = currentIndex > 0;
   const hasNext = currentIndex < allRounds.length - 1;
@@ -184,6 +209,25 @@ export function PredictionsView({ matches, competitions, isInLeague }: Predictio
               }`}
             >
               {c.leagueName}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Stage/phase selector (Copa do Mundo phases: Group Stage, Round of 16, etc.) */}
+      {allStages.length > 1 && (
+        <div className="flex flex-wrap gap-2 mb-4">
+          {allStages.map((s) => (
+            <button
+              key={s}
+              onClick={() => handleStageChange(s)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+                selectedStage === s
+                  ? "bg-green-500/20 border-green-500/40 text-green-400"
+                  : "bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-white"
+              }`}
+            >
+              {s}
             </button>
           ))}
         </div>
