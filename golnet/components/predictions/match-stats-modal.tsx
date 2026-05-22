@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { teamLogo } from "@/lib/utils";
 
 type Fixture = {
   fixture: { id: number; date: string };
@@ -53,7 +54,7 @@ function FixtureRow({ fixture, highlightId }: { fixture: Fixture; highlightId?: 
         {format(new Date(fixture.fixture.date), "dd/MM/yy", { locale: ptBR })}
       </span>
       <div className="flex-1 flex items-center gap-2 min-w-0">
-        <img src={fixture.teams.home.logo} alt="" className="w-5 h-5 object-contain shrink-0" />
+        <img src={teamLogo(fixture.teams.home.logo)} alt="" className="w-5 h-5 object-contain shrink-0" />
         <span className={`text-xs truncate ${highlightId === fixture.teams.home.id ? "text-white font-semibold" : "text-zinc-400"}`}>
           {fixture.teams.home.name}
         </span>
@@ -65,7 +66,7 @@ function FixtureRow({ fixture, highlightId }: { fixture: Fixture; highlightId?: 
         <span className={`text-xs truncate ${highlightId === fixture.teams.away.id ? "text-white font-semibold" : "text-zinc-400"}`}>
           {fixture.teams.away.name}
         </span>
-        <img src={fixture.teams.away.logo} alt="" className="w-5 h-5 object-contain shrink-0" />
+        <img src={teamLogo(fixture.teams.away.logo)} alt="" className="w-5 h-5 object-contain shrink-0" />
       </div>
     </div>
   );
@@ -107,11 +108,11 @@ export function MatchStatsModal({ matchId, homeTeam, awayTeam, homeTeamFlag, awa
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-zinc-800">
           <div className="flex items-center gap-3">
-            {homeTeamFlag && <img src={homeTeamFlag} alt="" className="w-7 h-7 object-contain" />}
+            {homeTeamFlag && <img src={teamLogo(homeTeamFlag)} alt="" className="w-7 h-7 object-contain" />}
             <span className="text-sm font-semibold text-white">{homeTeam}</span>
             <span className="text-zinc-500 text-xs">vs</span>
             <span className="text-sm font-semibold text-white">{awayTeam}</span>
-            {awayTeamFlag && <img src={awayTeamFlag} alt="" className="w-7 h-7 object-contain" />}
+            {awayTeamFlag && <img src={teamLogo(awayTeamFlag)} alt="" className="w-7 h-7 object-contain" />}
           </div>
           <button onClick={onClose} className="text-zinc-400 hover:text-white text-xl leading-none">×</button>
         </div>

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import type { Match, Prediction, MatchStage } from "@/types";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import { teamLogo } from "@/lib/utils";
 
 export const metadata = { title: "Chaveamento — PalpitaAí" };
 
@@ -34,7 +35,7 @@ function MatchCard({ match, prediction }: { match: MatchWithPrediction; predicti
       <div className="flex items-center gap-2 mb-2">
         <div className="flex-1 flex items-center gap-1.5">
           {match.homeTeamFlag && (
-            <img src={match.homeTeamFlag} alt="" className="w-5 h-5 object-contain shrink-0" />
+            <img src={teamLogo(match.homeTeamFlag)} alt="" className="w-5 h-5 object-contain shrink-0" />
           )}
           <span className="text-white font-medium truncate">{match.homeTeam}</span>
         </div>
@@ -52,7 +53,7 @@ function MatchCard({ match, prediction }: { match: MatchWithPrediction; predicti
         <div className="flex-1 flex items-center justify-end gap-1.5">
           <span className="text-white font-medium truncate text-right">{match.awayTeam}</span>
           {match.awayTeamFlag && (
-            <img src={match.awayTeamFlag} alt="" className="w-5 h-5 object-contain shrink-0" />
+            <img src={teamLogo(match.awayTeamFlag)} alt="" className="w-5 h-5 object-contain shrink-0" />
           )}
         </div>
       </div>

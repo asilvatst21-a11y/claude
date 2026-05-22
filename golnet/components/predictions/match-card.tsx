@@ -6,7 +6,7 @@ import { ptBR } from "date-fns/locale";
 import type { Match, Prediction } from "@/types";
 import { isPredictionLocked } from "@/lib/scoring";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
+import { cn, teamLogo } from "@/lib/utils";
 import { MatchStatsModal } from "./match-stats-modal";
 
 interface MatchCardProps {
@@ -98,7 +98,7 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
       {/* Teams */}
       <div className="flex items-center gap-3">
         <div className="flex-1 flex flex-col items-center gap-1">
-          {match.homeTeamFlag && <img src={match.homeTeamFlag} alt="" className="w-8 h-8 object-contain" />}
+          {match.homeTeamFlag && <img src={teamLogo(match.homeTeamFlag)} alt="" className="w-8 h-8 object-contain" />}
           <span className="text-sm font-medium text-white text-center">{match.homeTeam}</span>
         </div>
 
@@ -115,7 +115,7 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
         </div>
 
         <div className="flex-1 flex flex-col items-center gap-1">
-          {match.awayTeamFlag && <img src={match.awayTeamFlag} alt="" className="w-8 h-8 object-contain" />}
+          {match.awayTeamFlag && <img src={teamLogo(match.awayTeamFlag)} alt="" className="w-8 h-8 object-contain" />}
           <span className="text-sm font-medium text-white text-center">{match.awayTeam}</span>
         </div>
       </div>
