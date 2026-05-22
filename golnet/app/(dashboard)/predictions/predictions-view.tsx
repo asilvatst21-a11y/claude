@@ -31,8 +31,39 @@ interface PredictionsViewProps {
   userId: string;
 }
 
+function pickDefaultComp(competitions: Competition[], matches: Match[]): Competition | null {
+  if (competitions.length === 0) return null;
+
+  // 1. Prefer competition with a LIVE match
+  const withLive = competitions.find((c) =>
+    matches.some((m) => m.leagueId === c.leagueId && m.status === "LIVE")
+  );
+  if (withLive) return withLive;
+
+  // 2. Prefer competition with the nearest upcoming match
+  const now = Date.now();
+  let best: Competition | null = null;
+  let bestTime = Infinity;
+
+  for (const comp of competitions) {
+    const nearest = matches
+      .filter((m) => m.leagueId === comp.leagueId && m.status === "SCHEDULED")
+      .reduce((min, m) => {
+        const t = new Date(m.startsAt).getTime();
+        return t > now && t < min ? t : min;
+      }, Infinity);
+
+    if (nearest < bestTime) {
+      bestTime = nearest;
+      best = comp;
+    }
+  }
+
+  return best ?? competitions[0];
+}
+
 export function PredictionsView({ matches, competitions, isInLeague }: PredictionsViewProps) {
-  const defaultComp = competitions[0] ?? null;
+  const defaultComp = pickDefaultComp(competitions, matches);
   const [selectedComp, setSelectedComp] = useState<Competition | null>(defaultComp);
 
   const compMatches = selectedComp
