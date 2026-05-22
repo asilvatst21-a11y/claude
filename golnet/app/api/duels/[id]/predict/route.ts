@@ -43,7 +43,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
     const match = matchMap[pred.matchId];
     if (isPredictionLocked(match.startsAt)) {
-      errors.push(`Palpites encerrados para ${match.homeTeam} x ${match.awayTeam} (3 min antes do início)`);
+      errors.push(`Palpites encerrados para ${match.homeTeam} x ${match.awayTeam} (5 min antes do início)`);
     }
   }
   if (errors.length > 0) return NextResponse.json({ error: errors.join("; ") }, { status: 400 });

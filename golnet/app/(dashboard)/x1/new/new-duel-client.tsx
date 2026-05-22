@@ -264,7 +264,7 @@ export function NewDuelClient({ matches }: { matches: Match[] }) {
             <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Resumo do duelo</p>
             <p className="text-sm text-zinc-300">{selectedIds.size} jogo{selectedIds.size !== 1 ? "s" : ""} selecionado{selectedIds.size !== 1 ? "s" : ""}</p>
             <p className="text-sm text-zinc-300">Adversário: {opponent ? (opponent.name ?? `@${opponent.username}`) : "—"}</p>
-            <p className="text-xs text-zinc-500 mt-2">O convite expira em 48 horas. Palpites se fecham 3 min antes de cada jogo.</p>
+            <p className="text-xs text-zinc-500 mt-2">O convite expira em 48 horas. Palpites se fecham 5 min antes de cada jogo.</p>
           </div>
 
           {error && (
