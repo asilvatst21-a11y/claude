@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { seedAchievements } from "@/lib/achievements";
 import { CityEditor } from "./city-editor";
+import { BioEditor } from "./bio-editor";
 import { ProfileVisibilityToggle } from "./profile-visibility-toggle";
 
 export const metadata = { title: "Perfil — PalpitaAí" };
@@ -73,11 +74,7 @@ export default async function ProfilePage() {
           </div>
         </div>
 
-        {user?.bio && (
-          <p className="text-zinc-300 text-sm bg-zinc-800 rounded-lg px-4 py-3 mb-4">
-            {user.bio}
-          </p>
-        )}
+        <BioEditor currentBio={user?.bio ?? null} />
 
         <div className="grid grid-cols-2 gap-3 text-sm text-zinc-400 mb-4">
           {user?.city && user?.state && (
