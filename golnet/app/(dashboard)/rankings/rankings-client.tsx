@@ -6,6 +6,33 @@ import Link from "next/link";
 import Image from "next/image";
 import { BRAZIL_STATES, getCitiesByState } from "@/lib/cities";
 
+function ShareRankButton({ rank, points, scope }: { rank: number; points: number; scope: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleShare = async () => {
+    const medal = rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : `#${rank}`;
+    const text = `${medal} Estou na posição ${rank}º ${scope} do PalpitaAí com ${points} pontos! 🎯⚽\nVeja o ranking: https://palpitai.vercel.app/rankings`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ text });
+      } else {
+        await navigator.clipboard.writeText(text);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      }
+    } catch {}
+  };
+
+  return (
+    <button
+      onClick={handleShare}
+      className="text-xs px-3 py-1.5 rounded-lg bg-green-500/20 border border-green-500/30 text-green-400 hover:bg-green-500/30 transition-colors"
+    >
+      {copied ? "✓ Copiado!" : "📤 Compartilhar"}
+    </button>
+  );
+}
+
 type RankEntry = {
   id: string;
   rank: number;
@@ -140,7 +167,14 @@ export function RankingsClient({
           {myRank > 0 && (
             <div className="bg-green-500/10 border border-green-500/30 rounded-xl px-5 py-3 mb-6 flex items-center justify-between">
               <span className="text-green-400 font-medium">Sua posição global</span>
-              <span className="text-2xl font-bold text-white">#{myRank}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl font-bold text-white">#{myRank}</span>
+                <ShareRankButton
+                  rank={myRank}
+                  points={ranking.find((r) => r.id === currentUserId)?.totalPoints ?? 0}
+                  scope="no ranking geral"
+                />
+              </div>
             </div>
           )}
           <RankTable entries={ranking} currentUserId={currentUserId} />
@@ -212,7 +246,14 @@ export function RankingsClient({
               <span className="text-green-400 font-medium">
                 Sua posição em {userCity}/{userState}
               </span>
-              <span className="text-2xl font-bold text-white">#{myCityRank}</span>
+              <div className="flex items-center gap-3">
+                <span className="text-2xl font-bold text-white">#{myCityRank}</span>
+                <ShareRankButton
+                  rank={myCityRank}
+                  points={cityRanking.find((r) => r.id === currentUserId)?.totalPoints ?? 0}
+                  scope={`em ${userCity}/${userState}`}
+                />
+              </div>
             </div>
           )}
 

@@ -3,6 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { seedAchievements } from "@/lib/achievements";
 import { CityEditor } from "./city-editor";
 import { BioEditor } from "./bio-editor";
+import { NameEditor } from "./name-editor";
+import { PasswordEditor } from "./password-editor";
+import { AvatarUpload } from "./avatar-upload";
 import { ProfileVisibilityToggle } from "./profile-visibility-toggle";
 import { SharePredictionButton } from "@/components/share-prediction-button";
 import { teamLogo } from "@/lib/utils";
@@ -36,7 +39,7 @@ export default async function ProfilePage() {
       select: {
         name: true, username: true, email: true, image: true,
         country: true, bio: true, state: true, city: true,
-        profilePublic: true, createdAt: true,
+        profilePublic: true, createdAt: true, password: true,
         _count: { select: { predictions: true, leagueMembers: true } },
       },
     }),
@@ -80,16 +83,10 @@ export default async function ProfilePage() {
       {/* Info card */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-6 mb-6">
         <div className="flex items-center gap-4 mb-6">
-          {user?.image ? (
-            <img src={user.image} alt="" className="w-16 h-16 rounded-full" />
-          ) : (
-            <div className="w-16 h-16 rounded-full bg-zinc-700 flex items-center justify-center text-2xl font-bold text-white">
-              {user?.name?.[0] ?? "?"}
-            </div>
-          )}
+          <AvatarUpload currentImage={user?.image ?? null} name={user?.name ?? null} />
           <div>
-            <h2 className="text-xl font-bold text-white">{user?.name}</h2>
-            {user?.username && <p className="text-zinc-400 text-sm">@{user.username}</p>}
+            <NameEditor currentName={user?.name ?? null} />
+            {user?.username && <p className="text-zinc-400 text-sm mt-0.5">@{user.username}</p>}
             <p className="text-zinc-500 text-xs mt-1">{user?.email}</p>
           </div>
         </div>
@@ -108,6 +105,7 @@ export default async function ProfilePage() {
 
         <CityEditor currentState={user?.state ?? null} currentCity={user?.city ?? null} />
         <ProfileVisibilityToggle initial={user?.profilePublic ?? true} />
+        <PasswordEditor hasPassword={!!user?.password} />
       </div>
 
       {/* Stats */}
