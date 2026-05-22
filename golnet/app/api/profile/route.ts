@@ -7,6 +7,7 @@ const schema = z.object({
   state: z.string().min(1).max(2).optional(),
   city: z.string().min(1).max(100).optional(),
   bio: z.string().max(200).optional(),
+  profilePublic: z.boolean().optional(),
 });
 
 export async function PATCH(req: Request) {
@@ -24,7 +25,7 @@ export async function PATCH(req: Request) {
   const user = await prisma.user.update({
     where: { id: session.user.id },
     data: parsed.data,
-    select: { id: true, state: true, city: true, bio: true },
+    select: { id: true, state: true, city: true, bio: true, profilePublic: true },
   });
 
   return NextResponse.json(user);

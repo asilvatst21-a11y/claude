@@ -29,17 +29,31 @@ const resultLabel: Record<string, string> = {
 };
 
 export default async function PublicProfilePage({ params }: { params: { username: string } }) {
-  await auth(); // ensures logged in (dashboard layout already guards this)
-
-  const user = await prisma.user.findUnique({
-    where: { username: params.username },
-    select: {
-      id: true, name: true, username: true, image: true,
-      bio: true, city: true, state: true, plan: true, createdAt: true,
-    },
-  });
+  const [session, user] = await Promise.all([
+    auth(),
+    prisma.user.findUnique({
+      where: { username: params.username },
+      select: {
+        id: true, name: true, username: true, image: true,
+        bio: true, city: true, state: true, plan: true,
+        profilePublic: true, createdAt: true,
+      },
+    }),
+  ]);
 
   if (!user) notFound();
+
+  const isOwnProfile = session?.user?.id === user.id;
+
+  if (!user.profilePublic && !isOwnProfile) {
+    return (
+      <div className="max-w-md mx-auto mt-20 text-center">
+        <div className="text-5xl mb-4">🔒</div>
+        <h1 className="text-xl font-bold text-white mb-2">Perfil privado</h1>
+        <p className="text-zinc-400 text-sm">Este usuário optou por manter o perfil oculto.</p>
+      </div>
+    );
+  }
 
   const [predictions, achievements, leaguePoints] = await Promise.all([
     prisma.prediction.findMany({

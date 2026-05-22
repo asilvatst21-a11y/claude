@@ -64,6 +64,7 @@ model User {
   city                 String?
   bio                  String?
   locale               String    @default("pt")
+  profilePublic        Boolean   @default(true)
   plan                 UserPlan  @default(FREE)
   stripeCustomerId     String?   @unique
   stripeSubscriptionId String?   @unique

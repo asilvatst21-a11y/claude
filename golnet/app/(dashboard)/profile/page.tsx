@@ -2,6 +2,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { seedAchievements } from "@/lib/achievements";
 import { CityEditor } from "./city-editor";
+import { ProfileVisibilityToggle } from "./profile-visibility-toggle";
 
 export const metadata = { title: "Perfil — PalpitaAí" };
 
@@ -24,6 +25,7 @@ export default async function ProfilePage() {
         bio: true,
         state: true,
         city: true,
+        profilePublic: true,
         createdAt: true,
         _count: { select: { predictions: true, leagueMembers: true } },
       },
@@ -93,6 +95,7 @@ export default async function ProfilePage() {
         </div>
 
         <CityEditor currentState={user?.state ?? null} currentCity={user?.city ?? null} />
+        <ProfileVisibilityToggle initial={user?.profilePublic ?? true} />
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
