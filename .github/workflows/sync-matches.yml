@@ -2,8 +2,8 @@ name: Sync Match Results
 
 on:
   schedule:
-    - cron: "*/5 * * * *"  # every 5 minutes, 24h
-  workflow_dispatch:          # allow manual trigger from GitHub UI
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 jobs:
   sync:
@@ -11,6 +11,14 @@ jobs:
     steps:
       - name: Call sync endpoint
         run: |
-          curl -s -o /dev/null -w "%{http_code}" \
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            --max-time 30 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
-            https://palpitai.vercel.app/api/cron/sync-matches
+            https://palpitai.vercel.app/api/cron/sync-matches)
+          HTTP_CODE=$(echo "$RESPONSE" | tail -1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          echo "HTTP $HTTP_CODE | $BODY"
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Sync falhou com HTTP $HTTP_CODE — verifique CRON_SECRET no GitHub Secrets"
+            exit 1
+          fi
