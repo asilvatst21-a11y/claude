@@ -10,7 +10,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar isAdmin={isAdmin(session.user?.email)} />
-      <main className="flex-1 overflow-y-auto bg-zinc-950 p-6 pt-20 lg:pt-6">{children}</main>
+      <main className="flex-1 overflow-y-auto bg-zinc-950 p-6 pb-24 lg:pb-6">{children}</main>
     </div>
   );
 }
