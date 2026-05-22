@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
 import { teamLogo } from "@/lib/utils";
 import { isPredictionLocked } from "@/lib/scoring";
@@ -155,8 +156,18 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-6">
         <div className="flex items-center justify-between gap-4">
           <div className="flex flex-col items-center gap-2 flex-1">
-            <Avatar user={duel.creator} size={48} />
-            <p className="text-sm font-medium text-white text-center">{duel.creator.name ?? `@${duel.creator.username}`}</p>
+            {duel.creator.username ? (
+              <Link href={`/u/${duel.creator.username}`}><Avatar user={duel.creator} size={48} /></Link>
+            ) : (
+              <Avatar user={duel.creator} size={48} />
+            )}
+            <p className="text-sm font-medium text-white text-center">
+              {duel.creator.username ? (
+                <Link href={`/u/${duel.creator.username}`} className="hover:text-green-400 transition-colors">
+                  {duel.creator.name ?? `@${duel.creator.username}`}
+                </Link>
+              ) : (duel.creator.name ?? "—")}
+            </p>
             {duel.status === "FINISHED" && (
               <p className={`text-xl font-bold ${duel.winner?.id === duel.creatorId ? "text-green-400" : "text-zinc-500"}`}>{creatorPoints} pts</p>
             )}
@@ -174,8 +185,18 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
           <div className="flex flex-col items-center gap-2 flex-1">
             {duel.opponent ? (
               <>
-                <Avatar user={duel.opponent} size={48} />
-                <p className="text-sm font-medium text-white text-center">{duel.opponent.name ?? `@${duel.opponent.username}`}</p>
+                {duel.opponent.username ? (
+                  <Link href={`/u/${duel.opponent.username}`}><Avatar user={duel.opponent} size={48} /></Link>
+                ) : (
+                  <Avatar user={duel.opponent} size={48} />
+                )}
+                <p className="text-sm font-medium text-white text-center">
+                  {duel.opponent.username ? (
+                    <Link href={`/u/${duel.opponent.username}`} className="hover:text-green-400 transition-colors">
+                      {duel.opponent.name ?? `@${duel.opponent.username}`}
+                    </Link>
+                  ) : (duel.opponent.name ?? "—")}
+                </p>
                 {duel.status === "FINISHED" && (
                   <p className={`text-xl font-bold ${duel.winner?.id === duel.opponent.id ? "text-green-400" : "text-zinc-500"}`}>{opponentPoints} pts</p>
                 )}

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Image from "next/image";
 import { BRAZIL_STATES, getCitiesByState } from "@/lib/cities";
 
@@ -53,7 +54,10 @@ function RankTable({ entries, currentUserId }: { entries: RankEntry[]; currentUs
                 {entry.rank <= 3 ? ["🥇", "🥈", "🥉"][entry.rank - 1] : `#${entry.rank}`}
               </td>
               <td className="px-4 py-3">
-                <div className="flex items-center gap-3">
+                <Link
+                  href={entry.username ? `/u/${entry.username}` : "#"}
+                  className="flex items-center gap-3 group"
+                >
                   {entry.image ? (
                     <Image src={entry.image} alt="" width={32} height={32} className="rounded-full" />
                   ) : (
@@ -63,7 +67,7 @@ function RankTable({ entries, currentUserId }: { entries: RankEntry[]; currentUs
                   )}
                   <div>
                     <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-medium text-white">{entry.name}</span>
+                      <span className="text-sm font-medium text-white group-hover:text-green-400 transition-colors">{entry.name}</span>
                       {entry.plan === "PRO" && <span title="Pro">⭐</span>}
                     </div>
                     <div className="text-xs text-zinc-500">
@@ -73,7 +77,7 @@ function RankTable({ entries, currentUserId }: { entries: RankEntry[]; currentUs
                       )}
                     </div>
                   </div>
-                </div>
+                </Link>
               </td>
               <td className="px-4 py-3 text-right">
                 <span className="text-sm font-bold text-green-400">{entry.totalPoints}</span>
