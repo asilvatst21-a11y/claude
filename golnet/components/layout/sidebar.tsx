@@ -36,7 +36,7 @@ function ChevronRightIcon() {
   );
 }
 
-export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
+export function Sidebar({ isAdmin = false, pendingDuels = 0 }: { isAdmin?: boolean; pendingDuels?: number }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const links = isAdmin ? [...nav, { href: "/admin", label: "Admin", icon: "⚙️" }] : nav;
@@ -86,23 +86,38 @@ export function Sidebar({ isAdmin = false }: { isAdmin?: boolean }) {
 
       {/* Nav */}
       <nav className="flex-1 p-2 flex flex-col gap-0.5 overflow-y-auto">
-        {links.map(({ href, label, icon }) => (
-          <Link
-            key={href}
-            href={href}
-            title={collapsed ? label : undefined}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
-              collapsed ? "justify-center px-0" : "",
-              isActive(href)
-                ? "bg-green-500/10 text-green-400"
-                : "text-zinc-400 hover:text-white hover:bg-zinc-800"
-            )}
-          >
-            <span className="text-base shrink-0">{icon}</span>
-            {!collapsed && <span className="whitespace-nowrap">{label}</span>}
-          </Link>
-        ))}
+        {links.map(({ href, label, icon }) => {
+          const badge = href === "/x1" && pendingDuels > 0 ? pendingDuels : 0;
+          return (
+            <Link
+              key={href}
+              href={href}
+              title={collapsed ? label : undefined}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                collapsed ? "justify-center px-0" : "",
+                isActive(href)
+                  ? "bg-green-500/10 text-green-400"
+                  : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+              )}
+            >
+              <span className="relative text-base shrink-0">
+                {icon}
+                {badge > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full leading-none">
+                    {badge > 9 ? "9+" : badge}
+                  </span>
+                )}
+              </span>
+              {!collapsed && <span className="whitespace-nowrap">{label}</span>}
+              {!collapsed && badge > 0 && (
+                <span className="ml-auto min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-red-500 text-white text-xs font-bold rounded-full">
+                  {badge > 9 ? "9+" : badge}
+                </span>
+              )}
+            </Link>
+          );
+        })}
       </nav>
 
       {/* Footer */}

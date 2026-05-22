@@ -23,7 +23,7 @@ const moreNav = [
   { href: "/support", label: "Suporte", icon: "💬" },
 ];
 
-export function MobileNav({ isAdmin = false }: { isAdmin?: boolean }) {
+export function MobileNav({ isAdmin = false, pendingDuels = 0 }: { isAdmin?: boolean; pendingDuels?: number }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -50,22 +50,32 @@ export function MobileNav({ isAdmin = false }: { isAdmin?: boolean }) {
         <div className="fixed bottom-16 left-0 right-0 z-50 lg:hidden bg-zinc-900 border-t border-zinc-700 rounded-t-2xl p-4 pb-6">
           <div className="w-10 h-1 bg-zinc-700 rounded-full mx-auto mb-4" />
           <div className="grid grid-cols-3 gap-2">
-            {allMore.map(({ href, label, icon }) => (
-              <Link
-                key={href}
-                href={href}
-                onClick={() => setOpen(false)}
-                className={cn(
-                  "flex flex-col items-center gap-1.5 p-3 rounded-xl text-xs font-medium transition-colors",
-                  isActive(href)
-                    ? "bg-green-500/10 text-green-400"
-                    : "bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700"
-                )}
-              >
-                <span className="text-2xl leading-none">{icon}</span>
-                <span className="text-center leading-tight">{label}</span>
-              </Link>
-            ))}
+            {allMore.map(({ href, label, icon }) => {
+              const badge = href === "/x1" && pendingDuels > 0 ? pendingDuels : 0;
+              return (
+                <Link
+                  key={href}
+                  href={href}
+                  onClick={() => setOpen(false)}
+                  className={cn(
+                    "relative flex flex-col items-center gap-1.5 p-3 rounded-xl text-xs font-medium transition-colors",
+                    isActive(href)
+                      ? "bg-green-500/10 text-green-400"
+                      : "bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700"
+                  )}
+                >
+                  <span className="relative text-2xl leading-none">
+                    {icon}
+                    {badge > 0 && (
+                      <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-0.5 flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full">
+                        {badge > 9 ? "9+" : badge}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-center leading-tight">{label}</span>
+                </Link>
+              );
+            })}
           </div>
           <div className="mt-3 pt-3 border-t border-zinc-800">
             <button
@@ -101,7 +111,14 @@ export function MobileNav({ isAdmin = false }: { isAdmin?: boolean }) {
             open ? "text-green-400" : "text-zinc-500"
           )}
         >
-          <span className="text-xl leading-none">☰</span>
+          <span className="relative text-xl leading-none">
+            ☰
+            {pendingDuels > 0 && !open && (
+              <span className="absolute -top-1 -right-1 min-w-[14px] h-3.5 px-0.5 flex items-center justify-center bg-red-500 text-white text-[9px] font-bold rounded-full">
+                {pendingDuels > 9 ? "9+" : pendingDuels}
+              </span>
+            )}
+          </span>
           <span>Mais</span>
         </button>
       </div>
