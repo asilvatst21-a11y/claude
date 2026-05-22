@@ -103,8 +103,8 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
         </div>
 
         <div className="flex flex-col items-center gap-1">
-          {match.status === "FINISHED" && match.homeScore !== null ? (
-            <span className="text-2xl font-bold text-white">
+          {(match.status === "FINISHED" || match.status === "LIVE") && match.homeScore !== null ? (
+            <span className={`text-2xl font-bold ${match.status === "LIVE" ? "text-green-400" : "text-white"}`}>
               {match.homeScore} — {match.awayScore}
             </span>
           ) : (
