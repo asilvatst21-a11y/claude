@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
+import { ThemeProvider } from "next-themes";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -36,15 +37,17 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="pt-BR">
-      <body className={`${inter.className} bg-zinc-950 text-white antialiased`}>
+    <html lang="pt-BR" suppressHydrationWarning>
+      <body className={`${inter.className} bg-zinc-950 dark:bg-zinc-950 light:bg-zinc-100 text-white antialiased`}>
         {/* Inline SW registration — must be plain <script> so it appears in the initial HTML */}
         <script
           dangerouslySetInnerHTML={{
             __html: `if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});})}`,
           }}
         />
-        <SessionProvider>{children}</SessionProvider>
+        <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+          <SessionProvider>{children}</SessionProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

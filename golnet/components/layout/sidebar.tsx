@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: "🏠" },
@@ -121,7 +122,10 @@ export function Sidebar({ isAdmin = false, pendingDuels = 0 }: { isAdmin?: boole
       </nav>
 
       {/* Footer */}
-      <div className="p-2 border-t border-zinc-800 shrink-0">
+      <div className="p-2 border-t border-zinc-800 shrink-0 flex flex-col gap-0.5">
+        <div className={cn("flex items-center gap-3 px-3 py-2.5 rounded-lg", collapsed ? "justify-center px-0" : "")}>
+          <ThemeToggle collapsed={collapsed} />
+        </div>
         <button
           onClick={() => signOut({ callbackUrl: "/login" })}
           title={collapsed ? "Sair" : undefined}

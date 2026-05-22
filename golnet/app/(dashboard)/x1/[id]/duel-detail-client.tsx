@@ -6,6 +6,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { teamLogo } from "@/lib/utils";
 import { isPredictionLocked } from "@/lib/scoring";
+import { X1WinnerCard } from "@/components/x1-winner-card";
 
 type User = { id: string; name: string | null; username: string | null; image: string | null };
 type Match = {
@@ -162,6 +163,17 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
         <h1 className="text-xl font-bold text-white">Duelo X1</h1>
         <span className={`text-xs font-medium ml-auto ${s.color}`}>{s.label}</span>
       </div>
+
+      {/* Winner zoação card */}
+      {duel.status === "FINISHED" && duel.winner && duel.opponent && (
+        <X1WinnerCard
+          winnerName={duel.winner.name ?? duel.winner.username ?? "Vencedor"}
+          loserName={(duel.winner.id === duel.creatorId ? duel.opponent : duel.creator).name ?? "Perdedor"}
+          winnerPoints={duel.winner.id === duel.creatorId ? creatorPoints : opponentPoints}
+          loserPoints={duel.winner.id === duel.creatorId ? opponentPoints : creatorPoints}
+          isCurrentUserWinner={duel.winner.id === currentUserId}
+        />
+      )}
 
       {/* Players banner */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-6">
