@@ -18,7 +18,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Step 1: find only the matches in our DB that need syncing (SCHEDULED or LIVE)
+  // Step 1: find matches that need syncing:
+  // - SCHEDULED/LIVE within the 2-day SP window, OR
+  // - any LIVE match regardless of date (catches stuck matches like this one)
   const spTz = { timeZone: "America/Sao_Paulo" };
   const today = new Date().toLocaleDateString("en-CA", spTz);
   const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", spTz);
@@ -29,8 +31,12 @@ export async function GET(req: Request) {
   const dbMatches = await prisma.match.findMany({
     where: {
       externalId: { not: null },
-      status: { in: ["SCHEDULED", "LIVE"] },
-      startsAt: { gte: windowStart, lte: windowEnd },
+      OR: [
+        // Scheduled/live matches within today+yesterday window
+        { status: { in: ["SCHEDULED", "LIVE"] }, startsAt: { gte: windowStart, lte: windowEnd } },
+        // Any match still marked LIVE (stuck) — always re-check
+        { status: "LIVE" },
+      ],
     },
   });
 
