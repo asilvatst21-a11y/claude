@@ -1,8 +1,9 @@
 {
+  "id": "palpitai-bolao-copa",
   "name": "PalpitaAí — Bolão da Copa",
   "short_name": "PalpitaAí",
   "description": "Crie ligas, faça palpites e dispute com amigos no Bolão da Copa do Mundo 2026.",
-  "start_url": "/",
+  "start_url": "/?source=pwa",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",

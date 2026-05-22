@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
-import Script from "next/script";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -20,14 +19,7 @@ export const metadata: Metadata = {
     siteName: "PalpitaAí",
     type: "website",
     locale: "pt_BR",
-    images: [
-      {
-        url: "/api/og",
-        width: 1200,
-        height: 630,
-        alt: "PalpitaAí — Bolão de Palpites",
-      },
-    ],
+    images: [{ url: "/api/og", width: 1200, height: 630, alt: "PalpitaAí — Bolão de Palpites" }],
   },
   twitter: {
     card: "summary_large_image",
@@ -46,14 +38,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="pt-BR">
       <body className={`${inter.className} bg-zinc-950 text-white antialiased`}>
-        <SessionProvider>{children}</SessionProvider>
-        <Script
-          id="sw-register"
-          strategy="afterInteractive"
+        {/* Inline SW registration — must be plain <script> so it appears in the initial HTML */}
+        <script
           dangerouslySetInnerHTML={{
-            __html: `if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js')}`,
+            __html: `if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});})}`,
           }}
         />
+        <SessionProvider>{children}</SessionProvider>
       </body>
     </html>
   );

@@ -13,7 +13,8 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",  // unsafe-eval necessário para Next.js dev
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "worker-src 'self'",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: blob: https://media.api-sports.io https://lh3.googleusercontent.com https://avatars.githubusercontent.com",
@@ -32,6 +33,16 @@ const nextConfig = {
   },
   async headers() {
     return [
+      // Service worker — must be served fresh and with correct scope
+      {
+        source: "/sw.js",
+        headers: [
+          { key: "Content-Type",          value: "application/javascript; charset=utf-8" },
+          { key: "Cache-Control",         value: "no-cache, no-store, must-revalidate" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      // Security headers for all routes
       {
         source: "/(.*)",
         headers: securityHeaders,
