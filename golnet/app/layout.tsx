@@ -44,6 +44,16 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="pt-BR">
+      <head>
+        {/* Inline SW registration — visible to static analyzers like PWABuilder */}
+        <script dangerouslySetInnerHTML={{ __html: `
+          if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+              navigator.serviceWorker.register('/sw.js');
+            });
+          }
+        `}} />
+      </head>
       <body className={`${inter.className} bg-zinc-950 text-white antialiased`}>
         <SessionProvider>{children}</SessionProvider>
       </body>
