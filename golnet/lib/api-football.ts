@@ -65,6 +65,12 @@ export async function fetchFixturesByDate(date: string): Promise<ApiFixture[]> {
   return apiFetch<ApiFixture[]>(`/fixtures?date=${date}`);
 }
 
+// Fetch specific fixtures by their IDs (hyphen-separated, max 20 per call)
+export async function fetchFixturesByIds(ids: number[]): Promise<ApiFixture[]> {
+  if (ids.length === 0) return [];
+  return apiFetch<ApiFixture[]>(`/fixtures?ids=${ids.join("-")}`);
+}
+
 export function mapApiStatus(short: string): MatchStatus {
   switch (short) {
     case "NS":

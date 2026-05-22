@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { fetchFixturesByDate, mapApiStatus } from "@/lib/api-football";
+import { fetchFixturesByIds, mapApiStatus } from "@/lib/api-football";
 import { calculatePoints } from "@/lib/scoring";
 
 export const runtime = "nodejs";
@@ -18,77 +18,73 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Step 1: find only the matches in our DB that need syncing (SCHEDULED or LIVE)
   const spTz = { timeZone: "America/Sao_Paulo" };
   const today = new Date().toLocaleDateString("en-CA", spTz);
   const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", spTz);
 
-  // Fetch both dates in parallel
-  const [todayFixtures, yesterdayFixtures] = await Promise.all([
-    fetchFixturesByDate(today).catch(() => []),
-    fetchFixturesByDate(yesterday).catch(() => []),
-  ]);
+  const windowStart = new Date(`${yesterday}T00:00:00`);
+  const windowEnd   = new Date(`${today}T23:59:59`);
 
-  // Only keep yesterday's fixtures that are still LIVE or unfinished
-  const filteredYesterday = yesterdayFixtures.filter((f) => {
-    const s = f.fixture.status.short;
-    return s === "1H" || s === "HT" || s === "2H" || s === "ET" || s === "P" || s === "BT";
+  const dbMatches = await prisma.match.findMany({
+    where: {
+      externalId: { not: null },
+      status: { in: ["SCHEDULED", "LIVE"] },
+      startsAt: { gte: windowStart, lte: windowEnd },
+    },
   });
 
-  const fixtures = [...todayFixtures, ...filteredYesterday];
+  if (dbMatches.length === 0) return NextResponse.json({ synced: 0, at: new Date() });
+
+  // Step 2: call API only for those specific IDs (batches of 20)
+  const externalIds = dbMatches.map((m) => Number(m.externalId));
+  const batches: number[][] = [];
+  for (let i = 0; i < externalIds.length; i += 20) batches.push(externalIds.slice(i, i + 20));
+
+  const fixtureArrays = await Promise.all(batches.map((b) => fetchFixturesByIds(b).catch(() => [])));
+  const fixtures = fixtureArrays.flat();
+
   if (fixtures.length === 0) return NextResponse.json({ synced: 0, at: new Date() });
 
-  // Batch-fetch all relevant matches from DB in one query
-  const externalIds = fixtures.map((f) => String(f.fixture.id));
-  const dbMatches = await prisma.match.findMany({
-    where: { externalId: { in: externalIds } },
-  });
   const matchMap = Object.fromEntries(dbMatches.map((m) => [m.externalId!, m]));
 
   let synced = 0;
   const finishedMatchIds: string[] = [];
 
-  // Update all matches in parallel batches of 5
-  const chunks = [];
-  for (let i = 0; i < fixtures.length; i += 5) chunks.push(fixtures.slice(i, i + 5));
+  // Step 3: update all matches in parallel
+  await Promise.all(fixtures.map(async (fixture) => {
+    const match = matchMap[String(fixture.fixture.id)];
+    if (!match) return;
 
-  for (const chunk of chunks) {
-    await Promise.all(chunk.map(async (fixture) => {
-      const match = matchMap[String(fixture.fixture.id)];
-      if (!match) return;
+    const status = mapApiStatus(fixture.fixture.status.short);
+    const homeScore = fixture.goals.home;
+    const awayScore = fixture.goals.away;
 
-      const status = mapApiStatus(fixture.fixture.status.short);
-      const homeScore = fixture.goals.home;
-      const awayScore = fixture.goals.away;
+    await prisma.match.update({
+      where: { id: match.id },
+      data: {
+        homeScore: homeScore ?? undefined,
+        awayScore: awayScore ?? undefined,
+        status,
+        lastSyncedAt: new Date(),
+      },
+    });
 
-      await prisma.match.update({
-        where: { id: match.id },
-        data: {
-          homeScore: homeScore ?? undefined,
-          awayScore: awayScore ?? undefined,
-          status,
-          lastSyncedAt: new Date(),
-        },
-      });
+    synced++;
+    if (status === "FINISHED" && homeScore !== null && awayScore !== null) {
+      finishedMatchIds.push(match.id);
+    }
+  }));
 
-      synced++;
-
-      if (status === "FINISHED" && homeScore !== null && awayScore !== null) {
-        finishedMatchIds.push(match.id);
-      }
-    }));
-  }
-
-  // Process finished matches: calculate points for regular + duel predictions
+  // Step 4: score predictions for finished matches
   if (finishedMatchIds.length > 0) {
-    // Batch-fetch all unscored predictions for finished matches
+    const matchById = Object.fromEntries(dbMatches.map((m) => [m.id, m]));
+
     const [regularPreds, duelPreds] = await Promise.all([
       prisma.prediction.findMany({ where: { matchId: { in: finishedMatchIds }, result: null } }),
       prisma.duelPrediction.findMany({ where: { matchId: { in: finishedMatchIds }, result: null } }),
     ]);
 
-    const matchById = Object.fromEntries(dbMatches.map((m) => [m.id, m]));
-
-    // Score regular predictions
     await Promise.all(regularPreds.map(async (pred) => {
       const match = matchById[pred.matchId];
       if (!match || match.homeScore === null || match.awayScore === null) return;
@@ -97,17 +93,15 @@ export async function GET(req: Request) {
         predHome: pred.homeScore, predAway: pred.awayScore,
         realHome: match.homeScore, realAway: match.awayScore, stage: match.stage,
       });
-
-      const round = match.round ?? "Fase de Grupos";
       const total = points + bonusPoints;
-
-      await prisma.prediction.update({ where: { id: pred.id }, data: { result, points, bonusPoints } });
+      const round = match.round ?? "Fase de Grupos";
 
       const memberships = await prisma.leagueMember.findMany({
-        where: { userId: pred.userId }, select: { id: true, leagueId: true },
+        where: { userId: pred.userId }, select: { leagueId: true },
       });
 
       await Promise.all([
+        prisma.prediction.update({ where: { id: pred.id }, data: { result, points, bonusPoints } }),
         prisma.leagueMember.updateMany({ where: { userId: pred.userId }, data: { totalPoints: { increment: total } } }),
         ...memberships.map((m) =>
           prisma.roundRanking.upsert({
@@ -119,7 +113,6 @@ export async function GET(req: Request) {
       ]);
     }));
 
-    // Score duel predictions
     await Promise.all(duelPreds.map(async (dp) => {
       const match = matchById[dp.matchId];
       if (!match || match.homeScore === null || match.awayScore === null) return;
@@ -128,11 +121,10 @@ export async function GET(req: Request) {
         predHome: dp.homeScore, predAway: dp.awayScore,
         realHome: match.homeScore, realAway: match.awayScore, stage: match.stage,
       });
-
       await prisma.duelPrediction.update({ where: { id: dp.id }, data: { result, points, bonusPoints } });
     }));
 
-    // Check duels that might be fully finished
+    // Finalize completed duels
     const affectedDuels = await prisma.duel.findMany({
       where: { status: "ACTIVE", matches: { some: { matchId: { in: finishedMatchIds } } } },
       include: {
@@ -143,16 +135,14 @@ export async function GET(req: Request) {
 
     await Promise.all(affectedDuels.map(async (duel) => {
       const allDone = duel.matches.every((m) =>
-        m.match.status === "FINISHED" || m.match.status === "POSTPONED" || m.match.status === "CANCELLED"
+        ["FINISHED", "POSTPONED", "CANCELLED"].includes(m.match.status)
       );
       if (!allDone) return;
 
       const sum = (uid: string) =>
         duel.predictions.filter((p) => p.userId === uid).reduce((s, p) => s + p.points + p.bonusPoints, 0);
-
-      const creatorPts = sum(duel.creatorId);
-      const opponentPts = duel.opponentId ? sum(duel.opponentId) : 0;
-      const winnerId = creatorPts >= opponentPts ? duel.creatorId : duel.opponentId;
+      const winnerId = sum(duel.creatorId) >= (duel.opponentId ? sum(duel.opponentId) : 0)
+        ? duel.creatorId : duel.opponentId;
 
       await prisma.duel.update({ where: { id: duel.id }, data: { status: "FINISHED", winnerId } });
     }));
