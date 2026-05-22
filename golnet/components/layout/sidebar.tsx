@@ -9,6 +9,7 @@ import { cn } from "@/lib/utils";
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: "🏠" },
   { href: "/predictions", label: "Palpites", icon: "⚽" },
+  { href: "/x1", label: "X1 Duelos", icon: "⚔️" },
   { href: "/bracket", label: "Chaveamento", icon: "📋" },
   { href: "/leagues", label: "Ligas", icon: "🏆" },
   { href: "/rankings", label: "Ranking", icon: "📊" },

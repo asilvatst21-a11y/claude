@@ -77,6 +77,10 @@ model User {
   predictions     Prediction[]
   achievements    UserAchievement[]
   supportTickets  SupportTicket[]
+  duelsCreated    Duel[]           @relation("DuelCreator")
+  duelsOpposed    Duel[]           @relation("DuelOpponent")
+  duelsWon        Duel[]           @relation("DuelWinner")
+  duelPredictions DuelPrediction[]
 }
 
 // ─── League ───────────────────────────────────────────────────────────────────
@@ -169,7 +173,9 @@ model Match {
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
-  predictions Prediction[]
+  predictions     Prediction[]
+  duelMatches     DuelMatch[]
+  duelPredictions DuelPrediction[]
 }
 
 // ─── Prediction ───────────────────────────────────────────────────────────────
@@ -261,6 +267,64 @@ model PasswordResetToken {
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
+}
+
+// ─── X1 Duelo ─────────────────────────────────────────────────────────────────
+
+enum DuelStatus {
+  PENDING
+  ACTIVE
+  FINISHED
+  DECLINED
+  EXPIRED
+}
+
+model Duel {
+  id          String     @id @default(cuid())
+  creatorId   String
+  opponentId  String?
+  status      DuelStatus @default(PENDING)
+  winnerId    String?
+  inviteToken String     @unique @default(cuid())
+  expiresAt   DateTime
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  creator     User             @relation("DuelCreator", fields: [creatorId], references: [id])
+  opponent    User?            @relation("DuelOpponent", fields: [opponentId], references: [id])
+  winner      User?            @relation("DuelWinner", fields: [winnerId], references: [id])
+  matches     DuelMatch[]
+  predictions DuelPrediction[]
+}
+
+model DuelMatch {
+  id      String @id @default(cuid())
+  duelId  String
+  matchId String
+
+  duel  Duel  @relation(fields: [duelId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id])
+
+  @@unique([duelId, matchId])
+}
+
+model DuelPrediction {
+  id          String            @id @default(cuid())
+  duelId      String
+  matchId     String
+  userId      String
+  homeScore   Int
+  awayScore   Int
+  points      Int               @default(0)
+  bonusPoints Int               @default(0)
+  result      PredictionResult?
+  createdAt   DateTime          @default(now())
+
+  duel  Duel  @relation(fields: [duelId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([duelId, matchId, userId])
 }
 
 // ─── Round Ranking ────────────────────────────────────────────────────────────

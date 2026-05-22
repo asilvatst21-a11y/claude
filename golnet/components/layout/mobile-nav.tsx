@@ -14,6 +14,7 @@ const bottomNav = [
 ];
 
 const moreNav = [
+  { href: "/x1", label: "X1 Duelos", icon: "⚔️" },
   { href: "/standings", label: "Classificação", icon: "🏅" },
   { href: "/bracket", label: "Chaveamento", icon: "📋" },
   { href: "/profile", label: "Perfil", icon: "👤" },

@@ -91,6 +91,47 @@ export async function GET(req: Request) {
           });
         }
       }
+
+      // Calculate duel predictions for this match
+      const duelPreds = await prisma.duelPrediction.findMany({
+        where: { matchId: match.id, result: null },
+      });
+      for (const dp of duelPreds) {
+        const { result, points, bonusPoints } = calculatePoints({
+          predHome: dp.homeScore, predAway: dp.awayScore,
+          realHome: homeScore, realAway: awayScore, stage: match.stage,
+        });
+        await prisma.duelPrediction.update({
+          where: { id: dp.id },
+          data: { result, points, bonusPoints },
+        });
+      }
+
+      // Check if all matches in any duel are finished → determine winner
+      const affectedDuels = await prisma.duel.findMany({
+        where: { status: "ACTIVE", matches: { some: { matchId: match.id } } },
+        include: {
+          matches: { include: { match: { select: { status: true } } } },
+          predictions: true,
+        },
+      });
+
+      for (const duel of affectedDuels) {
+        const allDone = duel.matches.every((m) => m.match.status === "FINISHED" || m.match.status === "POSTPONED" || m.match.status === "CANCELLED");
+        if (!allDone) continue;
+
+        const sumPoints = (uid: string) =>
+          duel.predictions.filter((p) => p.userId === uid).reduce((s, p) => s + p.points + p.bonusPoints, 0);
+
+        const creatorPts = sumPoints(duel.creatorId);
+        const opponentPts = duel.opponentId ? sumPoints(duel.opponentId) : 0;
+        const winnerId = creatorPts >= opponentPts ? duel.creatorId : duel.opponentId;
+
+        await prisma.duel.update({
+          where: { id: duel.id },
+          data: { status: "FINISHED", winnerId },
+        });
+      }
     }
 
     synced++;
