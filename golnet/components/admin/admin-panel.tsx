@@ -102,8 +102,15 @@ const LEAGUES_BY_COUNTRY: Country[] = [
 ];
 
 type ImportResult = { imported: number; updated: number };
-type SyncResult = { synced: number; at: string };
+type SyncResult = { synced: number; at: string; durationMs?: number };
 type MatchStats = { total: number; lastSyncedAt: string | null };
+type MatchSyncResult = {
+  match: string;
+  before: { status: string; homeScore: number | null; awayScore: number | null };
+  after:  { status: string; homeScore: number | null; awayScore: number | null };
+  predsScored: boolean;
+};
+type CronLogEntry = { id: string; trigger: string; synced: number; durationMs: number; error: string | null; createdAt: string };
 
 type AdminUser = {
   id: string;
@@ -276,11 +283,145 @@ function formatSyncAge(isoString: string): string {
   return `há ${Math.floor(hours / 24)}d`;
 }
 
+function ForceResyncSection() {
+  const [externalId, setExternalId] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<MatchSyncResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handle = async () => {
+    if (!externalId.trim()) return;
+    setLoading(true);
+    setResult(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/sync/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ externalId: externalId.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? "Erro"); }
+      else { setResult(data as MatchSyncResult); }
+    } catch { setError("Erro de rede"); }
+    finally { setLoading(false); }
+  };
+
+  const statusLabel = (s: string) => ({ SCHEDULED: "Agendado", LIVE: "Ao vivo", FINISHED: "Finalizado", POSTPONED: "Adiado", CANCELLED: "Cancelado" }[s] ?? s);
+
+  return (
+    <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+      <h2 className="text-lg font-semibold text-white mb-1">Re-sync por External ID</h2>
+      <p className="text-sm text-zinc-400 mb-4">Força a atualização de uma partida específica da API. Pontua palpites se a partida mudar para FINISHED.</p>
+      <div className="flex gap-2 mb-4">
+        <input
+          type="text"
+          placeholder="Ex: 1535214"
+          value={externalId}
+          onChange={(e) => setExternalId(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && handle()}
+          className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+        />
+        <button
+          onClick={handle}
+          disabled={loading || !externalId.trim()}
+          className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-medium rounded-lg transition-colors"
+        >
+          {loading ? "Sincronizando..." : "Sincronizar"}
+        </button>
+      </div>
+      {error && <p className="text-sm text-red-400 bg-red-950/30 border border-red-800 rounded-lg px-3 py-2">{error}</p>}
+      {result && (
+        <div className="bg-zinc-800 rounded-lg p-4 text-sm">
+          <p className="font-semibold text-white mb-2">{result.match}</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-xs text-zinc-500 mb-1">Antes</p>
+              <p className="text-zinc-300">{statusLabel(result.before.status)} · {result.before.homeScore ?? "?"} — {result.before.awayScore ?? "?"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-500 mb-1">Depois</p>
+              <p className={result.after.status !== result.before.status ? "text-green-400 font-semibold" : "text-zinc-300"}>
+                {statusLabel(result.after.status)} · {result.after.homeScore ?? "?"} — {result.after.awayScore ?? "?"}
+              </p>
+            </div>
+          </div>
+          {result.predsScored && <p className="text-xs text-green-400 mt-2">✓ Palpites avaliados</p>}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LogsTab() {
+  const [logs, setLogs] = useState<CronLogEntry[] | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/admin/cron-logs");
+      setLogs(await res.json());
+    } finally { setLoading(false); }
+  };
+
+  const fmt = (iso: string) => new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <p className="text-sm text-zinc-400">Últimas 50 execuções do cron de sincronização</p>
+        <button onClick={load} disabled={loading} className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-medium rounded-lg transition-colors">
+          {loading ? "Carregando..." : logs ? "Atualizar" : "Carregar logs"}
+        </button>
+      </div>
+      {logs && (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-zinc-700">
+                <th className="text-left text-xs text-zinc-500 font-medium px-3 py-2">Horário</th>
+                <th className="text-left text-xs text-zinc-500 font-medium px-3 py-2">Trigger</th>
+                <th className="text-right text-xs text-zinc-500 font-medium px-3 py-2">Sincronizados</th>
+                <th className="text-right text-xs text-zinc-500 font-medium px-3 py-2">Duração</th>
+                <th className="text-left text-xs text-zinc-500 font-medium px-3 py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logs.map((log) => (
+                <tr key={log.id} className="border-b border-zinc-800/50">
+                  <td className="px-3 py-2.5 text-zinc-400 whitespace-nowrap">{fmt(log.createdAt)}</td>
+                  <td className="px-3 py-2.5">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${log.trigger === "manual" ? "bg-blue-500/20 text-blue-400" : "bg-zinc-700 text-zinc-400"}`}>
+                      {log.trigger}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2.5 text-right text-white font-medium">{log.synced}</td>
+                  <td className="px-3 py-2.5 text-right text-zinc-400">{log.durationMs < 1000 ? `${log.durationMs}ms` : `${(log.durationMs / 1000).toFixed(1)}s`}</td>
+                  <td className="px-3 py-2.5">
+                    {log.error
+                      ? <span className="text-xs text-red-400 truncate max-w-[200px] block" title={log.error}>✗ {log.error}</span>
+                      : <span className="text-xs text-green-400">✓ OK</span>
+                    }
+                  </td>
+                </tr>
+              ))}
+              {logs.length === 0 && (
+                <tr><td colSpan={5} className="text-center text-zinc-500 py-8">Nenhum log ainda — aguarde a próxima execução do cron.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
   const currentYear = new Date().getFullYear();
   const [season, setSeason] = useState(currentYear);
   const [activeCountry, setActiveCountry] = useState("Brasil");
-  const [activeTab, setActiveTab] = useState<"jogos" | "usuarios">("jogos");
+  const [activeTab, setActiveTab] = useState<"jogos" | "usuarios" | "logs">("jogos");
   const [importingId, setImportingId] = useState<number | null>(null);
   const [importResults, setImportResults] = useState<Record<number, ImportResult>>({});
   const [syncing, setSyncing] = useState(false);
@@ -342,6 +483,16 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
           }`}
         >
           Usuários
+        </button>
+        <button
+          onClick={() => setActiveTab("logs")}
+          className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "logs"
+              ? "border-green-500 text-green-400"
+              : "border-transparent text-zinc-400 hover:text-white"
+          }`}
+        >
+          Logs
         </button>
       </div>
 
@@ -471,7 +622,10 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
             </div>
           </section>
 
-          {/* Section 3: Stats */}
+          {/* Section 3: Force re-sync */}
+          <ForceResyncSection />
+
+          {/* Section 4: Stats */}
           <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
             <h2 className="text-lg font-semibold text-white mb-3">Banco de Dados</h2>
             <div className="bg-zinc-800 rounded-lg px-4 py-3 inline-flex items-center gap-3">
@@ -486,6 +640,13 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
         <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
           <h2 className="text-lg font-semibold text-white mb-5">Gerenciar Usuários</h2>
           <UsersTab />
+        </section>
+      )}
+
+      {activeTab === "logs" && (
+        <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-white mb-5">Log do Cron</h2>
+          <LogsTab />
         </section>
       )}
     </div>

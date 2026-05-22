@@ -13,10 +13,7 @@ function authorize(req: Request) {
   return auth === `Bearer ${BEARER}`;
 }
 
-export async function GET(req: Request) {
-  if (!authorize(req)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+async function runSync(): Promise<{ synced: number }> {
 
   // Step 1: find matches that need syncing:
   // - SCHEDULED/LIVE within the 2-day SP window, OR
@@ -27,6 +24,8 @@ export async function GET(req: Request) {
 
   const windowStart = new Date(`${yesterday}T00:00:00`);
   const windowEnd   = new Date(`${today}T23:59:59`);
+
+  let synced = 0;
 
   const dbMatches = await prisma.match.findMany({
     where: {
@@ -40,7 +39,7 @@ export async function GET(req: Request) {
     },
   });
 
-  if (dbMatches.length === 0) return NextResponse.json({ synced: 0, at: new Date() });
+  if (dbMatches.length === 0) return { synced: 0 };
 
   // Step 2: call API only for those specific IDs (batches of 20)
   const externalIds = dbMatches.map((m) => Number(m.externalId));
@@ -50,11 +49,10 @@ export async function GET(req: Request) {
   const fixtureArrays = await Promise.all(batches.map((b) => fetchFixturesByIds(b).catch(() => [])));
   const fixtures = fixtureArrays.flat();
 
-  if (fixtures.length === 0) return NextResponse.json({ synced: 0, at: new Date() });
+  if (fixtures.length === 0) return { synced: 0 };
 
   const matchMap = Object.fromEntries(dbMatches.map((m) => [m.externalId!, m]));
 
-  let synced = 0;
   const finishedMatchIds: string[] = [];
 
   // Step 3: update all matches in parallel
@@ -154,5 +152,29 @@ export async function GET(req: Request) {
     }));
   }
 
-  return NextResponse.json({ synced, at: new Date() });
+  return { synced };
+}
+
+export async function GET(req: Request) {
+  if (!authorize(req)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const start = Date.now();
+  let synced = 0;
+  let error: string | undefined;
+
+  try {
+    const result = await runSync();
+    synced = result.synced;
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+
+  const durationMs = Date.now() - start;
+
+  await prisma.cronLog.create({ data: { trigger: "auto", synced, durationMs, error } }).catch(() => {});
+
+  if (error) return NextResponse.json({ error }, { status: 500 });
+  return NextResponse.json({ synced, at: new Date(), durationMs });
 }

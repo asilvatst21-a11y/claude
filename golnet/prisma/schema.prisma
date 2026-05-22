@@ -340,3 +340,14 @@ model RoundRanking {
 
   @@unique([leagueId, userId, round])
 }
+
+// ─── Cron Log ─────────────────────────────────────────────────────────────────
+
+model CronLog {
+  id         String   @id @default(cuid())
+  trigger    String   @default("auto")
+  synced     Int
+  durationMs Int
+  error      String?
+  createdAt  DateTime @default(now())
+}
