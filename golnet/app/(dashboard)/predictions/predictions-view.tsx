@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { MatchCard } from "@/components/predictions/match-card";
 
@@ -31,8 +31,12 @@ interface PredictionsViewProps {
   userId: string;
 }
 
+const COMP_STORAGE_KEY = "predictions_last_comp_id";
+
 function pickDefaultComp(competitions: Competition[], matches: Match[]): Competition | null {
   if (competitions.length === 0) return null;
+  const now = Date.now();
+  const TWO_HOURS = 2 * 60 * 60 * 1000;
 
   // 1. Prefer competition with a LIVE match
   const withLive = competitions.find((c) =>
@@ -40,8 +44,17 @@ function pickDefaultComp(competitions: Competition[], matches: Match[]): Competi
   );
   if (withLive) return withLive;
 
-  // 2. Prefer competition with the nearest upcoming match
-  const now = Date.now();
+  // 2. Prefer competition with a match that started within the last 2h but not yet synced
+  const withOngoing = competitions.find((c) =>
+    matches.some((m) => {
+      if (m.leagueId !== c.leagueId || m.status !== "SCHEDULED") return false;
+      const t = new Date(m.startsAt).getTime();
+      return t <= now && now - t <= TWO_HOURS;
+    })
+  );
+  if (withOngoing) return withOngoing;
+
+  // 3. Prefer competition with the nearest upcoming match
   let best: Competition | null = null;
   let bestTime = Infinity;
 
@@ -59,7 +72,27 @@ function pickDefaultComp(competitions: Competition[], matches: Match[]): Competi
     }
   }
 
-  return best ?? competitions[0];
+  if (best) return best;
+
+  // 4. Prefer competition with the most recently started match (all finished)
+  let mostRecent: Competition | null = null;
+  let mostRecentTime = -Infinity;
+
+  for (const comp of competitions) {
+    const recent = matches
+      .filter((m) => m.leagueId === comp.leagueId)
+      .reduce((max, m) => {
+        const t = new Date(m.startsAt).getTime();
+        return t <= now && t > max ? t : max;
+      }, -Infinity);
+
+    if (recent > mostRecentTime) {
+      mostRecentTime = recent;
+      mostRecent = comp;
+    }
+  }
+
+  return mostRecent ?? competitions[0];
 }
 
 export function PredictionsView({ matches, competitions, isInLeague }: PredictionsViewProps) {
@@ -82,6 +115,9 @@ export function PredictionsView({ matches, competitions, isInLeague }: Predictio
   // Reset round when competition changes
   const handleCompChange = (comp: Competition | null) => {
     setSelectedComp(comp);
+    if (comp) {
+      try { localStorage.setItem(COMP_STORAGE_KEY, String(comp.leagueId)); } catch { /* ignore */ }
+    }
     const newMatches = comp ? matches.filter((m) => m.leagueId === comp.leagueId) : matches;
     const newRounds = Array.from(new Set(newMatches.map((m) => m.round).filter(Boolean))) as string[];
     const newDefault =
@@ -90,6 +126,20 @@ export function PredictionsView({ matches, competitions, isInLeague }: Predictio
       null;
     setSelectedRound(newDefault);
   };
+
+  // Restore last selected competition from localStorage after hydration
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(COMP_STORAGE_KEY);
+      if (!stored) return;
+      const id = Number(stored);
+      const comp = competitions.find((c) => c.leagueId === id);
+      if (comp && comp.leagueId !== defaultComp?.leagueId) {
+        handleCompChange(comp);
+      }
+    } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const roundMatches = selectedRound ? compMatches.filter((m) => m.round === selectedRound) : compMatches;
   const currentIndex = allRounds.indexOf(selectedRound ?? "");

@@ -103,7 +103,7 @@ const LEAGUES_BY_COUNTRY: Country[] = [
 
 type ImportResult = { imported: number; updated: number };
 type SyncResult = { synced: number; at: string };
-type MatchStats = { total: number };
+type MatchStats = { total: number; lastSyncedAt: string | null };
 
 type AdminUser = {
   id: string;
@@ -266,6 +266,16 @@ function UsersTab() {
   );
 }
 
+function formatSyncAge(isoString: string): string {
+  const diff = Date.now() - new Date(isoString).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return "agora mesmo";
+  if (mins < 60) return `há ${mins} min`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `há ${hours}h`;
+  return `há ${Math.floor(hours / 24)}d`;
+}
+
 export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
   const currentYear = new Date().getFullYear();
   const [season, setSeason] = useState(currentYear);
@@ -416,7 +426,27 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
 
           {/* Section 2: Sync */}
           <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-white mb-2">Sincronizar Resultados</h2>
+            <div className="flex items-start justify-between mb-2 gap-4">
+              <h2 className="text-lg font-semibold text-white">Sincronizar Resultados</h2>
+              {/* Last auto-sync badge */}
+              <div className="flex flex-col items-end shrink-0">
+                <span className="text-xs text-zinc-500 mb-0.5">Última sincronização automática</span>
+                {matchStats.lastSyncedAt ? (
+                  <span className={`text-sm font-semibold ${
+                    Date.now() - new Date(matchStats.lastSyncedAt).getTime() > 10 * 60_000
+                      ? "text-red-400"
+                      : "text-green-400"
+                  }`}>
+                    {formatSyncAge(matchStats.lastSyncedAt)}
+                    <span className="text-zinc-500 font-normal ml-1.5 text-xs">
+                      ({new Date(matchStats.lastSyncedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })})
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-sm text-zinc-500">Nunca sincronizado</span>
+                )}
+              </div>
+            </div>
             <p className="text-sm text-zinc-400 mb-4">
               Atualiza os placares dos jogos de hoje que já estão no banco.
             </p>
