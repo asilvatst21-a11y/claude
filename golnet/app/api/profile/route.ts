@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
 const schema = z.object({
+  name: z.string().min(1).max(50).optional(),
   state: z.string().min(1).max(2).optional(),
   city: z.string().min(1).max(100).optional(),
   bio: z.string().max(200).optional(),

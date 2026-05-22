@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { seedAchievements } from "@/lib/achievements";
 import { CityEditor } from "./city-editor";
 import { BioEditor } from "./bio-editor";
+import { NameEditor } from "./name-editor";
 import { ProfileVisibilityToggle } from "./profile-visibility-toggle";
 import { SharePredictionButton } from "@/components/share-prediction-button";
 import { teamLogo } from "@/lib/utils";
@@ -88,8 +89,8 @@ export default async function ProfilePage() {
             </div>
           )}
           <div>
-            <h2 className="text-xl font-bold text-white">{user?.name}</h2>
-            {user?.username && <p className="text-zinc-400 text-sm">@{user.username}</p>}
+            <NameEditor currentName={user?.name ?? null} />
+            {user?.username && <p className="text-zinc-400 text-sm mt-0.5">@{user.username}</p>}
             <p className="text-zinc-500 text-xs mt-1">{user?.email}</p>
           </div>
         </div>

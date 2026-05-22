@@ -5,25 +5,30 @@ import { RankingsClient } from "./rankings-client";
 export const metadata = { title: "Ranking — PalpitaAí" };
 
 async function getGlobalRanking() {
-  const members = await prisma.leagueMember.groupBy({
+  const predPoints = await prisma.prediction.groupBy({
     by: ["userId"],
-    _sum: { totalPoints: true },
-    orderBy: { _sum: { totalPoints: "desc" } },
+    _sum: { points: true, bonusPoints: true },
+    _count: { id: true },
+    orderBy: [{ _sum: { points: "desc" } }, { _sum: { bonusPoints: "desc" } }],
     take: 50,
   });
 
-  const userIds = members.map((m) => m.userId);
+  const userIds = predPoints.map((p) => p.userId);
+  if (userIds.length === 0) return [];
+
   const users = await prisma.user.findMany({
     where: { id: { in: userIds } },
     select: { id: true, name: true, username: true, image: true, plan: true, city: true, state: true },
   });
   const usersMap = Object.fromEntries(users.map((u) => [u.id, u]));
 
-  return members.map((m, i) => ({
-    rank: i + 1,
-    totalPoints: m._sum.totalPoints ?? 0,
-    ...usersMap[m.userId],
-  }));
+  return predPoints
+    .filter((p) => usersMap[p.userId])
+    .map((p, i) => ({
+      rank: i + 1,
+      totalPoints: (p._sum.points ?? 0) + (p._sum.bonusPoints ?? 0),
+      ...usersMap[p.userId],
+    }));
 }
 
 async function getCityRanking(city: string, state: string) {
