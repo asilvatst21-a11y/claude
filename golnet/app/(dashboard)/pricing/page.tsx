@@ -157,22 +157,32 @@ export default async function PricingPage() {
               </div>
 
               {/* CTA */}
-              <div className="px-6 pb-6">
+              <div className="px-6 pb-6 flex flex-col gap-2">
                 {isCurrent ? (
                   <div className="w-full text-center py-2.5 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-sm font-semibold">
                     ✓ Seu plano atual
                   </div>
                 ) : plan.ctaHref ? (
-                  <Link
-                    href={plan.ctaHref}
-                    className={`w-full block text-center py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                      plan.key === "PRO"
-                        ? "bg-green-600 hover:bg-green-500 text-white"
-                        : "bg-purple-600 hover:bg-purple-500 text-white"
-                    }`}
-                  >
-                    {plan.cta}
-                  </Link>
+                  <>
+                    {/* PIX — primary */}
+                    <Link
+                      href={`/api/mercadopago/checkout?plan=${plan.key.toLowerCase()}`}
+                      className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+                        plan.key === "PRO"
+                          ? "bg-green-600 hover:bg-green-500 text-white"
+                          : "bg-purple-600 hover:bg-purple-500 text-white"
+                      }`}
+                    >
+                      🏦 Pagar com PIX
+                    </Link>
+                    {/* Cartão — secondary */}
+                    <Link
+                      href={plan.ctaHref}
+                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 transition-colors"
+                    >
+                      💳 Pagar com cartão
+                    </Link>
+                  </>
                 ) : (
                   <div className="w-full text-center py-2.5 rounded-xl bg-zinc-800 text-zinc-400 text-sm font-semibold">
                     {plan.cta}
@@ -191,7 +201,7 @@ export default async function PricingPage() {
           <Link href="/support" className="text-green-400 hover:text-green-300 underline">
             Fale com nosso suporte
           </Link>
-          . Pagamentos processados com segurança via Stripe.
+          . Pagamentos via PIX processados pelo MercadoPago. Plano ativado em até 30 segundos após confirmação.
         </p>
       </div>
     </div>
