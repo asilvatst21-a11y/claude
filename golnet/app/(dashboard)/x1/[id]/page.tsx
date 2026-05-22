@@ -53,7 +53,7 @@ export default async function DuelPage({ params }: { params: { id: string } }) {
     <DuelDetailClient
       duel={{ ...duel, predictions } as never}
       currentUserId={userId}
-      inviteUrl={`${process.env.NEXTAUTH_URL ?? ""}/x1/${duel.id}`}
+      inviteUrl={`${process.env.NEXTAUTH_URL ?? ""}/x1/invite/${duel.inviteToken}`}
     />
   );
 }
