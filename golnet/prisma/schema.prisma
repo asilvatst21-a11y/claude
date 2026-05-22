@@ -78,10 +78,24 @@ model User {
   predictions     Prediction[]
   achievements    UserAchievement[]
   supportTickets  SupportTicket[]
-  duelsCreated    Duel[]           @relation("DuelCreator")
-  duelsOpposed    Duel[]           @relation("DuelOpponent")
-  duelsWon        Duel[]           @relation("DuelWinner")
-  duelPredictions DuelPrediction[]
+  duelsCreated      Duel[]             @relation("DuelCreator")
+  duelsOpposed      Duel[]             @relation("DuelOpponent")
+  duelsWon          Duel[]             @relation("DuelWinner")
+  duelPredictions   DuelPrediction[]
+  pushSubscriptions PushSubscription[]
+}
+
+// ─── Push Subscriptions ───────────────────────────────────────────────────────
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 // ─── League ───────────────────────────────────────────────────────────────────
