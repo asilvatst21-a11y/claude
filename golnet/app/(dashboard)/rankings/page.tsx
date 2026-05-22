@@ -1,12 +1,10 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import Image from "next/image";
+import { RankingsClient } from "./rankings-client";
 
 export const metadata = { title: "Ranking — PalpitaAí" };
 
-export default async function RankingsPage() {
-  const session = await auth();
-
+async function getGlobalRanking() {
   const members = await prisma.leagueMember.groupBy({
     by: ["userId"],
     _sum: { totalPoints: true },
@@ -17,82 +15,95 @@ export default async function RankingsPage() {
   const userIds = members.map((m) => m.userId);
   const users = await prisma.user.findMany({
     where: { id: { in: userIds } },
-    select: { id: true, name: true, username: true, image: true, plan: true },
+    select: { id: true, name: true, username: true, image: true, plan: true, city: true, state: true },
   });
   const usersMap = Object.fromEntries(users.map((u) => [u.id, u]));
 
-  const ranking = members.map((m, i) => ({
+  return members.map((m, i) => ({
     rank: i + 1,
     totalPoints: m._sum.totalPoints ?? 0,
     ...usersMap[m.userId],
   }));
+}
 
-  const myRank = ranking.findIndex((r) => r.id === session?.user?.id) + 1;
+async function getCityRanking(city: string, state: string) {
+  const cityUsers = await prisma.user.findMany({
+    where: { city, state },
+    select: { id: true, name: true, username: true, image: true, plan: true, city: true, state: true },
+  });
+
+  if (cityUsers.length === 0) return [];
+
+  const userIds = cityUsers.map((u) => u.id);
+  const members = await prisma.leagueMember.groupBy({
+    by: ["userId"],
+    where: { userId: { in: userIds } },
+    _sum: { totalPoints: true },
+    orderBy: { _sum: { totalPoints: "desc" } },
+  });
+
+  const usersMap = Object.fromEntries(cityUsers.map((u) => [u.id, u]));
+
+  return members.map((m, i) => ({
+    rank: i + 1,
+    totalPoints: m._sum.totalPoints ?? 0,
+    ...usersMap[m.userId],
+  }));
+}
+
+async function getCityStats() {
+  const usersWithCity = await prisma.user.findMany({
+    where: { city: { not: null }, state: { not: null } },
+    select: { city: true, state: true },
+  });
+
+  const map: Record<string, { city: string; state: string; count: number }> = {};
+  for (const u of usersWithCity) {
+    const key = `${u.state}-${u.city}`;
+    if (!map[key]) map[key] = { city: u.city!, state: u.state!, count: 0 };
+    map[key].count++;
+  }
+
+  return Object.values(map).sort((a, b) => b.count - a.count);
+}
+
+export default async function RankingsPage({
+  searchParams,
+}: {
+  searchParams: { city?: string; state?: string };
+}) {
+  const session = await auth();
+  const userId = session?.user?.id ?? "";
+
+  const currentUser = await prisma.user.findUnique({
+    where: { id: userId || "none" },
+    select: { city: true, state: true },
+  });
+
+  const selectedCity = searchParams.city ?? currentUser?.city ?? "";
+  const selectedState = searchParams.state ?? currentUser?.state ?? "";
+
+  const [ranking, cityRanking, cityStats] = await Promise.all([
+    getGlobalRanking(),
+    selectedCity && selectedState ? getCityRanking(selectedCity, selectedState) : Promise.resolve([]),
+    getCityStats(),
+  ]);
+
+  const myRank = ranking.findIndex((r) => r.id === userId) + 1;
+  const myCityRank = cityRanking.findIndex((r) => r.id === userId) + 1;
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-white mb-2">Ranking Geral</h1>
-      <p className="text-zinc-400 mb-6">Top 50 jogadores</p>
-
-      {myRank > 0 && (
-        <div className="bg-green-500/10 border border-green-500/30 rounded-xl px-5 py-3 mb-6 flex items-center justify-between">
-          <span className="text-green-400 font-medium">Sua posição</span>
-          <span className="text-2xl font-bold text-white">#{myRank}</span>
-        </div>
-      )}
-
-      <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-zinc-800">
-              <th className="text-left text-xs text-zinc-500 font-medium px-4 py-3 w-12">#</th>
-              <th className="text-left text-xs text-zinc-500 font-medium px-4 py-3">Jogador</th>
-              <th className="text-right text-xs text-zinc-500 font-medium px-4 py-3">Pontos</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ranking.map((entry) => (
-              <tr
-                key={entry.id}
-                className={`border-b border-zinc-800/50 ${entry.id === session?.user?.id ? "bg-green-500/5" : ""}`}
-              >
-                <td className="px-4 py-3 text-sm font-bold text-zinc-400 w-12">
-                  {entry.rank <= 3 ? ["🥇", "🥈", "🥉"][entry.rank - 1] : `#${entry.rank}`}
-                </td>
-                <td className="px-4 py-3">
-                  <div className="flex items-center gap-3">
-                    {entry.image ? (
-                      <Image src={entry.image} alt="" width={32} height={32} className="rounded-full" />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-sm font-bold">
-                        {entry.name?.[0] ?? "?"}
-                      </div>
-                    )}
-                    <div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium text-white">{entry.name}</span>
-                        {entry.plan === "PRO" && <span title="Pro">⭐</span>}
-                        {entry.plan === "ENTERPRISE" && <span title="Empresarial">🏢</span>}
-                      </div>
-                      {entry.username && <div className="text-xs text-zinc-500">@{entry.username}</div>}
-                    </div>
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <span className="text-sm font-bold text-green-400">{entry.totalPoints}</span>
-                </td>
-              </tr>
-            ))}
-            {ranking.length === 0 && (
-              <tr>
-                <td colSpan={3} className="text-center text-zinc-500 py-10 text-sm">
-                  Nenhum palpite registrado ainda.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
+    <RankingsClient
+      ranking={ranking}
+      cityRanking={cityRanking}
+      cityStats={cityStats}
+      currentUserId={userId}
+      myRank={myRank}
+      myCityRank={myCityRank}
+      selectedCity={selectedCity}
+      selectedState={selectedState}
+      userCity={currentUser?.city ?? null}
+      userState={currentUser?.state ?? null}
+    />
   );
 }

@@ -60,6 +60,8 @@ model User {
   image                String?
   password             String?
   country              String?
+  state                String?
+  city                 String?
   bio                  String?
   locale               String    @default("pt")
   plan                 UserPlan  @default(FREE)

@@ -1,6 +1,7 @@
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { seedAchievements } from "@/lib/achievements";
+import { CityEditor } from "./city-editor";
 
 export const metadata = { title: "Perfil — PalpitaAí" };
 
@@ -21,6 +22,8 @@ export default async function ProfilePage() {
         image: true,
         country: true,
         bio: true,
+        state: true,
+        city: true,
         createdAt: true,
         _count: { select: { predictions: true, leagueMembers: true } },
       },
@@ -74,11 +77,11 @@ export default async function ProfilePage() {
           </p>
         )}
 
-        <div className="grid grid-cols-2 gap-3 text-sm text-zinc-400">
-          {user?.country && (
+        <div className="grid grid-cols-2 gap-3 text-sm text-zinc-400 mb-4">
+          {user?.city && user?.state && (
             <div>
-              <span className="text-zinc-500">País: </span>
-              {user.country}
+              <span className="text-zinc-500">Cidade: </span>
+              {user.city} / {user.state}
             </div>
           )}
           <div>
@@ -88,6 +91,8 @@ export default async function ProfilePage() {
               : "-"}
           </div>
         </div>
+
+        <CityEditor currentState={user?.state ?? null} currentCity={user?.city ?? null} />
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">

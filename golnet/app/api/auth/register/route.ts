@@ -8,6 +8,8 @@ const schema = z.object({
   username: z.string().min(3).max(20).regex(/^[a-zA-Z0-9_]+$/),
   email: z.string().email(),
   password: z.string().min(8),
+  state: z.string().min(1),
+  city: z.string().min(1),
 });
 
 export async function POST(req: Request) {
@@ -18,7 +20,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   }
 
-  const { name, username, email, password } = parsed.data;
+  const { name, username, email, password, state, city } = parsed.data;
 
   const existing = await prisma.user.findFirst({
     where: { OR: [{ email }, { username }] },
@@ -32,7 +34,7 @@ export async function POST(req: Request) {
   const hashed = await bcrypt.hash(password, 12);
 
   const user = await prisma.user.create({
-    data: { name, username, email, password: hashed },
+    data: { name, username, email, password: hashed, state, city },
     select: { id: true, email: true, name: true },
   });
 
