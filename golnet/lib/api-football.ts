@@ -26,7 +26,7 @@ type ApiLeagueResult = {
 async function apiFetch<T>(path: string): Promise<T> {
   const res = await fetch(`${BASE_URL}${path}`, {
     headers: { "x-rapidapi-key": API_KEY, "x-apisports-key": API_KEY },
-    next: { revalidate: 120 },
+    cache: "no-store",
   });
   if (!res.ok) throw new Error(`API-Football error: ${res.status}`);
   const json = await res.json();
