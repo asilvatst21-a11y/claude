@@ -12,7 +12,7 @@ workflows:
         distribution_type: app_store
         bundle_identifier: br.com.palpitai.app
       vars:
-        XCODE_PROJECT: "ios/PalpitaAí.xcodeproj"
+        XCODE_PROJECT: "ios/src/PalpitaAí.xcodeproj"
         XCODE_SCHEME: "PalpitaAí"
 
     scripts:
