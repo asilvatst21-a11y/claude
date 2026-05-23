@@ -4,7 +4,20 @@ import Link from "next/link";
 
 export const metadata = { title: "Planos — PalpitaAí" };
 
-const plans = [
+const plans: {
+  key: string;
+  name: string;
+  price: string;
+  period: string;
+  description: string;
+  borderColor: string;
+  headerBg: string;
+  badge: string | null;
+  badgeColor?: string;
+  btnColor?: string;
+  features: { label: string; ok: boolean }[];
+  planKey: string;
+}[] = [
   {
     key: "FREE",
     name: "Free",
@@ -24,8 +37,6 @@ const plans = [
       { label: "Todas as conquistas", ok: false },
       { label: "Badge exclusivo", ok: false },
     ],
-    cta: "Plano atual",
-    ctaHref: null,
     planKey: "FREE",
   },
   {
@@ -38,6 +49,7 @@ const plans = [
     headerBg: "bg-green-500/10",
     badge: "Mais popular",
     badgeColor: "bg-green-500",
+    btnColor: "bg-green-600 hover:bg-green-500",
     features: [
       { label: "Ligas ilimitadas", ok: true },
       { label: "Criação ilimitada de ligas", ok: true },
@@ -48,8 +60,6 @@ const plans = [
       { label: "Badge Pro ⭐", ok: true },
       { label: "Sem anúncios", ok: true },
     ],
-    cta: "Assinar Pro",
-    ctaHref: "/api/stripe/checkout?plan=pro",
     planKey: "PRO",
   },
   {
@@ -62,6 +72,7 @@ const plans = [
     headerBg: "bg-purple-500/10",
     badge: "Empresas",
     badgeColor: "bg-purple-500",
+    btnColor: "bg-purple-600 hover:bg-purple-500",
     features: [
       { label: "Tudo do plano Pro", ok: true },
       { label: "Até 500 membros por liga", ok: true },
@@ -70,13 +81,15 @@ const plans = [
       { label: "Suporte prioritário", ok: true },
       { label: "Painel de administração", ok: true },
     ],
-    cta: "Assinar Empresarial",
-    ctaHref: "/api/stripe/checkout?plan=enterprise",
     planKey: "ENTERPRISE",
   },
 ];
 
-export default async function PricingPage() {
+export default async function PricingPage({
+  searchParams,
+}: {
+  searchParams: { success?: string; pending?: string; cancelled?: string };
+}) {
   const session = await auth();
   let userPlan = "FREE";
 
@@ -90,6 +103,32 @@ export default async function PricingPage() {
 
   return (
     <div className="max-w-5xl mx-auto">
+      {/* Feedback banners */}
+      {searchParams.success && (
+        <div className="mb-6 flex items-center gap-3 px-5 py-4 bg-green-500/10 border border-green-500/30 rounded-xl">
+          <span className="text-2xl">✅</span>
+          <div>
+            <p className="text-green-400 font-semibold">Pagamento confirmado!</p>
+            <p className="text-zinc-400 text-sm">Seu plano foi ativado por 30 dias. Bem-vindo!</p>
+          </div>
+        </div>
+      )}
+      {searchParams.pending && (
+        <div className="mb-6 flex items-center gap-3 px-5 py-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+          <span className="text-2xl">⏳</span>
+          <div>
+            <p className="text-yellow-400 font-semibold">Pagamento em processamento</p>
+            <p className="text-zinc-400 text-sm">Assim que confirmado seu plano será ativado automaticamente.</p>
+          </div>
+        </div>
+      )}
+      {searchParams.cancelled && (
+        <div className="mb-6 flex items-center gap-3 px-5 py-4 bg-zinc-800 border border-zinc-700 rounded-xl">
+          <span className="text-2xl">↩️</span>
+          <p className="text-zinc-400 text-sm">Pagamento cancelado. Você pode tentar novamente quando quiser.</p>
+        </div>
+      )}
+
       <div className="text-center mb-10">
         <h1 className="text-3xl font-bold text-white mb-3">Escolha seu plano</h1>
         <p className="text-zinc-400 text-lg">
@@ -115,18 +154,14 @@ export default async function PricingPage() {
                 isCurrent ? "ring-2 ring-offset-2 ring-offset-zinc-950 ring-green-500/50" : ""
               }`}
             >
-              {/* Badge */}
               {plan.badge && (
                 <div className="absolute top-4 right-4">
-                  <span
-                    className={`${plan.badgeColor} text-white text-xs font-semibold px-2.5 py-1 rounded-full`}
-                  >
+                  <span className={`${plan.badgeColor} text-white text-xs font-semibold px-2.5 py-1 rounded-full`}>
                     {plan.badge}
                   </span>
                 </div>
               )}
 
-              {/* Header */}
               <div className={`${plan.headerBg} px-6 py-6 border-b border-zinc-800`}>
                 <h2 className="text-xl font-bold text-white mb-1">{plan.name}</h2>
                 <p className="text-zinc-400 text-sm mb-4">{plan.description}</p>
@@ -136,19 +171,12 @@ export default async function PricingPage() {
                 </div>
               </div>
 
-              {/* Features */}
               <div className="flex-1 px-6 py-6">
                 <ul className="space-y-3">
                   {plan.features.map((feature) => (
                     <li key={feature.label} className="flex items-start gap-3">
-                      <span className="mt-0.5 text-base">
-                        {feature.ok ? "✅" : "❌"}
-                      </span>
-                      <span
-                        className={`text-sm ${
-                          feature.ok ? "text-zinc-200" : "text-zinc-500"
-                        }`}
-                      >
+                      <span className="mt-0.5 text-base">{feature.ok ? "✅" : "❌"}</span>
+                      <span className={`text-sm ${feature.ok ? "text-zinc-200" : "text-zinc-500"}`}>
                         {feature.label}
                       </span>
                     </li>
@@ -156,36 +184,21 @@ export default async function PricingPage() {
                 </ul>
               </div>
 
-              {/* CTA */}
-              <div className="px-6 pb-6 flex flex-col gap-2">
+              <div className="px-6 pb-6">
                 {isCurrent ? (
                   <div className="w-full text-center py-2.5 rounded-xl bg-green-500/10 border border-green-500/30 text-green-400 text-sm font-semibold">
                     ✓ Seu plano atual
                   </div>
-                ) : plan.ctaHref ? (
-                  <>
-                    {/* PIX — primary */}
-                    <Link
-                      href={`/api/mercadopago/checkout?plan=${plan.key.toLowerCase()}`}
-                      className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
-                        plan.key === "PRO"
-                          ? "bg-green-600 hover:bg-green-500 text-white"
-                          : "bg-purple-600 hover:bg-purple-500 text-white"
-                      }`}
-                    >
-                      🏦 Pagar com PIX
-                    </Link>
-                    {/* Cartão — secondary */}
-                    <Link
-                      href={plan.ctaHref}
-                      className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 transition-colors"
-                    >
-                      💳 Pagar com cartão
-                    </Link>
-                  </>
+                ) : plan.planKey !== "FREE" ? (
+                  <Link
+                    href={`/api/mercadopago/checkout?plan=${plan.key.toLowerCase()}`}
+                    className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-colors ${plan.btnColor}`}
+                  >
+                    Assinar {plan.name}
+                  </Link>
                 ) : (
                   <div className="w-full text-center py-2.5 rounded-xl bg-zinc-800 text-zinc-400 text-sm font-semibold">
-                    {plan.cta}
+                    Plano gratuito
                   </div>
                 )}
               </div>
@@ -194,14 +207,21 @@ export default async function PricingPage() {
         })}
       </div>
 
-      {/* FAQ / Note */}
-      <div className="mt-10 bg-zinc-900 border border-zinc-800 rounded-xl p-6 text-center">
+      <div className="mt-6 flex items-center justify-center gap-3 text-zinc-500 text-xs">
+        <span>🔒 Pagamento seguro</span>
+        <span>·</span>
+        <span>💳 Cartão, PIX ou boleto</span>
+        <span>·</span>
+        <span>⚡ Ativação imediata</span>
+      </div>
+
+      <div className="mt-4 bg-zinc-900 border border-zinc-800 rounded-xl p-5 text-center">
         <p className="text-zinc-400 text-sm">
-          Tem dúvidas sobre os planos?{" "}
+          Tem dúvidas?{" "}
           <Link href="/support" className="text-green-400 hover:text-green-300 underline">
-            Fale com nosso suporte
+            Fale com o suporte
           </Link>
-          . Pagamentos via PIX processados pelo MercadoPago. Plano ativado em até 30 segundos após confirmação.
+          . Pagamentos processados pelo MercadoPago — cartão de crédito, PIX ou boleto.
         </p>
       </div>
     </div>

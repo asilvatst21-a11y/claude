@@ -30,55 +30,38 @@ export async function GET(req: Request) {
   });
 
   const { amount, label, planKey } = PLANS[plan];
-  const expiresAt = new Date(Date.now() + 30 * 60 * 1000); // 30 min
-
   const appUrl = process.env.NEXTAUTH_URL ?? "https://palpitai.vercel.app";
 
-  const body = {
-    transaction_amount: amount,
-    payment_method_id: "pix",
-    description: label,
-    payer: {
-      email: user?.email ?? "payer@palpitai.com",
-      first_name: user?.name?.split(" ")[0] ?? "Usuário",
-      last_name: user?.name?.split(" ").slice(1).join(" ") || "PalpitaAí",
-    },
+  // Checkout Pro — cria uma preferência, MP cuida de cartão/PIX/boleto
+  const preference = {
+    items: [{ title: label, quantity: 1, unit_price: amount, currency_id: "BRL" }],
+    payer: { email: user?.email ?? "" },
     external_reference: `${session.user.id}:${planKey}`,
-    date_of_expiration: expiresAt.toISOString(),
+    back_urls: {
+      success: `${appUrl}/pricing?success=1`,
+      failure: `${appUrl}/pricing?cancelled=1`,
+      pending: `${appUrl}/pricing?pending=1`,
+    },
+    auto_return: "approved",
     notification_url: `${appUrl}/api/mercadopago/webhook`,
+    payment_methods: { installments: 1 },
+    statement_descriptor: "PalpitaAi",
   };
 
-  const response = await fetch("https://api.mercadopago.com/v1/payments", {
+  const res = await fetch("https://api.mercadopago.com/checkout/preferences", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
-      "X-Idempotency-Key": `${session.user.id}-${planKey}-${Date.now()}`,
     },
-    body: JSON.stringify(body),
+    body: JSON.stringify(preference),
   });
 
-  if (!response.ok) {
-    const err = await response.text();
-    console.error("MercadoPago error:", err);
-    return NextResponse.json({ error: "Erro ao gerar PIX" }, { status: 500 });
+  if (!res.ok) {
+    console.error("MP preference error:", await res.text());
+    return NextResponse.json({ error: "Erro ao criar preferência de pagamento" }, { status: 500 });
   }
 
-  const payment = await response.json();
-  const txData = payment.point_of_interaction?.transaction_data;
-
-  await prisma.mercadoPagoPayment.create({
-    data: {
-      userId: session.user.id,
-      mpPaymentId: String(payment.id),
-      plan: planKey,
-      amount,
-      status: payment.status ?? "pending",
-      qrCode: txData?.qr_code ?? null,
-      qrCodeBase64: txData?.qr_code_base64 ?? null,
-      expiresAt,
-    },
-  });
-
-  return NextResponse.redirect(new URL(`/pix/${payment.id}`, appUrl));
+  const data = await res.json();
+  return NextResponse.redirect(data.init_point);
 }
