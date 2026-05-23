@@ -1,0 +1,36 @@
+workflows:
+  ios-palpitai:
+    name: PalpitaAí iOS — App Store
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+
+    integrations:
+      app_store_connect: codemagic_api_key
+
+    environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: br.com.palpitai.app
+      vars:
+        XCODE_PROJECT: "ios/PalpitaAí.xcodeproj"
+        XCODE_SCHEME: "PalpitaAí"
+
+    scripts:
+      - name: Set up code signing
+        script: xcode-project use-profiles
+
+      - name: Build IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
+        submit_to_app_store: false
