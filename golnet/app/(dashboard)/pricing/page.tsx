@@ -43,7 +43,7 @@ const plans: {
     key: "PRO",
     name: "Pro",
     price: "R$ 5,99",
-    period: "/mês",
+    period: "/ano",
     description: "Para quem leva o bolão a sério",
     borderColor: "border-green-500",
     headerBg: "bg-green-500/10",
@@ -109,7 +109,7 @@ export default async function PricingPage({
           <span className="text-2xl">✅</span>
           <div>
             <p className="text-green-400 font-semibold">Pagamento confirmado!</p>
-            <p className="text-zinc-400 text-sm">Seu plano foi ativado por 30 dias. Bem-vindo!</p>
+            <p className="text-zinc-400 text-sm">Seu plano foi ativado por 1 ano. Bem-vindo!</p>
           </div>
         </div>
       )}
@@ -221,7 +221,7 @@ export default async function PricingPage({
           <Link href="/support" className="text-green-400 hover:text-green-300 underline">
             Fale com o suporte
           </Link>
-          . Pagamentos processados pelo MercadoPago — cartão de crédito, PIX ou boleto.
+          . Pagamentos processados pelo MercadoPago — cartão de crédito, PIX ou boleto. Plano ativado por 1 ano após confirmação.
         </p>
       </div>
     </div>

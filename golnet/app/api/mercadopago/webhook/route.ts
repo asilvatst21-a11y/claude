@@ -47,7 +47,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  const thirtyDays = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+  const oneYear = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
 
   await prisma.$transaction([
     prisma.mercadoPagoPayment.upsert({
@@ -63,7 +63,7 @@ export async function POST(req: Request) {
     }),
     prisma.user.update({
       where: { id: userId },
-      data: { plan: planKey as "PRO" | "ENTERPRISE", planExpiresAt: thirtyDays },
+      data: { plan: planKey as "PRO" | "ENTERPRISE", planExpiresAt: oneYear },
     }),
   ]);
 

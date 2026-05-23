@@ -3,8 +3,8 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
 const PLANS: Record<string, { amount: number; label: string; planKey: "PRO" | "ENTERPRISE" }> = {
-  pro:        { amount: 5.99,  label: "PalpitaAí Pro — 30 dias",         planKey: "PRO" },
-  enterprise: { amount: 49.99, label: "PalpitaAí Empresarial — 30 dias", planKey: "ENTERPRISE" },
+  pro:        { amount: 5.99,  label: "PalpitaAí Pro — 1 ano",         planKey: "PRO" },
+  enterprise: { amount: 49.99, label: "PalpitaAí Empresarial — 1 ano", planKey: "ENTERPRISE" },
 };
 
 export async function GET(req: Request) {
