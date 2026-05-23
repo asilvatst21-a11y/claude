@@ -275,9 +275,9 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
           const myPred = duel.predictions.find((p) => p.matchId === matchId && p.userId === currentUserId);
           const oppId = isCreator ? duel.opponent?.id : duel.creatorId;
           const oppPred = oppId ? duel.predictions.find((p) => p.matchId === matchId && p.userId === oppId) : null;
-          const bothSubmitted = !!(myPred && oppPred);
           const isFinished = match.status === "FINISHED" || match.status === "POSTPONED";
-          const showOpp = bothSubmitted || isFinished;
+          // Só revela palpite do adversário após o travamento (5min antes) ou fim do jogo
+          const showOpp = locked || isFinished;
 
           const localScore = scores[matchId] ?? { home: "", away: "" };
 
@@ -390,7 +390,7 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                     <p className="text-xs text-zinc-500 mb-1.5">
                       {duel.opponent ? (duel.opponent.name ?? `@${duel.opponent.username}`) : duel.creator.name ?? `@${duel.creator.username}`}
                     </p>
-                    {showOpp && oppPred && oppPred.homeScore >= 0 ? (
+                    {showOpp && oppPred ? (
                       <div className="flex items-center gap-1">
                         <span className="text-sm font-bold text-white">{oppPred.homeScore} — {oppPred.awayScore}</span>
                         {oppPred.result && (
@@ -399,8 +399,10 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                           </span>
                         )}
                       </div>
+                    ) : oppPred && myPred ? (
+                      <span className="text-xs text-zinc-500 italic">🔒 Visível ao início do jogo</span>
                     ) : oppPred ? (
-                      <span className="text-xs text-zinc-500 italic">Palpite enviado — aguardando o seu</span>
+                      <span className="text-xs text-zinc-500 italic">Palpite enviado</span>
                     ) : (
                       <span className="text-xs text-zinc-600">Ainda não palpitou</span>
                     )}
