@@ -13,6 +13,17 @@ type League = {
   inviteCode: string;
   role: string;
   totalPoints: number;
+  competitionName?: string | null;
+  teamFilter?: string[];
+};
+
+type PublicLeague = {
+  id: string;
+  name: string;
+  description: string | null;
+  competitionName: string | null;
+  teamFilter: string[];
+  _count: { members: number };
 };
 
 type ScoringForm = {
@@ -75,9 +86,36 @@ const DEFAULT_SCORING: ScoringForm = {
   ptsKnockoutBonus: 3,
 };
 
+function ShareLeagueButton({ league }: { league: League }) {
+  const [copied, setCopied] = useState(false);
+
+  const share = async () => {
+    const text = `Entre na liga "${league.name}" no PalpitaAí!\nCódigo: ${league.inviteCode}`;
+    if (navigator.share) {
+      await navigator.share({ title: league.name, text }).catch(() => {});
+    } else {
+      await navigator.clipboard.writeText(text).catch(() => {});
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <button
+      onClick={(e) => { e.preventDefault(); share(); }}
+      className="text-xs text-zinc-500 hover:text-white transition-colors px-2 py-1 rounded-lg hover:bg-zinc-800"
+      title="Compartilhar liga"
+    >
+      {copied ? "✓ Copiado" : "Compartilhar"}
+    </button>
+  );
+}
+
 export function LeaguesClient({ isPro }: { isPro: boolean }) {
   const [leagues, setLeagues] = useState<League[]>([]);
+  const [publicLeagues, setPublicLeagues] = useState<PublicLeague[]>([]);
   const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<"mine" | "discover">("mine");
   const [showCreate, setShowCreate] = useState(false);
   const [showJoin, setShowJoin] = useState(false);
   const [form, setForm] = useState({ name: "", description: "", visibility: "PUBLIC" });
@@ -85,6 +123,8 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
   const [useCustomScoring, setUseCustomScoring] = useState(false);
   const [inviteCode, setInviteCode] = useState("");
   const [saving, setSaving] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [joinError, setJoinError] = useState<string | null>(null);
 
   // Competition & team filter
   const [competitions, setCompetitions] = useState<{ name: string; leagueId: number | null }[]>([]);
@@ -104,18 +144,28 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
       const data = await res.json();
       if (Array.isArray(data)) setLeagues(data);
     } catch {
-      // silently ignore network/parse errors
+      // ignore
     } finally {
       setLoading(false);
     }
   };
 
+  const loadPublic = async () => {
+    try {
+      const res = await fetch("/api/leagues/public");
+      const data = await res.json();
+      if (Array.isArray(data)) setPublicLeagues(data);
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     load();
+    loadPublic();
     fetch("/api/competitions").then((r) => r.json()).then(setCompetitions).catch(() => {});
   }, []);
 
-  // Load teams when competition changes
   useEffect(() => {
     if (!competitionName) { setAllTeams([]); setTeamFilter([]); return; }
     fetch(`/api/teams?competition=${encodeURIComponent(competitionName)}`)
@@ -127,61 +177,101 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
 
   const createLeague = async () => {
     setSaving(true);
-    await fetch("/api/leagues", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ...form,
-        competitionName: competitionName || undefined,
-        teamFilter,
-        championPredictionEnabled: championEnabled,
-        championPredictionPoints: championPoints,
-        ...(isPro && useCustomScoring ? scoring : {}),
-      }),
-    });
-    setSaving(false);
-    setShowCreate(false);
-    setForm({ name: "", description: "", visibility: "PUBLIC" });
-    setScoring(DEFAULT_SCORING);
-    setUseCustomScoring(false);
-    setCompetitionName("");
-    setTeamFilter([]);
-    setTeamSearch("");
-    setShowFilterSection(false);
-    setChampionEnabled(false);
-    setChampionPoints(20);
-    load();
+    setCreateError(null);
+    try {
+      const res = await fetch("/api/leagues", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...form,
+          competitionName: competitionName || undefined,
+          teamFilter,
+          championPredictionEnabled: championEnabled,
+          championPredictionPoints: championPoints,
+          ...(isPro && useCustomScoring ? scoring : {}),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setCreateError(data.message ?? data.error ?? "Erro ao criar liga");
+        return;
+      }
+      setShowCreate(false);
+      setForm({ name: "", description: "", visibility: "PUBLIC" });
+      setScoring(DEFAULT_SCORING);
+      setUseCustomScoring(false);
+      setCompetitionName("");
+      setTeamFilter([]);
+      setTeamSearch("");
+      setShowFilterSection(false);
+      setChampionEnabled(false);
+      setChampionPoints(20);
+      await load();
+      await loadPublic();
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const joinLeague = async () => {
+  const joinLeague = async (leagueId?: string) => {
     setSaving(true);
-    const res = await fetch("/api/leagues/join", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inviteCode }),
-    });
-    if (res.ok) {
+    setJoinError(null);
+    try {
+      const body = leagueId ? { leagueId } : { inviteCode };
+      const res = await fetch("/api/leagues/join", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setJoinError(data.message ?? data.error ?? "Erro ao entrar na liga");
+        return;
+      }
       setShowJoin(false);
       setInviteCode("");
-      load();
+      await load();
+      await loadPublic();
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-white">Minhas Ligas</h1>
+        <h1 className="text-2xl font-bold text-white">Ligas</h1>
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={() => setShowJoin(true)}>
-            Entrar em liga
+            Entrar por código
           </Button>
-          <Button size="sm" onClick={() => setShowCreate(true)}>
+          <Button size="sm" onClick={() => { setShowCreate(true); setCreateError(null); }}>
             + Criar liga
           </Button>
         </div>
       </div>
 
+      {/* Tabs */}
+      <div className="flex gap-1 mb-6 bg-zinc-900 border border-zinc-800 rounded-xl p-1 w-fit">
+        <button
+          onClick={() => setTab("mine")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === "mine" ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          Minhas ligas {leagues.length > 0 && <span className="ml-1 text-xs text-zinc-400">({leagues.length})</span>}
+        </button>
+        <button
+          onClick={() => setTab("discover")}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+            tab === "discover" ? "bg-zinc-700 text-white" : "text-zinc-500 hover:text-zinc-300"
+          }`}
+        >
+          Descobrir {publicLeagues.length > 0 && <span className="ml-1 text-xs text-zinc-400">({publicLeagues.length})</span>}
+        </button>
+      </div>
+
+      {/* Create form */}
       {showCreate && (
         <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 mb-6">
           <h2 className="font-semibold text-white mb-4">Criar nova liga</h2>
@@ -205,8 +295,8 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                 onChange={(e) => setForm({ ...form, visibility: e.target.value })}
                 className="w-full rounded-lg bg-zinc-800 border border-zinc-700 px-3 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500"
               >
-                <option value="PUBLIC">Pública</option>
-                <option value="PRIVATE">Privada (por convite)</option>
+                <option value="PUBLIC">Pública — aparece para todos descobrirem</option>
+                <option value="PRIVATE">Privada — apenas por convite</option>
               </select>
             </div>
 
@@ -234,11 +324,8 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
 
               {showFilterSection && (
                 <div className="mt-3 flex flex-col gap-3">
-                  {/* Step 1: Competition */}
                   <div>
-                    <label className="text-xs text-zinc-400 mb-1 block">
-                      1. Selecione a competição
-                    </label>
+                    <label className="text-xs text-zinc-400 mb-1 block">1. Selecione a competição</label>
                     <select
                       value={competitionName}
                       onChange={(e) => setCompetitionName(e.target.value)}
@@ -251,30 +338,21 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                     </select>
                   </div>
 
-                  {/* Step 2: Teams (only shown when competition is selected) */}
                   {competitionName && (
                     <div>
                       <label className="text-xs text-zinc-400 mb-1 block">
-                        2. Filtrar por time(s) — opcional (vazio = todos os jogos da competição)
+                        2. Filtrar por time(s) — opcional
                       </label>
-
                       {teamFilter.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mb-2">
                           {teamFilter.map((t) => (
-                            <span
-                              key={t}
-                              className="flex items-center gap-1 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-1 rounded-full"
-                            >
+                            <span key={t} className="flex items-center gap-1 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-1 rounded-full">
                               {t}
-                              <button
-                                onClick={() => setTeamFilter((prev) => prev.filter((x) => x !== t))}
-                                className="hover:text-white ml-0.5"
-                              >×</button>
+                              <button onClick={() => setTeamFilter((prev) => prev.filter((x) => x !== t))} className="hover:text-white ml-0.5">×</button>
                             </span>
                           ))}
                         </div>
                       )}
-
                       <input
                         type="text"
                         placeholder="Buscar time/seleção..."
@@ -282,7 +360,6 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                         onChange={(e) => setTeamSearch(e.target.value)}
                         className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
-
                       {allTeams.length > 0 && (
                         <div className="bg-zinc-800 border border-zinc-700 rounded-lg overflow-hidden max-h-48 overflow-y-auto mt-1">
                           {allTeams
@@ -292,29 +369,16 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                               return (
                                 <button
                                   key={team}
-                                  onClick={() =>
-                                    setTeamFilter((prev) =>
-                                      selected ? prev.filter((x) => x !== team) : [...prev, team]
-                                    )
-                                  }
-                                  className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 transition-colors ${
-                                    selected ? "bg-blue-500/10 text-blue-300" : "text-zinc-300 hover:bg-zinc-700"
-                                  }`}
+                                  onClick={() => setTeamFilter((prev) => selected ? prev.filter((x) => x !== team) : [...prev, team])}
+                                  className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 transition-colors ${selected ? "bg-blue-500/10 text-blue-300" : "text-zinc-300 hover:bg-zinc-700"}`}
                                 >
-                                  <span
-                                    className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 text-xs ${
-                                      selected ? "bg-blue-500 border-blue-500 text-white" : "border-zinc-600"
-                                    }`}
-                                  >
+                                  <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 text-xs ${selected ? "bg-blue-500 border-blue-500 text-white" : "border-zinc-600"}`}>
                                     {selected && "✓"}
                                   </span>
                                   {team}
                                 </button>
                               );
                             })}
-                          {allTeams.filter((t) => t.toLowerCase().includes(teamSearch.toLowerCase())).length === 0 && (
-                            <p className="text-zinc-500 text-sm px-4 py-3">Nenhum time encontrado</p>
-                          )}
                         </div>
                       )}
                     </div>
@@ -332,9 +396,7 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                 >
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${championEnabled ? "translate-x-5" : "translate-x-1"}`} />
                 </div>
-                <span className="text-sm font-medium text-zinc-300">
-                  Palpite do Campeão 🏆
-                </span>
+                <span className="text-sm font-medium text-zinc-300">Palpite do Campeão 🏆</span>
               </label>
               {championEnabled && (
                 <div className="mt-3 bg-zinc-800 rounded-xl p-4">
@@ -343,15 +405,9 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                   </p>
                   <div className="flex items-center gap-3">
                     <span className="text-sm text-zinc-300">Pontos pelo acerto:</span>
-                    <button
-                      onClick={() => setChampionPoints((v) => Math.max(1, v - 5))}
-                      className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center"
-                    >−</button>
+                    <button onClick={() => setChampionPoints((v) => Math.max(1, v - 5))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center">−</button>
                     <span className="w-12 text-center font-bold text-yellow-400">{championPoints}</span>
-                    <button
-                      onClick={() => setChampionPoints((v) => Math.min(500, v + 5))}
-                      className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center"
-                    >+</button>
+                    <button onClick={() => setChampionPoints((v) => Math.min(500, v + 5))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center">+</button>
                     <span className="text-xs text-zinc-500">pts</span>
                   </div>
                 </div>
@@ -373,7 +429,6 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                     <span className="ml-2 text-xs text-green-400 font-semibold">PRO</span>
                   </span>
                 </label>
-
                 {useCustomScoring && (
                   <div className="mt-4 flex flex-col gap-4">
                     {SCORING_FIELDS.map((field) => (
@@ -381,17 +436,9 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                         <div className="flex items-center justify-between mb-1">
                           <span className="text-sm font-semibold text-white">{field.label}</span>
                           <div className="flex items-center gap-2">
-                            <button
-                              onClick={() => setScoring((s) => ({ ...s, [field.key]: Math.max(0, s[field.key] - 1) }))}
-                              className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white text-lg flex items-center justify-center"
-                            >−</button>
-                            <span className="w-10 text-center font-bold text-green-400 text-lg">
-                              {scoring[field.key]}
-                            </span>
-                            <button
-                              onClick={() => setScoring((s) => ({ ...s, [field.key]: Math.min(100, s[field.key] + 1) }))}
-                              className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white text-lg flex items-center justify-center"
-                            >+</button>
+                            <button onClick={() => setScoring((s) => ({ ...s, [field.key]: Math.max(0, s[field.key] - 1) }))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white text-lg flex items-center justify-center">−</button>
+                            <span className="w-10 text-center font-bold text-green-400 text-lg">{scoring[field.key]}</span>
+                            <button onClick={() => setScoring((s) => ({ ...s, [field.key]: Math.min(100, s[field.key] + 1) }))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white text-lg flex items-center justify-center">+</button>
                             <span className="text-xs text-zinc-500 ml-1">pts</span>
                           </div>
                         </div>
@@ -409,23 +456,28 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                   <p className="text-sm text-zinc-300 font-medium">Pontuação padrão</p>
                   <p className="text-xs text-zinc-500">
                     10 pts placar exato · 7 resultado+saldo · 5 vencedor · 4 empate · +3 mata-mata.{" "}
-                    <Link href="/pricing" className="text-green-400 hover:underline">
-                      Upgrade para Pro
-                    </Link>{" "}
+                    <Link href="/pricing" className="text-green-400 hover:underline">Upgrade para Pro</Link>{" "}
                     para personalizar.
                   </p>
                 </div>
               </div>
             )}
 
+            {createError && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
+                <p className="text-red-400 text-sm">{createError}</p>
+              </div>
+            )}
+
             <div className="flex gap-2 mt-2">
               <Button onClick={createLeague} loading={saving} disabled={!form.name}>Criar</Button>
-              <Button variant="ghost" onClick={() => setShowCreate(false)}>Cancelar</Button>
+              <Button variant="ghost" onClick={() => { setShowCreate(false); setCreateError(null); }}>Cancelar</Button>
             </div>
           </div>
         </div>
       )}
 
+      {/* Join by code form */}
       {showJoin && (
         <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 mb-6">
           <h2 className="font-semibold text-white mb-4">Entrar em liga por código</h2>
@@ -433,45 +485,89 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
             <Input
               placeholder="Cole o código de convite aqui"
               value={inviteCode}
-              onChange={(e) => setInviteCode(e.target.value)}
+              onChange={(e) => { setInviteCode(e.target.value); setJoinError(null); }}
               className="flex-1"
             />
-            <Button onClick={joinLeague} loading={saving} disabled={!inviteCode}>Entrar</Button>
-            <Button variant="ghost" onClick={() => setShowJoin(false)}>Cancelar</Button>
+            <Button onClick={() => joinLeague()} loading={saving} disabled={!inviteCode}>Entrar</Button>
+            <Button variant="ghost" onClick={() => { setShowJoin(false); setJoinError(null); }}>Cancelar</Button>
           </div>
+          {joinError && <p className="text-red-400 text-sm mt-2">{joinError}</p>}
         </div>
       )}
 
-      {loading ? (
-        <div className="text-zinc-500 text-center py-10">Carregando...</div>
-      ) : leagues.length === 0 ? (
-        <div className="text-center text-zinc-500 py-20">
-          <p className="text-4xl mb-4">🏆</p>
-          <p className="text-lg">Você não está em nenhuma liga.</p>
-          <p className="text-sm mt-2">Crie uma nova ou entre com um código de convite.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {leagues.map((league) => (
-            <Link key={league.id} href={`/leagues/${league.id}`}>
-              <div className="bg-zinc-900 border border-zinc-800 hover:border-green-500/40 rounded-xl p-5 cursor-pointer transition-colors">
-                <div className="flex items-start justify-between mb-2">
-                  <h3 className="font-semibold text-white">{league.name}</h3>
-                  <span className="text-xs text-zinc-500 bg-zinc-800 rounded px-2 py-0.5">
-                    {league.role === "OWNER" ? "Dono" : league.role === "ADMIN" ? "Admin" : "Membro"}
-                  </span>
-                </div>
-                {league.description && <p className="text-sm text-zinc-400 mb-3">{league.description}</p>}
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-zinc-500">
-                    {league.visibility === "PRIVATE" ? "🔒 Privada" : "🌐 Pública"}
-                  </span>
-                  <span className="text-green-400 font-semibold">{league.totalPoints} pts</span>
+      {/* My leagues tab */}
+      {tab === "mine" && (
+        loading ? (
+          <div className="text-zinc-500 text-center py-10">Carregando...</div>
+        ) : leagues.length === 0 ? (
+          <div className="text-center text-zinc-500 py-20">
+            <p className="text-4xl mb-4">🏆</p>
+            <p className="text-lg">Você não está em nenhuma liga.</p>
+            <p className="text-sm mt-2">Crie uma nova, entre com código ou descubra ligas públicas.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {leagues.map((league) => (
+              <div key={league.id} className="bg-zinc-900 border border-zinc-800 hover:border-green-500/40 rounded-xl p-5 transition-colors">
+                <Link href={`/leagues/${league.id}`} className="block mb-3">
+                  <div className="flex items-start justify-between mb-1">
+                    <h3 className="font-semibold text-white">{league.name}</h3>
+                    <span className="text-xs text-zinc-500 bg-zinc-800 rounded px-2 py-0.5 shrink-0 ml-2">
+                      {league.role === "OWNER" ? "Dono" : league.role === "ADMIN" ? "Admin" : "Membro"}
+                    </span>
+                  </div>
+                  {league.description && <p className="text-sm text-zinc-400 mb-2">{league.description}</p>}
+                  {league.competitionName && (
+                    <p className="text-xs text-blue-400 mb-2">🏟️ {league.competitionName}{league.teamFilter && league.teamFilter.length > 0 ? ` · ${league.teamFilter.join(", ")}` : ""}</p>
+                  )}
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-zinc-500">{league.visibility === "PRIVATE" ? "🔒 Privada" : "🌐 Pública"}</span>
+                    <span className="text-green-400 font-semibold">{league.totalPoints} pts</span>
+                  </div>
+                </Link>
+                <div className="flex items-center justify-between border-t border-zinc-800 pt-3 mt-1">
+                  <span className="text-xs text-zinc-600 font-mono truncate">{league.inviteCode}</span>
+                  <ShareLeagueButton league={league} />
                 </div>
               </div>
-            </Link>
-          ))}
-        </div>
+            ))}
+          </div>
+        )
+      )}
+
+      {/* Discover public leagues tab */}
+      {tab === "discover" && (
+        publicLeagues.length === 0 ? (
+          <div className="text-center text-zinc-500 py-20">
+            <p className="text-4xl mb-4">🔍</p>
+            <p className="text-lg">Nenhuma liga pública disponível.</p>
+            <p className="text-sm mt-2">Seja o primeiro a criar uma liga pública!</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {publicLeagues.map((league) => (
+              <div key={league.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+                <h3 className="font-semibold text-white mb-1">{league.name}</h3>
+                {league.description && <p className="text-sm text-zinc-400 mb-2">{league.description}</p>}
+                {league.competitionName && (
+                  <p className="text-xs text-blue-400 mb-2">🏟️ {league.competitionName}{league.teamFilter.length > 0 ? ` · ${league.teamFilter.join(", ")}` : ""}</p>
+                )}
+                <div className="flex items-center justify-between mt-3">
+                  <span className="text-xs text-zinc-500">
+                    👥 {league._count.members} {league._count.members === 1 ? "membro" : "membros"}
+                  </span>
+                  <Button
+                    size="sm"
+                    loading={saving}
+                    onClick={() => joinLeague(league.id)}
+                  >
+                    Entrar
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )
       )}
     </div>
   );

@@ -9,14 +9,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   }
 
-  const { inviteCode } = await req.json();
-  if (!inviteCode) {
-    return NextResponse.json({ error: "Código inválido" }, { status: 400 });
+  const body = await req.json();
+  const { inviteCode, leagueId } = body;
+
+  if (!inviteCode && !leagueId) {
+    return NextResponse.json({ error: "Código ou ID inválido" }, { status: 400 });
   }
 
-  const league = await prisma.league.findUnique({ where: { inviteCode } });
+  const league = inviteCode
+    ? await prisma.league.findUnique({ where: { inviteCode } })
+    : await prisma.league.findUnique({ where: { id: leagueId } });
+
   if (!league) {
     return NextResponse.json({ error: "Liga não encontrada" }, { status: 404 });
+  }
+
+  // Direct join by ID only allowed for public leagues
+  if (!inviteCode && league.visibility !== "PUBLIC") {
+    return NextResponse.json({ error: "Liga privada — use o código de convite" }, { status: 403 });
   }
 
   const existing = await prisma.leagueMember.findUnique({
