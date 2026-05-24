@@ -191,11 +191,15 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
           ...(isPro && useCustomScoring ? scoring : {}),
         }),
       });
-      const data = await res.json();
+
+      let data: Record<string, unknown> = {};
+      try { data = await res.json(); } catch { /* non-JSON response */ }
+
       if (!res.ok) {
-        setCreateError(data.message ?? data.error ?? "Erro ao criar liga");
+        setCreateError((data.message as string) ?? (data.error as string) ?? `Erro ao criar liga (${res.status})`);
         return;
       }
+
       setShowCreate(false);
       setForm({ name: "", description: "", visibility: "PUBLIC" });
       setScoring(DEFAULT_SCORING);
@@ -208,6 +212,8 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
       setChampionPoints(20);
       await load();
       await loadPublic();
+    } catch {
+      setCreateError("Erro de conexão. Tente novamente.");
     } finally {
       setSaving(false);
     }
@@ -275,6 +281,11 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
       {showCreate && (
         <div className="bg-zinc-900 border border-zinc-700 rounded-xl p-6 mb-6">
           <h2 className="font-semibold text-white mb-4">Criar nova liga</h2>
+          {createError && (
+            <div className="mb-3 bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
+              <p className="text-red-400 text-sm">⚠️ {createError}</p>
+            </div>
+          )}
           <div className="flex flex-col gap-3">
             <Input
               label="Nome da liga"
@@ -460,12 +471,6 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                     para personalizar.
                   </p>
                 </div>
-              </div>
-            )}
-
-            {createError && (
-              <div className="bg-red-500/10 border border-red-500/30 rounded-lg px-4 py-3">
-                <p className="text-red-400 text-sm">{createError}</p>
               </div>
             )}
 
