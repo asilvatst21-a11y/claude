@@ -148,12 +148,21 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Total points per player
+  // Total points per player (scored matches only)
   const calcTotal = (uid: string) =>
     duel.predictions.filter((p) => p.userId === uid && p.result).reduce((s, p) => s + p.points + p.bonusPoints, 0);
 
   const creatorPoints = calcTotal(duel.creatorId);
   const opponentPoints = duel.opponent ? calcTotal(duel.opponent.id) : 0;
+  const totalPoints = creatorPoints + opponentPoints;
+  const creatorPct = totalPoints > 0 ? Math.round((creatorPoints / totalPoints) * 100) : 50;
+
+  const isActive = duel.status === "ACTIVE";
+  const isFinished = duel.status === "FINISHED";
+  const showScore = (isActive || isFinished) && duel.opponent;
+  const creatorLeading = creatorPoints > opponentPoints;
+  const opponentLeading = opponentPoints > creatorPoints;
+  const tied = creatorPoints === opponentPoints;
 
   return (
     <div className="max-w-2xl mx-auto">
@@ -178,6 +187,7 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
       {/* Players banner */}
       <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5 mb-6">
         <div className="flex items-center justify-between gap-4">
+          {/* Creator */}
           <div className="flex flex-col items-center gap-2 flex-1">
             {duel.creator.username ? (
               <Link href={`/u/${duel.creator.username}`}><Avatar user={duel.creator} size={48} /></Link>
@@ -191,20 +201,35 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                 </Link>
               ) : (duel.creator.name ?? "—")}
             </p>
-            {duel.status === "FINISHED" && (
-              <p className={`text-xl font-bold ${duel.winner?.id === duel.creatorId ? "text-green-400" : "text-zinc-500"}`}>{creatorPoints} pts</p>
+            {showScore && (
+              <p className={`text-2xl font-black ${
+                isFinished
+                  ? duel.winner?.id === duel.creatorId ? "text-green-400" : "text-zinc-500"
+                  : creatorLeading ? "text-green-400" : "text-zinc-300"
+              }`}>
+                {creatorPoints}
+                <span className="text-xs font-normal text-zinc-500 ml-1">pts</span>
+              </p>
+            )}
+            {isActive && creatorLeading && (
+              <span className="text-[10px] text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full font-semibold">🔥 Na frente</span>
             )}
           </div>
 
-          <div className="flex flex-col items-center gap-1">
+          {/* Center */}
+          <div className="flex flex-col items-center gap-1 shrink-0">
             <span className="text-2xl font-black text-zinc-600">VS</span>
-            {duel.status === "FINISHED" && duel.winner && (
-              <span className="text-xs text-green-400 font-semibold">
+            {isFinished && duel.winner && (
+              <span className="text-xs text-green-400 font-semibold text-center">
                 {duel.winner.id === currentUserId ? "Você venceu! 🏆" : `${duel.winner.name ?? duel.winner.username} venceu`}
               </span>
             )}
+            {isActive && tied && showScore && (
+              <span className="text-[10px] text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded-full font-semibold">Empate</span>
+            )}
           </div>
 
+          {/* Opponent */}
           <div className="flex flex-col items-center gap-2 flex-1">
             {duel.opponent ? (
               <>
@@ -220,8 +245,18 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                     </Link>
                   ) : (duel.opponent.name ?? "—")}
                 </p>
-                {duel.status === "FINISHED" && (
-                  <p className={`text-xl font-bold ${duel.winner?.id === duel.opponent.id ? "text-green-400" : "text-zinc-500"}`}>{opponentPoints} pts</p>
+                {showScore && (
+                  <p className={`text-2xl font-black ${
+                    isFinished
+                      ? duel.winner?.id === duel.opponent.id ? "text-green-400" : "text-zinc-500"
+                      : opponentLeading ? "text-green-400" : "text-zinc-300"
+                  }`}>
+                    {opponentPoints}
+                    <span className="text-xs font-normal text-zinc-500 ml-1">pts</span>
+                  </p>
+                )}
+                {isActive && opponentLeading && (
+                  <span className="text-[10px] text-green-400 bg-green-400/10 px-2 py-0.5 rounded-full font-semibold">🔥 Na frente</span>
                 )}
               </>
             ) : (
@@ -232,6 +267,23 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
             )}
           </div>
         </div>
+
+        {/* Progress bar — visible during active and finished */}
+        {showScore && totalPoints > 0 && (
+          <div className="mt-4">
+            <div className="flex h-2 rounded-full overflow-hidden bg-zinc-700">
+              <div
+                className="bg-green-500 transition-all duration-500"
+                style={{ width: `${creatorPct}%` }}
+              />
+              <div className="bg-zinc-600 flex-1" />
+            </div>
+            <div className="flex justify-between text-[10px] text-zinc-500 mt-1">
+              <span>{duel.creator.name?.split(" ")[0]}: {creatorPct}%</span>
+              <span>{duel.opponent?.name?.split(" ")[0]}: {100 - creatorPct}%</span>
+            </div>
+          </div>
+        )}
 
         {/* Invite link (creator, PENDING) */}
         {isCreator && duel.status === "PENDING" && (
@@ -406,6 +458,40 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                     ) : (
                       <span className="text-xs text-zinc-600">Ainda não palpitou</span>
                     )}
+                  </div>
+                </div>
+              )}
+
+              {/* Per-match point breakdown — shows when both have scored results */}
+              {isParticipant && isFinished && myPred?.result && oppPred?.result && (
+                <div className="mt-3 pt-3 border-t border-zinc-800">
+                  <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-2">Pontos neste jogo</p>
+                  <div className="flex items-center gap-2">
+                    {/* My points */}
+                    <div className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 px-2 ${
+                      (myPred.points + myPred.bonusPoints) > (oppPred.points + oppPred.bonusPoints)
+                        ? "bg-green-500/10 border border-green-500/30"
+                        : "bg-zinc-800"
+                    }`}>
+                      <span className={`text-base font-black ${resultColor[myPred.result]}`}>
+                        +{myPred.points + myPred.bonusPoints}
+                      </span>
+                      <span className="text-[10px] text-zinc-500">pts</span>
+                    </div>
+
+                    <span className="text-zinc-600 text-xs font-bold shrink-0">×</span>
+
+                    {/* Opponent points */}
+                    <div className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 px-2 ${
+                      (oppPred.points + oppPred.bonusPoints) > (myPred.points + myPred.bonusPoints)
+                        ? "bg-green-500/10 border border-green-500/30"
+                        : "bg-zinc-800"
+                    }`}>
+                      <span className={`text-base font-black ${resultColor[oppPred.result]}`}>
+                        +{oppPred.points + oppPred.bonusPoints}
+                      </span>
+                      <span className="text-[10px] text-zinc-500">pts</span>
+                    </div>
                   </div>
                 </div>
               )}
