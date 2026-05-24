@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { teamLogo } from "@/lib/utils";
 
 type League = { leagueId: number; leagueName: string; leagueSeason: number };
 
@@ -58,7 +59,7 @@ function StandingsTable({ standings, title }: { standings: Standing[]; title?: s
                 <td className="px-4 py-2.5 text-zinc-400 font-medium">{row.rank}</td>
                 <td className="px-4 py-2.5">
                   <div className="flex items-center gap-2">
-                    <img src={row.team.logo} alt="" className="w-5 h-5 object-contain shrink-0" />
+                    <img src={teamLogo(row.team.logo)} alt="" className="w-5 h-5 object-contain shrink-0" />
                     <span className="text-white font-medium truncate max-w-[120px]">{row.team.name}</span>
                   </div>
                 </td>
