@@ -8,12 +8,29 @@ import { teamLogo } from "@/lib/utils";
 import { isPredictionLocked } from "@/lib/scoring";
 import { X1WinnerCard } from "@/components/x1-winner-card";
 
+const KNOCKOUT_STAGES = new Set(["ROUND_OF_16", "QUARTER_FINAL", "SEMI_FINAL", "THIRD_PLACE", "FINAL"]);
+const BONUS = 3;
+
+function calcLivePoints(pred: { homeScore: number; awayScore: number }, match: Match): { result: string; points: number; bonusPoints: number } | null {
+  if (match.homeScore === null || match.awayScore === null) return null;
+  const isKnockout = KNOCKOUT_STAGES.has(match.stage ?? "");
+  const bonus = isKnockout ? BONUS : 0;
+  const ph = pred.homeScore, pa = pred.awayScore;
+  const rh = match.homeScore, ra = match.awayScore;
+  if (ph === rh && pa === ra) return { result: "EXACT_SCORE", points: 10, bonusPoints: bonus };
+  const pd = ph - pa, rd = rh - ra;
+  if (Math.sign(pd) === Math.sign(rd) && pd === rd) return { result: "CORRECT_RESULT_AND_DIFF", points: 7, bonusPoints: bonus };
+  if (Math.sign(pd) !== 0 && Math.sign(pd) === Math.sign(rd)) return { result: "CORRECT_WINNER", points: 5, bonusPoints: bonus };
+  if (Math.sign(pd) === 0 && Math.sign(rd) === 0) return { result: "CORRECT_DRAW", points: 4, bonusPoints: bonus };
+  return { result: "WRONG", points: 0, bonusPoints: 0 };
+}
+
 type User = { id: string; name: string | null; username: string | null; image: string | null };
 type Match = {
   id: string; homeTeam: string; awayTeam: string;
   homeTeamFlag: string | null; awayTeamFlag: string | null;
   homeScore: number | null; awayScore: number | null;
-  startsAt: Date | string; status: string;
+  startsAt: Date | string; status: string; stage: string | null;
   leagueName: string | null; round: string | null;
 };
 type Prediction = {
@@ -148,9 +165,17 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // Total points per player (scored matches only)
+  // Total points per player — use cron result when available, fall back to live calculation
   const calcTotal = (uid: string) =>
-    duel.predictions.filter((p) => p.userId === uid && p.result).reduce((s, p) => s + p.points + p.bonusPoints, 0);
+    duel.predictions
+      .filter((p) => p.userId === uid)
+      .reduce((s, p) => {
+        if (p.result) return s + p.points + p.bonusPoints;
+        const match = duel.matches.find((m) => m.matchId === p.matchId)?.match;
+        if (!match || (match.status !== "FINISHED" && match.status !== "POSTPONED")) return s;
+        const live = calcLivePoints(p, match);
+        return s + (live ? live.points + live.bonusPoints : 0);
+      }, 0);
 
   const creatorPoints = calcTotal(duel.creatorId);
   const opponentPoints = duel.opponent ? calcTotal(duel.opponent.id) : 0;
@@ -333,14 +358,40 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
 
           const localScore = scores[matchId] ?? { home: "", away: "" };
 
+          const isKnockout = KNOCKOUT_STAGES.has(match.stage ?? "");
+          const liveMyPts  = myPred  && !myPred.result  ? calcLivePoints(myPred,  match) : null;
+          const liveOppPts = oppPred && !oppPred.result ? calcLivePoints(oppPred, match) : null;
+
+          const myEffective  = myPred?.result  ? { result: myPred.result,  pts: myPred.points  + myPred.bonusPoints  } : liveMyPts  ? { result: liveMyPts.result,  pts: liveMyPts.points  + liveMyPts.bonusPoints  } : null;
+          const oppEffective = oppPred?.result ? { result: oppPred.result, pts: oppPred.points + oppPred.bonusPoints } : liveOppPts ? { result: liveOppPts.result, pts: liveOppPts.points + liveOppPts.bonusPoints } : null;
+
           return (
             <div key={matchId} className="bg-zinc-900 border border-zinc-800 rounded-xl p-4">
               {/* Match header */}
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-zinc-500">{match.leagueName} · {match.round}</span>
-                <span className={`text-xs font-medium ${match.status === "LIVE" ? "text-red-400 animate-pulse" : match.status === "FINISHED" ? "text-zinc-500" : "text-zinc-400"}`}>
-                  {match.status === "LIVE" ? "Ao vivo" : match.status === "FINISHED" ? "Encerrado" : new Date(match.startsAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
-                </span>
+                <div className="flex items-center gap-2">
+                  {isKnockout && (
+                    <span className="text-[10px] text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded font-semibold">+{BONUS} bônus</span>
+                  )}
+                  <span className={`text-xs font-medium ${match.status === "LIVE" ? "text-red-400 animate-pulse" : match.status === "FINISHED" ? "text-zinc-500" : "text-zinc-400"}`}>
+                    {match.status === "LIVE" ? "Ao vivo" : match.status === "FINISHED" ? "Encerrado" : new Date(match.startsAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+                  </span>
+                </div>
+              </div>
+
+              {/* Point legend */}
+              <div className="flex flex-wrap gap-1 mb-3">
+                {[
+                  { label: "Placar exato", pts: 10 + (isKnockout ? BONUS : 0), color: "text-yellow-400 bg-yellow-400/10" },
+                  { label: "Resultado + saldo", pts: 7 + (isKnockout ? BONUS : 0), color: "text-green-400 bg-green-400/10" },
+                  { label: "Vencedor", pts: 5 + (isKnockout ? BONUS : 0), color: "text-blue-400 bg-blue-400/10" },
+                  { label: "Empate", pts: 4 + (isKnockout ? BONUS : 0), color: "text-blue-400 bg-blue-400/10" },
+                ].map(({ label, pts, color }) => (
+                  <span key={label} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${color}`}>
+                    {label}: {pts}pts
+                  </span>
+                ))}
               </div>
 
               {/* Teams + score */}
@@ -372,10 +423,13 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                         {myPred ? (
                           <>
                             <span className="font-bold text-white">{myPred.homeScore} — {myPred.awayScore}</span>
-                            {myPred.result && (
-                              <span className={`text-xs ${resultColor[myPred.result] ?? ""}`}>
-                                +{myPred.points + myPred.bonusPoints}pts
+                            {myEffective && myEffective.result !== "WRONG" && (
+                              <span className={`text-xs ${resultColor[myEffective.result] ?? ""}`}>
+                                +{myEffective.pts}pts
                               </span>
+                            )}
+                            {myEffective?.result === "WRONG" && (
+                              <span className="text-xs text-red-400">Errou</span>
                             )}
                           </>
                         ) : (
@@ -386,9 +440,9 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-green-400 text-sm">✓</span>
                         <span className="text-sm font-bold text-white">{myPred.homeScore} — {myPred.awayScore}</span>
-                        {myPred.result && (
-                          <span className={`text-xs ${resultColor[myPred.result] ?? ""}`}>
-                            +{myPred.points + myPred.bonusPoints}pts
+                        {myEffective && myEffective.result !== "WRONG" && (
+                          <span className={`text-xs ${resultColor[myEffective.result] ?? ""}`}>
+                            +{myEffective.pts}pts
                           </span>
                         )}
                         <button
@@ -443,11 +497,11 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                       {duel.opponent ? (duel.opponent.name ?? `@${duel.opponent.username}`) : duel.creator.name ?? `@${duel.creator.username}`}
                     </p>
                     {showOpp && oppPred ? (
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1 flex-wrap">
                         <span className="text-sm font-bold text-white">{oppPred.homeScore} — {oppPred.awayScore}</span>
-                        {oppPred.result && (
-                          <span className={`text-xs ml-1 ${resultColor[oppPred.result] ?? ""}`}>
-                            · {resultLabel[oppPred.result] ?? ""} (+{oppPred.points + oppPred.bonusPoints})
+                        {oppEffective && (
+                          <span className={`text-xs ml-1 ${oppEffective.result !== "WRONG" ? (resultColor[oppEffective.result] ?? "") : "text-red-400"}`}>
+                            · {resultLabel[oppEffective.result] ?? ""}{oppEffective.result !== "WRONG" ? ` (+${oppEffective.pts}pts)` : ""}
                           </span>
                         )}
                       </div>
@@ -462,35 +516,29 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                 </div>
               )}
 
-              {/* Per-match point breakdown — shows when both have scored results */}
-              {isParticipant && isFinished && myPred?.result && oppPred?.result && (
+              {/* Per-match point breakdown — shows when match is finished and both predicted */}
+              {isParticipant && isFinished && myEffective && oppEffective && (
                 <div className="mt-3 pt-3 border-t border-zinc-800">
                   <p className="text-[10px] text-zinc-600 uppercase tracking-wider mb-2">Pontos neste jogo</p>
                   <div className="flex items-center gap-2">
-                    {/* My points */}
-                    <div className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 px-2 ${
-                      (myPred.points + myPred.bonusPoints) > (oppPred.points + oppPred.bonusPoints)
-                        ? "bg-green-500/10 border border-green-500/30"
-                        : "bg-zinc-800"
+                    <div className={`flex-1 flex flex-col items-center gap-0.5 rounded-lg py-2 px-2 ${
+                      myEffective.pts > oppEffective.pts ? "bg-green-500/10 border border-green-500/30" : "bg-zinc-800"
                     }`}>
-                      <span className={`text-base font-black ${resultColor[myPred.result]}`}>
-                        +{myPred.points + myPred.bonusPoints}
+                      <span className={`text-lg font-black ${myEffective.result !== "WRONG" ? (resultColor[myEffective.result] ?? "text-zinc-400") : "text-zinc-600"}`}>
+                        {myEffective.result !== "WRONG" ? `+${myEffective.pts}` : "0"}
                       </span>
-                      <span className="text-[10px] text-zinc-500">pts</span>
+                      <span className="text-[10px] text-zinc-500">{resultLabel[myEffective.result] ?? "Errou"}</span>
                     </div>
 
                     <span className="text-zinc-600 text-xs font-bold shrink-0">×</span>
 
-                    {/* Opponent points */}
-                    <div className={`flex-1 flex items-center justify-center gap-1.5 rounded-lg py-1.5 px-2 ${
-                      (oppPred.points + oppPred.bonusPoints) > (myPred.points + myPred.bonusPoints)
-                        ? "bg-green-500/10 border border-green-500/30"
-                        : "bg-zinc-800"
+                    <div className={`flex-1 flex flex-col items-center gap-0.5 rounded-lg py-2 px-2 ${
+                      oppEffective.pts > myEffective.pts ? "bg-green-500/10 border border-green-500/30" : "bg-zinc-800"
                     }`}>
-                      <span className={`text-base font-black ${resultColor[oppPred.result]}`}>
-                        +{oppPred.points + oppPred.bonusPoints}
+                      <span className={`text-lg font-black ${oppEffective.result !== "WRONG" ? (resultColor[oppEffective.result] ?? "text-zinc-400") : "text-zinc-600"}`}>
+                        {oppEffective.result !== "WRONG" ? `+${oppEffective.pts}` : "0"}
                       </span>
-                      <span className="text-[10px] text-zinc-500">pts</span>
+                      <span className="text-[10px] text-zinc-500">{resultLabel[oppEffective.result] ?? "Errou"}</span>
                     </div>
                   </div>
                 </div>
