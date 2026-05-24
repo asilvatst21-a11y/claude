@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { teamLogo } from "@/lib/utils";
 
 type Pred = {
   id: string;
