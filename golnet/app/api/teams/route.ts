@@ -3,10 +3,14 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const competition = searchParams.get("competition");
+  const where = competition ? { leagueName: competition } : {};
+
   const [homeTeams, awayTeams] = await Promise.all([
-    prisma.match.findMany({ select: { homeTeam: true }, distinct: ["homeTeam"] }),
-    prisma.match.findMany({ select: { awayTeam: true }, distinct: ["awayTeam"] }),
+    prisma.match.findMany({ where, select: { homeTeam: true }, distinct: ["homeTeam"] }),
+    prisma.match.findMany({ where, select: { awayTeam: true }, distinct: ["awayTeam"] }),
   ]);
 
   const teams = Array.from(

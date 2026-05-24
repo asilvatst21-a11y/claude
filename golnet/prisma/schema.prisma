@@ -121,8 +121,9 @@ model League {
   ptsCorrectWinner  Int @default(5)
   ptsCorrectDraw    Int @default(4)
   ptsKnockoutBonus  Int @default(3)
-  // Team filter — empty = all teams
-  teamFilter                String[]
+  // Competition & team filter
+  competitionName             String?
+  teamFilter                  String[]
   // Champion prediction
   championPredictionEnabled Boolean  @default(false)
   championPredictionPoints  Int      @default(20)

@@ -13,6 +13,7 @@ const createSchema = z.object({
   ptsCorrectWinner: z.number().int().min(0).max(100).optional(),
   ptsCorrectDraw: z.number().int().min(0).max(100).optional(),
   ptsKnockoutBonus: z.number().int().min(0).max(100).optional(),
+  competitionName: z.string().optional(),
   teamFilter: z.array(z.string()).optional(),
   championPredictionEnabled: z.boolean().optional(),
   championPredictionPoints: z.number().int().min(1).max(500).optional(),
@@ -79,13 +80,14 @@ export async function POST(req: Request) {
   const isPro = ["PRO", "ENTERPRISE"].includes(user?.plan ?? "FREE");
   const {
     ptsExactScore, ptsCorrectDiff, ptsCorrectWinner, ptsCorrectDraw, ptsKnockoutBonus,
-    teamFilter, championPredictionEnabled, championPredictionPoints,
+    competitionName, teamFilter, championPredictionEnabled, championPredictionPoints,
     ...baseData
   } = parsed.data;
 
   const league = await prisma.league.create({
     data: {
       ...baseData,
+      competitionName: competitionName ?? null,
       teamFilter: teamFilter ?? [],
       championPredictionEnabled: championPredictionEnabled ?? false,
       championPredictionPoints: championPredictionPoints ?? 20,

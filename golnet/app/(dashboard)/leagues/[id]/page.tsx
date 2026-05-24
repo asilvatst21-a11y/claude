@@ -37,11 +37,19 @@ export default async function LeagueDetailPage({
     }),
   ]);
 
-  // If league has a team filter, recalculate standings from predictions
+  // If league has competition/team filter, recalculate standings from predictions
   let members = league?.members ?? [];
-  if (league && league.teamFilter.length > 0) {
+  if (league && (league.competitionName || league.teamFilter.length > 0)) {
+    const matchWhere: Record<string, unknown> = {};
+    if (league.competitionName) matchWhere.leagueName = league.competitionName;
+    if (league.teamFilter.length > 0) {
+      matchWhere.OR = [
+        { homeTeam: { in: league.teamFilter } },
+        { awayTeam: { in: league.teamFilter } },
+      ];
+    }
     const filteredMatches = await prisma.match.findMany({
-      where: { OR: [{ homeTeam: { in: league.teamFilter } }, { awayTeam: { in: league.teamFilter } }] },
+      where: matchWhere,
       select: { id: true },
     });
     const matchIds = filteredMatches.map((m) => m.id);
@@ -121,6 +129,11 @@ export default async function LeagueDetailPage({
                 {members.length}{" "}
                 {members.length === 1 ? "membro" : "membros"}
               </span>
+              {league.competitionName && (
+                <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full">
+                  🏟️ {league.competitionName}
+                </span>
+              )}
               {league.teamFilter.length > 0 && (
                 <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full">
                   🎯 {league.teamFilter.length} {league.teamFilter.length === 1 ? "seleção" : "seleções"}
@@ -165,14 +178,19 @@ export default async function LeagueDetailPage({
         />
       )}
 
-      {league.teamFilter.length > 0 && (
+      {(league.competitionName || league.teamFilter.length > 0) && (
         <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl px-4 py-3 mb-4 flex items-start gap-3">
           <span className="text-blue-400 text-lg shrink-0">🎯</span>
           <div>
-            <p className="text-sm text-blue-400 font-medium">Filtro de seleções ativo</p>
+            <p className="text-sm text-blue-400 font-medium">Filtro ativo</p>
             <p className="text-xs text-zinc-400 mt-0.5">
-              Pontuação desta liga conta apenas jogos de:{" "}
-              <span className="text-white">{league.teamFilter.join(", ")}</span>
+              {league.competitionName && (
+                <>Competição: <span className="text-white">{league.competitionName}</span></>
+              )}
+              {league.competitionName && league.teamFilter.length > 0 && " · "}
+              {league.teamFilter.length > 0 && (
+                <>Seleções: <span className="text-white">{league.teamFilter.join(", ")}</span></>
+              )}
             </p>
           </div>
         </div>
