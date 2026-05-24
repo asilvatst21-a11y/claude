@@ -84,25 +84,30 @@ export async function POST(req: Request) {
     ...baseData
   } = parsed.data;
 
-  const league = await prisma.league.create({
-    data: {
-      ...baseData,
-      competitionName: competitionName ?? null,
-      teamFilter: teamFilter ?? [],
-      championPredictionEnabled: championPredictionEnabled ?? false,
-      championPredictionPoints: championPredictionPoints ?? 20,
-      ...(isPro && {
-        ptsExactScore: ptsExactScore ?? 10,
-        ptsCorrectDiff: ptsCorrectDiff ?? 7,
-        ptsCorrectWinner: ptsCorrectWinner ?? 5,
-        ptsCorrectDraw: ptsCorrectDraw ?? 4,
-        ptsKnockoutBonus: ptsKnockoutBonus ?? 3,
-      }),
-      members: {
-        create: { userId: session.user.id, role: "OWNER" },
+  try {
+    const league = await prisma.league.create({
+      data: {
+        ...baseData,
+        competitionName: competitionName ?? null,
+        teamFilter: teamFilter ?? [],
+        championPredictionEnabled: championPredictionEnabled ?? false,
+        championPredictionPoints: championPredictionPoints ?? 20,
+        ...(isPro && {
+          ptsExactScore: ptsExactScore ?? 10,
+          ptsCorrectDiff: ptsCorrectDiff ?? 7,
+          ptsCorrectWinner: ptsCorrectWinner ?? 5,
+          ptsCorrectDraw: ptsCorrectDraw ?? 4,
+          ptsKnockoutBonus: ptsKnockoutBonus ?? 3,
+        }),
+        members: {
+          create: { userId: session.user.id, role: "OWNER" },
+        },
       },
-    },
-  });
-
-  return NextResponse.json(league, { status: 201 });
+    });
+    return NextResponse.json(league, { status: 201 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error("League create error:", msg);
+    return NextResponse.json({ error: msg }, { status: 500 });
+  }
 }
