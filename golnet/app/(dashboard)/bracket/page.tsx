@@ -7,13 +7,12 @@ import { teamLogo } from "@/lib/utils";
 
 export const metadata = { title: "Chaveamento — PalpitaAí" };
 
-const GROUPS = ["A", "B", "C", "D", "E", "F", "G", "H"];
-
-const KNOCKOUT_STAGES: { stage: MatchStage; label: string }[] = [
-  { stage: "ROUND_OF_16", label: "Oitavas de Final" },
-  { stage: "QUARTER_FINAL", label: "Quartas de Final" },
-  { stage: "SEMI_FINAL", label: "Semifinal" },
-  { stage: "FINAL", label: "Final" },
+const KNOCKOUT_STAGES: { stage: MatchStage; label: string; max: number }[] = [
+  { stage: "ROUND_OF_32", label: "Rodada de 32", max: 16 },
+  { stage: "ROUND_OF_16", label: "Oitavas de Final", max: 8 },
+  { stage: "QUARTER_FINAL", label: "Quartas de Final", max: 4 },
+  { stage: "SEMI_FINAL", label: "Semifinal", max: 2 },
+  { stage: "FINAL", label: "Final", max: 1 },
 ];
 
 const resultBadge: Record<string, { bg: string; label: string }> = {
@@ -81,7 +80,13 @@ function MatchCard({ match, prediction }: { match: MatchWithPrediction; predicti
 }
 
 function KnockoutSlot({ match, prediction }: { match?: MatchWithPrediction; prediction?: Prediction }) {
-  if (!match) return null;
+  if (!match) {
+    return (
+      <div className="bg-zinc-900 border border-zinc-700/50 rounded-lg p-3 text-sm min-w-[200px] opacity-40">
+        <div className="text-zinc-500 text-xs text-center py-1">A definir</div>
+      </div>
+    );
+  }
 
   const isFinished = match.status === "FINISHED";
 
@@ -89,7 +94,7 @@ function KnockoutSlot({ match, prediction }: { match?: MatchWithPrediction; pred
     <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-sm min-w-[200px]">
       <div className="flex items-center gap-2 mb-1">
         {match.homeTeamFlag && (
-          <img src={match.homeTeamFlag} alt="" className="w-5 h-5 object-contain shrink-0" />
+          <img src={teamLogo(match.homeTeamFlag)} alt="" className="w-5 h-5 object-contain shrink-0" />
         )}
         <span className="text-white text-xs font-medium flex-1 truncate">{match.homeTeam}</span>
         {isFinished && match.homeScore !== null && (
@@ -98,7 +103,7 @@ function KnockoutSlot({ match, prediction }: { match?: MatchWithPrediction; pred
       </div>
       <div className="flex items-center gap-2">
         {match.awayTeamFlag && (
-          <img src={match.awayTeamFlag} alt="" className="w-5 h-5 object-contain shrink-0" />
+          <img src={teamLogo(match.awayTeamFlag)} alt="" className="w-5 h-5 object-contain shrink-0" />
         )}
         <span className="text-white text-xs font-medium flex-1 truncate">{match.awayTeam}</span>
         {isFinished && match.awayScore !== null && (
@@ -124,14 +129,6 @@ function KnockoutSlot({ match, prediction }: { match?: MatchWithPrediction; pred
   );
 }
 
-function TBDSlot() {
-  return (
-    <div className="bg-zinc-900 border border-zinc-700/50 rounded-lg p-3 text-sm min-w-[200px] opacity-50">
-      <div className="text-zinc-500 text-xs text-center py-1">A definir</div>
-    </div>
-  );
-}
-
 export default async function BracketPage() {
   const session = await auth();
   const userId = session?.user?.id ?? "";
@@ -150,18 +147,25 @@ export default async function BracketPage() {
   const groupMatches = matches.filter((m) => m.stage === "GROUP");
   const knockoutMatches = matches.filter((m) => m.stage !== "GROUP");
 
-  // Group phase: group by group letter
-  const groupMap = new Map<string, MatchWithPrediction[]>();
-  for (const group of GROUPS) {
-    groupMap.set(
-      group,
+  // Derive groups dynamically from actual match data (supports A–L for 2026)
+  const groupLetters = Array.from(
+    new Set(
       groupMatches
-        .filter((m) => m.group === group)
+        .map((m) => m.group)
+        .filter((g): g is string => !!g)
+    )
+  ).sort();
+
+  const groupMap = new Map<string, MatchWithPrediction[]>();
+  for (const letter of groupLetters) {
+    groupMap.set(
+      letter,
+      groupMatches
+        .filter((m) => m.group === letter)
         .map((m) => ({ ...m, predictions: predByMatch.has(m.id) ? [predByMatch.get(m.id)!] : [] }))
     );
   }
 
-  // Knockout phase: group by stage
   const stageMap = new Map<MatchStage, MatchWithPrediction[]>();
   for (const { stage } of KNOCKOUT_STAGES) {
     stageMap.set(
@@ -172,13 +176,19 @@ export default async function BracketPage() {
     );
   }
 
+  // Only include knockout stages that have matches or come after stages that do
+  const activeKnockoutStages = KNOCKOUT_STAGES.filter(({ stage }) => {
+    const sm = stageMap.get(stage) ?? [];
+    return sm.length > 0;
+  });
+
   const hasGroupMatches = groupMatches.length > 0;
   const hasKnockoutMatches = knockoutMatches.length > 0;
 
   return (
     <div>
       <h1 className="text-2xl font-bold text-white mb-2">Chaveamento</h1>
-      <p className="text-zinc-400 mb-8 text-sm">Todos os jogos</p>
+      <p className="text-zinc-400 mb-8 text-sm">Todos os jogos da Copa do Mundo 2026</p>
 
       {/* Fase de Grupos */}
       {hasGroupMatches && (
@@ -187,7 +197,7 @@ export default async function BracketPage() {
             <span>⚽</span> Fase de Grupos
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-6">
-            {GROUPS.map((group) => {
+            {groupLetters.map((group) => {
               const gm = groupMap.get(group) ?? [];
               if (gm.length === 0) return null;
               return (
@@ -222,47 +232,26 @@ export default async function BracketPage() {
             <span>🏆</span> Mata-mata
           </h2>
           <div className="flex gap-6 overflow-x-auto pb-4">
-            {KNOCKOUT_STAGES.map(({ stage, label }) => {
+            {activeKnockoutStages.map(({ stage, label, max }) => {
               const sm = stageMap.get(stage) ?? [];
-              // Count expected matches per stage
-              const expectedCounts: Partial<Record<MatchStage, number>> = {
-                ROUND_OF_16: 8,
-                QUARTER_FINAL: 4,
-                SEMI_FINAL: 2,
-                FINAL: 1,
-              };
-              const expected = expectedCounts[stage] ?? 0;
-              const slots = Array.from({ length: expected }, (_, i) => sm[i]);
-
+              const slots = Array.from({ length: max }, (_, i) => sm[i]);
               return (
                 <div key={stage} className="flex flex-col shrink-0" style={{ minWidth: 220 }}>
                   <h3 className="text-sm font-semibold text-zinc-300 mb-3 text-center">{label}</h3>
                   <div className="flex flex-col gap-2 justify-around h-full">
-                    {slots.map((match, i) =>
-                      match ? (
-                        <KnockoutSlot
-                          key={match.id}
-                          match={match}
-                          prediction={predByMatch.get(match.id)}
-                        />
-                      ) : (
-                        <TBDSlot key={i} />
-                      )
-                    )}
+                    {slots.map((match, i) => (
+                      <KnockoutSlot
+                        key={match?.id ?? i}
+                        match={match}
+                        prediction={match ? predByMatch.get(match.id) : undefined}
+                      />
+                    ))}
                   </div>
                 </div>
               );
             })}
           </div>
         </section>
-      )}
-
-      {!hasGroupMatches && !hasKnockoutMatches && (
-        <div className="text-center text-zinc-500 py-20">
-          <p className="text-5xl mb-4">🏆</p>
-          <p className="text-lg font-medium text-white">Nenhum jogo cadastrado ainda.</p>
-          <p className="text-sm mt-2">O chaveamento aparecerá aqui quando os jogos forem importados.</p>
-        </div>
       )}
 
       {hasGroupMatches && !hasKnockoutMatches && (
@@ -273,9 +262,17 @@ export default async function BracketPage() {
           <div className="text-center text-zinc-500 py-12 bg-zinc-900 border border-zinc-800 rounded-xl">
             <p className="text-4xl mb-3">⏳</p>
             <p className="text-zinc-300 font-medium">Mata-mata ainda não definido</p>
-            <p className="text-sm mt-2">As fases eliminatórias serão exibidas aqui após a fase de grupos.</p>
+            <p className="text-sm mt-2">As fases eliminatórias aparecerão aqui após a fase de grupos.</p>
           </div>
         </section>
+      )}
+
+      {!hasGroupMatches && !hasKnockoutMatches && (
+        <div className="text-center text-zinc-500 py-20">
+          <p className="text-5xl mb-4">🏆</p>
+          <p className="text-lg font-medium text-white">Nenhum jogo cadastrado ainda.</p>
+          <p className="text-sm mt-2">O chaveamento aparecerá aqui quando os jogos forem importados pelo admin.</p>
+        </div>
       )}
     </div>
   );

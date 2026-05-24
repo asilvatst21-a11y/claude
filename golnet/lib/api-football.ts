@@ -96,6 +96,7 @@ export function mapApiStatus(short: string): MatchStatus {
 
 export function mapApiStage(round: string): MatchStage {
   if (round.includes("Group Stage")) return "GROUP";
+  if (round.includes("Round of 32") || round.includes("1/16-finals")) return "ROUND_OF_32";
   if (round.includes("Round of 16") || round.includes("1/8-finals")) return "ROUND_OF_16";
   if (round.includes("Quarter-finals")) return "QUARTER_FINAL";
   if (round.includes("Semi-finals")) return "SEMI_FINAL";
