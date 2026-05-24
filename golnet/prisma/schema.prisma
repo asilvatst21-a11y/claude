@@ -78,12 +78,13 @@ model User {
   predictions     Prediction[]
   achievements    UserAchievement[]
   supportTickets  SupportTicket[]
-  duelsCreated      Duel[]             @relation("DuelCreator")
-  duelsOpposed      Duel[]             @relation("DuelOpponent")
-  duelsWon          Duel[]             @relation("DuelWinner")
-  duelPredictions   DuelPrediction[]
-  pushSubscriptions PushSubscription[]
-  mpPayments        MercadoPagoPayment[]
+  duelsCreated         Duel[]               @relation("DuelCreator")
+  duelsOpposed         Duel[]               @relation("DuelOpponent")
+  duelsWon             Duel[]               @relation("DuelWinner")
+  duelPredictions      DuelPrediction[]
+  pushSubscriptions    PushSubscription[]
+  mpPayments           MercadoPagoPayment[]
+  championPredictions  ChampionPrediction[]
 }
 
 // ─── Push Subscriptions ───────────────────────────────────────────────────────
@@ -120,10 +121,17 @@ model League {
   ptsCorrectWinner  Int @default(5)
   ptsCorrectDraw    Int @default(4)
   ptsKnockoutBonus  Int @default(3)
+  // Team filter — empty = all teams
+  teamFilter                String[]
+  // Champion prediction
+  championPredictionEnabled Boolean  @default(false)
+  championPredictionPoints  Int      @default(20)
+  actualChampion            String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  members LeagueMember[]
+  members             LeagueMember[]
+  championPredictions ChampionPrediction[]
 }
 
 enum LeagueRole {
@@ -341,6 +349,23 @@ model DuelPrediction {
   user  User  @relation(fields: [userId], references: [id])
 
   @@unique([duelId, matchId, userId])
+}
+
+// ─── Champion Prediction ──────────────────────────────────────────────────────
+
+model ChampionPrediction {
+  id        String   @id @default(cuid())
+  userId    String
+  leagueId  String
+  team      String
+  points    Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, leagueId])
 }
 
 // ─── Round Ranking ────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { CopyInviteButton } from "./copy-invite-button";
 import { LeagueTabs } from "./league-tabs";
+import { ChampionWidget } from "./champion-widget";
 
 export const metadata = { title: "Liga — PalpitaAí" };
 
@@ -36,18 +37,39 @@ export default async function LeagueDetailPage({
     }),
   ]);
 
+  // If league has a team filter, recalculate standings from predictions
+  let members = league?.members ?? [];
+  if (league && league.teamFilter.length > 0) {
+    const filteredMatches = await prisma.match.findMany({
+      where: { OR: [{ homeTeam: { in: league.teamFilter } }, { awayTeam: { in: league.teamFilter } }] },
+      select: { id: true },
+    });
+    const matchIds = filteredMatches.map((m) => m.id);
+    const memberUserIds = members.map((m) => m.userId);
+
+    const predPoints = await prisma.prediction.groupBy({
+      by: ["userId"],
+      where: { matchId: { in: matchIds }, userId: { in: memberUserIds } },
+      _sum: { points: true, bonusPoints: true },
+    });
+    const pointsMap = Object.fromEntries(
+      predPoints.map((p) => [p.userId, (p._sum.points ?? 0) + (p._sum.bonusPoints ?? 0)])
+    );
+
+    members = [...members]
+      .map((m) => ({ ...m, totalPoints: pointsMap[m.userId] ?? 0 }))
+      .sort((a, b) => b.totalPoints - a.totalPoints);
+  }
+
   if (!league) notFound();
 
-  const currentMember = league.members.find((m) => m.userId === userId);
+  const currentMember = members.find((m) => m.userId === userId);
   if (!currentMember) notFound();
 
   const isOwner = currentMember.role === "OWNER";
   const userPlan = userRecord?.plan ?? "FREE";
 
-  // Build a lookup map of userId -> member user info
-  const memberMap = new Map(
-    league.members.map((m) => [m.userId, m.user])
-  );
+  const memberMap = new Map(members.map((m) => [m.userId, m.user]));
 
   // Group round rankings by round, sort entries by points desc
   const roundMap = new Map<
@@ -96,9 +118,14 @@ export default async function LeagueDetailPage({
                 {league.visibility === "PRIVATE" ? "🔒 Privada" : "🌐 Pública"}
               </span>
               <span className="text-xs text-zinc-500">
-                {league.members.length}{" "}
-                {league.members.length === 1 ? "membro" : "membros"}
+                {members.length}{" "}
+                {members.length === 1 ? "membro" : "membros"}
               </span>
+              {league.teamFilter.length > 0 && (
+                <span className="text-xs text-blue-400 bg-blue-400/10 px-2 py-0.5 rounded-full">
+                  🎯 {league.teamFilter.length} {league.teamFilter.length === 1 ? "seleção" : "seleções"}
+                </span>
+              )}
               <span className="text-xs text-zinc-500 bg-zinc-800 rounded px-2 py-0.5">
                 {currentMember.role === "OWNER"
                   ? "Dono"
@@ -128,9 +155,32 @@ export default async function LeagueDetailPage({
         </div>
       )}
 
+      {league.championPredictionEnabled && (
+        <ChampionWidget
+          leagueId={params.id}
+          currentUserId={userId}
+          isOwner={isOwner}
+          actualChampion={league.actualChampion}
+          championPredictionPoints={league.championPredictionPoints}
+        />
+      )}
+
+      {league.teamFilter.length > 0 && (
+        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl px-4 py-3 mb-4 flex items-start gap-3">
+          <span className="text-blue-400 text-lg shrink-0">🎯</span>
+          <div>
+            <p className="text-sm text-blue-400 font-medium">Filtro de seleções ativo</p>
+            <p className="text-xs text-zinc-400 mt-0.5">
+              Pontuação desta liga conta apenas jogos de:{" "}
+              <span className="text-white">{league.teamFilter.join(", ")}</span>
+            </p>
+          </div>
+        </div>
+      )}
+
       <LeagueTabs
         leagueId={params.id}
-        members={league.members}
+        members={members}
         roundGroups={roundGroups}
         userPlan={userPlan}
         userId={userId}

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useRef } from "react";
 
 type League = {
   id: string;
@@ -86,6 +87,16 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
   const [inviteCode, setInviteCode] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Team filter
+  const [allTeams, setAllTeams] = useState<string[]>([]);
+  const [teamFilter, setTeamFilter] = useState<string[]>([]);
+  const [teamSearch, setTeamSearch] = useState("");
+  const [showTeamList, setShowTeamList] = useState(false);
+
+  // Champion prediction
+  const [championEnabled, setChampionEnabled] = useState(false);
+  const [championPoints, setChampionPoints] = useState(20);
+
   const load = async () => {
     const res = await fetch("/api/leagues");
     const data = await res.json();
@@ -93,7 +104,10 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    fetch("/api/teams").then((r) => r.json()).then(setAllTeams).catch(() => {});
+  }, []);
 
   const createLeague = async () => {
     setSaving(true);
@@ -102,6 +116,9 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ...form,
+        teamFilter,
+        championPredictionEnabled: championEnabled,
+        championPredictionPoints: championPoints,
         ...(isPro && useCustomScoring ? scoring : {}),
       }),
     });
@@ -110,6 +127,10 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
     setForm({ name: "", description: "", visibility: "PUBLIC" });
     setScoring(DEFAULT_SCORING);
     setUseCustomScoring(false);
+    setTeamFilter([]);
+    setTeamSearch("");
+    setChampionEnabled(false);
+    setChampionPoints(20);
     load();
   };
 
@@ -168,6 +189,116 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                 <option value="PUBLIC">Pública</option>
                 <option value="PRIVATE">Privada (por convite)</option>
               </select>
+            </div>
+
+            {/* Team filter */}
+            <div className="mt-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div
+                  onClick={() => { setShowTeamList((v) => !v); if (showTeamList) setTeamFilter([]); }}
+                  className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${showTeamList ? "bg-blue-500" : "bg-zinc-700"}`}
+                >
+                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${showTeamList ? "translate-x-5" : "translate-x-1"}`} />
+                </div>
+                <span className="text-sm font-medium text-zinc-300">
+                  Filtrar por seleções
+                  {teamFilter.length > 0 && (
+                    <span className="ml-2 text-xs text-blue-400">({teamFilter.length} selecionadas)</span>
+                  )}
+                </span>
+              </label>
+              {showTeamList && (
+                <div className="mt-3">
+                  <input
+                    type="text"
+                    placeholder="Buscar seleção..."
+                    value={teamSearch}
+                    onChange={(e) => setTeamSearch(e.target.value)}
+                    className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500 mb-2"
+                  />
+                  {teamFilter.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {teamFilter.map((t) => (
+                        <span
+                          key={t}
+                          className="flex items-center gap-1 text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30 px-2 py-1 rounded-full"
+                        >
+                          {t}
+                          <button
+                            onClick={() => setTeamFilter((prev) => prev.filter((x) => x !== t))}
+                            className="hover:text-white"
+                          >×</button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="bg-zinc-800 border border-zinc-700 rounded-lg overflow-hidden max-h-48 overflow-y-auto">
+                    {allTeams
+                      .filter((t) => t.toLowerCase().includes(teamSearch.toLowerCase()))
+                      .slice(0, 30)
+                      .map((team) => {
+                        const selected = teamFilter.includes(team);
+                        return (
+                          <button
+                            key={team}
+                            onClick={() => setTeamFilter((prev) =>
+                              selected ? prev.filter((x) => x !== team) : [...prev, team]
+                            )}
+                            className={`w-full text-left px-4 py-2.5 text-sm flex items-center gap-3 transition-colors ${
+                              selected ? "bg-blue-500/10 text-blue-300" : "text-zinc-300 hover:bg-zinc-700"
+                            }`}
+                          >
+                            <span className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 ${selected ? "bg-blue-500 border-blue-500 text-white" : "border-zinc-600"}`}>
+                              {selected && "✓"}
+                            </span>
+                            {team}
+                          </button>
+                        );
+                      })}
+                    {allTeams.filter((t) => t.toLowerCase().includes(teamSearch.toLowerCase())).length === 0 && (
+                      <p className="text-zinc-500 text-sm px-4 py-3">Nenhum time encontrado</p>
+                    )}
+                  </div>
+                  <p className="text-xs text-zinc-500 mt-1">
+                    Deixe vazio para contar todos os jogos. Selecione times para contar apenas jogos das seleções escolhidas.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Champion prediction */}
+            <div className="mt-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <div
+                  onClick={() => setChampionEnabled((v) => !v)}
+                  className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${championEnabled ? "bg-yellow-500" : "bg-zinc-700"}`}
+                >
+                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${championEnabled ? "translate-x-5" : "translate-x-1"}`} />
+                </div>
+                <span className="text-sm font-medium text-zinc-300">
+                  Palpite do Campeão 🏆
+                </span>
+              </label>
+              {championEnabled && (
+                <div className="mt-3 bg-zinc-800 rounded-xl p-4">
+                  <p className="text-xs text-zinc-400 mb-3">
+                    Membros palpitam qual seleção vai ser campeã. O dono define o campeão real e os pontos são premiados automaticamente.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <span className="text-sm text-zinc-300">Pontos pelo acerto:</span>
+                    <button
+                      onClick={() => setChampionPoints((v) => Math.max(1, v - 5))}
+                      className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center"
+                    >−</button>
+                    <span className="w-12 text-center font-bold text-yellow-400">{championPoints}</span>
+                    <button
+                      onClick={() => setChampionPoints((v) => Math.min(500, v + 5))}
+                      className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center"
+                    >+</button>
+                    <span className="text-xs text-zinc-500">pts</span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Custom scoring — PRO only */}
