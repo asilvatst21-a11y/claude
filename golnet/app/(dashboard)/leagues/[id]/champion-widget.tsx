@@ -15,9 +15,10 @@ type Props = {
   isOwner: boolean;
   actualChampion: string | null;
   championPredictionPoints: number;
+  competitionName: string | null;
 };
 
-export function ChampionWidget({ leagueId, currentUserId, isOwner, actualChampion, championPredictionPoints }: Props) {
+export function ChampionWidget({ leagueId, currentUserId, isOwner, actualChampion, championPredictionPoints, competitionName }: Props) {
   const [preds, setPreds] = useState<Pred[]>([]);
   const [teams, setTeams] = useState<string[]>([]);
   const [myTeam, setMyTeam] = useState<string>("");
@@ -28,9 +29,12 @@ export function ChampionWidget({ leagueId, currentUserId, isOwner, actualChampio
   const [showOwnerPanel, setShowOwnerPanel] = useState(false);
 
   const load = async () => {
+    const teamsUrl = competitionName
+      ? `/api/teams?competition=${encodeURIComponent(competitionName)}`
+      : "/api/teams";
     const [predsRes, teamsRes] = await Promise.all([
       fetch(`/api/leagues/${leagueId}/champion`),
-      fetch("/api/teams"),
+      fetch(teamsUrl),
     ]);
     if (predsRes.ok) {
       const data: Pred[] = await predsRes.json();

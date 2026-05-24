@@ -175,6 +175,7 @@ export default async function LeagueDetailPage({
           isOwner={isOwner}
           actualChampion={league.actualChampion}
           championPredictionPoints={league.championPredictionPoints}
+          competitionName={league.competitionName}
         />
       )}
 

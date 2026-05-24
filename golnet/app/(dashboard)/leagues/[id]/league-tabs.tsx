@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { LeagueMatches } from "./league-matches";
 
 type Member = {
   id: string;
@@ -35,7 +36,7 @@ interface LeagueTabsProps {
   userId: string;
 }
 
-const TABS = ["Ranking Geral", "Por Rodada", "H2H"] as const;
+const TABS = ["Jogos", "Ranking Geral", "Por Rodada", "H2H"] as const;
 type Tab = (typeof TABS)[number];
 
 export function LeagueTabs({
@@ -45,7 +46,7 @@ export function LeagueTabs({
   userPlan,
   userId,
 }: LeagueTabsProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("Ranking Geral");
+  const [activeTab, setActiveTab] = useState<Tab>("Jogos");
   const isPro = userPlan !== "FREE";
 
   return (
@@ -62,11 +63,14 @@ export function LeagueTabs({
                 : "text-zinc-400 hover:text-white"
             }`}
           >
-            {tab}
+            {tab === "Jogos" ? "⚽ Jogos" : tab}
             {(tab === "Por Rodada" || tab === "H2H") && " ⭐"}
           </button>
         ))}
       </div>
+
+      {/* Tab: Jogos */}
+      {activeTab === "Jogos" && <LeagueMatches leagueId={leagueId} />}
 
       {/* Tab: Ranking Geral */}
       {activeTab === "Ranking Geral" && (
