@@ -99,10 +99,15 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
   const [championPoints, setChampionPoints] = useState(20);
 
   const load = async () => {
-    const res = await fetch("/api/leagues");
-    const data = await res.json();
-    setLeagues(data);
-    setLoading(false);
+    try {
+      const res = await fetch("/api/leagues");
+      const data = await res.json();
+      if (Array.isArray(data)) setLeagues(data);
+    } catch {
+      // silently ignore network/parse errors
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => {
