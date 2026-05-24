@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { CopyInviteButton } from "./copy-invite-button";
 import { LeagueTabs } from "./league-tabs";
 import { ChampionWidget } from "./champion-widget";
+import { DeleteLeagueButton } from "./delete-league-button";
 
 export const metadata = { title: "Liga — PalpitaAí" };
 
@@ -116,7 +117,7 @@ export default async function LeagueDetailPage({
           <span className="text-zinc-300">{league.name}</span>
         </div>
         <div className="flex items-start justify-between">
-          <div>
+          <div className="flex-1 min-w-0">
             <h1 className="text-2xl font-bold text-white">{league.name}</h1>
             {league.description && (
               <p className="text-zinc-400 mt-1">{league.description}</p>
@@ -148,6 +149,11 @@ export default async function LeagueDetailPage({
               </span>
             </div>
           </div>
+          {isOwner && (
+            <div className="ml-3 shrink-0 mt-1">
+              <DeleteLeagueButton leagueId={params.id} leagueName={league.name} />
+            </div>
+          )}
         </div>
       </div>
 
