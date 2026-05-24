@@ -24,83 +24,68 @@ const resultBadge: Record<string, { bg: string; label: string }> = {
   WRONG: { bg: "bg-red-500/20 text-red-400 border-red-500/40", label: "Errou" },
 };
 
-function GroupMatchCard({ match }: { match: MatchWithPrediction }) {
-  const pred = match.predictions[0];
-  const badge = pred?.result ? resultBadge[pred.result] : null;
-  const isFinished = match.status === "FINISHED";
-
-  return (
-    <div className="bg-zinc-800/60 border border-zinc-700 rounded-lg p-3 text-sm">
-      <div className="flex items-center gap-2 mb-1.5">
-        <div className="flex-1 flex items-center gap-1.5 min-w-0">
-          {match.homeTeamFlag && (
-            <img src={teamLogo(match.homeTeamFlag)} alt="" className="w-5 h-5 object-contain shrink-0" />
-          )}
-          <span className="text-white font-medium truncate">{match.homeTeam}</span>
-        </div>
-        <div className="shrink-0 text-center min-w-[60px]">
-          {isFinished && match.homeScore !== null && match.awayScore !== null ? (
-            <span className="text-white font-bold">{match.homeScore}–{match.awayScore}</span>
-          ) : (
-            <span className="text-zinc-500 text-xs">{format(new Date(match.startsAt), "dd/MM HH:mm", { locale: ptBR })}</span>
-          )}
-        </div>
-        <div className="flex-1 flex items-center justify-end gap-1.5 min-w-0">
-          <span className="text-white font-medium truncate text-right">{match.awayTeam}</span>
-          {match.awayTeamFlag && (
-            <img src={teamLogo(match.awayTeamFlag)} alt="" className="w-5 h-5 object-contain shrink-0" />
-          )}
-        </div>
-      </div>
-      {(pred || badge) && (
-        <div className="flex items-center justify-between">
-          {pred ? (
-            <span className="text-xs text-zinc-400">Palpite: {pred.homeScore}–{pred.awayScore}</span>
-          ) : <span />}
-          {badge ? (
-            <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${badge.bg}`}>{badge.label}</span>
-          ) : pred ? (
-            <span className="text-xs px-1.5 py-0.5 rounded border bg-zinc-700/50 text-zinc-400 border-zinc-600">Aguardando</span>
-          ) : null}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function KnockoutCard({ match }: { match?: MatchWithPrediction }) {
   if (!match) {
     return (
-      <div className="bg-zinc-900 border border-zinc-700/40 rounded-lg p-3 min-w-[190px] opacity-40">
-        <div className="text-zinc-500 text-xs text-center py-1">A definir</div>
+      <div className="bg-zinc-900 border border-zinc-700/40 rounded-lg p-3 min-w-[180px] opacity-40">
+        <div className="flex items-center gap-2 py-0.5">
+          <div className="w-5 h-5 rounded bg-zinc-800 shrink-0" />
+          <span className="text-zinc-600 text-xs">A definir</span>
+        </div>
+        <div className="flex items-center gap-2 py-0.5 mt-1">
+          <div className="w-5 h-5 rounded bg-zinc-800 shrink-0" />
+          <span className="text-zinc-600 text-xs">A definir</span>
+        </div>
       </div>
     );
   }
+
   const isFinished = match.status === "FINISHED";
+  const isLive = match.status === "LIVE";
   const pred = match.predictions[0];
   const badge = pred?.result ? resultBadge[pred.result] : null;
 
+  const homeWon = isFinished && match.homeScore !== null && match.awayScore !== null && match.homeScore > match.awayScore;
+  const awayWon = isFinished && match.homeScore !== null && match.awayScore !== null && match.awayScore > match.homeScore;
+
   return (
-    <div className="bg-zinc-900 border border-zinc-700 rounded-lg p-3 text-sm min-w-[190px]">
-      <div className="flex items-center gap-2 mb-1">
-        {match.homeTeamFlag && <img src={teamLogo(match.homeTeamFlag)} alt="" className="w-5 h-5 object-contain shrink-0" />}
-        <span className="text-white text-xs font-medium flex-1 truncate">{match.homeTeam}</span>
-        {isFinished && match.homeScore !== null && <span className="text-white font-bold text-xs">{match.homeScore}</span>}
+    <div className={`bg-zinc-900 border rounded-lg p-3 min-w-[180px] ${isLive ? "border-green-500/50" : "border-zinc-700"}`}>
+      {/* Home */}
+      <div className={`flex items-center gap-2 py-0.5 ${isFinished && homeWon ? "opacity-100" : isFinished ? "opacity-50" : ""}`}>
+        {match.homeTeamFlag
+          ? <img src={teamLogo(match.homeTeamFlag)} alt="" className="w-5 h-5 object-contain shrink-0" />
+          : <div className="w-5 h-5 rounded bg-zinc-700 shrink-0" />
+        }
+        <span className={`text-xs font-medium flex-1 truncate ${homeWon ? "text-white" : "text-zinc-300"}`}>{match.homeTeam}</span>
+        {(isFinished || isLive) && match.homeScore !== null && (
+          <span className={`font-bold text-xs shrink-0 ${homeWon ? "text-white" : "text-zinc-400"}`}>{match.homeScore}</span>
+        )}
       </div>
-      <div className="flex items-center gap-2">
-        {match.awayTeamFlag && <img src={teamLogo(match.awayTeamFlag)} alt="" className="w-5 h-5 object-contain shrink-0" />}
-        <span className="text-white text-xs font-medium flex-1 truncate">{match.awayTeam}</span>
-        {isFinished && match.awayScore !== null && <span className="text-white font-bold text-xs">{match.awayScore}</span>}
+
+      {/* Away */}
+      <div className={`flex items-center gap-2 py-0.5 mt-1 ${isFinished && awayWon ? "opacity-100" : isFinished ? "opacity-50" : ""}`}>
+        {match.awayTeamFlag
+          ? <img src={teamLogo(match.awayTeamFlag)} alt="" className="w-5 h-5 object-contain shrink-0" />
+          : <div className="w-5 h-5 rounded bg-zinc-700 shrink-0" />
+        }
+        <span className={`text-xs font-medium flex-1 truncate ${awayWon ? "text-white" : "text-zinc-300"}`}>{match.awayTeam}</span>
+        {(isFinished || isLive) && match.awayScore !== null && (
+          <span className={`font-bold text-xs shrink-0 ${awayWon ? "text-white" : "text-zinc-400"}`}>{match.awayScore}</span>
+        )}
       </div>
+
+      {/* Date or live */}
       {!isFinished && (
-        <div className="text-zinc-500 text-xs mt-1 text-center">
-          {format(new Date(match.startsAt), "dd/MM HH:mm", { locale: ptBR })}
+        <div className={`text-xs mt-1.5 text-center ${isLive ? "text-green-400" : "text-zinc-500"}`}>
+          {isLive ? "🟢 Ao vivo" : format(new Date(match.startsAt), "dd/MM HH:mm", { locale: ptBR })}
         </div>
       )}
+
+      {/* Prediction */}
       {pred && (
-        <div className="mt-1 pt-1 border-t border-zinc-700 text-xs flex items-center justify-between gap-1">
-          <span className="text-zinc-400">Palpite: {pred.homeScore}–{pred.awayScore}</span>
-          {badge && <span className={`px-1 py-0.5 rounded border font-medium text-xs ${badge.bg}`}>{badge.label}</span>}
+        <div className="mt-1.5 pt-1.5 border-t border-zinc-800 flex items-center justify-between gap-1 text-xs">
+          <span className="text-zinc-500">{pred.homeScore}–{pred.awayScore}</span>
+          {badge && <span className={`px-1 py-0.5 rounded border font-medium ${badge.bg}`}>{badge.label}</span>}
         </div>
       )}
     </div>
@@ -115,101 +100,57 @@ export function BracketView({ leagueId, season }: { leagueId: number; season: nu
     setLoading(true);
     fetch(`/api/matches?leagueId=${leagueId}&season=${season}`)
       .then((r) => r.json())
-      .then((d) => { if (Array.isArray(d)) setMatches(d); })
+      .then((d) => {
+        if (Array.isArray(d)) setMatches(d.filter((m) => m.stage !== "GROUP"));
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [leagueId, season]);
 
-  if (loading) {
-    return <div className="text-zinc-500 text-center py-16 animate-pulse">Carregando jogos...</div>;
-  }
-
-  const groupMatches = matches.filter((m) => m.stage === "GROUP");
-  const knockoutMatches = matches.filter((m) => m.stage !== "GROUP");
-
-  const groupLetters = Array.from(
-    new Set(groupMatches.map((m) => m.group).filter((g): g is string => !!g))
-  ).sort();
-
-  const groupMap = new Map<string, MatchWithPrediction[]>();
-  for (const letter of groupLetters) {
-    groupMap.set(letter, groupMatches.filter((m) => m.group === letter));
-  }
+  if (loading) return <div className="text-zinc-500 text-center py-16 animate-pulse">Carregando chaveamento...</div>;
 
   const stageMap = new Map<string, MatchWithPrediction[]>();
   for (const { stage } of KNOCKOUT_STAGES) {
-    stageMap.set(stage, knockoutMatches.filter((m) => m.stage === stage));
+    stageMap.set(stage, matches.filter((m) => m.stage === stage));
   }
 
-  const activeKnockout = KNOCKOUT_STAGES.filter(({ stage }) => (stageMap.get(stage) ?? []).length > 0);
-
-  if (matches.length === 0) {
-    return (
-      <div className="text-center text-zinc-500 py-20">
-        <p className="text-5xl mb-4">🏆</p>
-        <p className="text-lg font-medium text-white">Nenhum jogo cadastrado ainda.</p>
-        <p className="text-sm mt-2">Os jogos aparecerão aqui quando forem importados pelo admin.</p>
-      </div>
-    );
-  }
+  // Show all stages up to and including the last one with matches; fill rest with TBD
+  const lastWithMatches = [...KNOCKOUT_STAGES].reverse().findIndex(({ stage }) => (stageMap.get(stage) ?? []).length > 0);
+  const visibleStages = lastWithMatches === -1
+    ? KNOCKOUT_STAGES
+    : KNOCKOUT_STAGES.slice(0, KNOCKOUT_STAGES.length - lastWithMatches);
 
   return (
-    <div className="space-y-10">
-      {/* Fase de Grupos */}
-      {groupLetters.length > 0 && (
-        <section>
-          <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-            <span>⚽</span> Fase de Grupos
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-            {groupLetters.map((letter) => {
-              const gm = groupMap.get(letter) ?? [];
-              return (
-                <div key={letter} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-                  <div className="px-4 py-3 border-b border-zinc-800 flex items-center gap-2">
-                    <span className="w-7 h-7 rounded-full bg-green-500/20 text-green-400 flex items-center justify-center text-sm font-bold">
-                      {letter}
-                    </span>
-                    <span className="text-white font-semibold text-sm">Grupo {letter}</span>
-                    <span className="text-zinc-500 text-xs ml-auto">{gm.length} jogos</span>
-                  </div>
-                  <div className="p-3 flex flex-col gap-2">
-                    {gm.map((m) => <GroupMatchCard key={m.id} match={m} />)}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
+    <div>
+      {matches.length === 0 && (
+        <div className="text-center text-zinc-500 py-16 bg-zinc-900 border border-zinc-800 rounded-xl">
+          <p className="text-4xl mb-3">⏳</p>
+          <p className="text-zinc-300 font-medium">Mata-mata ainda não definido</p>
+          <p className="text-sm mt-1">O chaveamento será preenchido conforme as seleções se classificam.</p>
+        </div>
       )}
 
-      {/* Mata-mata */}
-      {activeKnockout.length > 0 && (
-        <section>
-          <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-            <span>🏆</span> Mata-mata
-          </h3>
-          <div className="flex gap-5 overflow-x-auto pb-4">
-            {activeKnockout.map(({ stage, label, max }) => {
+      {matches.length > 0 && (
+        <div className="overflow-x-auto pb-4">
+          <div className="flex gap-4 min-w-max">
+            {visibleStages.map(({ stage, label, max }) => {
               const sm = stageMap.get(stage) ?? [];
               const slots = Array.from({ length: max }, (_, i) => sm[i]);
               return (
-                <div key={stage} className="flex flex-col shrink-0" style={{ minWidth: 200 }}>
-                  <h4 className="text-xs font-semibold text-zinc-400 mb-3 text-center uppercase tracking-wide">{label}</h4>
-                  <div className="flex flex-col gap-2">
-                    {slots.map((match, i) => <KnockoutCard key={match?.id ?? i} match={match} />)}
+                <div key={stage} className="flex flex-col" style={{ minWidth: 190 }}>
+                  <div className="text-center mb-3">
+                    <span className="text-xs font-semibold text-zinc-400 uppercase tracking-widest">{label}</span>
+                    <div className="text-xs text-zinc-600 mt-0.5">{sm.length}/{max} definidos</div>
+                  </div>
+                  <div className="flex flex-col gap-2 justify-around flex-1">
+                    {slots.map((match, i) => (
+                      <KnockoutCard key={match?.id ?? i} match={match} />
+                    ))}
                   </div>
                 </div>
               );
             })}
           </div>
-        </section>
-      )}
-
-      {groupLetters.length > 0 && activeKnockout.length === 0 && (
-        <div className="text-center text-zinc-500 py-10 bg-zinc-900 border border-zinc-800 rounded-xl">
-          <p className="text-3xl mb-3">⏳</p>
-          <p className="text-zinc-300 font-medium text-sm">Mata-mata ainda não definido</p>
         </div>
       )}
     </div>

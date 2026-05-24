@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { teamLogo } from "@/lib/utils";
 import { BracketView } from "./bracket-view";
+import { MatchesView } from "./matches-view";
 
 type League = { leagueId: number; leagueName: string; leagueSeason: number };
 
@@ -16,7 +17,7 @@ type Standing = {
   form: string;
 };
 
-type Tab = "Classificação" | "Jogos";
+type Tab = "Classificação" | "Jogos" | "Chaveamento";
 
 function FormDot({ char }: { char: string }) {
   const color =
@@ -149,7 +150,7 @@ export function StandingsView({ leagues }: { leagues: League[] }) {
 
       {/* Tabs */}
       <div className="flex gap-1 bg-zinc-800 p-1 rounded-xl mb-6">
-        {(["Classificação", "Jogos"] as Tab[]).map((tab) => (
+        {(["Classificação", "Jogos", "Chaveamento"] as Tab[]).map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -157,7 +158,7 @@ export function StandingsView({ leagues }: { leagues: League[] }) {
               activeTab === tab ? "bg-zinc-900 text-white" : "text-zinc-400 hover:text-white"
             }`}
           >
-            {tab === "Classificação" ? "📊 Classificação" : "⚽ Jogos / Chaveamento"}
+            {tab === "Classificação" ? "📊 Tabela" : tab === "Jogos" ? "⚽ Jogos" : "🏆 Chaveamento"}
           </button>
         ))}
       </div>
@@ -205,8 +206,13 @@ export function StandingsView({ leagues }: { leagues: League[] }) {
         </>
       )}
 
-      {/* Tab: Jogos / Chaveamento */}
+      {/* Tab: Jogos */}
       {activeTab === "Jogos" && selected && (
+        <MatchesView leagueId={selected.leagueId} season={selected.leagueSeason} />
+      )}
+
+      {/* Tab: Chaveamento */}
+      {activeTab === "Chaveamento" && selected && (
         <BracketView leagueId={selected.leagueId} season={selected.leagueSeason} />
       )}
     </div>
