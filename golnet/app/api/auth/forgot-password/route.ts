@@ -4,8 +4,11 @@ import { sendPasswordResetEmail } from "@/lib/email";
 import crypto from "crypto";
 
 export async function POST(req: Request) {
-  const { email } = await req.json();
-  if (!email) return NextResponse.json({ error: "Email obrigatório" }, { status: 400 });
+  const body = await req.json();
+  const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
+  if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return NextResponse.json({ error: "Email inválido" }, { status: 400 });
+  }
 
   const user = await prisma.user.findUnique({ where: { email } });
 

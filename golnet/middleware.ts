@@ -48,18 +48,21 @@ function getLimiter(route: string, limit: number, windowSec: number): Ratelimit 
 
 // [maxRequests, windowSeconds]
 const LIMITS: Record<string, [number, number]> = {
-  "/api/auth/register":        [5,  60],
-  "/api/auth/forgot-password": [5,  60],
-  "/api/auth/reset-password":  [10, 60],
-  "/api/predictions":          [60, 60],
-  "/api/duels":                [20, 60],
-  "/api/push/subscribe":       [10, 60],
+  "/api/auth/register":                [5,  60],
+  "/api/auth/forgot-password":         [5,  60],
+  "/api/auth/reset-password":          [10, 60],
+  "/api/auth/signin":                  [10, 60],
+  "/api/auth/callback/credentials":    [10, 60],
+  "/api/predictions":                  [60, 60],
+  "/api/duels":                        [20, 60],
+  "/api/push/subscribe":               [10, 60],
 };
 
 function getIP(req: NextRequest): string {
+  // Prefer x-real-ip (set reliably by Vercel edge); fall back to first XFF entry
   return (
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
     req.headers.get("x-real-ip") ??
+    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ??
     "unknown"
   );
 }

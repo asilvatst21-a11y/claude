@@ -11,6 +11,14 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Dados incompletos" }, { status: 400 });
   }
 
+  // Validate endpoint is a legitimate HTTPS push service URL
+  try {
+    const u = new URL(endpoint);
+    if (u.protocol !== "https:") throw new Error("not https");
+  } catch {
+    return NextResponse.json({ error: "Endpoint inválido" }, { status: 400 });
+  }
+
   await prisma.pushSubscription.upsert({
     where: { endpoint },
     create: { userId: session.user.id, endpoint, p256dh, auth: authKey },

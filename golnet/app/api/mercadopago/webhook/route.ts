@@ -1,7 +1,35 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import crypto from "crypto";
+
+function verifyMPSignature(req: Request, secret: string): boolean {
+  const xSignature = req.headers.get("x-signature");
+  const xRequestId = req.headers.get("x-request-id");
+  const dataId = new URL(req.url).searchParams.get("data.id");
+  if (!xSignature) return false;
+
+  // Parse ts and v1 from x-signature header
+  const parts = Object.fromEntries(xSignature.split(",").map((p) => p.trim().split("=")));
+  const ts = parts["ts"];
+  const v1 = parts["v1"];
+  if (!ts || !v1) return false;
+
+  const manifest = `id:${dataId ?? ""};request-id:${xRequestId ?? ""};ts:${ts};`;
+  const expected = crypto.createHmac("sha256", secret).update(manifest).digest("hex");
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(v1, "hex"), Buffer.from(expected, "hex"));
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(req: Request) {
+  const webhookSecret = process.env.MERCADOPAGO_WEBHOOK_SECRET;
+  if (webhookSecret && !verifyMPSignature(req, webhookSecret)) {
+    return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
+  }
+
   const body = await req.json().catch(() => null);
 
   // Ignora notificações que não são de pagamento

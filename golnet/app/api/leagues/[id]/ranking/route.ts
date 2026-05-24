@@ -8,6 +8,11 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     return NextResponse.json({ error: "Não autenticado" }, { status: 401 });
   }
 
+  const membership = await prisma.leagueMember.findUnique({
+    where: { userId_leagueId: { userId: session.user.id, leagueId: params.id } },
+  });
+  if (!membership) return NextResponse.json({ error: "Não encontrado" }, { status: 404 });
+
   const members = await prisma.leagueMember.findMany({
     where: { leagueId: params.id },
     include: { user: { select: { id: true, name: true, username: true, image: true } } },

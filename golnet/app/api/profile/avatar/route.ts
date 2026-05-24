@@ -15,8 +15,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Imagem inválida" }, { status: 400 });
   }
 
-  if (!image.startsWith("data:image/")) {
-    return NextResponse.json({ error: "Formato inválido" }, { status: 400 });
+  const ALLOWED_MIME = ["data:image/png;", "data:image/jpeg;", "data:image/webp;", "data:image/gif;"];
+  if (!ALLOWED_MIME.some((m) => image.startsWith(m))) {
+    return NextResponse.json({ error: "Formato inválido. Use PNG, JPEG, WebP ou GIF." }, { status: 400 });
   }
 
   if (Buffer.byteLength(image, "utf8") > MAX_BYTES) {

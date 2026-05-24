@@ -11,6 +11,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   if (!duel) return NextResponse.json({ error: "Duelo não encontrado" }, { status: 404 });
   if (duel.status !== "PENDING") return NextResponse.json({ error: "Este duelo não está mais disponível" }, { status: 400 });
   if (duel.creatorId === userId) return NextResponse.json({ error: "Você não pode recusar seu próprio duelo" }, { status: 400 });
+  if (duel.opponentId && duel.opponentId !== userId) return NextResponse.json({ error: "Acesso negado" }, { status: 403 });
 
   const updated = await prisma.duel.update({
     where: { id: params.id },

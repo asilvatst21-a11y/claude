@@ -10,6 +10,7 @@ export const maxDuration = 60;
 const BEARER = process.env.CRON_SECRET;
 
 function authorize(req: Request) {
+  if (!BEARER) return false; // fail-closed when env var is absent
   const auth = req.headers.get("authorization");
   return auth === `Bearer ${BEARER}`;
 }
