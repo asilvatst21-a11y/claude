@@ -4,6 +4,7 @@ import { seedAchievements } from "@/lib/achievements";
 import { CityEditor } from "./city-editor";
 import { BioEditor } from "./bio-editor";
 import { NameEditor } from "./name-editor";
+import { UsernameEditor } from "./username-editor";
 import { PasswordEditor } from "./password-editor";
 import { AvatarUpload } from "./avatar-upload";
 import { ProfileVisibilityToggle } from "./profile-visibility-toggle";
@@ -86,7 +87,7 @@ export default async function ProfilePage() {
           <AvatarUpload currentImage={user?.image ?? null} name={user?.name ?? null} />
           <div>
             <NameEditor currentName={user?.name ?? null} />
-            {user?.username && <p className="text-zinc-400 text-sm mt-0.5">@{user.username}</p>}
+            <UsernameEditor currentUsername={user?.username ?? null} />
             <p className="text-zinc-500 text-xs mt-1">{user?.email}</p>
           </div>
         </div>

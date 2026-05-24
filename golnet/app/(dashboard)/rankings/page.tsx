@@ -5,30 +5,25 @@ import { RankingsClient } from "./rankings-client";
 export const metadata = { title: "Ranking — PalpitaAí" };
 
 async function getGlobalRanking() {
-  const predPoints = await prisma.prediction.groupBy({
-    by: ["userId"],
-    _sum: { points: true, bonusPoints: true },
-    _count: { id: true },
-    orderBy: [{ _sum: { points: "desc" } }, { _sum: { bonusPoints: "desc" } }],
-    take: 50,
-  });
+  const [allUsers, predPoints] = await Promise.all([
+    prisma.user.findMany({
+      select: { id: true, name: true, username: true, image: true, plan: true, city: true, state: true },
+    }),
+    prisma.prediction.groupBy({
+      by: ["userId"],
+      _sum: { points: true, bonusPoints: true },
+    }),
+  ]);
 
-  const userIds = predPoints.map((p) => p.userId);
-  if (userIds.length === 0) return [];
+  const pointsMap = Object.fromEntries(
+    predPoints.map((p) => [p.userId, (p._sum.points ?? 0) + (p._sum.bonusPoints ?? 0)])
+  );
 
-  const users = await prisma.user.findMany({
-    where: { id: { in: userIds } },
-    select: { id: true, name: true, username: true, image: true, plan: true, city: true, state: true },
-  });
-  const usersMap = Object.fromEntries(users.map((u) => [u.id, u]));
-
-  return predPoints
-    .filter((p) => usersMap[p.userId])
-    .map((p, i) => ({
-      rank: i + 1,
-      totalPoints: (p._sum.points ?? 0) + (p._sum.bonusPoints ?? 0),
-      ...usersMap[p.userId],
-    }));
+  return allUsers
+    .map((user) => ({ ...user, totalPoints: pointsMap[user.id] ?? 0 }))
+    .sort((a, b) => b.totalPoints - a.totalPoints)
+    .slice(0, 100)
+    .map((user, i) => ({ ...user, rank: i + 1 }));
 }
 
 async function getCityRanking(city: string, state: string) {
@@ -40,20 +35,20 @@ async function getCityRanking(city: string, state: string) {
   if (cityUsers.length === 0) return [];
 
   const userIds = cityUsers.map((u) => u.id);
-  const members = await prisma.leagueMember.groupBy({
+  const predPoints = await prisma.prediction.groupBy({
     by: ["userId"],
     where: { userId: { in: userIds } },
-    _sum: { totalPoints: true },
-    orderBy: { _sum: { totalPoints: "desc" } },
+    _sum: { points: true, bonusPoints: true },
   });
 
-  const usersMap = Object.fromEntries(cityUsers.map((u) => [u.id, u]));
+  const pointsMap = Object.fromEntries(
+    predPoints.map((p) => [p.userId, (p._sum.points ?? 0) + (p._sum.bonusPoints ?? 0)])
+  );
 
-  return members.map((m, i) => ({
-    rank: i + 1,
-    totalPoints: m._sum.totalPoints ?? 0,
-    ...usersMap[m.userId],
-  }));
+  return cityUsers
+    .map((user) => ({ ...user, totalPoints: pointsMap[user.id] ?? 0 }))
+    .sort((a, b) => b.totalPoints - a.totalPoints)
+    .map((user, i) => ({ ...user, rank: i + 1 }));
 }
 
 async function getCityStats() {
