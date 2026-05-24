@@ -44,7 +44,7 @@ export function DeleteLeagueButton({ leagueId, leagueName }: { leagueId: string;
               <p className="text-3xl mb-3">⚠️</p>
               <h2 className="text-lg font-bold text-white mb-2">Excluir liga?</h2>
               <p className="text-sm text-zinc-400">
-                A liga <span className="text-white font-semibold">"{leagueName}"</span> será excluída permanentemente junto com todo o histórico de palpites e rankings.
+                A liga <span className="text-white font-semibold">&ldquo;{leagueName}&rdquo;</span> será excluída permanentemente junto com todo o histórico de palpites e rankings.
               </p>
               <p className="text-xs text-red-400 mt-2 font-medium">Esta ação não pode ser desfeita.</p>
             </div>
