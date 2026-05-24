@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { teamLogo } from "@/lib/utils";
+import { BracketView } from "./bracket-view";
 
 type League = { leagueId: number; leagueName: string; leagueSeason: number };
 
@@ -14,6 +15,8 @@ type Standing = {
   all: { played: number; win: number; draw: number; lose: number; goals: { for: number; against: number } };
   form: string;
 };
+
+type Tab = "Classificação" | "Jogos";
 
 function FormDot({ char }: { char: string }) {
   const color =
@@ -92,9 +95,10 @@ export function StandingsView({ leagues }: { leagues: League[] }) {
   const [standings, setStandings] = useState<Standing[][]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>("Classificação");
 
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || activeTab !== "Classificação") return;
     setLoading(true);
     setError(null);
     fetch(`/api/standings?leagueId=${selected.leagueId}&season=${selected.leagueSeason}`)
@@ -105,7 +109,7 @@ export function StandingsView({ leagues }: { leagues: League[] }) {
       })
       .catch(() => setError("Erro ao carregar classificação."))
       .finally(() => setLoading(false));
-  }, [selected]);
+  }, [selected, activeTab]);
 
   if (leagues.length === 0) {
     return (
@@ -126,13 +130,12 @@ export function StandingsView({ leagues }: { leagues: League[] }) {
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <h1 className="text-2xl font-bold text-white">Classificação</h1>
-
         <select
           value={selected ? `${selected.leagueId}-${selected.leagueSeason}` : ""}
           onChange={(e) => {
             const [lid, season] = e.target.value.split("-").map(Number);
             const league = leagues.find((l) => l.leagueId === lid && l.leagueSeason === season);
-            if (league) setSelected(league);
+            if (league) { setSelected(league); setStandings([]); }
           }}
           className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-2 text-sm text-white focus:outline-none focus:ring-2 focus:ring-green-500 max-w-xs"
         >
@@ -144,47 +147,67 @@ export function StandingsView({ leagues }: { leagues: League[] }) {
         </select>
       </div>
 
-      {loading && (
-        <div className="text-center text-zinc-500 py-20">
-          <p className="text-4xl mb-4 animate-pulse">📊</p>
-          <p>Carregando classificação...</p>
-        </div>
-      )}
+      {/* Tabs */}
+      <div className="flex gap-1 bg-zinc-800 p-1 rounded-xl mb-6">
+        {(["Classificação", "Jogos"] as Tab[]).map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+              activeTab === tab ? "bg-zinc-900 text-white" : "text-zinc-400 hover:text-white"
+            }`}
+          >
+            {tab === "Classificação" ? "📊 Classificação" : "⚽ Jogos / Chaveamento"}
+          </button>
+        ))}
+      </div>
 
-      {error && !loading && (
-        <div className="text-center text-zinc-500 py-20">
-          <p className="text-4xl mb-4">⚠️</p>
-          <p>{error}</p>
-        </div>
-      )}
-
-      {!loading && !error && standings.length > 0 && (
+      {/* Tab: Classificação */}
+      {activeTab === "Classificação" && (
         <>
-          {/* Legend */}
-          <div className="flex flex-wrap gap-4 mb-4 text-xs text-zinc-500">
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-500 inline-block" /> Classificação (ex: Libertadores)</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-500 inline-block" /> Pré-classificação</span>
-            <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500 inline-block" /> Rebaixamento</span>
-          </div>
-
-          {isMultiGroup
-            ? standings.map((group, i) => (
-                <StandingsTable
-                  key={i}
-                  standings={group}
-                  title={group[0]?.group ? `Grupo ${group[0].group}` : undefined}
-                />
-              ))
-            : <StandingsTable standings={standings[0]} />
-          }
+          {loading && (
+            <div className="text-center text-zinc-500 py-20">
+              <p className="text-4xl mb-4 animate-pulse">📊</p>
+              <p>Carregando classificação...</p>
+            </div>
+          )}
+          {error && !loading && (
+            <div className="text-center text-zinc-500 py-20">
+              <p className="text-4xl mb-4">⚠️</p>
+              <p>{error}</p>
+            </div>
+          )}
+          {!loading && !error && standings.length > 0 && (
+            <>
+              <div className="flex flex-wrap gap-4 mb-4 text-xs text-zinc-500">
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-green-500 inline-block" /> Classificação (ex: Libertadores)</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-blue-500 inline-block" /> Pré-classificação</span>
+                <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-sm bg-red-500 inline-block" /> Rebaixamento</span>
+              </div>
+              {isMultiGroup
+                ? standings.map((group, i) => (
+                    <StandingsTable
+                      key={i}
+                      standings={group}
+                      title={group[0]?.group ? `Grupo ${group[0].group}` : undefined}
+                    />
+                  ))
+                : <StandingsTable standings={standings[0]} />
+              }
+            </>
+          )}
+          {!loading && !error && standings.length === 0 && (
+            <div className="text-center text-zinc-500 py-20">
+              <p className="text-4xl mb-4">📊</p>
+              <p>Classificação não disponível para esta competição.</p>
+            </div>
+          )}
         </>
       )}
 
-      {!loading && !error && standings.length === 0 && !loading && (
-        <div className="text-center text-zinc-500 py-20">
-          <p className="text-4xl mb-4">📊</p>
-          <p>Classificação não disponível para esta competição.</p>
-        </div>
+      {/* Tab: Jogos / Chaveamento */}
+      {activeTab === "Jogos" && selected && (
+        <BracketView leagueId={selected.leagueId} season={selected.leagueSeason} />
       )}
     </div>
   );
