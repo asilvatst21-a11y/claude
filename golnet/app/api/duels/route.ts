@@ -7,6 +7,8 @@ import { sendPushToUser } from "@/lib/push";
 const createSchema = z.object({
   matchIds: z.array(z.string()).min(1).max(10),
   opponentId: z.string().optional(),
+  goalScorerEnabled: z.boolean().optional(),
+  goalScorerPoints: z.number().int().min(1).max(100).optional(),
 });
 
 export async function GET() {
@@ -41,7 +43,7 @@ export async function POST(req: Request) {
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
 
-  const { matchIds, opponentId } = parsed.data;
+  const { matchIds, opponentId, goalScorerEnabled, goalScorerPoints } = parsed.data;
 
   if (opponentId) {
     if (opponentId === userId) return NextResponse.json({ error: "Você não pode desafiar a si mesmo" }, { status: 400 });
@@ -60,6 +62,8 @@ export async function POST(req: Request) {
         opponentId: opponentId ?? null,
         status: "PENDING",
         expiresAt: new Date(Date.now() + 48 * 60 * 60 * 1000),
+        goalScorerEnabled: goalScorerEnabled ?? false,
+        goalScorerPoints: goalScorerPoints ?? 5,
         matches: { create: matchIds.map((matchId) => ({ matchId })) },
       },
     }),

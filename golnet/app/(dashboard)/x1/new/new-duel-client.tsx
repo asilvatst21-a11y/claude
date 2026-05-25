@@ -24,6 +24,8 @@ export function NewDuelClient({ matches }: { matches: Match[] }) {
   const [opponent, setOpponent] = useState<UserResult | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [goalScorerEnabled, setGoalScorerEnabled] = useState(false);
+  const [goalScorerPoints, setGoalScorerPoints] = useState(5);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const allLeagues = Array.from(new Set(matches.map((m) => m.leagueName ?? "Outros")));
@@ -73,7 +75,7 @@ export function NewDuelClient({ matches }: { matches: Match[] }) {
       const res = await fetch("/api/duels", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ matchIds: Array.from(selectedIds), opponentId: opponent.id }),
+        body: JSON.stringify({ matchIds: Array.from(selectedIds), opponentId: opponent.id, goalScorerEnabled, goalScorerPoints }),
       });
       const data = await res.json();
       if (!res.ok) { setError(data.error ?? "Erro ao criar duelo"); return; }
@@ -259,11 +261,39 @@ export function NewDuelClient({ matches }: { matches: Match[] }) {
             </div>
           )}
 
+          {/* Goal scorer toggle */}
+          <div className="mb-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <div
+                onClick={() => setGoalScorerEnabled((v) => !v)}
+                className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${goalScorerEnabled ? "bg-blue-500" : "bg-zinc-700"}`}
+              >
+                <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${goalScorerEnabled ? "translate-x-5" : "translate-x-1"}`} />
+              </div>
+              <span className="text-sm font-medium text-zinc-300">Palpite de Artilheiro ⚽</span>
+            </label>
+            {goalScorerEnabled && (
+              <div className="mt-3 bg-zinc-900 border border-zinc-800 rounded-xl p-4">
+                <p className="text-xs text-zinc-400 mb-3">
+                  Cada jogador palpita um artilheiro por jogo. Acertar vale pontos bônus.
+                </p>
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-zinc-300">Pontos pelo acerto:</span>
+                  <button onClick={() => setGoalScorerPoints((v) => Math.max(1, v - 1))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center">−</button>
+                  <span className="w-12 text-center font-bold text-blue-400">{goalScorerPoints}</span>
+                  <button onClick={() => setGoalScorerPoints((v) => Math.min(100, v + 1))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center">+</button>
+                  <span className="text-xs text-zinc-500">pts</span>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Summary */}
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mb-6">
             <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Resumo do duelo</p>
             <p className="text-sm text-zinc-300">{selectedIds.size} jogo{selectedIds.size !== 1 ? "s" : ""} selecionado{selectedIds.size !== 1 ? "s" : ""}</p>
             <p className="text-sm text-zinc-300">Adversário: {opponent ? (opponent.name ?? `@${opponent.username}`) : "—"}</p>
+            {goalScorerEnabled && <p className="text-sm text-blue-400 mt-1">⚽ Artilheiro habilitado (+{goalScorerPoints} pts por acerto)</p>}
             <p className="text-xs text-zinc-500 mt-2">O convite expira em 48 horas. Palpites se fecham 5 min antes de cada jogo.</p>
           </div>
 

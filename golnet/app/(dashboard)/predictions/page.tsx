@@ -8,7 +8,7 @@ export default async function PredictionsPage() {
   const session = await auth();
   const userId = session?.user?.id ?? "";
 
-  const [allMatches, leagueCount, competitions] = await Promise.all([
+  const [allMatches, leagueCount, competitions, goalScorerLeague] = await Promise.all([
     prisma.match.findMany({
       include: { predictions: { where: { userId }, take: 1 } },
       orderBy: { startsAt: "asc" },
@@ -20,7 +20,14 @@ export default async function PredictionsPage() {
       distinct: ["leagueId", "leagueSeason"],
       orderBy: { leagueName: "asc" },
     }),
+    prisma.leagueMember.findFirst({
+      where: { userId, league: { goalScorerEnabled: true } },
+      select: { league: { select: { goalScorerPoints: true } } },
+    }),
   ]);
+
+  const goalScorerEnabled = !!goalScorerLeague;
+  const goalScorerPoints = goalScorerLeague?.league.goalScorerPoints ?? 5;
 
   const availableCompetitions = competitions
     .filter((c) => c.leagueId && c.leagueName)
@@ -32,6 +39,8 @@ export default async function PredictionsPage() {
       competitions={availableCompetitions}
       isInLeague={leagueCount > 0}
       userId={userId}
+      goalScorerEnabled={goalScorerEnabled}
+      goalScorerPoints={goalScorerPoints}
     />
   );
 }

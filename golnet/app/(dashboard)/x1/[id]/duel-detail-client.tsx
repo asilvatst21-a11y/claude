@@ -37,11 +37,14 @@ type Prediction = {
   id: string; duelId: string; matchId: string; userId: string;
   homeScore: number; awayScore: number; points: number; bonusPoints: number;
   result: string | null;
+  goalScorerPrediction: string | null;
+  goalScorerCorrect: boolean | null;
   user: { id: string; name: string | null; username: string | null };
 };
 type Duel = {
   id: string; status: string; creatorId: string; inviteToken: string;
   expiresAt: Date | string;
+  goalScorerEnabled: boolean; goalScorerPoints: number;
   creator: User; opponent: User | null;
   winner: { id: string; name: string | null; username: string | null } | null;
   matches: { matchId: string; match: Match }[];
@@ -107,7 +110,13 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
       .filter((p) => p.userId === currentUserId)
       .map((p) => [p.matchId, { home: String(p.homeScore), away: String(p.awayScore) }])
   );
+  const myGsPredsInit = Object.fromEntries(
+    duel.predictions
+      .filter((p) => p.userId === currentUserId && p.goalScorerPrediction)
+      .map((p) => [p.matchId, p.goalScorerPrediction ?? ""])
+  );
   const [scores, setScores] = useState<Record<string, { home: string; away: string }>>(myPreds);
+  const [goalScorerInputs, setGoalScorerInputs] = useState<Record<string, string>>(myGsPredsInit);
   const [editingMatchIds, setEditingMatchIds] = useState<Set<string>>(new Set());
   const [savingMatchId, setSavingMatchId] = useState<string | null>(null);
   const [matchErrors, setMatchErrors] = useState<Record<string, string>>({});
@@ -124,7 +133,14 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        predictions: [{ matchId, homeScore: Number(score.home), awayScore: Number(score.away) }],
+        predictions: [{
+          matchId,
+          homeScore: Number(score.home),
+          awayScore: Number(score.away),
+          ...(duel.goalScorerEnabled && goalScorerInputs[matchId]?.trim()
+            ? { goalScorerPrediction: goalScorerInputs[matchId].trim() }
+            : {}),
+        }],
       }),
     });
     setSavingMatchId(null);
@@ -463,39 +479,58 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                   <div>
                     <p className="text-xs text-zinc-500 mb-1.5">Seu palpite</p>
                     {locked ? (
-                      <div className="flex items-center gap-1.5 text-sm">
-                        <span>🔒</span>
-                        {myPred ? (
-                          <>
-                            <span className="font-bold text-white">{myPred.homeScore} — {myPred.awayScore}</span>
-                            {myEffective && myEffective.result !== "WRONG" && (
-                              <span className={`text-xs ${resultColor[myEffective.result] ?? ""}`}>
-                                +{myEffective.pts}pts
-                              </span>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1.5 text-sm">
+                          <span>🔒</span>
+                          {myPred ? (
+                            <>
+                              <span className="font-bold text-white">{myPred.homeScore} — {myPred.awayScore}</span>
+                              {myEffective && myEffective.result !== "WRONG" && (
+                                <span className={`text-xs ${resultColor[myEffective.result] ?? ""}`}>
+                                  +{myEffective.pts}pts
+                                </span>
+                              )}
+                              {myEffective?.result === "WRONG" && (
+                                <span className="text-xs text-red-400">Errou</span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-xs text-zinc-600">Sem palpite</span>
+                          )}
+                        </div>
+                        {duel.goalScorerEnabled && myPred?.goalScorerPrediction && (
+                          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                            <span>⚽</span>
+                            <span className="text-zinc-300">{myPred.goalScorerPrediction}</span>
+                            {myPred.goalScorerCorrect === true && (
+                              <span className="text-green-400 font-medium">+{duel.goalScorerPoints}pts ✓</span>
                             )}
-                            {myEffective?.result === "WRONG" && (
-                              <span className="text-xs text-red-400">Errou</span>
+                            {myPred.goalScorerCorrect === false && (
+                              <span className="text-red-400">Errou</span>
                             )}
-                          </>
-                        ) : (
-                          <span className="text-xs text-zinc-600">Sem palpite</span>
+                          </div>
                         )}
                       </div>
                     ) : myPred && !editingMatchIds.has(matchId) ? (
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-green-400 text-sm">✓</span>
-                        <span className="text-sm font-bold text-white">{myPred.homeScore} — {myPred.awayScore}</span>
-                        {myEffective && myEffective.result !== "WRONG" && (
-                          <span className={`text-xs ${resultColor[myEffective.result] ?? ""}`}>
-                            +{myEffective.pts}pts
-                          </span>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-green-400 text-sm">✓</span>
+                          <span className="text-sm font-bold text-white">{myPred.homeScore} — {myPred.awayScore}</span>
+                          {myEffective && myEffective.result !== "WRONG" && (
+                            <span className={`text-xs ${resultColor[myEffective.result] ?? ""}`}>
+                              +{myEffective.pts}pts
+                            </span>
+                          )}
+                          <button
+                            onClick={() => startEdit(matchId, myPred)}
+                            className="text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-lg px-2 py-0.5 transition-colors"
+                          >
+                            Editar
+                          </button>
+                        </div>
+                        {duel.goalScorerEnabled && myPred.goalScorerPrediction && (
+                          <p className="text-xs text-zinc-500">⚽ <span className="text-zinc-300">{myPred.goalScorerPrediction}</span></p>
                         )}
-                        <button
-                          onClick={() => startEdit(matchId, myPred)}
-                          className="text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-lg px-2 py-0.5 transition-colors"
-                        >
-                          Editar
-                        </button>
                       </div>
                     ) : (
                       <div className="flex flex-col gap-1.5">
@@ -512,6 +547,17 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                             disabled={savingMatchId === matchId}
                           />
                         </div>
+                        {duel.goalScorerEnabled && (
+                          <input
+                            type="text"
+                            placeholder={`⚽ Artilheiro (+${duel.goalScorerPoints} pts)`}
+                            value={goalScorerInputs[matchId] ?? ""}
+                            onChange={(e) => setGoalScorerInputs((p) => ({ ...p, [matchId]: e.target.value }))}
+                            maxLength={80}
+                            disabled={savingMatchId === matchId}
+                            className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-2 py-1 text-white text-xs placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-40"
+                          />
+                        )}
                         <div className="flex gap-1.5">
                           {myPred && (
                             <button
@@ -542,12 +588,26 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                       {duel.opponent ? (duel.opponent.name ?? `@${duel.opponent.username}`) : duel.creator.name ?? `@${duel.creator.username}`}
                     </p>
                     {showOpp && oppPred ? (
-                      <div className="flex items-center gap-1 flex-wrap">
-                        <span className="text-sm font-bold text-white">{oppPred.homeScore} — {oppPred.awayScore}</span>
-                        {oppEffective && (
-                          <span className={`text-xs ml-1 ${oppEffective.result !== "WRONG" ? (resultColor[oppEffective.result] ?? "") : "text-red-400"}`}>
-                            · {resultLabel[oppEffective.result] ?? ""}{oppEffective.result !== "WRONG" ? ` (+${oppEffective.pts}pts)` : ""}
-                          </span>
+                      <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-1 flex-wrap">
+                          <span className="text-sm font-bold text-white">{oppPred.homeScore} — {oppPred.awayScore}</span>
+                          {oppEffective && (
+                            <span className={`text-xs ml-1 ${oppEffective.result !== "WRONG" ? (resultColor[oppEffective.result] ?? "") : "text-red-400"}`}>
+                              · {resultLabel[oppEffective.result] ?? ""}{oppEffective.result !== "WRONG" ? ` (+${oppEffective.pts}pts)` : ""}
+                            </span>
+                          )}
+                        </div>
+                        {duel.goalScorerEnabled && oppPred.goalScorerPrediction && (
+                          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                            <span>⚽</span>
+                            <span className="text-zinc-300">{oppPred.goalScorerPrediction}</span>
+                            {oppPred.goalScorerCorrect === true && (
+                              <span className="text-green-400 font-medium">+{duel.goalScorerPoints}pts ✓</span>
+                            )}
+                            {oppPred.goalScorerCorrect === false && (
+                              <span className="text-red-400">Errou</span>
+                            )}
+                          </div>
                         )}
                       </div>
                     ) : oppPred && myPred ? (

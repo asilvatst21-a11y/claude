@@ -19,7 +19,7 @@ type Match = {
   round: string | null;
   venue: string | null;
   leagueId: number | null;
-  predictions?: { homeScore: number; awayScore: number; points: number; bonusPoints: number; result: string | null }[];
+  predictions?: { homeScore: number; awayScore: number; points: number; bonusPoints: number; result: string | null; goalScorerPrediction: string | null; goalScorerCorrect: boolean | null }[];
 };
 
 type Competition = { leagueId: number; leagueName: string; leagueSeason: number | null };
@@ -29,6 +29,8 @@ interface PredictionsViewProps {
   competitions: Competition[];
   isInLeague: boolean;
   userId: string;
+  goalScorerEnabled?: boolean;
+  goalScorerPoints?: number;
 }
 
 const COMP_STORAGE_KEY = "predictions_last_comp_id";
@@ -95,7 +97,7 @@ function pickDefaultComp(competitions: Competition[], matches: Match[]): Competi
   return mostRecent ?? competitions[0];
 }
 
-export function PredictionsView({ matches, competitions, isInLeague }: PredictionsViewProps) {
+export function PredictionsView({ matches, competitions, isInLeague, goalScorerEnabled, goalScorerPoints }: PredictionsViewProps) {
   const defaultComp = pickDefaultComp(competitions, matches);
   const [selectedComp, setSelectedComp] = useState<Competition | null>(defaultComp);
 
@@ -276,7 +278,7 @@ export function PredictionsView({ matches, competitions, isInLeague }: Predictio
             Ao vivo ({liveMatches.length})
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {liveMatches.map((m) => <MatchCard key={m.id} match={m as never} />)}
+            {liveMatches.map((m) => <MatchCard key={m.id} match={m as never} goalScorerEnabled={goalScorerEnabled} goalScorerPoints={goalScorerPoints} />)}
           </div>
         </section>
       )}
@@ -287,7 +289,7 @@ export function PredictionsView({ matches, competitions, isInLeague }: Predictio
             Próximos jogos ({upcoming.length})
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {upcoming.map((m) => <MatchCard key={m.id} match={m as never} />)}
+            {upcoming.map((m) => <MatchCard key={m.id} match={m as never} goalScorerEnabled={goalScorerEnabled} goalScorerPoints={goalScorerPoints} />)}
           </div>
         </section>
       )}
@@ -298,7 +300,7 @@ export function PredictionsView({ matches, competitions, isInLeague }: Predictio
             Encerrados ({finished.length})
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {finished.map((m) => <MatchCard key={m.id} match={m as never} />)}
+            {finished.map((m) => <MatchCard key={m.id} match={m as never} goalScorerEnabled={goalScorerEnabled} goalScorerPoints={goalScorerPoints} />)}
           </div>
         </section>
       )}

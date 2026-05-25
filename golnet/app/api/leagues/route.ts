@@ -17,6 +17,8 @@ const createSchema = z.object({
   teamFilter: z.array(z.string()).optional(),
   championPredictionEnabled: z.boolean().optional(),
   championPredictionPoints: z.number().int().min(1).max(500).optional(),
+  goalScorerEnabled: z.boolean().optional(),
+  goalScorerPoints: z.number().int().min(1).max(100).optional(),
 });
 
 export async function GET() {
@@ -81,6 +83,7 @@ export async function POST(req: Request) {
   const {
     ptsExactScore, ptsCorrectDiff, ptsCorrectWinner, ptsCorrectDraw, ptsKnockoutBonus,
     competitionName, teamFilter, championPredictionEnabled, championPredictionPoints,
+    goalScorerEnabled, goalScorerPoints,
     ...baseData
   } = parsed.data;
 
@@ -92,6 +95,8 @@ export async function POST(req: Request) {
         teamFilter: teamFilter ?? [],
         championPredictionEnabled: championPredictionEnabled ?? false,
         championPredictionPoints: championPredictionPoints ?? 20,
+        goalScorerEnabled: goalScorerEnabled ?? false,
+        goalScorerPoints: goalScorerPoints ?? 5,
         ...(isPro && {
           ptsExactScore: ptsExactScore ?? 10,
           ptsCorrectDiff: ptsCorrectDiff ?? 7,

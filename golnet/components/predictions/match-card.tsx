@@ -13,6 +13,8 @@ import { MatchStatsModal } from "./match-stats-modal";
 interface MatchCardProps {
   match: Match & { predictions?: Prediction[] };
   onSaved?: () => void;
+  goalScorerEnabled?: boolean;
+  goalScorerPoints?: number;
 }
 
 const statusLabel: Record<string, string> = {
@@ -23,10 +25,11 @@ const statusLabel: Record<string, string> = {
   CANCELLED: "Cancelado",
 };
 
-export function MatchCard({ match, onSaved }: MatchCardProps) {
+export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints = 5 }: MatchCardProps) {
   const existing = match.predictions?.[0];
   const [home, setHome] = useState(existing?.homeScore?.toString() ?? "");
   const [away, setAway] = useState(existing?.awayScore?.toString() ?? "");
+  const [goalScorer, setGoalScorer] = useState((existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction ?? "");
   const [saving, setSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(!!existing);
   const [isEditing, setIsEditing] = useState(!existing);
@@ -45,6 +48,7 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
         matchId: match.id,
         homeScore: parseInt(home),
         awayScore: parseInt(away),
+        ...(goalScorerEnabled && goalScorer.trim() ? { goalScorerPrediction: goalScorer.trim() } : {}),
       }),
     });
     setSaving(false);
@@ -149,29 +153,43 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
       {/* Prediction area */}
       <div className="border-t border-zinc-800 pt-3">
         {locked ? (
-          <div className="flex items-center justify-between text-sm">
-            <span className="flex items-center gap-1.5 text-zinc-500">
-              <span>🔒</span>
-              {existing ? `Seu palpite: ${existing.homeScore} x ${existing.awayScore}` : "Sem palpite"}
-            </span>
-            {existing?.result && (
-              <span className={cn("font-semibold", resultColor[existing.result])}>
-                +{(existing.points ?? 0) + (existing.bonusPoints ?? 0)} pts
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between text-sm">
+              <span className="flex items-center gap-1.5 text-zinc-500">
+                <span>🔒</span>
+                {existing ? `Seu palpite: ${existing.homeScore} x ${existing.awayScore}` : "Sem palpite"}
               </span>
+              {existing?.result && (
+                <span className={cn("font-semibold", resultColor[existing.result])}>
+                  +{(existing.points ?? 0) + (existing.bonusPoints ?? 0)} pts
+                </span>
+              )}
+            </div>
+            {goalScorerEnabled && (existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction && (
+              <div className="flex items-center justify-between text-xs text-zinc-500">
+                <span>⚽ Artilheiro: <span className="text-zinc-300">{(existing as { goalScorerPrediction?: string | null }).goalScorerPrediction}</span></span>
+                {(existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === true && <span className="text-green-400 font-medium">+{goalScorerPoints} pts ✓</span>}
+                {(existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === false && <span className="text-red-400">Errou</span>}
+              </div>
             )}
           </div>
         ) : isSaved && !isEditing ? (
-          <div className="flex items-center justify-between">
-            <span className="flex items-center gap-2 text-sm text-green-400 font-medium">
-              <span>✓</span>
-              Palpite: {home} x {away}
-            </span>
-            <button
-              onClick={() => setIsEditing(true)}
-              className="text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-lg px-3 py-1.5 transition-colors"
-            >
-              Editar
-            </button>
+          <div className="flex flex-col gap-1.5">
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-2 text-sm text-green-400 font-medium">
+                <span>✓</span>
+                Palpite: {home} x {away}
+              </span>
+              <button
+                onClick={() => setIsEditing(true)}
+                className="text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-lg px-3 py-1.5 transition-colors"
+              >
+                Editar
+              </button>
+            </div>
+            {goalScorerEnabled && goalScorer && (
+              <p className="text-xs text-zinc-500">⚽ Artilheiro: <span className="text-zinc-300">{goalScorer}</span></p>
+            )}
           </div>
         ) : (
           <div className="flex flex-col gap-2">
@@ -196,7 +214,12 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
               <div className="flex gap-2 ml-auto">
                 {isSaved && (
                   <button
-                    onClick={() => { setIsEditing(false); setHome(existing?.homeScore?.toString() ?? home); setAway(existing?.awayScore?.toString() ?? away); }}
+                    onClick={() => {
+                      setIsEditing(false);
+                      setHome(existing?.homeScore?.toString() ?? home);
+                      setAway(existing?.awayScore?.toString() ?? away);
+                      setGoalScorer((existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction ?? "");
+                    }}
                     className="text-xs text-zinc-400 hover:text-white border border-zinc-700 rounded-lg px-3 py-1.5 transition-colors"
                   >
                     Cancelar
@@ -212,6 +235,16 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
                 </Button>
               </div>
             </div>
+            {goalScorerEnabled && (
+              <input
+                type="text"
+                placeholder={`⚽ Artilheiro (+${goalScorerPoints} pts se acertar)`}
+                value={goalScorer}
+                onChange={(e) => setGoalScorer(e.target.value)}
+                maxLength={80}
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            )}
             {saveError && <p className="text-xs text-red-400">{saveError}</p>}
           </div>
         )}
