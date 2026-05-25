@@ -202,6 +202,7 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
       {duel.status === "FINISHED" && duel.opponent && (
         duel.winner ? (
           <X1WinnerCard
+            duelId={duel.id}
             winnerName={duel.winner.name ?? duel.winner.username ?? "Vencedor"}
             loserName={(duel.winner.id === duel.creatorId ? duel.opponent : duel.creator).name ?? "Perdedor"}
             winnerPoints={duel.winner.id === duel.creatorId ? creatorPoints : opponentPoints}
@@ -210,6 +211,7 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
           />
         ) : (
           <X1WinnerCard
+            duelId={duel.id}
             isDraw
             player1Name={duel.creator.name ?? duel.creator.username ?? "Jogador 1"}
             player2Name={duel.opponent.name ?? duel.opponent.username ?? "Jogador 2"}
