@@ -198,15 +198,25 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
         <span className={`text-xs font-medium ml-auto ${s.color}`}>{s.label}</span>
       </div>
 
-      {/* Winner zoação card */}
-      {duel.status === "FINISHED" && duel.winner && duel.opponent && (
-        <X1WinnerCard
-          winnerName={duel.winner.name ?? duel.winner.username ?? "Vencedor"}
-          loserName={(duel.winner.id === duel.creatorId ? duel.opponent : duel.creator).name ?? "Perdedor"}
-          winnerPoints={duel.winner.id === duel.creatorId ? creatorPoints : opponentPoints}
-          loserPoints={duel.winner.id === duel.creatorId ? opponentPoints : creatorPoints}
-          isCurrentUserWinner={duel.winner.id === currentUserId}
-        />
+      {/* Winner / draw card */}
+      {duel.status === "FINISHED" && duel.opponent && (
+        duel.winner ? (
+          <X1WinnerCard
+            winnerName={duel.winner.name ?? duel.winner.username ?? "Vencedor"}
+            loserName={(duel.winner.id === duel.creatorId ? duel.opponent : duel.creator).name ?? "Perdedor"}
+            winnerPoints={duel.winner.id === duel.creatorId ? creatorPoints : opponentPoints}
+            loserPoints={duel.winner.id === duel.creatorId ? opponentPoints : creatorPoints}
+            isCurrentUserWinner={duel.winner.id === currentUserId}
+          />
+        ) : (
+          <X1WinnerCard
+            isDraw
+            player1Name={duel.creator.name ?? duel.creator.username ?? "Jogador 1"}
+            player2Name={duel.opponent.name ?? duel.opponent.username ?? "Jogador 2"}
+            winnerPoints={creatorPoints}
+            loserPoints={opponentPoints}
+          />
+        )
       )}
 
       {/* Players banner */}
@@ -229,7 +239,7 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
             {showScore && (
               <p className={`text-2xl font-black ${
                 isFinished
-                  ? duel.winner?.id === duel.creatorId ? "text-green-400" : "text-zinc-500"
+                  ? !duel.winner ? "text-yellow-400" : duel.winner.id === duel.creatorId ? "text-green-400" : "text-zinc-500"
                   : creatorLeading ? "text-green-400" : "text-zinc-300"
               }`}>
                 {creatorPoints}
@@ -248,6 +258,9 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
               <span className="text-xs text-green-400 font-semibold text-center">
                 {duel.winner.id === currentUserId ? "Você venceu! 🏆" : `${duel.winner.name ?? duel.winner.username} venceu`}
               </span>
+            )}
+            {isFinished && !duel.winner && (
+              <span className="text-xs text-yellow-400 font-semibold text-center">Empate 🤝</span>
             )}
             {isActive && tied && showScore && (
               <span className="text-[10px] text-yellow-400 bg-yellow-400/10 px-2 py-0.5 rounded-full font-semibold">Empate</span>
@@ -273,7 +286,7 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
                 {showScore && (
                   <p className={`text-2xl font-black ${
                     isFinished
-                      ? duel.winner?.id === duel.opponent.id ? "text-green-400" : "text-zinc-500"
+                      ? !duel.winner ? "text-yellow-400" : duel.winner.id === duel.opponent.id ? "text-green-400" : "text-zinc-500"
                       : opponentLeading ? "text-green-400" : "text-zinc-300"
                   }`}>
                     {opponentPoints}

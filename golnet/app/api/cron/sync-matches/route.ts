@@ -147,8 +147,13 @@ async function runSync(): Promise<{ synced: number }> {
 
       const sum = (uid: string) =>
         duel.predictions.filter((p) => p.userId === uid).reduce((s, p) => s + p.points + p.bonusPoints, 0);
-      const winnerId = sum(duel.creatorId) >= (duel.opponentId ? sum(duel.opponentId) : 0)
-        ? duel.creatorId : duel.opponentId;
+      const creatorScore = sum(duel.creatorId);
+      const opponentScore = duel.opponentId ? sum(duel.opponentId) : 0;
+      const winnerId = creatorScore > opponentScore
+        ? duel.creatorId
+        : opponentScore > creatorScore
+        ? duel.opponentId
+        : null; // tie — no winner
 
       await prisma.duel.update({ where: { id: duel.id }, data: { status: "FINISHED", winnerId } });
     }));
