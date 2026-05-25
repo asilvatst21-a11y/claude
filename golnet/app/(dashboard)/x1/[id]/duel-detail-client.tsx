@@ -189,6 +189,36 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
   const opponentLeading = opponentPoints > creatorPoints;
   const tied = creatorPoints === opponentPoints;
 
+  const buildShareImageUrl = (): string | undefined => {
+    if (!duel.opponent || duel.status !== "FINISHED") return undefined;
+    const w = !duel.winner ? 0 : duel.winner.id === duel.creatorId ? 1 : 2;
+    const getPts = (pred: (typeof duel.predictions)[0], match: (typeof duel.matches)[0]["match"]) => {
+      if (pred.result) return pred.points + pred.bonusPoints;
+      const live = calcLivePoints(pred, match);
+      return live ? live.points + live.bonusPoints : 0;
+    };
+    const m = duel.matches.map((dm) => {
+      const cp = duel.predictions.find((p) => p.matchId === dm.matchId && p.userId === duel.creatorId);
+      const op = duel.predictions.find((p) => p.matchId === dm.matchId && p.userId === duel.opponent!.id);
+      return {
+        ht: dm.match.homeTeam,
+        at: dm.match.awayTeam,
+        rh: dm.match.homeScore,
+        ra: dm.match.awayScore,
+        p1: cp ? [cp.homeScore, cp.awayScore, getPts(cp, dm.match), cp.result] : [0, 0, 0, null],
+        p2: op ? [op.homeScore, op.awayScore, getPts(op, dm.match), op.result] : [0, 0, 0, null],
+      };
+    });
+    const payload = btoa(JSON.stringify({
+      p1: duel.creator.name ?? duel.creator.username ?? "Jogador 1",
+      p2: duel.opponent.name ?? duel.opponent.username ?? "Jogador 2",
+      s1: creatorPoints, s2: opponentPoints, w, m,
+    }));
+    return `/api/x1/share-image?d=${payload}`;
+  };
+
+  const shareImageUrl = buildShareImageUrl();
+
   return (
     <div className="max-w-2xl mx-auto">
       {/* Header */}
@@ -202,7 +232,7 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
       {duel.status === "FINISHED" && duel.opponent && (
         duel.winner ? (
           <X1WinnerCard
-            duelId={duel.id}
+            shareImageUrl={shareImageUrl}
             winnerName={duel.winner.name ?? duel.winner.username ?? "Vencedor"}
             loserName={(duel.winner.id === duel.creatorId ? duel.opponent : duel.creator).name ?? "Perdedor"}
             winnerPoints={duel.winner.id === duel.creatorId ? creatorPoints : opponentPoints}
@@ -211,7 +241,7 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
           />
         ) : (
           <X1WinnerCard
-            duelId={duel.id}
+            shareImageUrl={shareImageUrl}
             isDraw
             player1Name={duel.creator.name ?? duel.creator.username ?? "Jogador 1"}
             player2Name={duel.opponent.name ?? duel.opponent.username ?? "Jogador 2"}

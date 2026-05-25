@@ -11,7 +11,7 @@ interface Props {
   isDraw?: boolean;
   player1Name?: string;
   player2Name?: string;
-  duelId?: string;
+  shareImageUrl?: string;
 }
 
 const WINNER_TAUNTS = [
@@ -119,11 +119,11 @@ function buildShareText(
 function ShareButtons({
   getShareText,
   label,
-  duelId,
+  shareImageUrl,
 }: {
   getShareText: () => string;
   label: string;
-  duelId?: string;
+  shareImageUrl?: string;
 }) {
   const [copied, setCopied] = useState(false);
   const [sharingImage, setSharingImage] = useState(false);
@@ -136,17 +136,17 @@ function ShareButtons({
   };
 
   const handleShareImage = async () => {
-    if (!duelId) return;
+    if (!shareImageUrl) return;
     setSharingImage(true);
     try {
-      const res = await fetch(`/api/x1/${duelId}/share-image`);
+      const res = await fetch(shareImageUrl);
+      if (!res.ok) throw new Error("image error");
       const blob = await res.blob();
       const file = new File([blob], "duelo-x1.png", { type: "image/png" });
 
       if (navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file], title: "Duelo X1 — PalpitaAí" });
       } else {
-        // Fallback: download
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -173,7 +173,7 @@ function ShareButtons({
       <p className="text-xs text-zinc-500 text-center mb-1">{label}</p>
 
       {/* Share image — primary CTA */}
-      {duelId && (
+      {shareImageUrl && (
         <button
           onClick={handleShareImage}
           disabled={sharingImage}
@@ -242,7 +242,7 @@ export function X1WinnerCard({
   isDraw,
   player1Name,
   player2Name,
-  duelId,
+  shareImageUrl,
 }: Props) {
   const effectiveWinner = winnerName ?? "Vencedor";
   const effectiveLoser = loserName ?? "Perdedor";
@@ -277,7 +277,7 @@ export function X1WinnerCard({
         </div>
         <ShareButtons
           label="Compartilha o empate e pede revanche 🤝"
-          duelId={duelId}
+          shareImageUrl={shareImageUrl}
           getShareText={() => {
             return (
               `⚔️ X1 PalpitaAí — Empate!\n\n` +
@@ -341,7 +341,7 @@ export function X1WinnerCard({
 
       <ShareButtons
         label={isCurrentUserWinner ? "Compartilha essa vitória e zoa o perdedor 😂" : "Conta a derrota (ou pede revanche) 😅"}
-        duelId={duelId}
+        shareImageUrl={shareImageUrl}
         getShareText={() => buildShareText(!!isCurrentUserWinner, effectiveWinner, effectiveLoser, winnerPoints, loserPoints, seed, getUrl())}
       />
     </div>
