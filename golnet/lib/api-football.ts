@@ -3,6 +3,14 @@ import type { MatchStatus, MatchStage } from "@prisma/client";
 const BASE_URL = "https://v3.football.api-sports.io";
 const API_KEY = process.env.API_FOOTBALL_KEY ?? "";
 
+export type GoalEvent = {
+  minute: number;
+  extra: number | null;
+  team: "home" | "away";
+  player: string;
+  type: "goal" | "owngoal" | "penalty";
+};
+
 export type ApiFixture = {
   fixture: {
     id: number;
@@ -16,7 +24,27 @@ export type ApiFixture = {
   };
   goals: { home: number | null; away: number | null };
   league: { id: number; name: string; season: number; round: string };
+  events?: Array<{
+    time: { elapsed: number; extra: number | null };
+    team: { id: number; name: string };
+    player: { id: number; name: string };
+    type: string;
+    detail: string;
+  }>;
 };
+
+export function extractGoals(fixture: ApiFixture): GoalEvent[] {
+  if (!fixture.events) return [];
+  return fixture.events
+    .filter((e) => e.type === "Goal" && e.detail !== "Missed Penalty")
+    .map((e) => ({
+      minute: e.time.elapsed,
+      extra: e.time.extra,
+      team: e.team.name === fixture.teams.home.name ? "home" : "away",
+      player: e.player.name,
+      type: e.detail === "Own Goal" ? "owngoal" : e.detail === "Penalty" ? "penalty" : "goal",
+    }));
+}
 
 type ApiLeagueResult = {
   league: { id: number; name: string; logo: string };

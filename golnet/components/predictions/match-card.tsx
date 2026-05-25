@@ -4,6 +4,7 @@ import { useState } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import type { Match, Prediction } from "@/types";
+import type { GoalEvent } from "@/lib/api-football";
 import { isPredictionLocked } from "@/lib/scoring";
 import { Button } from "@/components/ui/button";
 import { cn, teamLogo } from "@/lib/utils";
@@ -119,6 +120,31 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
           <span className="text-sm font-medium text-white text-center">{match.awayTeam}</span>
         </div>
       </div>
+
+      {/* Goal scorers */}
+      {(match.status === "FINISHED" || match.status === "LIVE") && (() => {
+        const goals = (match.goals as GoalEvent[] | null) ?? [];
+        if (goals.length === 0) return null;
+        const homeGoals = goals.filter((g) => g.team === "home");
+        const awayGoals = goals.filter((g) => g.team === "away");
+        const goalIcon = (type: GoalEvent["type"]) =>
+          type === "owngoal" ? "⚽ (CG)" : type === "penalty" ? "⚽ (P)" : "⚽";
+        return (
+          <div className="flex gap-2 text-[11px] text-zinc-400 mt-0.5">
+            <div className="flex-1 flex flex-col items-end gap-0.5">
+              {homeGoals.map((g, i) => (
+                <span key={i}>{g.player} {g.minute}{g.extra ? `+${g.extra}` : ""}' {goalIcon(g.type)}</span>
+              ))}
+            </div>
+            <div className="w-px bg-zinc-800 shrink-0" />
+            <div className="flex-1 flex flex-col items-start gap-0.5">
+              {awayGoals.map((g, i) => (
+                <span key={i}>{goalIcon(g.type)} {g.minute}{g.extra ? `+${g.extra}` : ""}' {g.player}</span>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Prediction area */}
       <div className="border-t border-zinc-800 pt-3">

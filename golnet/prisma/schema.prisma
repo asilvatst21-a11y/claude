@@ -189,6 +189,7 @@ model Match {
   awayTeamFlag String?
   homeScore    Int?
   awayScore    Int?
+  goals        Json?
   startsAt     DateTime
   status       MatchStatus @default(SCHEDULED)
   stage        MatchStage  @default(GROUP)

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { fetchFixturesByIds, mapApiStatus } from "@/lib/api-football";
+import { fetchFixturesByIds, mapApiStatus, extractGoals } from "@/lib/api-football";
 import { calculatePoints } from "@/lib/scoring";
 import { sendPushToUser } from "@/lib/push";
 
@@ -65,6 +65,7 @@ async function runSync(): Promise<{ synced: number }> {
     const status = mapApiStatus(fixture.fixture.status.short);
     const homeScore = fixture.goals.home;
     const awayScore = fixture.goals.away;
+    const goals = (status === "FINISHED" || status === "LIVE") ? extractGoals(fixture) : undefined;
 
     await prisma.match.update({
       where: { id: match.id },
@@ -73,6 +74,7 @@ async function runSync(): Promise<{ synced: number }> {
         awayScore: awayScore ?? undefined,
         status,
         lastSyncedAt: new Date(),
+        ...(goals && goals.length > 0 ? { goals } : {}),
       },
     });
 
