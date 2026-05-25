@@ -125,7 +125,7 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
         </div>
       </div>
 
-      {/* Goal scorers */}
+      {/* Goal scorers (actual results) */}
       {(match.status === "FINISHED" || match.status === "LIVE") && (() => {
         const goals = (match.goals as GoalEvent[] | null) ?? [];
         if (goals.length === 0) return null;
@@ -151,8 +151,9 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
       })()}
 
       {/* Prediction area */}
-      <div className="border-t border-zinc-800 pt-3">
+      <div className="border-t border-zinc-800 pt-3 flex flex-col gap-2">
         {locked ? (
+          /* LOCKED: show prediction result */
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between text-sm">
               <span className="flex items-center gap-1.5 text-zinc-500">
@@ -171,79 +172,89 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
                 {goalScorerEnabled && (existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === true && <span className="text-green-400 font-medium">+{goalScorerPoints} pts ✓</span>}
                 {goalScorerEnabled && (existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === false && <span className="text-red-400">Errou</span>}
               </div>
-            )}          </div>
-        ) : isSaved && !isEditing ? (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between">
-              <span className="flex items-center gap-2 text-sm text-green-400 font-medium">
-                <span>✓</span>
-                Palpite: {home} x {away}
-              </span>
-              <button
-                onClick={() => setIsEditing(true)}
-                className="text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-lg px-3 py-1.5 transition-colors"
-              >
-                Editar
-              </button>
-            </div>
-            {goalScorer && (
-              <p className="text-xs text-zinc-500">⚽ Artilheiro: <span className="text-zinc-300">{goalScorer}</span></p>
             )}
           </div>
         ) : (
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                min={0}
-                max={30}
-                value={home}
-                onChange={(e) => setHome(e.target.value)}
-                className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-lg py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
-              />
-              <span className="text-zinc-500 font-bold">x</span>
-              <input
-                type="number"
-                min={0}
-                max={30}
-                value={away}
-                onChange={(e) => setAway(e.target.value)}
-                className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-lg py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
-              />
-              <div className="flex gap-2 ml-auto">
-                {isSaved && (
-                  <button
-                    onClick={() => {
-                      setIsEditing(false);
-                      setHome(existing?.homeScore?.toString() ?? home);
-                      setAway(existing?.awayScore?.toString() ?? away);
-                      setGoalScorer((existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction ?? "");
-                    }}
-                    className="text-xs text-zinc-400 hover:text-white border border-zinc-700 rounded-lg px-3 py-1.5 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                )}
-                <Button
-                  size="sm"
-                  onClick={handleSave}
-                  loading={saving}
-                  disabled={home === "" || away === ""}
+          /* NOT LOCKED */
+          <>
+            {/* Score row */}
+            {isSaved && !isEditing ? (
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 text-sm text-green-400 font-medium">
+                  <span>✓</span>
+                  Placar: {home} x {away}
+                </span>
+                <button
+                  onClick={() => setIsEditing(true)}
+                  className="text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-lg px-3 py-1.5 transition-colors"
                 >
-                  Salvar
-                </Button>
+                  Editar placar
+                </button>
               </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={home}
+                  onChange={(e) => setHome(e.target.value)}
+                  className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-lg py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
+                />
+                <span className="text-zinc-500 font-bold">x</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={30}
+                  value={away}
+                  onChange={(e) => setAway(e.target.value)}
+                  className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-lg py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
+                />
+                <div className="flex gap-2 ml-auto">
+                  {isSaved && (
+                    <button
+                      onClick={() => {
+                        setIsEditing(false);
+                        setHome(existing?.homeScore?.toString() ?? home);
+                        setAway(existing?.awayScore?.toString() ?? away);
+                        setGoalScorer((existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction ?? "");
+                      }}
+                      className="text-xs text-zinc-400 hover:text-white border border-zinc-700 rounded-lg px-3 py-1.5 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                  )}
+                  <Button
+                    size="sm"
+                    onClick={handleSave}
+                    loading={saving}
+                    disabled={home === "" || away === ""}
+                  >
+                    Salvar
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* Artilheiro — sempre visível para jogos não travados */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder={goalScorerEnabled ? `⚽ Artilheiro (+${goalScorerPoints} pts se acertar)` : "⚽ Artilheiro (opcional)"}
+                value={goalScorer}
+                onChange={(e) => setGoalScorer(e.target.value)}
+                maxLength={80}
+                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+              {isSaved && !isEditing && (
+                <Button size="sm" onClick={handleSave} loading={saving}>
+                  ✓
+                </Button>
+              )}
             </div>
-            <input
-              type="text"
-              placeholder={goalScorerEnabled ? `⚽ Artilheiro (+${goalScorerPoints} pts se acertar)` : "⚽ Artilheiro (opcional)"}
-              value={goalScorer}
-              onChange={(e) => setGoalScorer(e.target.value)}
-              maxLength={80}
-              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
+
             {saveError && <p className="text-xs text-red-400">{saveError}</p>}
-          </div>
+          </>
         )}
       </div>
 
