@@ -48,7 +48,7 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
         matchId: match.id,
         homeScore: parseInt(home),
         awayScore: parseInt(away),
-        ...(goalScorerEnabled && goalScorer.trim() ? { goalScorerPrediction: goalScorer.trim() } : {}),
+        ...(goalScorer.trim() ? { goalScorerPrediction: goalScorer.trim() } : {}),
       }),
     });
     setSaving(false);
@@ -165,14 +165,13 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
                 </span>
               )}
             </div>
-            {goalScorerEnabled && (existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction && (
+            {(existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction && (
               <div className="flex items-center justify-between text-xs text-zinc-500">
                 <span>⚽ Artilheiro: <span className="text-zinc-300">{(existing as { goalScorerPrediction?: string | null }).goalScorerPrediction}</span></span>
-                {(existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === true && <span className="text-green-400 font-medium">+{goalScorerPoints} pts ✓</span>}
-                {(existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === false && <span className="text-red-400">Errou</span>}
+                {goalScorerEnabled && (existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === true && <span className="text-green-400 font-medium">+{goalScorerPoints} pts ✓</span>}
+                {goalScorerEnabled && (existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === false && <span className="text-red-400">Errou</span>}
               </div>
-            )}
-          </div>
+            )}          </div>
         ) : isSaved && !isEditing ? (
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between">
@@ -187,7 +186,7 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
                 Editar
               </button>
             </div>
-            {goalScorerEnabled && goalScorer && (
+            {goalScorer && (
               <p className="text-xs text-zinc-500">⚽ Artilheiro: <span className="text-zinc-300">{goalScorer}</span></p>
             )}
           </div>
@@ -235,16 +234,14 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
                 </Button>
               </div>
             </div>
-            {goalScorerEnabled && (
-              <input
-                type="text"
-                placeholder={`⚽ Artilheiro (+${goalScorerPoints} pts se acertar)`}
-                value={goalScorer}
-                onChange={(e) => setGoalScorer(e.target.value)}
-                maxLength={80}
-                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-            )}
+            <input
+              type="text"
+              placeholder={goalScorerEnabled ? `⚽ Artilheiro (+${goalScorerPoints} pts se acertar)` : "⚽ Artilheiro (opcional)"}
+              value={goalScorer}
+              onChange={(e) => setGoalScorer(e.target.value)}
+              maxLength={80}
+              className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
             {saveError && <p className="text-xs text-red-400">{saveError}</p>}
           </div>
         )}
