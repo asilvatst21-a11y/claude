@@ -89,6 +89,8 @@ function buildShareText(
   const isBlowout = diff >= 5;
   const isClose = diff <= 1;
 
+  const appUrl = typeof window !== "undefined" ? window.location.origin : "https://palpitaai.vercel.app";
+
   if (isWinner) {
     const heroLine = isBlowout
       ? pick(WINNER_BLOWOUT, seed)
@@ -102,7 +104,7 @@ function buildShareText(
       `💀 ${loserName} — ${loserPoints} pts\n\n` +
       `${heroLine}\n` +
       `${loserLine}\n\n` +
-      `Quer me desafiar? ${url}`
+      `Quer jogar também? Cria tua conta grátis 👇\n${appUrl}`
     );
   } else {
     const selfLine = pick(LOSER_SELF, seed + "s");
@@ -111,7 +113,7 @@ function buildShareText(
       `🏆 ${winnerName} — ${winnerPoints} pts\n` +
       `💀 Eu (${loserName}) — ${loserPoints} pts\n\n` +
       `${selfLine}\n\n` +
-      `Quem topa me dar revanche? ${url}`
+      `Topa me dar revanche? Entra no PalpitaAí 👇\n${appUrl}`
     );
   }
 }
@@ -125,10 +127,11 @@ function ShareButtons({
   label: string;
   shareImageUrl?: string;
 }) {
-  const [state, setState] = useState<"idle" | "loading" | "copied">("idle");
+  const [state, setState] = useState<"idle" | "loading" | "shared" | "downloaded">("idle");
 
   const handleShare = async () => {
     setState("loading");
+    const text = getShareText();
     try {
       if (shareImageUrl) {
         const res = await fetch(shareImageUrl);
@@ -137,25 +140,28 @@ function ShareButtons({
         const file = new File([blob], "duelo-x1.png", { type: "image/png" });
 
         if (navigator.canShare?.({ files: [file] })) {
-          await navigator.share({ files: [file], title: "Duelo X1 — PalpitaAí" });
-          setState("idle");
+          // Copy text to clipboard BEFORE opening share sheet so it's ready to paste
+          await navigator.clipboard.writeText(text).catch(() => {});
+          await navigator.share({ files: [file], text, title: "Duelo X1 — PalpitaAí" });
+          setState("shared");
+          setTimeout(() => setState("idle"), 4000);
           return;
         }
-        // Desktop: download image
+        // Desktop: download image + copy text
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
         a.download = "duelo-x1.png";
         a.click();
         URL.revokeObjectURL(url);
-        setState("copied");
-        setTimeout(() => setState("idle"), 2500);
+        await navigator.clipboard.writeText(text).catch(() => {});
+        setState("downloaded");
+        setTimeout(() => setState("idle"), 4000);
         return;
       }
-      // Fallback: copy text
-      await navigator.clipboard.writeText(getShareText());
-      setState("copied");
-      setTimeout(() => setState("idle"), 2500);
+      await navigator.clipboard.writeText(text);
+      setState("shared");
+      setTimeout(() => setState("idle"), 3000);
     } catch {
       setState("idle");
     }
@@ -172,8 +178,6 @@ function ShareButtons({
       >
         {state === "loading" ? (
           "Preparando..."
-        ) : state === "copied" ? (
-          "✓ Imagem salva!"
         ) : (
           <>
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -183,6 +187,17 @@ function ShareButtons({
           </>
         )}
       </button>
+
+      {state === "shared" && (
+        <p className="text-xs text-center text-green-400 font-medium">
+          📋 Texto copiado! Se não foi junto, cole no campo da mensagem.
+        </p>
+      )}
+      {state === "downloaded" && (
+        <p className="text-xs text-center text-green-400 font-medium">
+          ✓ Imagem salva · Texto copiado — cole junto!
+        </p>
+      )}
     </div>
   );
 }
@@ -238,7 +253,7 @@ export function X1WinnerCard({
               `🤝 ${player1Name ?? "Jogador 1"} — ${winnerPoints} pts\n` +
               `🤝 ${player2Name ?? "Jogador 2"} — ${loserPoints} pts\n\n` +
               `${drawLine}\n\n` +
-              `Topa revanche? ${getUrl()}`
+              `Topa me dar revanche? Entra no PalpitaAí 👇\n${typeof window !== "undefined" ? window.location.origin : "https://palpitaai.vercel.app"}`
             );
           }}
         />
