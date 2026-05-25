@@ -130,8 +130,6 @@ function ShareButtons({
   const handleShare = async () => {
     setState("loading");
     try {
-      const text = getShareText();
-
       if (shareImageUrl) {
         const res = await fetch(shareImageUrl);
         if (!res.ok) throw new Error("image error");
@@ -139,22 +137,23 @@ function ShareButtons({
         const file = new File([blob], "duelo-x1.png", { type: "image/png" });
 
         if (navigator.canShare?.({ files: [file] })) {
-          // Mobile: share image + text together
-          await navigator.share({ files: [file], text, title: "Duelo X1 — PalpitaAí" });
+          await navigator.share({ files: [file], title: "Duelo X1 — PalpitaAí" });
           setState("idle");
           return;
         }
-        // Desktop fallback: download image
+        // Desktop: download image
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
         a.download = "duelo-x1.png";
         a.click();
         URL.revokeObjectURL(url);
+        setState("copied");
+        setTimeout(() => setState("idle"), 2500);
+        return;
       }
-
-      // Copy text to clipboard as companion
-      await navigator.clipboard.writeText(text);
+      // Fallback: copy text
+      await navigator.clipboard.writeText(getShareText());
       setState("copied");
       setTimeout(() => setState("idle"), 2500);
     } catch {
@@ -174,7 +173,7 @@ function ShareButtons({
         {state === "loading" ? (
           "Preparando..."
         ) : state === "copied" ? (
-          "✓ Imagem salva · Texto copiado!"
+          "✓ Imagem salva!"
         ) : (
           <>
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

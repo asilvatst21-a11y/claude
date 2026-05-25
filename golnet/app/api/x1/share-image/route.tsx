@@ -2,21 +2,63 @@ import { ImageResponse } from "next/og";
 
 export const runtime = "edge";
 
-// Data shape encoded as base64url in ?d= query param
+// Data shape encoded as base64 in ?d= query param
 interface ShareData {
-  p1: string;          // creator name
-  p2: string;          // opponent name
-  s1: number;          // creator score
-  s2: number;          // opponent score
-  w: 0 | 1 | 2;       // 0=draw, 1=creator won, 2=opponent won
+  p1: string;
+  p2: string;
+  s1: number;
+  s2: number;
+  w: 0 | 1 | 2; // 0=draw, 1=creator won, 2=opponent won
   m: Array<{
-    ht: string;                        // homeTeam
-    at: string;                        // awayTeam
-    rh: number | null;                 // real homeScore
-    ra: number | null;                 // real awayScore
-    p1: [number, number, number, string | null];  // [pred_h, pred_a, pts, result]
+    ht: string;
+    at: string;
+    rh: number | null;
+    ra: number | null;
+    p1: [number, number, number, string | null];
     p2: [number, number, number, string | null];
   }>;
+}
+
+const WINNER_TAUNTS = [
+  "👑 O rei não tira a coroa. Nunca.",
+  "🎯 Bala certeira. Nem encostou.",
+  "🔥 Destruiu sem dó nem piedade.",
+  "💪 Isso aqui não é sorte, é talento.",
+  "🦁 Leão solto no galinheiro.",
+  "🧠 Palpiteiro de elite. Nível outro.",
+  "😤 Nem suou. Passeou.",
+  "⚡ Relâmpago. O adversário nem viu passar.",
+];
+const WINNER_BLOWOUT = [
+  "💀 Goleada moral. Isso foi cruel demais.",
+  "🚑 Alguém chama a ambulância pro adversário.",
+  "🪦 Enterrou vivo e jogou flores por cima.",
+  "😂 Nem foi jogo — foi aula particular. De graça.",
+];
+const CLOSE_MATCH = [
+  "😅 Por pouco... mas por pouco não conta.",
+  "🎲 A sorte ajudou, mas quem vence leva o troféu.",
+  "🤏 Milímetros separam gênios de mortais.",
+];
+const DRAW_LINES = [
+  "🤝 Equilíbrio total. Ninguém ganha, ninguém perde.",
+  "⚖️ Dois gênios se encontraram e saíram no zero.",
+  "🏳️ Empate técnico. Revancha obrigatória.",
+  "😤 Isso não resolve nada. Bora pedir revanche!",
+];
+
+function pick(arr: string[], seed: string) {
+  const idx = seed.split("").reduce((s, c) => s + c.charCodeAt(0), 0) % arr.length;
+  return arr[idx];
+}
+
+function buildTaunt(w: 0 | 1 | 2, p1: string, p2: string, s1: number, s2: number): string {
+  if (w === 0) return pick(DRAW_LINES, p1 + p2);
+  const seed = p1 + p2;
+  const diff = Math.abs(s1 - s2);
+  if (diff >= 5) return pick(WINNER_BLOWOUT, seed);
+  if (diff <= 1) return pick(CLOSE_MATCH, seed);
+  return pick(WINNER_TAUNTS, seed);
 }
 
 const RESULT_EMOJI: Record<string, string> = {
@@ -50,8 +92,10 @@ export async function GET(req: Request) {
   const c1Color = isDraw ? drawColor : creatorWon  ? winColor : loseColor;
   const c2Color = isDraw ? drawColor : !creatorWon ? winColor : loseColor;
 
+  const taunt = buildTaunt(w, p1, p2, s1, s2);
+
   const W = 800;
-  const H = 460 + m.length * 120;
+  const H = 520 + m.length * 120;
 
   return new ImageResponse(
     (
@@ -225,8 +269,25 @@ export async function GET(req: Request) {
           })}
         </div>
 
+        {/* Taunt banner */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            backgroundColor: isDraw ? "#facc1510" : "#ffffff08",
+            borderRadius: 12,
+            padding: "14px 20px",
+            marginTop: 14,
+          }}
+        >
+          <span style={{ fontSize: 16, color: isDraw ? "#facc15" : "#a1a1aa", textAlign: "center" }}>
+            {taunt}
+          </span>
+        </div>
+
         {/* Footer */}
-        <div style={{ display: "flex", justifyContent: "center", paddingTop: 22, color: "#3f3f46", fontSize: 13 }}>
+        <div style={{ display: "flex", justifyContent: "center", paddingTop: 16, color: "#3f3f46", fontSize: 13 }}>
           palpitaai.vercel.app
         </div>
       </div>
