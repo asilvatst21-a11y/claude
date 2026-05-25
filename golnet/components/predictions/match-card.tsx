@@ -137,13 +137,13 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
           <div className="flex gap-2 text-[11px] text-zinc-400 mt-0.5">
             <div className="flex-1 flex flex-col items-end gap-0.5">
               {homeGoals.map((g, i) => (
-                <span key={i}>{g.player} {g.minute}{g.extra ? `+${g.extra}` : ""}' {goalIcon(g.type)}</span>
+                <span key={i}>{g.player} {g.minute}{g.extra ? `+${g.extra}` : ""}&apos; {goalIcon(g.type)}</span>
               ))}
             </div>
             <div className="w-px bg-zinc-800 shrink-0" />
             <div className="flex-1 flex flex-col items-start gap-0.5">
               {awayGoals.map((g, i) => (
-                <span key={i}>{goalIcon(g.type)} {g.minute}{g.extra ? `+${g.extra}` : ""}' {g.player}</span>
+                <span key={i}>{goalIcon(g.type)} {g.minute}{g.extra ? `+${g.extra}` : ""}&apos; {g.player}</span>
               ))}
             </div>
           </div>
