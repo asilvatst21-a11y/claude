@@ -83,7 +83,6 @@ function buildShareText(
   winnerPoints: number,
   loserPoints: number,
   seed: string,
-  url: string
 ) {
   const diff = winnerPoints - loserPoints;
   const isBlowout = diff >= 5;
@@ -219,7 +218,6 @@ export function X1WinnerCard({
     ? (player1Name ?? "") + (player2Name ?? "")
     : effectiveWinner + effectiveLoser;
 
-  const getUrl = () => (typeof window !== "undefined" ? window.location.href : "");
 
   if (isDraw) {
     const drawLine = pick(DRAW_LINES, seed);
@@ -311,7 +309,7 @@ export function X1WinnerCard({
       <ShareButtons
         label={isCurrentUserWinner ? "Compartilha essa vitória e zoa o perdedor 😂" : "Conta a derrota (ou pede revanche) 😅"}
         shareImageUrl={shareImageUrl}
-        getShareText={() => buildShareText(!!isCurrentUserWinner, effectiveWinner, effectiveLoser, winnerPoints, loserPoints, seed, getUrl())}
+        getShareText={() => buildShareText(!!isCurrentUserWinner, effectiveWinner, effectiveLoser, winnerPoints, loserPoints, seed)}
       />
     </div>
   );
