@@ -385,6 +385,203 @@ function ImportedLeaguesTab() {
   );
 }
 
+type MatchSearchResult = {
+  id: string;
+  externalId: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  status: string;
+  startsAt: string;
+  leagueName: string | null;
+  round: string | null;
+};
+
+type ManualResultResponse = {
+  match: string;
+  before: { status: string; homeScore: number | null; awayScore: number | null };
+  after: { status: string; homeScore: number; awayScore: number };
+  regularPredsSc: number;
+  duelPredsScored: number;
+};
+
+function ManualResultSection() {
+  const [query, setQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [matches, setMatches] = useState<MatchSearchResult[] | null>(null);
+  const [selected, setSelected] = useState<MatchSearchResult | null>(null);
+  const [homeScore, setHomeScore] = useState("");
+  const [awayScore, setAwayScore] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [result, setResult] = useState<ManualResultResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const search = async () => {
+    if (query.trim().length < 2) return;
+    setSearching(true);
+    setMatches(null);
+    setSelected(null);
+    setResult(null);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/matches/search?q=${encodeURIComponent(query.trim())}`);
+      setMatches(await res.json());
+    } catch { setError("Erro de rede"); }
+    finally { setSearching(false); }
+  };
+
+  const save = async () => {
+    if (!selected) return;
+    const h = parseInt(homeScore);
+    const a = parseInt(awayScore);
+    if (isNaN(h) || isNaN(a) || h < 0 || a < 0) { setError("Placar inválido"); return; }
+    setSaving(true);
+    setResult(null);
+    setError(null);
+    try {
+      const res = await fetch("/api/admin/matches/manual-result", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ matchId: selected.id, homeScore: h, awayScore: a }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error ?? "Erro"); }
+      else { setResult(data as ManualResultResponse); setSelected(null); }
+    } catch { setError("Erro de rede"); }
+    finally { setSaving(false); }
+  };
+
+  const statusLabel: Record<string, string> = {
+    SCHEDULED: "Agendado", LIVE: "Ao vivo", FINISHED: "Finalizado",
+    POSTPONED: "Adiado", CANCELLED: "Cancelado",
+  };
+
+  const statusColor: Record<string, string> = {
+    SCHEDULED: "text-zinc-400", LIVE: "text-yellow-400",
+    FINISHED: "text-green-400", POSTPONED: "text-orange-400", CANCELLED: "text-red-400",
+  };
+
+  return (
+    <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+      <h2 className="text-lg font-semibold text-white mb-1">Editar Resultado Manualmente</h2>
+      <p className="text-sm text-zinc-400 mb-4">
+        Use para W.O. ou quando a API não reflete o resultado real. Pontua todos os palpites pendentes automaticamente.
+      </p>
+
+      <div className="flex gap-2 mb-4">
+        <input
+          type="text"
+          placeholder="Buscar time (ex: Flamengo)"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && search()}
+          className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-2 text-sm text-white placeholder-zinc-500 focus:outline-none focus:ring-2 focus:ring-green-500"
+        />
+        <button
+          onClick={search}
+          disabled={searching || query.trim().length < 2}
+          className="px-4 py-2 bg-green-600 hover:bg-green-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-medium rounded-lg transition-colors"
+        >
+          {searching ? "Buscando..." : "Buscar"}
+        </button>
+      </div>
+
+      {matches && matches.length === 0 && (
+        <p className="text-sm text-zinc-500 py-2">Nenhuma partida encontrada.</p>
+      )}
+
+      {matches && matches.length > 0 && !selected && (
+        <div className="space-y-2 mb-4">
+          {matches.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => { setSelected(m); setHomeScore(""); setAwayScore(""); setResult(null); setError(null); }}
+              className="w-full text-left bg-zinc-800 hover:bg-zinc-700 rounded-lg px-4 py-3 transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-white">{m.homeTeam} x {m.awayTeam}</span>
+                <span className={`text-xs font-medium ${statusColor[m.status] ?? "text-zinc-400"}`}>
+                  {statusLabel[m.status] ?? m.status}
+                  {m.homeScore != null && ` · ${m.homeScore}–${m.awayScore}`}
+                </span>
+              </div>
+              <div className="text-xs text-zinc-500 mt-0.5">
+                {m.leagueName} · {m.round} · {new Date(m.startsAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {selected && (
+        <div className="bg-zinc-800 rounded-lg p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm font-semibold text-white">{selected.homeTeam} x {selected.awayTeam}</p>
+              <p className="text-xs text-zinc-500">{selected.leagueName} · {selected.round}</p>
+            </div>
+            <button onClick={() => setSelected(null)} className="text-xs text-zinc-500 hover:text-white">Trocar</button>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="text-center">
+              <p className="text-xs text-zinc-500 mb-1">{selected.homeTeam}</p>
+              <input
+                type="number"
+                min={0}
+                value={homeScore}
+                onChange={(e) => setHomeScore(e.target.value)}
+                placeholder="0"
+                className="w-16 text-center bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-2 text-lg font-bold text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+            <span className="text-xl font-bold text-zinc-500 mt-5">×</span>
+            <div className="text-center">
+              <p className="text-xs text-zinc-500 mb-1">{selected.awayTeam}</p>
+              <input
+                type="number"
+                min={0}
+                value={awayScore}
+                onChange={(e) => setAwayScore(e.target.value)}
+                placeholder="0"
+                className="w-16 text-center bg-zinc-700 border border-zinc-600 rounded-lg px-2 py-2 text-lg font-bold text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              />
+            </div>
+            <button
+              onClick={save}
+              disabled={saving || homeScore === "" || awayScore === ""}
+              className="ml-4 px-4 py-2 bg-orange-600 hover:bg-orange-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              {saving ? "Salvando..." : "Definir como Finalizado"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {error && <p className="text-sm text-red-400 bg-red-950/30 border border-red-800 rounded-lg px-3 py-2">{error}</p>}
+
+      {result && (
+        <div className="bg-zinc-800 rounded-lg p-4 text-sm">
+          <p className="font-semibold text-white mb-2">{result.match}</p>
+          <div className="grid grid-cols-2 gap-4 mb-2">
+            <div>
+              <p className="text-xs text-zinc-500 mb-1">Antes</p>
+              <p className="text-zinc-300">{statusLabel[result.before.status] ?? result.before.status} · {result.before.homeScore ?? "?"} — {result.before.awayScore ?? "?"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-zinc-500 mb-1">Depois</p>
+              <p className="text-green-400 font-semibold">Finalizado · {result.after.homeScore} — {result.after.awayScore}</p>
+            </div>
+          </div>
+          <p className="text-xs text-green-400">
+            ✓ {result.regularPredsSc} palpites pontuados · {result.duelPredsScored} duelos pontuados
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ForceResyncSection() {
   const [externalId, setExternalId] = useState("");
   const [loading, setLoading] = useState(false);
@@ -740,7 +937,10 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
             </div>
           </section>
 
-          {/* Section 3: Force re-sync */}
+          {/* Section 3: Manual result override */}
+          <ManualResultSection />
+
+          {/* Section 4: Force re-sync */}
           <ForceResyncSection />
 
           {/* Section 4: Stats */}
