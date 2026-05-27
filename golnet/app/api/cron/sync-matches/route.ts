@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { fetchFixturesByIds, mapApiStatus, extractGoals } from "@/lib/api-football";
+import { fetchFixturesByIds, mapApiStatus, extractGoals, type GoalEvent } from "@/lib/api-football";
 import { calculatePoints } from "@/lib/scoring";
 import { sendPushToUser } from "@/lib/push";
 
@@ -56,6 +56,7 @@ async function runSync(): Promise<{ synced: number }> {
   const matchMap = Object.fromEntries(dbMatches.map((m) => [m.externalId!, m]));
 
   const finishedMatchIds: string[] = [];
+  const freshGoals: Record<string, GoalEvent[]> = {};
 
   // Step 3: update all matches in parallel
   await Promise.all(fixtures.map(async (fixture) => {
@@ -66,6 +67,7 @@ async function runSync(): Promise<{ synced: number }> {
     const homeScore = fixture.goals.home;
     const awayScore = fixture.goals.away;
     const goals = (status === "FINISHED" || status === "LIVE") ? extractGoals(fixture) : undefined;
+    if (goals && goals.length > 0) freshGoals[match.id] = goals;
 
     await prisma.match.update({
       where: { id: match.id },
@@ -90,7 +92,10 @@ async function runSync(): Promise<{ synced: number }> {
 
     const [regularPreds, duelPreds] = await Promise.all([
       prisma.prediction.findMany({ where: { matchId: { in: finishedMatchIds }, result: null } }),
-      prisma.duelPrediction.findMany({ where: { matchId: { in: finishedMatchIds }, result: null } }),
+      prisma.duelPrediction.findMany({
+        where: { matchId: { in: finishedMatchIds }, result: null },
+        include: { duel: { select: { goalScorerEnabled: true, goalScorerPoints: true } } },
+      }),
     ]);
 
     await Promise.all(regularPreds.map(async (pred) => {
@@ -105,11 +110,52 @@ async function runSync(): Promise<{ synced: number }> {
       const round = match.round ?? "Fase de Grupos";
 
       const memberships = await prisma.leagueMember.findMany({
-        where: { userId: pred.userId }, select: { leagueId: true },
+        where: { userId: pred.userId },
+        select: { leagueId: true, league: { select: { goalScorerEnabled: true, goalScorerPoints: true } } },
       });
 
+      // Score goal scorer prediction
+      let goalScorerCorrect: boolean | null = null;
+      const gsOps: Promise<unknown>[] = [];
+
+      if (pred.goalScorerPrediction) {
+        const matchGoals = freshGoals[match.id] ?? (match.goals as GoalEvent[] | null) ?? [];
+        const norm = (s: string) => s.toLowerCase().trim();
+        let predictedPlayers: string[] = [];
+        try {
+          const parsed = JSON.parse(pred.goalScorerPrediction) as { home?: string[]; away?: string[] };
+          predictedPlayers = [...(parsed.home ?? []), ...(parsed.away ?? [])].filter((s) => s.trim());
+        } catch {
+          predictedPlayers = [pred.goalScorerPrediction];
+        }
+        goalScorerCorrect = predictedPlayers.some((predicted) => {
+          const p = norm(predicted);
+          return matchGoals.some((g) => { const a = norm(g.player); return a.includes(p) || p.includes(a); });
+        });
+        if (goalScorerCorrect) {
+          for (const m of memberships) {
+            if (!m.league.goalScorerEnabled) continue;
+            const gsPoints = m.league.goalScorerPoints;
+            gsOps.push(
+              prisma.leagueMember.updateMany({
+                where: { userId: pred.userId, leagueId: m.leagueId },
+                data: { totalPoints: { increment: gsPoints } },
+              }),
+              prisma.roundRanking.upsert({
+                where: { leagueId_userId_round: { leagueId: m.leagueId, userId: pred.userId, round } },
+                create: { leagueId: m.leagueId, userId: pred.userId, round, points: gsPoints },
+                update: { points: { increment: gsPoints } },
+              })
+            );
+          }
+        }
+      }
+
       await Promise.all([
-        prisma.prediction.update({ where: { id: pred.id }, data: { result, points, bonusPoints } }),
+        prisma.prediction.update({
+          where: { id: pred.id },
+          data: { result, points, bonusPoints, ...(pred.goalScorerPrediction != null ? { goalScorerCorrect } : {}) },
+        }),
         prisma.leagueMember.updateMany({ where: { userId: pred.userId }, data: { totalPoints: { increment: total } } }),
         ...memberships.map((m) =>
           prisma.roundRanking.upsert({
@@ -118,6 +164,7 @@ async function runSync(): Promise<{ synced: number }> {
             update: { points: { increment: total } },
           })
         ),
+        ...gsOps,
       ]);
     }));
 
@@ -125,11 +172,35 @@ async function runSync(): Promise<{ synced: number }> {
       const match = matchById[dp.matchId];
       if (!match || match.homeScore === null || match.awayScore === null) return;
 
-      const { result, points, bonusPoints } = calculatePoints({
+      const scored = calculatePoints({
         predHome: dp.homeScore, predAway: dp.awayScore,
         realHome: match.homeScore, realAway: match.awayScore, stage: match.stage,
       });
-      await prisma.duelPrediction.update({ where: { id: dp.id }, data: { result, points, bonusPoints } });
+      const { result, points } = scored;
+      let bonusPoints = scored.bonusPoints;
+      let goalScorerCorrect: boolean | null = null;
+
+      if (dp.goalScorerPrediction) {
+        const matchGoals = freshGoals[match.id] ?? (match.goals as GoalEvent[] | null) ?? [];
+        const norm = (s: string) => s.toLowerCase().trim();
+        let predictedPlayers: string[] = [];
+        try {
+          const parsed = JSON.parse(dp.goalScorerPrediction) as { home?: string[]; away?: string[] };
+          predictedPlayers = [...(parsed.home ?? []), ...(parsed.away ?? [])].filter((s) => s.trim());
+        } catch {
+          predictedPlayers = [dp.goalScorerPrediction];
+        }
+        goalScorerCorrect = predictedPlayers.some((predicted) => {
+          const p = norm(predicted);
+          return matchGoals.some((g) => { const a = norm(g.player); return a.includes(p) || p.includes(a); });
+        });
+        if (goalScorerCorrect && dp.duel.goalScorerEnabled) bonusPoints += dp.duel.goalScorerPoints;
+      }
+
+      await prisma.duelPrediction.update({
+        where: { id: dp.id },
+        data: { result, points, bonusPoints, ...(dp.goalScorerPrediction != null ? { goalScorerCorrect } : {}) },
+      });
     }));
 
     // Finalize completed duels

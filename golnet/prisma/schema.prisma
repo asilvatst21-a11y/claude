@@ -128,6 +128,9 @@ model League {
   championPredictionEnabled Boolean  @default(false)
   championPredictionPoints  Int      @default(20)
   actualChampion            String?
+  // Goal scorer prediction
+  goalScorerEnabled         Boolean  @default(false)
+  goalScorerPoints          Int      @default(5)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
@@ -224,6 +227,8 @@ model Prediction {
   points      Int               @default(0)
   bonusPoints Int               @default(0)
   result      PredictionResult?
+  goalScorerPrediction String?
+  goalScorerCorrect    Boolean?
   lockedAt    DateTime?
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
@@ -312,6 +317,8 @@ model Duel {
   opponentId  String?
   status      DuelStatus @default(PENDING)
   winnerId    String?
+  goalScorerEnabled Boolean    @default(false)
+  goalScorerPoints  Int        @default(5)
   inviteToken String     @unique @default(cuid())
   expiresAt   DateTime
   createdAt   DateTime   @default(now())
@@ -345,6 +352,8 @@ model DuelPrediction {
   points      Int               @default(0)
   bonusPoints Int               @default(0)
   result      PredictionResult?
+  goalScorerPrediction String?
+  goalScorerCorrect    Boolean?
   createdAt   DateTime          @default(now())
 
   duel  Duel  @relation(fields: [duelId], references: [id], onDelete: Cascade)

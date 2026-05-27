@@ -9,6 +9,7 @@ const schema = z.object({
     matchId: z.string(),
     homeScore: z.number().int().min(0),
     awayScore: z.number().int().min(0),
+    goalScorerPrediction: z.string().max(80).optional(),
   })).min(1),
 });
 
@@ -51,8 +52,15 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   await Promise.all(parsed.data.predictions.map((pred) =>
     prisma.duelPrediction.upsert({
       where: { duelId_matchId_userId: { duelId: params.id, matchId: pred.matchId, userId } },
-      create: { duelId: params.id, matchId: pred.matchId, userId, homeScore: pred.homeScore, awayScore: pred.awayScore },
-      update: { homeScore: pred.homeScore, awayScore: pred.awayScore },
+      create: {
+        duelId: params.id, matchId: pred.matchId, userId,
+        homeScore: pred.homeScore, awayScore: pred.awayScore,
+        goalScorerPrediction: pred.goalScorerPrediction ?? null,
+      },
+      update: {
+        homeScore: pred.homeScore, awayScore: pred.awayScore,
+        goalScorerPrediction: pred.goalScorerPrediction ?? null,
+      },
     })
   ));
 
