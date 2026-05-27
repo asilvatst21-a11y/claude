@@ -52,6 +52,8 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
   const [away, setAway] = useState(existing?.awayScore?.toString() ?? "");
   const [gsHome, setGsHome] = useState<string[]>(existingGs.home);
   const [gsAway, setGsAway] = useState<string[]>(existingGs.away);
+  // gsEditMode: true = showing inputs; false = showing saved summary
+  const [gsEditMode, setGsEditMode] = useState(existingGs.home.length === 0 && existingGs.away.length === 0);
   const [players, setPlayers] = useState<{ home: string[]; away: string[] } | null>(null);
   const [loadingPlayers, setLoadingPlayers] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -113,6 +115,7 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
     if (res.ok) {
       setIsSaved(true);
       setIsEditing(false);
+      if (gsPayload) setGsEditMode(false);
       onSaved?.();
     } else {
       const data = await res.json();
@@ -120,7 +123,7 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
     }
   };
 
-  // Save only goal scorers (when score already saved)
+  // Save only goal scorers (score already saved)
   const handleSaveGs = async () => {
     if (home === "" || away === "") return;
     setSaving(true);
@@ -137,11 +140,15 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
       }),
     });
     setSaving(false);
-    if (!res.ok) {
+    if (res.ok) {
+      setGsEditMode(false);
+    } else {
       const data = await res.json();
       setSaveError(data.error ?? "Erro ao salvar");
     }
   };
+
+  const hasSavedScorers = gsHome.some(Boolean) || gsAway.some(Boolean);
 
   return (
     <div className={cn(
@@ -237,9 +244,8 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
                 </span>
               )}
             </div>
-            {/* Predicted scorers (locked) */}
             {(existingGs.home.length > 0 || existingGs.away.length > 0) && (
-              <div className="flex gap-4 text-xs text-zinc-500">
+              <div className="flex gap-4 text-xs">
                 {existingGs.home.length > 0 && (
                   <div>
                     <p className="text-zinc-600 mb-0.5">{match.homeTeam}</p>
@@ -313,18 +319,30 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
               </div>
             )}
 
-            {/* Goal scorer distribution */}
+            {/* Marcadores do jogo */}
             {totalGoals > 0 && (
               <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-3 flex flex-col gap-3">
+                {/* Header */}
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-zinc-300">
-                    ⚽ Artilheiros do palpite
+                    ⚽ Marcadores do jogo
                     {goalScorerEnabled && <span className="text-blue-400 ml-1">(+{goalScorerPoints} pts por acerto)</span>}
                   </span>
-                  {loadingPlayers && <span className="text-xs text-zinc-500">Carregando jogadores...</span>}
+                  <div className="flex items-center gap-2">
+                    {loadingPlayers && <span className="text-xs text-zinc-500">Carregando...</span>}
+                    {/* Editar button — only when saved and in view mode */}
+                    {!gsEditMode && isSaved && !isEditing && (
+                      <button
+                        onClick={() => setGsEditMode(true)}
+                        className="text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-lg px-2 py-0.5 transition-colors"
+                      >
+                        Editar
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                {/* Datalists for autocomplete */}
+                {/* Datalists */}
                 {players && (
                   <>
                     <datalist id={`home-pl-${match.id}`}>
@@ -336,63 +354,104 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
                   </>
                 )}
 
-                {/* Home team scorers */}
-                {homeGoalCount > 0 && (
-                  <div>
-                    <p className="text-xs text-zinc-500 mb-1.5 flex items-center gap-1">
-                      {match.homeTeamFlag && <img src={teamLogo(match.homeTeamFlag) ?? ""} alt="" className="w-3.5 h-3.5 object-contain" />}
-                      {match.homeTeam} — {homeGoalCount} gol{homeGoalCount !== 1 ? "s" : ""}
-                    </p>
-                    <div className="flex flex-col gap-1.5">
-                      {homeScorers.map((val, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <span className="text-xs text-zinc-600 w-10 shrink-0">Gol {i + 1}</span>
-                          <input
-                            type="text"
-                            list={players ? `home-pl-${match.id}` : undefined}
-                            value={val}
-                            onChange={(e) => updateGs("home", i, e.target.value)}
-                            placeholder={loadingPlayers ? "Carregando..." : "Nome do jogador"}
-                            maxLength={80}
-                            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
-                        </div>
-                      ))}
-                    </div>
+                {/* VIEW mode: show saved scorers summary */}
+                {!gsEditMode && hasSavedScorers && (
+                  <div className="flex flex-col gap-2">
+                    {gsHome.filter(Boolean).length > 0 && (
+                      <div>
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                          {match.homeTeamFlag && <img src={teamLogo(match.homeTeamFlag) ?? ""} alt="" className="w-3 h-3 object-contain" />}
+                          {match.homeTeam}
+                        </p>
+                        {gsHome.filter(Boolean).map((p, i) => (
+                          <p key={i} className="text-xs text-zinc-300">⚽ {p}</p>
+                        ))}
+                      </div>
+                    )}
+                    {gsAway.filter(Boolean).length > 0 && (
+                      <div>
+                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 flex items-center gap-1">
+                          {match.awayTeamFlag && <img src={teamLogo(match.awayTeamFlag) ?? ""} alt="" className="w-3 h-3 object-contain" />}
+                          {match.awayTeam}
+                        </p>
+                        {gsAway.filter(Boolean).map((p, i) => (
+                          <p key={i} className="text-xs text-zinc-300">⚽ {p}</p>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
-                {/* Away team scorers */}
-                {awayGoalCount > 0 && (
-                  <div>
-                    <p className="text-xs text-zinc-500 mb-1.5 flex items-center gap-1">
-                      {match.awayTeamFlag && <img src={teamLogo(match.awayTeamFlag) ?? ""} alt="" className="w-3.5 h-3.5 object-contain" />}
-                      {match.awayTeam} — {awayGoalCount} gol{awayGoalCount !== 1 ? "s" : ""}
-                    </p>
-                    <div className="flex flex-col gap-1.5">
-                      {awayScorers.map((val, i) => (
-                        <div key={i} className="flex items-center gap-2">
-                          <span className="text-xs text-zinc-600 w-10 shrink-0">Gol {i + 1}</span>
-                          <input
-                            type="text"
-                            list={players ? `away-pl-${match.id}` : undefined}
-                            value={val}
-                            onChange={(e) => updateGs("away", i, e.target.value)}
-                            placeholder={loadingPlayers ? "Carregando..." : "Nome do jogador"}
-                            maxLength={80}
-                            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                          />
+                {/* EDIT mode: inputs */}
+                {(gsEditMode || !hasSavedScorers) && (
+                  <>
+                    {homeGoalCount > 0 && (
+                      <div>
+                        <p className="text-xs text-zinc-500 mb-1.5 flex items-center gap-1">
+                          {match.homeTeamFlag && <img src={teamLogo(match.homeTeamFlag) ?? ""} alt="" className="w-3.5 h-3.5 object-contain" />}
+                          {match.homeTeam} — {homeGoalCount} gol{homeGoalCount !== 1 ? "s" : ""}
+                        </p>
+                        <div className="flex flex-col gap-1.5">
+                          {homeScorers.map((val, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <span className="text-xs text-zinc-600 w-10 shrink-0">Gol {i + 1}</span>
+                              <input
+                                type="text"
+                                list={players ? `home-pl-${match.id}` : undefined}
+                                value={val}
+                                onChange={(e) => updateGs("home", i, e.target.value)}
+                                placeholder={loadingPlayers ? "Carregando..." : "Nome do jogador"}
+                                maxLength={80}
+                                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                      </div>
+                    )}
 
-                {/* Save button when score already locked and user is editing only scorers */}
-                {isSaved && !isEditing && (
-                  <Button size="sm" onClick={handleSaveGs} loading={saving} className="self-end">
-                    Salvar artilheiros ✓
-                  </Button>
+                    {awayGoalCount > 0 && (
+                      <div>
+                        <p className="text-xs text-zinc-500 mb-1.5 flex items-center gap-1">
+                          {match.awayTeamFlag && <img src={teamLogo(match.awayTeamFlag) ?? ""} alt="" className="w-3.5 h-3.5 object-contain" />}
+                          {match.awayTeam} — {awayGoalCount} gol{awayGoalCount !== 1 ? "s" : ""}
+                        </p>
+                        <div className="flex flex-col gap-1.5">
+                          {awayScorers.map((val, i) => (
+                            <div key={i} className="flex items-center gap-2">
+                              <span className="text-xs text-zinc-600 w-10 shrink-0">Gol {i + 1}</span>
+                              <input
+                                type="text"
+                                list={players ? `away-pl-${match.id}` : undefined}
+                                value={val}
+                                onChange={(e) => updateGs("away", i, e.target.value)}
+                                placeholder={loadingPlayers ? "Carregando..." : "Nome do jogador"}
+                                maxLength={80}
+                                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Save / Cancel buttons — only when score is already saved */}
+                    {isSaved && !isEditing && (
+                      <div className="flex gap-2 justify-end">
+                        {gsEditMode && hasSavedScorers && (
+                          <button
+                            onClick={() => { setGsHome(existingGs.home); setGsAway(existingGs.away); setGsEditMode(false); }}
+                            className="text-xs text-zinc-400 hover:text-white border border-zinc-700 rounded-lg px-3 py-1.5 transition-colors"
+                          >
+                            Cancelar
+                          </button>
+                        )}
+                        <Button size="sm" onClick={handleSaveGs} loading={saving}>
+                          Salvar marcadores ✓
+                        </Button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
