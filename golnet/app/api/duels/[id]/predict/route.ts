@@ -9,7 +9,7 @@ const schema = z.object({
     matchId: z.string(),
     homeScore: z.number().int().min(0),
     awayScore: z.number().int().min(0),
-    goalScorerPrediction: z.string().max(80).optional(),
+    goalScorerPrediction: z.string().max(2000).optional(),
   })).min(1),
 });
 
