@@ -160,6 +160,24 @@ export async function fetchTeamLastMatches(teamId: number, last = 5): Promise<Ap
   return apiFetch<ApiFixture[]>(`/fixtures?team=${teamId}&last=${last}`);
 }
 
+export type ApiSquadPlayer = {
+  id: number;
+  name: string;
+  number: number | null;
+  pos: string; // "G" | "D" | "M" | "F"
+};
+
+export async function fetchSquad(teamId: number): Promise<ApiSquadPlayer[]> {
+  try {
+    const data = await apiFetch<{ team: { id: number }; players: ApiSquadPlayer[] }[]>(
+      `/players/squads?team=${teamId}`
+    );
+    return data[0]?.players ?? [];
+  } catch {
+    return [];
+  }
+}
+
 export function extractGroup(round: string): string | null {
   const match = round.match(/Group\s+([A-Z])/i);
   return match ? match[1].toUpperCase() : null;

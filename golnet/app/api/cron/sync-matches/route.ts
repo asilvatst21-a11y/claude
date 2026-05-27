@@ -121,10 +121,16 @@ async function runSync(): Promise<{ synced: number }> {
       if (pred.goalScorerPrediction) {
         const matchGoals = freshGoals[match.id] ?? (match.goals as GoalEvent[] | null) ?? [];
         const norm = (s: string) => s.toLowerCase().trim();
-        const guess = norm(pred.goalScorerPrediction);
-        goalScorerCorrect = matchGoals.some((g) => {
-          const p = norm(g.player);
-          return p.includes(guess) || guess.includes(p);
+        let predictedPlayers: string[] = [];
+        try {
+          const parsed = JSON.parse(pred.goalScorerPrediction) as { home?: string[]; away?: string[] };
+          predictedPlayers = [...(parsed.home ?? []), ...(parsed.away ?? [])].filter((s) => s.trim());
+        } catch {
+          predictedPlayers = [pred.goalScorerPrediction];
+        }
+        goalScorerCorrect = predictedPlayers.some((predicted) => {
+          const p = norm(predicted);
+          return matchGoals.some((g) => { const a = norm(g.player); return a.includes(p) || p.includes(a); });
         });
         if (goalScorerCorrect) {
           for (const m of memberships) {
@@ -174,15 +180,21 @@ async function runSync(): Promise<{ synced: number }> {
       let bonusPoints = scored.bonusPoints;
       let goalScorerCorrect: boolean | null = null;
 
-      if (dp.goalScorerPrediction && dp.duel.goalScorerEnabled) {
+      if (dp.goalScorerPrediction) {
         const matchGoals = freshGoals[match.id] ?? (match.goals as GoalEvent[] | null) ?? [];
         const norm = (s: string) => s.toLowerCase().trim();
-        const guess = norm(dp.goalScorerPrediction);
-        goalScorerCorrect = matchGoals.some((g) => {
-          const p = norm(g.player);
-          return p.includes(guess) || guess.includes(p);
+        let predictedPlayers: string[] = [];
+        try {
+          const parsed = JSON.parse(dp.goalScorerPrediction) as { home?: string[]; away?: string[] };
+          predictedPlayers = [...(parsed.home ?? []), ...(parsed.away ?? [])].filter((s) => s.trim());
+        } catch {
+          predictedPlayers = [dp.goalScorerPrediction];
+        }
+        goalScorerCorrect = predictedPlayers.some((predicted) => {
+          const p = norm(predicted);
+          return matchGoals.some((g) => { const a = norm(g.player); return a.includes(p) || p.includes(a); });
         });
-        if (goalScorerCorrect) bonusPoints += dp.duel.goalScorerPoints;
+        if (goalScorerCorrect && dp.duel.goalScorerEnabled) bonusPoints += dp.duel.goalScorerPoints;
       }
 
       await prisma.duelPrediction.update({

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import type { Match, Prediction } from "@/types";
@@ -17,6 +17,17 @@ interface MatchCardProps {
   goalScorerPoints?: number;
 }
 
+type GsData = { home: string[]; away: string[] };
+
+function parseGs(raw: string | null | undefined): GsData {
+  if (!raw) return { home: [], away: [] };
+  try {
+    const parsed = JSON.parse(raw) as GsData;
+    if (Array.isArray(parsed.home) && Array.isArray(parsed.away)) return parsed;
+  } catch { /* legacy plain-text — ignore */ }
+  return { home: [], away: [] };
+}
+
 const statusLabel: Record<string, string> = {
   SCHEDULED: "Agendado",
   LIVE: "Ao vivo",
@@ -25,22 +36,69 @@ const statusLabel: Record<string, string> = {
   CANCELLED: "Cancelado",
 };
 
+const resultColor: Record<string, string> = {
+  EXACT_SCORE: "text-yellow-400",
+  CORRECT_RESULT_AND_DIFF: "text-green-400",
+  CORRECT_WINNER: "text-blue-400",
+  CORRECT_DRAW: "text-blue-400",
+  WRONG: "text-red-400",
+};
+
 export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints = 5 }: MatchCardProps) {
   const existing = match.predictions?.[0];
+  const existingGs = parseGs((existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction);
+
   const [home, setHome] = useState(existing?.homeScore?.toString() ?? "");
   const [away, setAway] = useState(existing?.awayScore?.toString() ?? "");
-  const [goalScorer, setGoalScorer] = useState((existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction ?? "");
+  const [gsHome, setGsHome] = useState<string[]>(existingGs.home);
+  const [gsAway, setGsAway] = useState<string[]>(existingGs.away);
+  const [players, setPlayers] = useState<{ home: string[]; away: string[] } | null>(null);
+  const [loadingPlayers, setLoadingPlayers] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(!!existing);
   const [isEditing, setIsEditing] = useState(!existing);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showStats, setShowStats] = useState(false);
+  const playersLoadedRef = useRef(false);
 
   const locked = isPredictionLocked(new Date(match.startsAt));
+
+  const homeGoalCount = Math.max(0, parseInt(home) || 0);
+  const awayGoalCount = Math.max(0, parseInt(away) || 0);
+  const totalGoals = homeGoalCount + awayGoalCount;
+
+  // Derived scorer arrays: always sized to current goal count
+  const homeScorers = Array.from({ length: homeGoalCount }, (_, i) => gsHome[i] ?? "");
+  const awayScorers = Array.from({ length: awayGoalCount }, (_, i) => gsAway[i] ?? "");
+
+  // Auto-load squad when goal slots become visible
+  useEffect(() => {
+    if (totalGoals > 0 && !playersLoadedRef.current && !locked) {
+      playersLoadedRef.current = true;
+      setLoadingPlayers(true);
+      fetch(`/api/matches/${match.id}/players`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => { if (data) setPlayers(data); })
+        .finally(() => setLoadingPlayers(false));
+    }
+  }, [totalGoals > 0, locked]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const updateGs = (team: "home" | "away", idx: number, val: string) => {
+    if (team === "home") setGsHome((p) => { const n = [...p]; n[idx] = val; return n; });
+    else setGsAway((p) => { const n = [...p]; n[idx] = val; return n; });
+  };
+
+  const buildGsPayload = () => {
+    const h = homeScorers.map((s) => s.trim()).filter(Boolean);
+    const a = awayScorers.map((s) => s.trim()).filter(Boolean);
+    if (h.length === 0 && a.length === 0) return undefined;
+    return JSON.stringify({ home: h, away: a });
+  };
 
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);
+    const gsPayload = buildGsPayload();
     const res = await fetch("/api/predictions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -48,7 +106,7 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
         matchId: match.id,
         homeScore: parseInt(home),
         awayScore: parseInt(away),
-        ...(goalScorer.trim() ? { goalScorerPrediction: goalScorer.trim() } : {}),
+        ...(gsPayload ? { goalScorerPrediction: gsPayload } : {}),
       }),
     });
     setSaving(false);
@@ -62,12 +120,27 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
     }
   };
 
-  const resultColor: Record<string, string> = {
-    EXACT_SCORE: "text-yellow-400",
-    CORRECT_RESULT_AND_DIFF: "text-green-400",
-    CORRECT_WINNER: "text-blue-400",
-    CORRECT_DRAW: "text-blue-400",
-    WRONG: "text-red-400",
+  // Save only goal scorers (when score already saved)
+  const handleSaveGs = async () => {
+    if (home === "" || away === "") return;
+    setSaving(true);
+    setSaveError(null);
+    const gsPayload = buildGsPayload();
+    const res = await fetch("/api/predictions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        matchId: match.id,
+        homeScore: parseInt(home),
+        awayScore: parseInt(away),
+        ...(gsPayload ? { goalScorerPrediction: gsPayload } : {}),
+      }),
+    });
+    setSaving(false);
+    if (!res.ok) {
+      const data = await res.json();
+      setSaveError(data.error ?? "Erro ao salvar");
+    }
   };
 
   return (
@@ -106,7 +179,6 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
           {match.homeTeamFlag && <img src={teamLogo(match.homeTeamFlag)} alt="" className="w-8 h-8 object-contain" />}
           <span className="text-sm font-medium text-white text-center">{match.homeTeam}</span>
         </div>
-
         <div className="flex flex-col items-center gap-1">
           {(match.status === "FINISHED" || match.status === "LIVE") && match.homeScore !== null ? (
             <span className={`text-2xl font-bold ${match.status === "LIVE" ? "text-green-400" : "text-white"}`}>
@@ -118,14 +190,13 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
             </span>
           )}
         </div>
-
         <div className="flex-1 flex flex-col items-center gap-1">
           {match.awayTeamFlag && <img src={teamLogo(match.awayTeamFlag)} alt="" className="w-8 h-8 object-contain" />}
           <span className="text-sm font-medium text-white text-center">{match.awayTeam}</span>
         </div>
       </div>
 
-      {/* Goal scorers (actual results) */}
+      {/* Actual goal scorers (finished/live) */}
       {(match.status === "FINISHED" || match.status === "LIVE") && (() => {
         const goals = (match.goals as GoalEvent[] | null) ?? [];
         if (goals.length === 0) return null;
@@ -151,9 +222,9 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
       })()}
 
       {/* Prediction area */}
-      <div className="border-t border-zinc-800 pt-3 flex flex-col gap-2">
+      <div className="border-t border-zinc-800 pt-3 flex flex-col gap-3">
         {locked ? (
-          /* LOCKED: show prediction result */
+          /* LOCKED */
           <div className="flex flex-col gap-1.5">
             <div className="flex items-center justify-between text-sm">
               <span className="flex items-center gap-1.5 text-zinc-500">
@@ -166,11 +237,27 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
                 </span>
               )}
             </div>
-            {(existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction && (
-              <div className="flex items-center justify-between text-xs text-zinc-500">
-                <span>⚽ Artilheiro: <span className="text-zinc-300">{(existing as { goalScorerPrediction?: string | null }).goalScorerPrediction}</span></span>
-                {goalScorerEnabled && (existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === true && <span className="text-green-400 font-medium">+{goalScorerPoints} pts ✓</span>}
-                {goalScorerEnabled && (existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === false && <span className="text-red-400">Errou</span>}
+            {/* Predicted scorers (locked) */}
+            {(existingGs.home.length > 0 || existingGs.away.length > 0) && (
+              <div className="flex gap-4 text-xs text-zinc-500">
+                {existingGs.home.length > 0 && (
+                  <div>
+                    <p className="text-zinc-600 mb-0.5">{match.homeTeam}</p>
+                    {existingGs.home.map((p, i) => (
+                      <p key={i} className="text-zinc-300">⚽ {p}
+                        {goalScorerEnabled && (existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === true && <span className="text-green-400 ml-1">✓ +{goalScorerPoints}pts</span>}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                {existingGs.away.length > 0 && (
+                  <div>
+                    <p className="text-zinc-600 mb-0.5">{match.awayTeam}</p>
+                    {existingGs.away.map((p, i) => (
+                      <p key={i} className="text-zinc-300">⚽ {p}</p>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -194,19 +281,13 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
             ) : (
               <div className="flex items-center gap-2">
                 <input
-                  type="number"
-                  min={0}
-                  max={30}
-                  value={home}
+                  type="number" min={0} max={30} value={home}
                   onChange={(e) => setHome(e.target.value)}
                   className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-lg py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
                 />
                 <span className="text-zinc-500 font-bold">x</span>
                 <input
-                  type="number"
-                  min={0}
-                  max={30}
-                  value={away}
+                  type="number" min={0} max={30} value={away}
                   onChange={(e) => setAway(e.target.value)}
                   className="w-14 text-center bg-zinc-800 border border-zinc-700 rounded-lg py-1.5 text-white text-sm focus:outline-none focus:ring-1 focus:ring-green-500"
                 />
@@ -217,41 +298,104 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
                         setIsEditing(false);
                         setHome(existing?.homeScore?.toString() ?? home);
                         setAway(existing?.awayScore?.toString() ?? away);
-                        setGoalScorer((existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction ?? "");
+                        setGsHome(existingGs.home);
+                        setGsAway(existingGs.away);
                       }}
                       className="text-xs text-zinc-400 hover:text-white border border-zinc-700 rounded-lg px-3 py-1.5 transition-colors"
                     >
                       Cancelar
                     </button>
                   )}
-                  <Button
-                    size="sm"
-                    onClick={handleSave}
-                    loading={saving}
-                    disabled={home === "" || away === ""}
-                  >
+                  <Button size="sm" onClick={handleSave} loading={saving} disabled={home === "" || away === ""}>
                     Salvar
                   </Button>
                 </div>
               </div>
             )}
 
-            {/* Artilheiro — sempre visível para jogos não travados */}
-            <div className="flex gap-2">
-              <input
-                type="text"
-                placeholder={goalScorerEnabled ? `⚽ Artilheiro (+${goalScorerPoints} pts se acertar)` : "⚽ Artilheiro (opcional)"}
-                value={goalScorer}
-                onChange={(e) => setGoalScorer(e.target.value)}
-                maxLength={80}
-                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              {isSaved && !isEditing && (
-                <Button size="sm" onClick={handleSave} loading={saving}>
-                  ✓
-                </Button>
-              )}
-            </div>
+            {/* Goal scorer distribution */}
+            {totalGoals > 0 && (
+              <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-3 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-zinc-300">
+                    ⚽ Artilheiros do palpite
+                    {goalScorerEnabled && <span className="text-blue-400 ml-1">(+{goalScorerPoints} pts por acerto)</span>}
+                  </span>
+                  {loadingPlayers && <span className="text-xs text-zinc-500">Carregando jogadores...</span>}
+                </div>
+
+                {/* Datalists for autocomplete */}
+                {players && (
+                  <>
+                    <datalist id={`home-pl-${match.id}`}>
+                      {players.home.map((p) => <option key={p} value={p} />)}
+                    </datalist>
+                    <datalist id={`away-pl-${match.id}`}>
+                      {players.away.map((p) => <option key={p} value={p} />)}
+                    </datalist>
+                  </>
+                )}
+
+                {/* Home team scorers */}
+                {homeGoalCount > 0 && (
+                  <div>
+                    <p className="text-xs text-zinc-500 mb-1.5 flex items-center gap-1">
+                      {match.homeTeamFlag && <img src={teamLogo(match.homeTeamFlag) ?? ""} alt="" className="w-3.5 h-3.5 object-contain" />}
+                      {match.homeTeam} — {homeGoalCount} gol{homeGoalCount !== 1 ? "s" : ""}
+                    </p>
+                    <div className="flex flex-col gap-1.5">
+                      {homeScorers.map((val, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-xs text-zinc-600 w-10 shrink-0">Gol {i + 1}</span>
+                          <input
+                            type="text"
+                            list={players ? `home-pl-${match.id}` : undefined}
+                            value={val}
+                            onChange={(e) => updateGs("home", i, e.target.value)}
+                            placeholder={loadingPlayers ? "Carregando..." : "Nome do jogador"}
+                            maxLength={80}
+                            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Away team scorers */}
+                {awayGoalCount > 0 && (
+                  <div>
+                    <p className="text-xs text-zinc-500 mb-1.5 flex items-center gap-1">
+                      {match.awayTeamFlag && <img src={teamLogo(match.awayTeamFlag) ?? ""} alt="" className="w-3.5 h-3.5 object-contain" />}
+                      {match.awayTeam} — {awayGoalCount} gol{awayGoalCount !== 1 ? "s" : ""}
+                    </p>
+                    <div className="flex flex-col gap-1.5">
+                      {awayScorers.map((val, i) => (
+                        <div key={i} className="flex items-center gap-2">
+                          <span className="text-xs text-zinc-600 w-10 shrink-0">Gol {i + 1}</span>
+                          <input
+                            type="text"
+                            list={players ? `away-pl-${match.id}` : undefined}
+                            value={val}
+                            onChange={(e) => updateGs("away", i, e.target.value)}
+                            placeholder={loadingPlayers ? "Carregando..." : "Nome do jogador"}
+                            maxLength={80}
+                            className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Save button when score already locked and user is editing only scorers */}
+                {isSaved && !isEditing && (
+                  <Button size="sm" onClick={handleSaveGs} loading={saving} className="self-end">
+                    Salvar artilheiros ✓
+                  </Button>
+                )}
+              </div>
+            )}
 
             {saveError && <p className="text-xs text-red-400">{saveError}</p>}
           </>
