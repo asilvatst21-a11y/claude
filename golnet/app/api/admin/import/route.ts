@@ -26,7 +26,19 @@ export async function POST(req: Request) {
 
   const { leagueId, season } = body;
 
-  const fixtures = await fetchLeagueFixtures(leagueId, season);
+  let fixtures = await fetchLeagueFixtures(leagueId, season);
+  let usedSeason = season;
+
+  // API-Football uses the start year of the season (e.g. 2025 for 2025-26).
+  // If nothing is found with the given year, retry with the previous year.
+  if (fixtures.length === 0) {
+    fixtures = await fetchLeagueFixtures(leagueId, season - 1);
+    usedSeason = season - 1;
+  }
+
+  if (fixtures.length === 0) {
+    return NextResponse.json({ imported: 0, updated: 0, error: `Nenhum jogo encontrado para temporada ${season} ou ${season - 1}` });
+  }
 
   let imported = 0;
   let updated = 0;
@@ -70,5 +82,5 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ imported, updated });
+  return NextResponse.json({ imported, updated, season: usedSeason });
 }

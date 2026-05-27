@@ -101,7 +101,7 @@ const LEAGUES_BY_COUNTRY: Country[] = [
   },
 ];
 
-type ImportResult = { imported: number; updated: number };
+type ImportResult = { imported: number; updated: number; season?: number; error?: string };
 type SyncResult = { synced: number; at: string; durationMs?: number };
 type MatchStats = { total: number; lastSyncedAt: string | null };
 type MatchSyncResult = {
@@ -667,9 +667,15 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        {result && (
+                        {result && result.error && (
+                          <span className="text-xs text-red-400">{result.error}</span>
+                        )}
+                        {result && !result.error && (
                           <span className="text-xs text-green-400">
                             {result.imported} importados · {result.updated} atualizados
+                            {result.season && result.season !== season && (
+                              <span className="text-yellow-400 ml-1">(temp. {result.season})</span>
+                            )}
                           </span>
                         )}
                         <button
