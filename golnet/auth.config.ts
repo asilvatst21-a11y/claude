@@ -11,8 +11,9 @@ export const authConfig: NextAuthConfig = {
     authorized({ auth, request: { nextUrl } }) {
       const isLoggedIn = !!auth?.user;
       const isPublic =
-        ["/", "/login", "/register", "/forgot-password"].includes(nextUrl.pathname) ||
-        nextUrl.pathname.startsWith("/api/auth");
+        ["/", "/login", "/register", "/forgot-password", "/reset-password", "/privacidade"].includes(nextUrl.pathname) ||
+        nextUrl.pathname.startsWith("/api/auth") ||
+        nextUrl.pathname.startsWith("/.well-known");
       if (isPublic) return true;
       return isLoggedIn;
     },
