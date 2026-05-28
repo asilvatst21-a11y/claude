@@ -3,6 +3,6 @@
   "target": {
     "namespace": "android_app",
     "package_name": "app.vercel.palpitai.twa",
-    "sha256_cert_fingerprints": ["C7:AA:82:CA:96:A3:27:1B:68:04:EE:A1:C4:2C:D1:51:17:12:63:CF:70:5D:6B:49:18:0E:4F:B3:F7:B1:BB:73"]
+    "sha256_cert_fingerprints": ["24:A1:F9:DF:CD:6E:4B:8E:AB:FD:79:5C:C7:93:C6:6F:6F:32:31:4D:B1:E8:B5:B3:B6:58:C9:0B:32:57:38:D3"]
   }
 }]
