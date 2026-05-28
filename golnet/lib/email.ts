@@ -1,13 +1,23 @@
-import { Resend } from "resend";
+import nodemailer from "nodemailer";
 
-const FROM = process.env.EMAIL_FROM ?? "PalpitaAí <onboarding@resend.dev>";
 const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000";
+const FROM = process.env.EMAIL_FROM ?? "PalpitaAí <palpitai.suporte@gmail.com>";
+
+function createTransport() {
+  return nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_APP_PASSWORD,
+    },
+  });
+}
 
 export async function sendPasswordResetEmail(email: string, token: string) {
-  const resend = new Resend(process.env.RESEND_API_KEY ?? "noop");
   const link = `${BASE_URL}/reset-password?token=${token}`;
+  const transporter = createTransport();
 
-  await resend.emails.send({
+  await transporter.sendMail({
     from: FROM,
     to: email,
     subject: "Redefinir senha — PalpitaAí",
