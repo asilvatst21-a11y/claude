@@ -9,53 +9,68 @@ const sizes = [72, 96, 128, 144, 152, 192, 384, 512];
 
 const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <!-- Vibrant green → blue diagonal gradient -->
-    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#22d86e"/>
-      <stop offset="100%" stop-color="#1d4ed8"/>
-    </linearGradient>
-    <!-- Top-left shine for glass/depth effect -->
-    <radialGradient id="shine" cx="28%" cy="22%" r="55%">
-      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.30"/>
-      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    <radialGradient id="bg" cx="50%" cy="50%" r="70%">
+      <stop offset="0%" stop-color="#0d0d20"/>
+      <stop offset="100%" stop-color="#05050a"/>
     </radialGradient>
-    <!-- Bottom shadow for depth -->
-    <radialGradient id="shadow" cx="70%" cy="80%" r="50%">
-      <stop offset="0%" stop-color="#000000" stop-opacity="0.25"/>
-      <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
+    <radialGradient id="orb" cx="34%" cy="28%" r="72%">
+      <stop offset="0%"   stop-color="#c084fc"/>
+      <stop offset="40%"  stop-color="#7c3aed"/>
+      <stop offset="100%" stop-color="#0369a1"/>
     </radialGradient>
+    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.4"/>
+      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="orbClip">
+      <circle cx="256" cy="248" r="188"/>
+    </clipPath>
   </defs>
 
-  <!-- Gradient background -->
+  <!-- Dark background -->
   <rect width="512" height="512" rx="88" fill="url(#bg)"/>
 
-  <!-- Glass shine overlay -->
-  <rect width="512" height="512" rx="88" fill="url(#shine)"/>
+  <!-- Outer glow -->
+  <circle cx="256" cy="248" r="220" fill="url(#glow)"/>
 
-  <!-- Depth shadow overlay -->
-  <rect width="512" height="512" rx="88" fill="url(#shadow)"/>
+  <!-- Main orb -->
+  <circle cx="256" cy="248" r="188" fill="url(#orb)"/>
 
-  <!-- Subtle circle rings (stadium / target feel) -->
-  <circle cx="256" cy="256" r="210" fill="none" stroke="white" stroke-width="2.5" opacity="0.12"/>
-  <circle cx="256" cy="256" r="150" fill="none" stroke="white" stroke-width="1.5" opacity="0.08"/>
+  <!-- Subtle soccer ball arcs clipped to orb -->
+  <g clip-path="url(#orbClip)" fill="none" stroke="#1e1b4b" stroke-width="16" stroke-linecap="round" opacity="0.22">
+    <path d="M148,88  Q258,175 375,118"/>
+    <path d="M72,282  Q195,228 252,435"/>
+    <path d="M388,298 Q298,222 252,435"/>
+  </g>
+
+  <!-- Shine highlight (top-left of orb) -->
+  <ellipse cx="188" cy="165" rx="82" ry="52"
+    fill="white" opacity="0.18"
+    transform="rotate(-28 188 165)"
+    clip-path="url(#orbClip)"/>
 
   <!-- Bold white P -->
-  <text x="256" y="370"
-    font-family="'Liberation Sans', 'Arial Black', Arial, sans-serif"
-    font-size="310"
+  <text x="256" y="328"
+    font-family="'Liberation Sans', Arial, Helvetica, sans-serif"
+    font-size="238"
     font-weight="900"
     fill="white"
-    text-anchor="middle"
-    opacity="1">P</text>
+    text-anchor="middle">P</text>
 
-  <!-- Small dot accent (ball / prediction dot) -->
-  <circle cx="370" cy="148" r="22" fill="white" opacity="0.35"/>
-  <circle cx="370" cy="148" r="14" fill="white" opacity="0.55"/>
+  <!-- Large sparkle top-right -->
+  <path d="M392,122 L398,142 L418,148 L398,154 L392,174 L386,154 L366,148 L386,142 Z"
+    fill="white" opacity="0.92"/>
+
+  <!-- Small sparkle bottom-left -->
+  <path d="M142,340 L145,350 L155,353 L145,356 L142,366 L139,356 L129,353 L139,350 Z"
+    fill="white" opacity="0.55"/>
+
+  <!-- Tiny sparkle top-left area -->
+  <path d="M168,112 L170,119 L177,121 L170,123 L168,130 L166,123 L159,121 L166,119 Z"
+    fill="white" opacity="0.45"/>
 </svg>`;
 
-// Maskable — same but full bleed (no rounded corners)
-const maskableSvg = iconSvg
-  .replace(/rx="88"/g, 'rx="0"');
+const maskableSvg = iconSvg.replace('rx="88"', 'rx="0"');
 
 for (const size of sizes) {
   await sharp(Buffer.from(iconSvg)).resize(size, size).png()
