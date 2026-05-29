@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
+import { WorldCupBanner } from "@/components/world-cup/world-cup-banner";
 
 export default async function Home() {
   const session = await auth();
@@ -8,6 +9,7 @@ export default async function Home() {
 
   return (
     <main className="min-h-screen bg-[#09090b] text-white">
+      <WorldCupBanner />
       {/* ── Hero ─────────────────────────────────────────────────────────────── */}
       <section className="flex flex-col items-center justify-center text-center px-6 pt-24 pb-20">
         <h1 className="text-6xl sm:text-7xl font-extrabold tracking-tight mb-4">

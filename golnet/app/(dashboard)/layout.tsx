@@ -5,6 +5,7 @@ import { MobileNav } from "@/components/layout/mobile-nav";
 import { isAdmin } from "@/lib/admin";
 import { prisma } from "@/lib/prisma";
 import { PushPermission } from "@/components/push-permission";
+import { WorldCupBanner } from "@/components/world-cup/world-cup-banner";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -17,12 +18,15 @@ export default async function DashboardLayout({ children }: { children: React.Re
     : 0;
 
   return (
-    <div className="flex h-screen">
-      <Sidebar isAdmin={admin} pendingDuels={pendingDuels} />
-      <main className="flex-1 min-h-0 overflow-y-auto bg-zinc-950 p-6 pb-24 lg:pb-6">
-        {children}
-      </main>
-      <MobileNav isAdmin={admin} pendingDuels={pendingDuels} />
+    <div className="flex flex-col h-screen">
+      <WorldCupBanner />
+      <div className="flex flex-1 min-h-0">
+        <Sidebar isAdmin={admin} pendingDuels={pendingDuels} />
+        <main className="flex-1 min-h-0 overflow-y-auto bg-zinc-950 p-6 pb-24 lg:pb-6">
+          {children}
+        </main>
+        <MobileNav isAdmin={admin} pendingDuels={pendingDuels} />
+      </div>
       <PushPermission />
     </div>
   );
