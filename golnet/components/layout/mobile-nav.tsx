@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
+import { useCopaTheme } from "@/components/world-cup/copa-theme-provider";
 
 const bottomNav = [
   { href: "/dashboard", label: "Início", icon: "🏠" },
@@ -25,6 +26,7 @@ const moreNav = [
 export function MobileNav({ isAdmin = false, pendingDuels = 0 }: { isAdmin?: boolean; pendingDuels?: number }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const { team } = useCopaTheme();
 
   const allMore = isAdmin
     ? [...moreNav, { href: "/admin", label: "Admin", icon: "⚙️" }]
@@ -51,6 +53,7 @@ export function MobileNav({ isAdmin = false, pendingDuels = 0 }: { isAdmin?: boo
           <div className="grid grid-cols-3 gap-2">
             {allMore.map(({ href, label, icon }) => {
               const badge = href === "/x1" && pendingDuels > 0 ? pendingDuels : 0;
+              const active = isActive(href);
               return (
                 <Link
                   key={href}
@@ -58,10 +61,12 @@ export function MobileNav({ isAdmin = false, pendingDuels = 0 }: { isAdmin?: boo
                   onClick={() => setOpen(false)}
                   className={cn(
                     "relative flex flex-col items-center gap-1.5 p-3 rounded-xl text-xs font-medium transition-colors",
-                    isActive(href)
-                      ? "bg-green-500/10 text-green-400"
-                      : "bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700"
+                    !active && "bg-zinc-800 text-zinc-400 hover:text-white hover:bg-zinc-700"
                   )}
+                  style={active ? {
+                    backgroundColor: team.accent + "1a",
+                    color: team.accent,
+                  } : undefined}
                 >
                   <span className="relative text-2xl leading-none">
                     {icon}
@@ -89,26 +94,31 @@ export function MobileNav({ isAdmin = false, pendingDuels = 0 }: { isAdmin?: boo
 
       {/* Bottom tab bar */}
       <div className="fixed bottom-0 left-0 right-0 z-50 lg:hidden bg-zinc-950 border-t border-zinc-800 flex h-16">
-        {bottomNav.map(({ href, label, icon }) => (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              "flex-1 flex flex-col items-center justify-center gap-0.5 text-xs font-medium transition-colors",
-              isActive(href) ? "text-green-400" : "text-zinc-500"
-            )}
-          >
-            <span className="text-xl leading-none">{icon}</span>
-            <span>{label}</span>
-          </Link>
-        ))}
+        {bottomNav.map(({ href, label, icon }) => {
+          const active = isActive(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={cn(
+                "flex-1 flex flex-col items-center justify-center gap-0.5 text-xs font-medium transition-colors",
+                !active && "text-zinc-500"
+              )}
+              style={active ? { color: team.accent } : undefined}
+            >
+              <span className="text-xl leading-none">{icon}</span>
+              <span>{label}</span>
+            </Link>
+          );
+        })}
 
         <button
           onClick={() => setOpen((v) => !v)}
           className={cn(
             "flex-1 flex flex-col items-center justify-center gap-0.5 text-xs font-medium transition-colors",
-            open ? "text-green-400" : "text-zinc-500"
+            !open && "text-zinc-500"
           )}
+          style={open ? { color: team.accent } : undefined}
         >
           <span className="relative text-xl leading-none">
             ☰

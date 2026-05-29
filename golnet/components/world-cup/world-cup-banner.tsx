@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useCopaTheme } from "./copa-theme-provider";
+import { TeamSelectorButton } from "./team-selector";
 
 // Copa do Mundo 2026: 11 de junho – 19 de julho
 const COPA_START = new Date("2026-06-11T00:00:00");
@@ -8,6 +10,7 @@ const COPA_END = new Date("2026-07-20T00:00:00");
 
 export function WorldCupBanner() {
   const [now, setNow] = useState<Date | null>(null);
+  const { team } = useCopaTheme();
 
   useEffect(() => {
     setNow(new Date());
@@ -22,27 +25,31 @@ export function WorldCupBanner() {
 
   return (
     <div
-      className="flex items-center justify-center gap-2 px-4 py-2 text-sm font-semibold text-white shrink-0 select-none"
+      className="flex items-center justify-between gap-2 px-4 py-2 text-sm font-semibold shrink-0"
       style={{
-        background: "linear-gradient(90deg, #006622 0%, #009C3B 35%, #009C3B 65%, #006622 100%)",
-        borderBottom: "2px solid #FFDF00",
+        background: `linear-gradient(90deg, color-mix(in srgb, ${team.bannerBg} 80%, black) 0%, ${team.bannerBg} 50%, color-mix(in srgb, ${team.bannerBg} 80%, black) 100%)`,
+        borderBottom: `2px solid ${team.bannerBorder}`,
+        color: team.bannerText,
       }}
     >
-      🏆{" "}
-      {isLive ? (
-        <>
-          <span>Copa do Mundo 2026 está acontecendo agora!</span>
-          <span className="font-bold" style={{ color: "#FFDF00" }}>🇧🇷 Boa sorte nos palpites!</span>
-        </>
-      ) : (
-        <>
-          <span>Copa do Mundo 2026 começa em</span>
-          <span className="font-bold" style={{ color: "#FFDF00" }}>
-            {daysUntil} {daysUntil === 1 ? "dia" : "dias"}!
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="shrink-0">🏆</span>
+        {isLive ? (
+          <span className="truncate">
+            Copa do Mundo 2026 está acontecendo agora!{" "}
+            <span className="opacity-80 font-normal">Boa sorte nos palpites!</span>
           </span>
-          <span className="opacity-80">🇧🇷 Prepare seus palpites.</span>
-        </>
-      )}
+        ) : (
+          <span className="truncate">
+            Copa do Mundo 2026 começa em{" "}
+            <strong style={{ color: team.bannerBorder }}>
+              {daysUntil} {daysUntil === 1 ? "dia" : "dias"}!
+            </strong>{" "}
+            <span className="opacity-80 font-normal hidden sm:inline">Prepare seus palpites.</span>
+          </span>
+        )}
+      </div>
+      <TeamSelectorButton />
     </div>
   );
 }

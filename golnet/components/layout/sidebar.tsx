@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useCopaTheme } from "@/components/world-cup/copa-theme-provider";
 
 const nav = [
   { href: "/dashboard", label: "Dashboard", icon: "🏠" },
@@ -39,6 +40,7 @@ function ChevronRightIcon() {
 export function Sidebar({ isAdmin = false, pendingDuels = 0 }: { isAdmin?: boolean; pendingDuels?: number }) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const { team } = useCopaTheme();
   const links = isAdmin ? [...nav, { href: "/admin", label: "Admin", icon: "⚙️" }] : nav;
 
   const isActive = (href: string) =>
@@ -59,7 +61,7 @@ export function Sidebar({ isAdmin = false, pendingDuels = 0 }: { isAdmin?: boole
       )}>
         {!collapsed && (
           <span className="text-xl font-bold text-white">
-            <span className="text-green-400">Palpita</span>Aí
+            <span style={{ color: team.accent }}>Palpita</span>Aí
           </span>
         )}
         {collapsed && <span className="text-2xl">⚽</span>}
@@ -88,6 +90,7 @@ export function Sidebar({ isAdmin = false, pendingDuels = 0 }: { isAdmin?: boole
       <nav className="flex-1 p-2 flex flex-col gap-0.5 overflow-y-auto">
         {links.map(({ href, label, icon }) => {
           const badge = href === "/x1" && pendingDuels > 0 ? pendingDuels : 0;
+          const active = isActive(href);
           return (
             <Link
               key={href}
@@ -96,10 +99,12 @@ export function Sidebar({ isAdmin = false, pendingDuels = 0 }: { isAdmin?: boole
               className={cn(
                 "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
                 collapsed ? "justify-center px-0" : "",
-                isActive(href)
-                  ? "bg-green-500/10 text-green-400"
-                  : "text-zinc-400 hover:text-white hover:bg-zinc-800"
+                !active && "text-zinc-400 hover:text-white hover:bg-zinc-800"
               )}
+              style={active ? {
+                backgroundColor: team.accent + "1a",
+                color: team.accent,
+              } : undefined}
             >
               <span className="relative text-base shrink-0">
                 {icon}

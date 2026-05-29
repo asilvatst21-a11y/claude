@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 import { ThemeProvider } from "next-themes";
+import { CopaThemeProvider } from "@/components/world-cup/copa-theme-provider";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -46,7 +47,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
-          <SessionProvider>{children}</SessionProvider>
+          <SessionProvider>
+            <CopaThemeProvider>{children}</CopaThemeProvider>
+          </SessionProvider>
         </ThemeProvider>
       </body>
     </html>
