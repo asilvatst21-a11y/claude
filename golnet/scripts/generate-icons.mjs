@@ -9,65 +9,69 @@ const sizes = [72, 96, 128, 144, 152, 192, 384, 512];
 
 const iconSvg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
   <defs>
-    <radialGradient id="bg" cx="50%" cy="50%" r="70%">
-      <stop offset="0%" stop-color="#0d0d20"/>
-      <stop offset="100%" stop-color="#05050a"/>
+    <linearGradient id="pitch" x1="0" y1="0" x2="0.1" y2="1">
+      <stop offset="0%" stop-color="#15803d"/>
+      <stop offset="100%" stop-color="#14532d"/>
+    </linearGradient>
+    <radialGradient id="ballGrad" cx="36%" cy="32%" r="68%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#d1d5db"/>
     </radialGradient>
-    <radialGradient id="orb" cx="34%" cy="28%" r="72%">
-      <stop offset="0%"   stop-color="#c084fc"/>
-      <stop offset="40%"  stop-color="#7c3aed"/>
-      <stop offset="100%" stop-color="#0369a1"/>
-    </radialGradient>
-    <radialGradient id="glow" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0.4"/>
-      <stop offset="100%" stop-color="#7c3aed" stop-opacity="0"/>
-    </radialGradient>
-    <clipPath id="orbClip">
-      <circle cx="256" cy="248" r="188"/>
+    <clipPath id="bgClip">
+      <rect width="512" height="512" rx="88"/>
     </clipPath>
   </defs>
 
-  <!-- Dark background -->
-  <rect width="512" height="512" rx="88" fill="url(#bg)"/>
+  <!-- Green pitch background -->
+  <rect width="512" height="512" rx="88" fill="url(#pitch)"/>
 
-  <!-- Outer glow -->
-  <circle cx="256" cy="248" r="220" fill="url(#glow)"/>
-
-  <!-- Main orb -->
-  <circle cx="256" cy="248" r="188" fill="url(#orb)"/>
-
-  <!-- Subtle soccer ball arcs clipped to orb -->
-  <g clip-path="url(#orbClip)" fill="none" stroke="#1e1b4b" stroke-width="16" stroke-linecap="round" opacity="0.22">
-    <path d="M148,88  Q258,175 375,118"/>
-    <path d="M72,282  Q195,228 252,435"/>
-    <path d="M388,298 Q298,222 252,435"/>
+  <!-- Subtle pitch stripes -->
+  <g clip-path="url(#bgClip)" opacity="0.07">
+    <rect x="0"   y="0" width="73" height="512" fill="white"/>
+    <rect x="146" y="0" width="73" height="512" fill="white"/>
+    <rect x="292" y="0" width="73" height="512" fill="white"/>
+    <rect x="438" y="0" width="73" height="512" fill="white"/>
   </g>
 
-  <!-- Shine highlight (top-left of orb) -->
-  <ellipse cx="188" cy="165" rx="82" ry="52"
-    fill="white" opacity="0.18"
-    transform="rotate(-28 188 165)"
-    clip-path="url(#orbClip)"/>
+  <!-- Halfway line -->
+  <line x1="36" y1="256" x2="476" y2="256"
+    stroke="white" stroke-width="5" opacity="0.55" clip-path="url(#bgClip)"/>
 
-  <!-- Bold white P -->
-  <text x="256" y="328"
+  <!-- Center circle -->
+  <circle cx="256" cy="256" r="130"
+    fill="none" stroke="white" stroke-width="5" opacity="0.7"/>
+
+  <!-- Center spot -->
+  <circle cx="256" cy="256" r="7" fill="white" opacity="0.7"/>
+
+  <!-- Bold P centered -->
+  <text x="256" y="322"
     font-family="'Liberation Sans', Arial, Helvetica, sans-serif"
-    font-size="238"
+    font-size="200"
     font-weight="900"
     fill="white"
     text-anchor="middle">P</text>
 
-  <!-- Large sparkle top-right -->
-  <path d="M392,122 L398,142 L418,148 L398,154 L392,174 L386,154 L366,148 L386,142 Z"
-    fill="white" opacity="0.92"/>
-
-  <!-- Small sparkle bottom-left -->
-  <path d="M142,340 L145,350 L155,353 L145,356 L142,366 L139,356 L129,353 L139,350 Z"
-    fill="white" opacity="0.55"/>
-
-  <!-- Tiny sparkle top-left area -->
-  <path d="M168,112 L170,119 L177,121 L170,123 L168,130 L166,123 L159,121 L166,119 Z"
-    fill="white" opacity="0.45"/>
+  <!-- Soccer ball (bottom-right corner) -->
+  <circle cx="408" cy="400" r="54" fill="url(#ballGrad)"/>
+  <!-- Ball patches -->
+  <g fill="#1f2937" opacity="0.85">
+    <!-- Top pentagon -->
+    <path d="M408,352 L422,362 L418,378 L398,378 L394,362 Z"/>
+    <!-- Top-right patch -->
+    <path d="M422,362 L437,357 L445,371 L436,382 L420,380 L418,378 Z"/>
+    <!-- Top-left patch -->
+    <path d="M394,362 L398,378 L382,380 L373,371 L381,357 Z"/>
+    <!-- Bottom-right patch -->
+    <path d="M436,384 L445,397 L436,408 L420,406 L416,392 L428,384 Z"/>
+    <!-- Bottom-left patch -->
+    <path d="M376,384 L384,392 L380,406 L364,408 L355,397 L364,384 Z"/>
+    <!-- Bottom patch -->
+    <path d="M416,392 L418,408 L408,414 L398,408 L400,392 Z"/>
+  </g>
+  <!-- Ball shine -->
+  <ellipse cx="395" cy="378" rx="14" ry="9"
+    fill="white" opacity="0.35" transform="rotate(-25 395 378)"/>
 </svg>`;
 
 const maskableSvg = iconSvg.replace('rx="88"', 'rx="0"');
