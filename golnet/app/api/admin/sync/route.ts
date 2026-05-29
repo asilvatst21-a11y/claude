@@ -75,7 +75,6 @@ export async function POST() {
                 ptsCorrectDiff: true,
                 ptsCorrectWinner: true,
                 ptsCorrectDraw: true,
-                ptsKnockoutBonus: true,
               },
             },
           },

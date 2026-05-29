@@ -214,7 +214,6 @@ export default async function LeagueDetailPage({
           ptsCorrectDiff: league.ptsCorrectDiff,
           ptsCorrectWinner: league.ptsCorrectWinner,
           ptsCorrectDraw: league.ptsCorrectDraw,
-          ptsKnockoutBonus: league.ptsKnockoutBonus,
           championPredictionEnabled: league.championPredictionEnabled,
           championPredictionPoints: league.championPredictionPoints,
           goalScorerEnabled: league.goalScorerEnabled,

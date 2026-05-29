@@ -5,7 +5,6 @@ export type ScoringRules = {
   ptsCorrectDiff: number;
   ptsCorrectWinner: number;
   ptsCorrectDraw: number;
-  ptsKnockoutBonus: number;
 };
 
 export const DEFAULT_RULES: ScoringRules = {
@@ -13,16 +12,7 @@ export const DEFAULT_RULES: ScoringRules = {
   ptsCorrectDiff: 7,
   ptsCorrectWinner: 5,
   ptsCorrectDraw: 4,
-  ptsKnockoutBonus: 3,
 };
-
-const KNOCKOUT_STAGES: MatchStage[] = [
-  "ROUND_OF_16",
-  "QUARTER_FINAL",
-  "SEMI_FINAL",
-  "THIRD_PLACE",
-  "FINAL",
-];
 
 type ScoreInput = {
   predHome: number;
@@ -33,17 +23,15 @@ type ScoreInput = {
   rules?: ScoringRules;
 };
 
-export function calculatePoints({ predHome, predAway, realHome, realAway, stage, rules }: ScoreInput): {
+export function calculatePoints({ predHome, predAway, realHome, realAway, rules }: ScoreInput): {
   result: PredictionResult;
   points: number;
   bonusPoints: number;
 } {
   const r = rules ?? DEFAULT_RULES;
-  const isKnockout = KNOCKOUT_STAGES.includes(stage);
-  const bonus = isKnockout ? r.ptsKnockoutBonus : 0;
 
   if (predHome === realHome && predAway === realAway) {
-    return { result: "EXACT_SCORE", points: r.ptsExactScore, bonusPoints: bonus };
+    return { result: "EXACT_SCORE", points: r.ptsExactScore, bonusPoints: 0 };
   }
 
   const predDiff = predHome - predAway;
@@ -52,28 +40,27 @@ export function calculatePoints({ predHome, predAway, realHome, realAway, stage,
   const realWinner = Math.sign(realDiff);
 
   if (predWinner === realWinner && predDiff === realDiff) {
-    return { result: "CORRECT_RESULT_AND_DIFF", points: r.ptsCorrectDiff, bonusPoints: bonus };
+    return { result: "CORRECT_RESULT_AND_DIFF", points: r.ptsCorrectDiff, bonusPoints: 0 };
   }
 
   if (predWinner !== 0 && predWinner === realWinner) {
-    return { result: "CORRECT_WINNER", points: r.ptsCorrectWinner, bonusPoints: bonus };
+    return { result: "CORRECT_WINNER", points: r.ptsCorrectWinner, bonusPoints: 0 };
   }
 
   if (predWinner === 0 && realWinner === 0) {
-    return { result: "CORRECT_DRAW", points: r.ptsCorrectDraw, bonusPoints: bonus };
+    return { result: "CORRECT_DRAW", points: r.ptsCorrectDraw, bonusPoints: 0 };
   }
 
   return { result: "WRONG", points: 0, bonusPoints: 0 };
 }
 
-export function pointsFromResult(result: PredictionResult, stage: MatchStage, rules: ScoringRules): number {
-  const isKnockout = KNOCKOUT_STAGES.includes(stage);
-  const bonus = isKnockout ? rules.ptsKnockoutBonus : 0;
+// stage kept for API compatibility but no longer affects scoring
+export function pointsFromResult(result: PredictionResult, _stage: MatchStage, rules: ScoringRules): number {
   switch (result) {
-    case "EXACT_SCORE": return rules.ptsExactScore + bonus;
-    case "CORRECT_RESULT_AND_DIFF": return rules.ptsCorrectDiff + bonus;
-    case "CORRECT_WINNER": return rules.ptsCorrectWinner + bonus;
-    case "CORRECT_DRAW": return rules.ptsCorrectDraw + bonus;
+    case "EXACT_SCORE": return rules.ptsExactScore;
+    case "CORRECT_RESULT_AND_DIFF": return rules.ptsCorrectDiff;
+    case "CORRECT_WINNER": return rules.ptsCorrectWinner;
+    case "CORRECT_DRAW": return rules.ptsCorrectDraw;
     default: return 0;
   }
 }

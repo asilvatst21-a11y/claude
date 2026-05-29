@@ -8,20 +8,15 @@ import { teamLogo } from "@/lib/utils";
 import { isPredictionLocked } from "@/lib/scoring";
 import { X1WinnerCard } from "@/components/x1-winner-card";
 
-const KNOCKOUT_STAGES = new Set(["ROUND_OF_16", "QUARTER_FINAL", "SEMI_FINAL", "THIRD_PLACE", "FINAL"]);
-const BONUS = 3;
-
 function calcLivePoints(pred: { homeScore: number; awayScore: number }, match: Match): { result: string; points: number; bonusPoints: number } | null {
   if (match.homeScore === null || match.awayScore === null) return null;
-  const isKnockout = KNOCKOUT_STAGES.has(match.stage ?? "");
-  const bonus = isKnockout ? BONUS : 0;
   const ph = pred.homeScore, pa = pred.awayScore;
   const rh = match.homeScore, ra = match.awayScore;
-  if (ph === rh && pa === ra) return { result: "EXACT_SCORE", points: 10, bonusPoints: bonus };
+  if (ph === rh && pa === ra) return { result: "EXACT_SCORE", points: 10, bonusPoints: 0 };
   const pd = ph - pa, rd = rh - ra;
-  if (Math.sign(pd) === Math.sign(rd) && pd === rd) return { result: "CORRECT_RESULT_AND_DIFF", points: 7, bonusPoints: bonus };
-  if (Math.sign(pd) !== 0 && Math.sign(pd) === Math.sign(rd)) return { result: "CORRECT_WINNER", points: 5, bonusPoints: bonus };
-  if (Math.sign(pd) === 0 && Math.sign(rd) === 0) return { result: "CORRECT_DRAW", points: 4, bonusPoints: bonus };
+  if (Math.sign(pd) === Math.sign(rd) && pd === rd) return { result: "CORRECT_RESULT_AND_DIFF", points: 7, bonusPoints: 0 };
+  if (Math.sign(pd) !== 0 && Math.sign(pd) === Math.sign(rd)) return { result: "CORRECT_WINNER", points: 5, bonusPoints: 0 };
+  if (Math.sign(pd) === 0 && Math.sign(rd) === 0) return { result: "CORRECT_DRAW", points: 4, bonusPoints: 0 };
   return { result: "WRONG", points: 0, bonusPoints: 0 };
 }
 
@@ -419,7 +414,6 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
 
           const localScore = scores[matchId] ?? { home: "", away: "" };
 
-          const isKnockout = KNOCKOUT_STAGES.has(match.stage ?? "");
           const liveMyPts  = myPred  && !myPred.result  ? calcLivePoints(myPred,  match) : null;
           const liveOppPts = oppPred && !oppPred.result ? calcLivePoints(oppPred, match) : null;
 
@@ -432,9 +426,6 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
               <div className="flex items-center justify-between mb-2">
                 <span className="text-xs text-zinc-500">{match.leagueName} · {match.round}</span>
                 <div className="flex items-center gap-2">
-                  {isKnockout && (
-                    <span className="text-[10px] text-yellow-400 bg-yellow-400/10 px-1.5 py-0.5 rounded font-semibold">+{BONUS} bônus</span>
-                  )}
                   <span className={`text-xs font-medium ${match.status === "LIVE" ? "text-red-400 animate-pulse" : match.status === "FINISHED" ? "text-zinc-500" : "text-zinc-400"}`}>
                     {match.status === "LIVE" ? "Ao vivo" : match.status === "FINISHED" ? "Encerrado" : new Date(match.startsAt).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}
                   </span>
@@ -444,10 +435,10 @@ export function DuelDetailClient({ duel, currentUserId, inviteUrl }: { duel: Due
               {/* Point legend */}
               <div className="flex flex-wrap gap-1 mb-3">
                 {[
-                  { label: "Placar exato", pts: 10 + (isKnockout ? BONUS : 0), color: "text-yellow-400 bg-yellow-400/10" },
-                  { label: "Resultado + saldo", pts: 7 + (isKnockout ? BONUS : 0), color: "text-green-400 bg-green-400/10" },
-                  { label: "Vencedor", pts: 5 + (isKnockout ? BONUS : 0), color: "text-blue-400 bg-blue-400/10" },
-                  { label: "Empate", pts: 4 + (isKnockout ? BONUS : 0), color: "text-blue-400 bg-blue-400/10" },
+                  { label: "Placar exato", pts: 10, color: "text-yellow-400 bg-yellow-400/10" },
+                  { label: "Resultado + saldo", pts: 7, color: "text-green-400 bg-green-400/10" },
+                  { label: "Vencedor", pts: 5, color: "text-blue-400 bg-blue-400/10" },
+                  { label: "Empate", pts: 4, color: "text-blue-400 bg-blue-400/10" },
                 ].map(({ label, pts, color }) => (
                   <span key={label} className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${color}`}>
                     {label}: {pts}pts

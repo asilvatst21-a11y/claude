@@ -31,7 +31,6 @@ type ScoringForm = {
   ptsCorrectDiff: number;
   ptsCorrectWinner: number;
   ptsCorrectDraw: number;
-  ptsKnockoutBonus: number;
 };
 
 const SCORING_FIELDS: {
@@ -69,13 +68,6 @@ const SCORING_FIELDS: {
     example: "Ex: palpitou 1x1 e terminou 0x0 → acertou o empate",
     default: 4,
   },
-  {
-    key: "ptsKnockoutBonus",
-    label: "Bônus mata-mata",
-    description: "Pontos extras somados a qualquer acerto em jogos eliminatórios.",
-    example: "Ex: acertou o vencedor em uma semifinal → ganha pontos normais + este bônus",
-    default: 3,
-  },
 ];
 
 const DEFAULT_SCORING: ScoringForm = {
@@ -83,7 +75,6 @@ const DEFAULT_SCORING: ScoringForm = {
   ptsCorrectDiff: 7,
   ptsCorrectWinner: 5,
   ptsCorrectDraw: 4,
-  ptsKnockoutBonus: 3,
 };
 
 function ShareLeagueButton({ league }: { league: League }) {

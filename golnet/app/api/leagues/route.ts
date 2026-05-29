@@ -12,7 +12,6 @@ const createSchema = z.object({
   ptsCorrectDiff: z.number().int().min(0).max(100).optional(),
   ptsCorrectWinner: z.number().int().min(0).max(100).optional(),
   ptsCorrectDraw: z.number().int().min(0).max(100).optional(),
-  ptsKnockoutBonus: z.number().int().min(0).max(100).optional(),
   competitionName: z.string().optional(),
   teamFilter: z.array(z.string()).optional(),
   championPredictionEnabled: z.boolean().optional(),
@@ -81,7 +80,7 @@ export async function POST(req: Request) {
 
   const isPro = ["PRO", "ENTERPRISE"].includes(user?.plan ?? "FREE");
   const {
-    ptsExactScore, ptsCorrectDiff, ptsCorrectWinner, ptsCorrectDraw, ptsKnockoutBonus,
+    ptsExactScore, ptsCorrectDiff, ptsCorrectWinner, ptsCorrectDraw,
     competitionName, teamFilter, championPredictionEnabled, championPredictionPoints,
     goalScorerEnabled, goalScorerPoints,
     ...baseData
@@ -102,7 +101,6 @@ export async function POST(req: Request) {
           ptsCorrectDiff: ptsCorrectDiff ?? 7,
           ptsCorrectWinner: ptsCorrectWinner ?? 5,
           ptsCorrectDraw: ptsCorrectDraw ?? 4,
-          ptsKnockoutBonus: ptsKnockoutBonus ?? 3,
         }),
         members: {
           create: { userId: session.user.id, role: "OWNER" },

@@ -33,7 +33,6 @@ type LeagueScoring = {
   ptsCorrectDiff: number;
   ptsCorrectWinner: number;
   ptsCorrectDraw: number;
-  ptsKnockoutBonus: number;
   championPredictionEnabled: boolean;
   championPredictionPoints: number;
   goalScorerEnabled: boolean;
@@ -63,10 +62,7 @@ export function LeagueTabs({
   const [activeTab, setActiveTab] = useState<Tab>("Jogos");
   const isPro = userPlan !== "FREE";
 
-  const hasBonus =
-    scoring.ptsKnockoutBonus > 0 ||
-    scoring.championPredictionEnabled ||
-    scoring.goalScorerEnabled;
+  const hasBonus = scoring.championPredictionEnabled || scoring.goalScorerEnabled;
 
   const mainScoring = [
     {
@@ -348,21 +344,6 @@ export function LeagueTabs({
                 <p className="text-xs text-zinc-500 mt-0.5">Pontos extras configurados nesta liga</p>
               </div>
               <div className="divide-y divide-zinc-800">
-                {scoring.ptsKnockoutBonus > 0 && (
-                  <div className="flex items-center gap-4 px-4 py-3.5">
-                    <span className="text-2xl shrink-0">⚡</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white">Fase mata-mata</p>
-                      <p className="text-xs text-zinc-500 mt-0.5">
-                        Bônus adicional por acerto em jogos eliminatórios (oitavas, quartas, semi, final)
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <span className="text-xl font-bold text-yellow-400">+{scoring.ptsKnockoutBonus}</span>
-                      <span className="text-zinc-500 text-xs ml-1">pts</span>
-                    </div>
-                  </div>
-                )}
                 {scoring.championPredictionEnabled && (
                   <div className="flex items-center gap-4 px-4 py-3.5">
                     <span className="text-2xl shrink-0">🏅</span>
