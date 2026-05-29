@@ -209,6 +209,17 @@ export default async function LeagueDetailPage({
         roundGroups={roundGroups}
         userPlan={userPlan}
         userId={userId}
+        scoring={{
+          ptsExactScore: league.ptsExactScore,
+          ptsCorrectDiff: league.ptsCorrectDiff,
+          ptsCorrectWinner: league.ptsCorrectWinner,
+          ptsCorrectDraw: league.ptsCorrectDraw,
+          ptsKnockoutBonus: league.ptsKnockoutBonus,
+          championPredictionEnabled: league.championPredictionEnabled,
+          championPredictionPoints: league.championPredictionPoints,
+          goalScorerEnabled: league.goalScorerEnabled,
+          goalScorerPoints: league.goalScorerPoints,
+        }}
       />
     </div>
   );
