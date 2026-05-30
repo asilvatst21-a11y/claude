@@ -160,16 +160,16 @@ export default async function LeagueDetailPage({
       {isOwner && (
         <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 mb-6">
           <p className="text-sm font-medium text-green-400 mb-2">
-            Código de convite
+            Link de convite
           </p>
           <div className="flex items-center gap-3">
-            <code className="flex-1 bg-zinc-900 rounded-lg px-3 py-2 text-white font-mono text-sm tracking-widest">
-              {league.inviteCode}
+            <code className="flex-1 bg-zinc-900 rounded-lg px-3 py-2 text-zinc-400 font-mono text-xs truncate">
+              palpitai.vercel.app/entrar?c={league.inviteCode}
             </code>
             <CopyInviteButton code={league.inviteCode} />
           </div>
           <p className="text-xs text-zinc-500 mt-2">
-            Compartilhe este código para convidar pessoas para sua liga.
+            Compartilhe este link para convidar pessoas para sua liga.
           </p>
         </div>
       )}

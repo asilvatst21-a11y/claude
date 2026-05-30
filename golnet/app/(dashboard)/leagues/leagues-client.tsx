@@ -81,11 +81,15 @@ function ShareLeagueButton({ league }: { league: League }) {
   const [copied, setCopied] = useState(false);
 
   const share = async () => {
-    const text = `Entre na liga "${league.name}" no PalpitaAí!\nCódigo: ${league.inviteCode}`;
+    const link = `${window.location.origin}/entrar?c=${league.inviteCode}`;
     if (navigator.share) {
-      await navigator.share({ title: league.name, text }).catch(() => {});
+      await navigator.share({
+        title: league.name,
+        text: `Entre na liga "${league.name}" no PalpitaAí!`,
+        url: link,
+      }).catch(() => {});
     } else {
-      await navigator.clipboard.writeText(text).catch(() => {});
+      await navigator.clipboard.writeText(link).catch(() => {});
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
@@ -95,9 +99,9 @@ function ShareLeagueButton({ league }: { league: League }) {
     <button
       onClick={(e) => { e.preventDefault(); share(); }}
       className="text-xs text-zinc-500 hover:text-white transition-colors px-2 py-1 rounded-lg hover:bg-zinc-800"
-      title="Compartilhar liga"
+      title="Compartilhar link da liga"
     >
-      {copied ? "✓ Copiado" : "Compartilhar"}
+      {copied ? "✓ Link copiado" : "Compartilhar"}
     </button>
   );
 }
