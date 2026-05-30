@@ -3,49 +3,45 @@ function calculateScore(colaboradorId, db) {
   let dtoCritical = false;
   let telemetriaCritical = false;
 
-  // --- DTO Component (30%) ---
+  // DTO Component (30%)
   const latestDto = db.prepare(
     'SELECT * FROM dtos WHERE colaborador_id = ? ORDER BY data_realizacao DESC LIMIT 1'
   ).get(colaboradorId);
 
   let raw_dto = 0;
-  if (!latestDto) {
-    raw_dto = 0;
-  } else if (latestDto.status === 'ausente') {
+  if (!latestDto || latestDto.status === 'ausente') {
     raw_dto = 0;
   } else if (latestDto.data_validade < today) {
-    // vencido
-    const validadeDate = new Date(latestDto.data_validade);
-    const todayDate = new Date(today);
-    const days_overdue = Math.floor((todayDate - validadeDate) / (1000 * 60 * 60 * 24));
-    if (days_overdue > 30) {
+    const daysOverdue = Math.floor(
+      (new Date(today) - new Date(latestDto.data_validade)) / (1000 * 60 * 60 * 24)
+    );
+    if (daysOverdue > 30) {
       raw_dto = 0;
       dtoCritical = true;
     } else {
       raw_dto = 50;
     }
   } else {
-    // em_dia
     raw_dto = 100;
   }
   const dto_component = raw_dto * 0.30;
 
-  // --- Conduta Component (40%) ---
+  // Conduta Component (40%)
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const avaliacoes = db.prepare(
     'SELECT * FROM avaliacoes_conduta WHERE colaborador_id = ? AND data >= ?'
   ).all(colaboradorId, ninetyDaysAgo);
 
   let raw_conduta = 100;
-  for (const avaliacao of avaliacoes) {
-    if (avaliacao.tipo === 'ato_inseguro') raw_conduta -= avaliacao.gravidade * 4;
-    if (avaliacao.tipo === 'condicao_insegura') raw_conduta -= avaliacao.gravidade * 2;
-    if (avaliacao.tipo === 'abordagem_positiva') raw_conduta += avaliacao.gravidade * 3;
+  for (const a of avaliacoes) {
+    if (a.tipo === 'ato_inseguro') raw_conduta -= a.gravidade * 4;
+    if (a.tipo === 'condicao_insegura') raw_conduta -= a.gravidade * 2;
+    if (a.tipo === 'abordagem_positiva') raw_conduta += a.gravidade * 3;
   }
   raw_conduta = Math.max(0, Math.min(100, raw_conduta));
   const conduta_component = raw_conduta * 0.40;
 
-  // --- Telemetria Component (30%) ---
+  // Telemetria Component (30%) — motoristas only
   const colaborador = db.prepare('SELECT cargo FROM colaboradores WHERE id = ?').get(colaboradorId);
   const isMotorista = colaborador && colaborador.cargo.toLowerCase() === 'motorista';
 
@@ -56,12 +52,12 @@ function calculateScore(colaboradorId, db) {
     ).get(colaboradorId);
 
     if (latest) {
-      const excess_penalty = Math.min(latest.qtd_excessos_velocidade * 3, 40);
-      const braking_penalty = Math.min(latest.qtd_frenagens_bruscas * 2, 30);
-      const curve_penalty = Math.min(latest.qtd_curvas_bruscas * 2, 30);
+      const excess_penalty = Math.min(Number(latest.qtd_excessos_velocidade) * 3, 40);
+      const braking_penalty = Math.min(Number(latest.qtd_frenagens_bruscas) * 2, 30);
+      const curve_penalty = Math.min(Number(latest.qtd_curvas_bruscas) * 2, 30);
       let raw_telemetria = 100 - excess_penalty - braking_penalty - curve_penalty;
       raw_telemetria = Math.max(0, Math.min(100, raw_telemetria));
-      if (latest.qtd_excessos_velocidade > 10) {
+      if (Number(latest.qtd_excessos_velocidade) > 10) {
         raw_telemetria = Math.min(raw_telemetria, 30);
         telemetriaCritical = true;
       }
@@ -69,25 +65,11 @@ function calculateScore(colaboradorId, db) {
     }
   }
 
-  // --- Final Score ---
   const score = Math.round(dto_component + conduta_component + telemetria_component);
   const riskLevel =
     score >= 75 ? 'baixo' :
     score >= 50 ? 'medio' :
     score >= 25 ? 'alto' : 'critico';
-
-  // --- Auto-encaminhamento (idempotent) ---
-  if (score < 50) {
-    const existing = db.prepare(
-      "SELECT id FROM encaminhamentos WHERE colaborador_id = ? AND tipo = 'encerramento_contrato' AND status = 'pendente'"
-    ).get(colaboradorId);
-    if (!existing) {
-      const prazo = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-      db.prepare(
-        "INSERT INTO encaminhamentos (colaborador_id, tipo, prazo, status, criado_em) VALUES (?, 'encerramento_contrato', ?, 'pendente', datetime('now'))"
-      ).run(colaboradorId, prazo);
-    }
-  }
 
   return {
     score,
@@ -101,4 +83,19 @@ function calculateScore(colaboradorId, db) {
   };
 }
 
-module.exports = { calculateScore };
+// Separate from calculateScore so GET endpoints remain side-effect-free.
+// Call this only after a write operation (seed, explicit trigger endpoint).
+function ensureAutoEncaminhamento(colaboradorId, score, db) {
+  if (score >= 50) return false;
+  const existing = db.prepare(
+    "SELECT id FROM encaminhamentos WHERE colaborador_id = ? AND tipo = 'encerramento_contrato'"
+  ).get(colaboradorId);
+  if (existing) return false;
+  const prazo = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  db.prepare(
+    "INSERT INTO encaminhamentos (colaborador_id, tipo, prazo, status, criado_em) VALUES (?, 'encerramento_contrato', ?, 'pendente', datetime('now'))"
+  ).run(colaboradorId, prazo);
+  return true;
+}
+
+module.exports = { calculateScore, ensureAutoEncaminhamento };
