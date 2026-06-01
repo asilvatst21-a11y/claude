@@ -20,6 +20,7 @@ export default function ColaboradorPage({ params }: { params: { id: string } }) 
   const [avals, setAvals] = useState<Record<string,unknown>[]>([])
   const [tels, setTels] = useState<Record<string,unknown>[]>([])
   const [encs, setEncs] = useState<Record<string,unknown>[]>([])
+  const [relatos, setRelatos] = useState<{ relatos: Record<string,unknown>[]; atos: number; positivas: number; saldo: number } | null>(null)
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(() => {
@@ -29,8 +30,9 @@ export default function ColaboradorPage({ params }: { params: { id: string } }) 
       fetch(`/api/avaliacoes?colaborador_id=${id}`).then(r => r.json()),
       fetch(`/api/telemetria?motorista_id=${id}`).then(r => r.json()),
       fetch(`/api/encaminhamentos?colaborador_id=${id}`).then(r => r.json()),
-    ]).then(([c, d, a, t, e]) => {
-      setCol(c); setDtos(d); setAvals(a); setTels(t); setEncs(e)
+      fetch(`/api/colaboradores/${id}/relatos`).then(r => r.json()),
+    ]).then(([c, d, a, t, e, rel]) => {
+      setCol(c); setDtos(d); setAvals(a); setTels(t); setEncs(e); setRelatos(rel)
       setLoading(false)
     })
   }, [id])
@@ -128,6 +130,43 @@ export default function ColaboradorPage({ params }: { params: { id: string } }) 
       <Section title={`Encaminhamentos (${encs.length})`}>
         <DataTable columns={encColumns} data={encs} emptyMessage="Nenhum encaminhamento." />
       </Section>
+
+      {relatos && (
+        <Section title={`Relatos de Comportamento (${relatos.relatos.length})`}>
+          <div className="grid grid-cols-3 gap-4 mb-5">
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-green-700">{relatos.positivas}</p>
+              <p className="text-xs text-green-600 mt-1 font-medium">Abordagens Positivas</p>
+            </div>
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+              <p className="text-2xl font-bold text-red-700">{relatos.atos}</p>
+              <p className="text-xs text-red-600 mt-1 font-medium">Atos Inseguros</p>
+            </div>
+            <div className={`${relatos.saldo >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-orange-50 border-orange-200'} border rounded-lg p-4 text-center`}>
+              <p className={`text-2xl font-bold ${relatos.saldo >= 0 ? 'text-blue-700' : 'text-orange-700'}`}>
+                {relatos.saldo >= 0 ? '+' : ''}{relatos.saldo}
+              </p>
+              <p className={`text-xs mt-1 font-medium ${relatos.saldo >= 0 ? 'text-blue-600' : 'text-orange-600'}`}>Saldo Comportamental</p>
+            </div>
+          </div>
+          <DataTable
+            columns={[
+              { key: 'data', label: 'Data' },
+              { key: 'tipo', label: 'Tipo', render: (v: unknown) => (
+                <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                  v === 'ato_inseguro' ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'
+                }`}>
+                  {v === 'ato_inseguro' ? 'Ato Inseguro' : 'Abordagem Positiva'}
+                </span>
+              )},
+              { key: 'descricao', label: 'Descrição' },
+              { key: 'registrado_por', label: 'Registrado por' },
+            ]}
+            data={relatos.relatos}
+            emptyMessage="Nenhum relato registrado."
+          />
+        </Section>
+      )}
     </div>
   )
 }

@@ -5,15 +5,15 @@ import { createServiceClient } from '@/lib/supabase'
 import { parseGsdpq } from '@/lib/parsers/parseGsdpq'
 import { parseDtoChecklist } from '@/lib/parsers/parseDtoChecklist'
 import { parseProntuario } from '@/lib/parsers/parseProntuario'
+import { parseRelatos } from '@/lib/parsers/parseRelatos'
 
-type FileType = 'gsdpq' | 'dto_checklist' | 'prontuario_motorista' | 'prontuario_ajudante' | 'unknown'
+type FileType = 'gsdpq' | 'dto_checklist' | 'prontuario_motorista' | 'prontuario_ajudante' | 'relatos' | 'unknown'
 
 function detectFileType(filename: string): FileType {
-  // Normalize: remove accents, replace spaces/underscores uniformly
   const upper = filename.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  if (upper.includes('RELATO')) return 'relatos'
   if (upper.includes('GSDPQ')) return 'gsdpq'
   if (upper.includes('DTO')) return 'dto_checklist'
-  // Match "PRONTUARIO MOTORISTA", "PRONTUARIO_MOTORISTA", "PRONTU RIO MOTORISTA", etc.
   if ((upper.includes('PRONTUARIO') || upper.includes('PRONTU')) && upper.includes('AJUDANTE')) return 'prontuario_ajudante'
   if (upper.includes('PRONTUARIO') || upper.includes('PRONTU')) return 'prontuario_motorista'
   return 'unknown'
@@ -47,6 +47,8 @@ interface ImportResult {
   total_registros: number
   total_colaboradores_encontrados: number
   itens_no_detectados: number
+  atos_inseguros: number
+  abordagens_positivas: number
   errors: string[]
 }
 
@@ -75,6 +77,8 @@ export async function POST(req: NextRequest) {
         total_registros: 0,
         total_colaboradores_encontrados: 0,
         itens_no_detectados: 0,
+        atos_inseguros: 0,
+        abordagens_positivas: 0,
         errors: [],
       }
 
@@ -180,7 +184,7 @@ export async function POST(req: NextRequest) {
             .update({ total_colaboradores_encontrados: colaboradoresEncontrados })
             .eq('id', importacao.id)
 
-        } else {
+        } else if (tipo === 'prontuario_motorista' || tipo === 'prontuario_ajudante') {
           // Prontuario
           const parsed = parseProntuario(buffer)
           result.errors.push(...parsed.errors)
@@ -244,6 +248,59 @@ export async function POST(req: NextRequest) {
 
           await supabase
             .from('importacoes')
+            .update({ total_colaboradores_encontrados: colaboradoresEncontrados })
+            .eq('id', importacao.id)
+
+        } else if (tipo === 'relatos') {
+          const parsed = parseRelatos(buffer)
+          result.errors.push(...parsed.errors)
+          result.total_registros = parsed.records.length
+
+          if (parsed.records.length === 0) { results.push(result); continue }
+
+          const { data: importacao, error: impErr } = await supabase
+            .from('importacoes')
+            .insert({ tipo, nome_arquivo: filename, periodo_ref: periodoRef, total_registros: parsed.records.length })
+            .select('id').single()
+
+          if (impErr || !importacao) {
+            result.errors.push(`Erro ao criar importação: ${impErr?.message}`)
+            results.push(result); continue
+          }
+
+          let colaboradoresEncontrados = 0
+          let atosInseguros = 0
+          let abordagensPositivas = 0
+
+          for (const rec of parsed.records) {
+            const colaboradorId = await findColaborador(supabase, rec.pessoa_relatada)
+            if (colaboradorId) colaboradoresEncontrados++
+
+            const tipo_avaliacao = rec.classificacao === 'ATO INSEGURO' ? 'ato_inseguro' : 'abordagem_positiva'
+            const gravidade = rec.classificacao === 'ATO INSEGURO' ? 3 : 2
+
+            if (rec.classificacao === 'ATO INSEGURO') atosInseguros++
+            else abordagensPositivas++
+
+            const descricao = [rec.tipo_relato, rec.detalhamento].filter(Boolean).join(' — ')
+
+            const { error: avalErr } = await supabase.from('avaliacoes_conduta').insert({
+              colaborador_id: colaboradorId,
+              data: rec.data,
+              tipo: tipo_avaliacao,
+              descricao,
+              gravidade,
+              registrado_por: rec.relator || 'Importação',
+            })
+
+            if (avalErr) result.errors.push(`Erro relato ${rec.pessoa_relatada}: ${avalErr.message}`)
+          }
+
+          result.total_colaboradores_encontrados = colaboradoresEncontrados
+          result.atos_inseguros = atosInseguros
+          result.abordagens_positivas = abordagensPositivas
+
+          await supabase.from('importacoes')
             .update({ total_colaboradores_encontrados: colaboradoresEncontrados })
             .eq('id', importacao.id)
         }

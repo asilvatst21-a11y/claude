@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 
-type FileType = 'gsdpq' | 'dto_checklist' | 'prontuario_motorista' | 'prontuario_ajudante' | 'unknown'
+type FileType = 'gsdpq' | 'dto_checklist' | 'prontuario_motorista' | 'prontuario_ajudante' | 'relatos' | 'unknown'
 
 interface FileEntry {
   file: File
@@ -15,6 +15,8 @@ interface ImportResult {
   total_registros: number
   total_colaboradores_encontrados: number
   itens_no_detectados: number
+  atos_inseguros: number
+  abordagens_positivas: number
   errors: string[]
 }
 
@@ -29,11 +31,12 @@ interface Importacao {
 }
 
 function detectFileType(filename: string): FileType {
-  const upper = filename.toUpperCase()
+  const upper = filename.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+  if (upper.includes('RELATO')) return 'relatos'
   if (upper.includes('GSDPQ')) return 'gsdpq'
   if (upper.includes('DTO')) return 'dto_checklist'
-  if (upper.includes('PRONTUARIO_MOTORISTA') || upper.includes('PRONTU_RIO_MOTORISTA')) return 'prontuario_motorista'
-  if (upper.includes('PRONTUARIO_AJUDANTE') || upper.includes('PRONTU_RIO_AJUDANTE')) return 'prontuario_ajudante'
+  if ((upper.includes('PRONTUARIO') || upper.includes('PRONTU')) && upper.includes('AJUDANTE')) return 'prontuario_ajudante'
+  if (upper.includes('PRONTUARIO') || upper.includes('PRONTU')) return 'prontuario_motorista'
   return 'unknown'
 }
 
@@ -42,6 +45,7 @@ const TYPE_LABELS: Record<FileType | string, string> = {
   dto_checklist: 'DTO Checklist',
   prontuario_motorista: 'Prontuário Motorista',
   prontuario_ajudante: 'Prontuário Ajudante',
+  relatos: 'Relatos',
   unknown: 'Desconhecido',
 }
 
@@ -50,6 +54,7 @@ const TYPE_COLORS: Record<FileType | string, string> = {
   dto_checklist: 'bg-purple-100 text-purple-700',
   prontuario_motorista: 'bg-green-100 text-green-700',
   prontuario_ajudante: 'bg-teal-100 text-teal-700',
+  relatos: 'bg-orange-100 text-orange-700',
   unknown: 'bg-gray-100 text-gray-600',
 }
 
@@ -138,7 +143,7 @@ export default function ImportacaoPage() {
           tipo: 'unknown',
           total_registros: 0,
           total_colaboradores_encontrados: 0,
-          itens_no_detectados: 0,
+          itens_no_detectados: 0, atos_inseguros: 0, abordagens_positivas: 0,
           errors: [data.error || 'Erro desconhecido'],
         }])
       }
@@ -148,7 +153,7 @@ export default function ImportacaoPage() {
         tipo: 'unknown',
         total_registros: 0,
         total_colaboradores_encontrados: 0,
-        itens_no_detectados: 0,
+        itens_no_detectados: 0, atos_inseguros: 0, abordagens_positivas: 0,
         errors: [err instanceof Error ? err.message : 'Erro de rede'],
       }])
     } finally {
@@ -252,6 +257,12 @@ export default function ImportacaoPage() {
                   <span className="text-blue-700">{r.total_colaboradores_encontrados} colaboradores encontrados</span>
                   {r.itens_no_detectados > 0 && (
                     <span className="text-orange-600">{r.itens_no_detectados} itens NO detectados</span>
+                  )}
+                  {r.atos_inseguros > 0 && (
+                    <span className="text-red-600">{r.atos_inseguros} atos inseguros</span>
+                  )}
+                  {r.abordagens_positivas > 0 && (
+                    <span className="text-green-600">{r.abordagens_positivas} abordagens positivas</span>
                   )}
                 </div>
                 {r.errors.length > 0 && (
