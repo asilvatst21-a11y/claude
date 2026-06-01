@@ -25,14 +25,19 @@ export default function ColaboradorPage({ params }: { params: { id: string } }) 
 
   const load = useCallback(() => {
     Promise.all([
-      fetch(`/api/colaboradores/${id}`).then(r => r.json()),
-      fetch(`/api/dtos?colaborador_id=${id}`).then(r => r.json()),
-      fetch(`/api/avaliacoes?colaborador_id=${id}`).then(r => r.json()),
-      fetch(`/api/telemetria?motorista_id=${id}`).then(r => r.json()),
-      fetch(`/api/encaminhamentos?colaborador_id=${id}`).then(r => r.json()),
-      fetch(`/api/colaboradores/${id}/relatos`).then(r => r.json()),
+      fetch(`/api/colaboradores/${id}`).then(r => r.json()).catch(() => null),
+      fetch(`/api/dtos?colaborador_id=${id}`).then(r => r.json()).catch(() => []),
+      fetch(`/api/avaliacoes?colaborador_id=${id}`).then(r => r.json()).catch(() => []),
+      fetch(`/api/telemetria?motorista_id=${id}`).then(r => r.json()).catch(() => []),
+      fetch(`/api/encaminhamentos?colaborador_id=${id}`).then(r => r.json()).catch(() => []),
+      fetch(`/api/colaboradores/${id}/relatos`).then(r => r.json()).catch(() => null),
     ]).then(([c, d, a, t, e, rel]) => {
-      setCol(c); setDtos(d); setAvals(a); setTels(t); setEncs(e); setRelatos(rel)
+      setCol(c && !c.error ? c : null)
+      setDtos(Array.isArray(d) ? d : [])
+      setAvals(Array.isArray(a) ? a : [])
+      setTels(Array.isArray(t) ? t : [])
+      setEncs(Array.isArray(e) ? e : [])
+      setRelatos(rel && !rel.error ? rel : null)
       setLoading(false)
     })
   }, [id])
