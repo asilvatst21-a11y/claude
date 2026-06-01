@@ -9,11 +9,13 @@ import { parseProntuario } from '@/lib/parsers/parseProntuario'
 type FileType = 'gsdpq' | 'dto_checklist' | 'prontuario_motorista' | 'prontuario_ajudante' | 'unknown'
 
 function detectFileType(filename: string): FileType {
-  const upper = filename.toUpperCase()
+  // Normalize: remove accents, replace spaces/underscores uniformly
+  const upper = filename.toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
   if (upper.includes('GSDPQ')) return 'gsdpq'
   if (upper.includes('DTO')) return 'dto_checklist'
-  if (upper.includes('PRONTUARIO_MOTORISTA') || upper.includes('PRONTU_RIO_MOTORISTA')) return 'prontuario_motorista'
-  if (upper.includes('PRONTUARIO_AJUDANTE') || upper.includes('PRONTU_RIO_AJUDANTE')) return 'prontuario_ajudante'
+  // Match "PRONTUARIO MOTORISTA", "PRONTUARIO_MOTORISTA", "PRONTU RIO MOTORISTA", etc.
+  if ((upper.includes('PRONTUARIO') || upper.includes('PRONTU')) && upper.includes('AJUDANTE')) return 'prontuario_ajudante'
+  if (upper.includes('PRONTUARIO') || upper.includes('PRONTU')) return 'prontuario_motorista'
   return 'unknown'
 }
 
