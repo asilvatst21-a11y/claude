@@ -1,6 +1,0 @@
-{
-  "buildCommand": "cd safety-dashboard-next && npm install && npm run build",
-  "outputDirectory": "safety-dashboard-next/.next",
-  "installCommand": "echo skip",
-  "framework": "nextjs"
-}
