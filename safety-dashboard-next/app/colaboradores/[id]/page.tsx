@@ -21,6 +21,7 @@ export default function ColaboradorPage({ params }: { params: { id: string } }) 
   const [tels, setTels] = useState<Record<string,unknown>[]>([])
   const [encs, setEncs] = useState<Record<string,unknown>[]>([])
   const [relatos, setRelatos] = useState<{ relatos: Record<string,unknown>[]; atos: number; positivas: number; saldo: number } | null>(null)
+  const [gsdpq, setGsdpq] = useState<{ registros: Record<string,unknown>[]; topNos: {item_nome:string;count:number}[]; totalNo: number } | null>(null)
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(() => {
@@ -31,13 +32,15 @@ export default function ColaboradorPage({ params }: { params: { id: string } }) 
       fetch(`/api/telemetria?motorista_id=${id}`).then(r => r.json()).catch(() => []),
       fetch(`/api/encaminhamentos?colaborador_id=${id}`).then(r => r.json()).catch(() => []),
       fetch(`/api/colaboradores/${id}/relatos`).then(r => r.json()).catch(() => null),
-    ]).then(([c, d, a, t, e, rel]) => {
+      fetch(`/api/colaboradores/${id}/gsdpq`).then(r => r.json()).catch(() => null),
+    ]).then(([c, d, a, t, e, rel, gs]) => {
       setCol(c && !c.error ? c : null)
       setDtos(Array.isArray(d) ? d : [])
       setAvals(Array.isArray(a) ? a : [])
       setTels(Array.isArray(t) ? t : [])
       setEncs(Array.isArray(e) ? e : [])
       setRelatos(rel && !rel.error ? rel : null)
+      setGsdpq(gs && !gs.error ? gs : null)
       setLoading(false)
     })
   }, [id])
@@ -135,6 +138,43 @@ export default function ColaboradorPage({ params }: { params: { id: string } }) 
       <Section title={`Encaminhamentos (${encs.length})`}>
         <DataTable columns={encColumns} data={encs} emptyMessage="Nenhum encaminhamento." />
       </Section>
+
+      {gsdpq && gsdpq.registros.length > 0 && (
+        <Section title={`Observações GSDPQ / DTO (${gsdpq.registros.length})`}>
+          {gsdpq.topNos.length > 0 && (
+            <div className="mb-5">
+              <p className="text-xs font-semibold text-gray-500 uppercase mb-2">Itens com mais NOs</p>
+              <div className="flex flex-wrap gap-2">
+                {gsdpq.topNos.map((item, i) => (
+                  <div key={i} className="flex items-center gap-1.5 bg-orange-50 border border-orange-200 rounded-lg px-3 py-1.5">
+                    <span className="text-orange-700 font-bold text-sm">{item.count}×</span>
+                    <span className="text-orange-800 text-xs">{item.item_nome.length > 60 ? item.item_nome.slice(0,60)+'…' : item.item_nome}</span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-gray-400 mt-2">{gsdpq.totalNo} ocorrências NO no total</p>
+            </div>
+          )}
+          <DataTable
+            columns={[
+              { key: 'data', label: 'Data' },
+              { key: 'tipo', label: 'Tipo' },
+              { key: 'realizado_por', label: 'Avaliador' },
+              { key: 'percentual_conformidade', label: 'Conformidade', render: (v: unknown) => {
+                const p = Number(v)
+                const color = p >= 80 ? 'text-green-700' : p >= 60 ? 'text-orange-600' : 'text-red-600'
+                return <span className={`font-semibold ${color}`}>{isNaN(p) ? '—' : `${p.toFixed(0)}%`}</span>
+              }},
+              { key: 'itens_no', label: 'NOs', render: (v: unknown) => (
+                <span className={Number(v) > 0 ? 'text-red-600 font-semibold' : 'text-gray-400'}>{String(v)}</span>
+              )},
+              { key: 'observacoes', label: 'Observações' },
+            ]}
+            data={gsdpq.registros}
+            emptyMessage="Nenhuma observação registrada."
+          />
+        </Section>
+      )}
 
       {relatos && (
         <Section title={`Relatos de Comportamento (${relatos.relatos.length})`}>
