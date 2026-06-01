@@ -7,7 +7,10 @@ const XLSX = require('xlsx');
 const db = require('./db');
 const { calculateScore, ensureAutoEncaminhamento } = require('./services/scoreService');
 
-const BASE = '/root/.claude/uploads/12dff053-0a46-48c3-b97a-1a658b77eb70/';
+// Caminho das planilhas: use variável de ambiente PLANILHAS_PATH ou coloque os arquivos em server/data/planilhas/
+const BASE = process.env.PLANILHAS_PATH
+  ? process.env.PLANILHAS_PATH.replace(/\\/g, '/').replace(/\/?$/, '/')
+  : require('path').join(__dirname, '../../data/planilhas') + require('path').sep;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 function excelDateToISO(val) {
