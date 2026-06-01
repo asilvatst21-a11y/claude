@@ -1,0 +1,18 @@
+{
+  "name": "safety-dashboard-server",
+  "version": "1.0.0",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "seed": "node src/seed.js"
+  },
+  "dependencies": {
+    "@faker-js/faker": "^8.4.1",
+    "better-sqlite3": "^9.4.3",
+    "cors": "^2.8.5",
+    "csv-writer": "^1.6.0",
+    "express": "^4.18.2",
+    "xlsx": "^0.18.5"
+  }
+}

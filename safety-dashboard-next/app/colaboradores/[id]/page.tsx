@@ -1,0 +1,142 @@
+'use client'
+import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
+import ScoreBadge from '@/components/ui/ScoreBadge'
+import DataTable from '@/components/ui/DataTable'
+
+interface Colaborador {
+  id: number; nome: string; cargo: string; setor: string
+  lider_responsavel: string; data_admissao: string; status: string
+  score: number; riskLevel: string
+  components: { dto: number; conduta: number; telemetria: number }
+  flags: { dtoCritical: boolean; telemetriaCritical: boolean }
+}
+
+export default function ColaboradorPage({ params }: { params: { id: string } }) {
+  const router = useRouter()
+  const id = params.id
+  const [col, setCol] = useState<Colaborador | null>(null)
+  const [dtos, setDtos] = useState<Record<string,unknown>[]>([])
+  const [avals, setAvals] = useState<Record<string,unknown>[]>([])
+  const [tels, setTels] = useState<Record<string,unknown>[]>([])
+  const [encs, setEncs] = useState<Record<string,unknown>[]>([])
+  const [loading, setLoading] = useState(true)
+
+  const load = useCallback(() => {
+    Promise.all([
+      fetch(`/api/colaboradores/${id}`).then(r => r.json()),
+      fetch(`/api/dtos?colaborador_id=${id}`).then(r => r.json()),
+      fetch(`/api/avaliacoes?colaborador_id=${id}`).then(r => r.json()),
+      fetch(`/api/telemetria?motorista_id=${id}`).then(r => r.json()),
+      fetch(`/api/encaminhamentos?colaborador_id=${id}`).then(r => r.json()),
+    ]).then(([c, d, a, t, e]) => {
+      setCol(c); setDtos(d); setAvals(a); setTels(t); setEncs(e)
+      setLoading(false)
+    })
+  }, [id])
+
+  useEffect(() => { load() }, [load])
+
+  if (loading) return <div className="flex items-center justify-center h-64 text-gray-400">Carregando...</div>
+  if (!col) return <div className="p-8 text-center text-red-500">Colaborador não encontrado.</div>
+
+  const isMotorista = col.cargo.toLowerCase().includes('motorista')
+
+  const dtoColumns = [
+    { key: 'data_realizacao', label: 'Realização' },
+    { key: 'data_validade', label: 'Validade' },
+    { key: 'status', label: 'Status', render: (v: unknown) => {
+      const colors: Record<string,string> = { em_dia: 'text-green-700 bg-green-50', vencido: 'text-red-700 bg-red-50', ausente: 'text-gray-600 bg-gray-100' }
+      return <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[v as string] || ''}`}>{v as string}</span>
+    }},
+    { key: 'observacoes', label: 'Observações' },
+  ]
+
+  const avalColumns = [
+    { key: 'data', label: 'Data' },
+    { key: 'tipo', label: 'Tipo', render: (v: unknown) => {
+      const colors: Record<string,string> = { ato_inseguro: 'text-red-700 bg-red-50', condicao_insegura: 'text-orange-700 bg-orange-50', abordagem_positiva: 'text-green-700 bg-green-50' }
+      const labels: Record<string,string> = { ato_inseguro: 'Ato Inseguro', condicao_insegura: 'Condição Insegura', abordagem_positiva: 'Abordagem Positiva' }
+      return <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[v as string]||''}`}>{labels[v as string]||v as string}</span>
+    }},
+    { key: 'descricao', label: 'Descrição' },
+    { key: 'gravidade', label: 'Grau' },
+    { key: 'registrado_por', label: 'Registrado por' },
+  ]
+
+  const telColumns = [
+    { key: 'periodo_ref', label: 'Período' },
+    { key: 'qtd_excessos_velocidade', label: 'Excessos Vel.' },
+    { key: 'qtd_frenagens_bruscas', label: 'Frenagens' },
+    { key: 'qtd_curvas_bruscas', label: 'Curvas' },
+    { key: 'score_calculado', label: 'Score Tel.' },
+  ]
+
+  const encColumns = [
+    { key: 'tipo', label: 'Tipo' },
+    { key: 'prazo', label: 'Prazo' },
+    { key: 'status', label: 'Status', render: (v: unknown) => {
+      const colors: Record<string,string> = { pendente: 'text-orange-700 bg-orange-50', concluido: 'text-green-700 bg-green-50' }
+      return <span className={`px-2 py-0.5 rounded text-xs font-medium ${colors[v as string]||''}`}>{v as string}</span>
+    }},
+    { key: 'criado_em', label: 'Criado em', render: (v: unknown) => v ? new Date(v as string).toLocaleDateString('pt-BR') : '—' },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center gap-3">
+        <button onClick={() => router.back()} className="text-gray-400 hover:text-gray-600 text-lg">←</button>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-800">{col.nome}</h1>
+          <p className="text-sm text-gray-500">{col.cargo} · {col.setor}</p>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
+        <div className="flex flex-wrap gap-6 items-start">
+          <div className="flex-1 min-w-48 grid grid-cols-2 gap-4 text-sm">
+            <div><p className="text-gray-400 text-xs">Líder</p><p className="font-medium">{col.lider_responsavel}</p></div>
+            <div><p className="text-gray-400 text-xs">Admissão</p><p className="font-medium">{col.data_admissao}</p></div>
+            <div><p className="text-gray-400 text-xs">Status</p><p className="font-medium capitalize">{col.status}</p></div>
+          </div>
+          <div className="flex flex-col items-center gap-2">
+            <p className="text-xs text-gray-400 uppercase font-medium">Score</p>
+            <ScoreBadge score={col.score} large />
+            <div className="flex gap-3 text-xs text-gray-500 mt-1">
+              <span>DTO: {col.components.dto}</span>
+              <span>Conduta: {col.components.conduta}</span>
+              <span>Tel: {col.components.telemetria}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <Section title={`DTOs (${dtos.length})`}>
+        <DataTable columns={dtoColumns} data={dtos} emptyMessage="Nenhum DTO registrado." />
+      </Section>
+
+      <Section title={`Avaliações de Conduta (${avals.length})`}>
+        <DataTable columns={avalColumns} data={avals} emptyMessage="Nenhuma avaliação registrada." />
+      </Section>
+
+      {isMotorista && (
+        <Section title={`Telemetria (${tels.length})`}>
+          <DataTable columns={telColumns} data={tels} emptyMessage="Nenhum registro de telemetria." />
+        </Section>
+      )}
+
+      <Section title={`Encaminhamentos (${encs.length})`}>
+        <DataTable columns={encColumns} data={encs} emptyMessage="Nenhum encaminhamento." />
+      </Section>
+    </div>
+  )
+}
+
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
+      <h2 className="font-semibold text-gray-700 mb-4">{title}</h2>
+      {children}
+    </div>
+  )
+}
