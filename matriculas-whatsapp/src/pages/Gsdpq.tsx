@@ -7,13 +7,80 @@ import {
 import {
   FileSpreadsheet, ChevronDown, ChevronUp, AlertTriangle, CheckCircle,
   XCircle, Users, ClipboardList, BarChart2, RefreshCw, Shield, Upload,
-  Download, Plus, Loader2, Building2
+  Download, Plus, Loader2, Building2, ShieldCheck, Star, Zap
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { GsdpqAvaliacao, GsdpqAcao } from '../types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+
+type Categoria = 'Segurança' | 'Qualidade' | 'Produtividade'
+
+const QUESTOES_CATEGORIAS: Record<string, Categoria> = {
+  'A equipe utiliza o cinto de segurança durante todo o trajeto?': 'Segurança',
+  'O motorista conduz o veículo em velocidade compatível com a via?': 'Segurança',
+  'O motorista cumpre todas as normas regidas pelo código de trânsito?': 'Segurança',
+  'O motorista pratica direção segura e faz todas as sinalizações durante o trajeto?': 'Segurança',
+  'O veículo é estacionado em local adequado (permitido por lei), e de forma segura?': 'Segurança',
+  'O motorista utiliza câmera de ré durante a manobra de estacionamento?': 'Segurança',
+  'O(s) ajudante(s) auxilia o motorista na manobra de estacionamento e se posiciona de forma segura, sem exposição a riscos?': 'Segurança',
+  'Em caso de aclive/declive, o calço/trava rodas é posicionado corretamente conforme orientação da Fabet?': 'Segurança',
+  'O freio de estacionamento foi acionado corretamente?': 'Segurança',
+  'A área do freio de estacionamento e dos pedais está livre de objetos que podem causar acionamento ou desacionamento involuntário (garrafas, mochilas, etc.)?': 'Segurança',
+  'Em caso de docas, o caminhão é estacionado corretamente e a equipe permanece em local segregado das máquinas de descarga?': 'Segurança',
+  'O veículo permanece trancado e com a chave sob posse do motorista durante todo o processo de entrega?': 'Segurança',
+  'A equipe utiliza o cone de segurança conforme padrão de entrega?': 'Segurança',
+  'A equipe se movimenta em área segura, mantendo atenção ao fluxo de veículos?': 'Segurança',
+  'No deslocamento entre o veículo e o PDV, a equipe tem cuidado ao atravessar vias e/ou obstáculos no percurso?': 'Segurança',
+  'A equipe cumprimenta o cliente, valida nota fiscal e vasilhames antes de iniciar a entrega?': 'Produtividade',
+  'A equipe utiliza todos os EPIs obrigatórios durante todo o processo de entrega?': 'Segurança',
+  'A equipe abre corretamente as baias/sider/porta da van?': 'Segurança',
+  'A equipe utiliza corretamente os 3 pontos de apoio ao subir e descer do veículo?': 'Segurança',
+  'A equipe manuseia o carrinho/paleteira/plataforma hidráulica corretamente?': 'Segurança',
+  'O funcionário se posiciona corretamente na plataforma durante a movimentação dos produtos, mantendo-a livre de produtos empilhados?': 'Segurança',
+  'A equipe manuseia os produtos conforme padrão?': 'Segurança',
+  'No PDV, se há escadas até o depósito, a equipe carrega  1 cx retornável por vez?': 'Segurança',
+  'A equipe cumpre a entrega seguindo o passo-a-passo descrito nos treinamentos de Qualidade?': 'Qualidade',
+  'Em caso de avarias durante a entrega ou identificadas dentro do caminhão, a equipe consegue resolver o problema junto ao cliente?': 'Qualidade',
+  'No caso da armazenagem do cliente conter condições de risco à qualidade do produto, o mesmo é orientado pelo time de entrega?': 'Qualidade',
+  'Caso haja devolução por problemas de qualidade, esses produtos são alocados separadamente dentro do veículo para retorno ao CD?': 'Qualidade',
+  'Em caso de problemas com recebimento, o motorista sinaliza a central de monitoramento de maneira digital?': 'Produtividade',
+  'Durante a entrega, a equipe usa os ferramentas digitais com facilidade?': 'Produtividade',
+  'Equipe avalia no BEES os risco do local de entrega?': 'Segurança',
+  'A equipe consegue orientar e ajudar o cliente em caso de problemas com a entrega/forma de pagamento?': 'Produtividade',
+  'Ao recolher os vasilhames no fim da entrega, faz apuração do refugo e organiza as caixas no caminhão, conforme a necessidade?': 'Produtividade',
+  'A equipe agradece e pede ao cliente para fazer avaliação da entrega?': 'Produtividade',
+  'A equipe usa tecnologia para finalizar a entrega e notificar a próxima?': 'Produtividade',
+  'Equipe guarda o carrinho corretamente após a utilização?': 'Segurança',
+  'A equipe verifica o fechamento das baias/sider/portas antes de sair do PDV, utilizando o  trava baias?': 'Segurança',
+  'Calço e cones foram retirados corretamente conforme orientação da FABET após a finalização da entrega?': 'Segurança',
+  ' O motorista faz o giro 360º antes de sair com o veículo, avaliando se existe algum obstáculo que dificulte a manobra ou algo embaixo do caminhão?': 'Segurança',
+  'Caso seja necessária uma manobra de ré, o ajudante se posiciona em local correto e auxilia o motorista?': 'Segurança',
+}
+
+function getCategoriaQuestao(questao: string): Categoria {
+  return QUESTOES_CATEGORIAS[questao.trim()] ?? 'Segurança'
+}
+
+function calcularConformidadeCategoria(avaliacoes: GsdpqAvaliacao[]) {
+  const cats: Record<Categoria, { NO: number; OK: number }> = {
+    'Segurança': { NO: 0, OK: 0 },
+    'Qualidade': { NO: 0, OK: 0 },
+    'Produtividade': { NO: 0, OK: 0 },
+  }
+  avaliacoes.forEach(av => {
+    const cat = getCategoriaQuestao(av.questao)
+    if (av.resultado === 'NO') cats[cat].NO++
+    else if (av.resultado === 'OK') cats[cat].OK++
+  })
+  return (Object.entries(cats) as [Categoria, { NO: number; OK: number }][]).map(([categoria, v]) => ({
+    categoria,
+    NO: v.NO,
+    OK: v.OK,
+    conformidade: v.NO + v.OK > 0 ? Math.round((v.OK / (v.NO + v.OK)) * 100) : 100,
+  }))
+}
 
 const TIPOS_ACAO = ['Reciclagem', 'Advertência Verbal', 'Advertência Escrita', 'Suspensão']
 
@@ -154,7 +221,7 @@ function calcularRankingQuestoes(avaliacoes: GsdpqAvaliacao[]) {
   })
   return Object.entries(counts)
     .filter(([, v]) => v.NO > 0)
-    .map(([questao, v]) => ({ questao, ...v }))
+    .map(([questao, v]) => ({ questao, ...v, categoria: getCategoriaQuestao(questao) }))
     .sort((a, b) => b.NO - a.NO)
 }
 
@@ -432,6 +499,7 @@ export default function Gsdpq() {
   const [uploadando, setUploadando] = useState(false)
   const [modalAcao, setModalAcao] = useState<ModalAcao | null>(null)
   const [abaUpload, setAbaUpload] = useState<'gsdpq' | 'colaboradores'>('gsdpq')
+  const [filtroCategoria, setFiltroCategoria] = useState<Categoria | 'Todas'>('Todas')
 
   async function carregarDados() {
     if (!usuario) return
@@ -521,6 +589,7 @@ export default function Gsdpq() {
   const totalOK = resumos.reduce((s, r) => s + r.totalOK, 0)
   const conformidadeGeral = totalNO + totalOK > 0 ? Math.round((totalOK / (totalNO + totalOK)) * 100) : 0
   const comReincidencia = resumos.filter(r => r.reincidencias.length > 0).length
+  const conformidadeCategorias = calcularConformidadeCategoria(avaliacoesFiltradas)
 
   // Comparativo por equipe
   const comparativoEquipes = equipes.filter(e => e !== 'Todas').map(equipe => {
@@ -679,6 +748,32 @@ export default function Gsdpq() {
                 })}
               </div>
 
+              {/* Conformidade por categoria */}
+              <div className="grid grid-cols-3 gap-4">
+                {conformidadeCategorias.map(({ categoria, conformidade, NO, OK }) => {
+                  const cfg = {
+                    'Segurança': { icon: ShieldCheck, bg: 'bg-blue-50', text: 'text-blue-700', bar: '#3b82f6', border: 'border-blue-200' },
+                    'Qualidade': { icon: Star, bg: 'bg-green-50', text: 'text-green-700', bar: '#22c55e', border: 'border-green-200' },
+                    'Produtividade': { icon: Zap, bg: 'bg-purple-50', text: 'text-purple-700', bar: '#a855f7', border: 'border-purple-200' },
+                  }[categoria]
+                  const Icon = cfg.icon
+                  const cor = conformidade >= 80 ? cfg.bar : conformidade >= 60 ? '#f59e0b' : '#ef4444'
+                  return (
+                    <div key={categoria} className={`bg-white rounded-xl border ${cfg.border} p-4`}>
+                      <div className="flex items-center gap-2 mb-3">
+                        <div className={`p-1.5 rounded-lg ${cfg.bg}`}><Icon size={16} className={cfg.text} /></div>
+                        <span className={`text-sm font-semibold ${cfg.text}`}>{categoria}</span>
+                      </div>
+                      <p className="text-3xl font-bold text-gray-900 mb-1">{conformidade}%</p>
+                      <div className="w-full h-1.5 bg-gray-100 rounded-full mb-2">
+                        <div className="h-1.5 rounded-full transition-all" style={{ width: `${conformidade}%`, backgroundColor: cor }} />
+                      </div>
+                      <p className="text-xs text-gray-400">{OK} OK · <span className="text-red-500 font-medium">{NO} NO</span></p>
+                    </div>
+                  )
+                })}
+              </div>
+
               {/* Comparativo equipes */}
               {comparativoEquipes.length > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -746,19 +841,35 @@ export default function Gsdpq() {
           {/* ── Questões ── */}
           {abaAtiva === 'questoes' && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 text-xs text-gray-500 font-medium">
-                Questões com NOs — ordenadas por frequência
+              <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center gap-3">
+                <span className="text-xs text-gray-500 font-medium">Questões com NOs — ordenadas por frequência</span>
+                <div className="ml-auto flex gap-1.5">
+                  {(['Todas', 'Segurança', 'Qualidade', 'Produtividade'] as const).map(c => (
+                    <button
+                      key={c}
+                      onClick={() => setFiltroCategoria(c)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${filtroCategoria === c ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                    >{c}</button>
+                  ))}
+                </div>
               </div>
               {rankingQuestoes.length === 0
                 ? <p className="text-center py-10 text-gray-400">Nenhum NO registrado</p>
                 : <div className="divide-y divide-gray-100">
-                    {rankingQuestoes.map((q, i) => {
+                    {rankingQuestoes.filter(q => filtroCategoria === 'Todas' || q.categoria === filtroCategoria).map((q, i) => {
                       const total = q.NO + q.OK
                       const pct = total > 0 ? Math.round((q.NO / total) * 100) : 0
                       return (
                         <div key={q.questao} className="px-4 py-3 flex items-center gap-4">
                           <span className="text-xs font-bold text-gray-400 w-5 text-right">{i + 1}</span>
-                          <p className="flex-1 text-sm text-gray-700">{q.questao}</p>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-700">{q.questao}</p>
+                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded mt-0.5 inline-block ${
+                              q.categoria === 'Segurança' ? 'bg-blue-50 text-blue-600' :
+                              q.categoria === 'Qualidade' ? 'bg-green-50 text-green-600' :
+                              'bg-purple-50 text-purple-600'
+                            }`}>{q.categoria}</span>
+                          </div>
                           <div className="flex items-center gap-3 shrink-0">
                             <span className="flex items-center gap-1 text-xs text-brand-700"><CheckCircle size={13} />{q.OK}</span>
                             <span className="flex items-center gap-1 text-xs text-red-600 font-bold"><XCircle size={13} />{q.NO}</span>
