@@ -573,15 +573,24 @@ export default function Gsdpq() {
     multiple: false,
   })
 
-  // Filtros
-  const avaliacoesFiltradas = avaliacoes.filter(av => {
+  // Filtro base: equipe + período (sem categoria — usado nos cards de categoria)
+  const avaliacoesBase = avaliacoes.filter(av => {
     if (filtroEquipe !== 'Todas' && av.equipe !== filtroEquipe) return false
     if (filtroPeriodo.de && av.data_avaliacao && av.data_avaliacao < filtroPeriodo.de) return false
     if (filtroPeriodo.ate && av.data_avaliacao && av.data_avaliacao > filtroPeriodo.ate) return false
     return true
   })
 
-  const resumos = calcularResumos(avaliacoesFiltradas, questoes)
+  // Filtro completo: equipe + período + categoria
+  const avaliacoesFiltradas = avaliacoesBase.filter(av =>
+    filtroCategoria === 'Todas' || getCategoriaQuestao(av.questao) === filtroCategoria
+  )
+
+  const questoesFiltradas = filtroCategoria === 'Todas'
+    ? questoes
+    : questoes.filter(q => getCategoriaQuestao(q) === filtroCategoria)
+
+  const resumos = calcularResumos(avaliacoesFiltradas, questoesFiltradas)
   const rankingQuestoes = calcularRankingQuestoes(avaliacoesFiltradas)
   const equipes = ['Todas', ...Array.from(new Set(avaliacoes.map(a => a.equipe).filter(Boolean) as string[]))]
 
@@ -589,7 +598,7 @@ export default function Gsdpq() {
   const totalOK = resumos.reduce((s, r) => s + r.totalOK, 0)
   const conformidadeGeral = totalNO + totalOK > 0 ? Math.round((totalOK / (totalNO + totalOK)) * 100) : 0
   const comReincidencia = resumos.filter(r => r.reincidencias.length > 0).length
-  const conformidadeCategorias = calcularConformidadeCategoria(avaliacoesFiltradas)
+  const conformidadeCategorias = calcularConformidadeCategoria(avaliacoesBase)
 
   // Comparativo por equipe
   const comparativoEquipes = equipes.filter(e => e !== 'Todas').map(equipe => {
@@ -698,18 +707,30 @@ export default function Gsdpq() {
         <div className="space-y-5">
 
           {/* Filtros */}
-          <div className="flex items-center gap-4 flex-wrap bg-white rounded-xl border border-gray-200 p-3">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500 font-medium">Equipe:</span>
+          <div className="bg-white rounded-xl border border-gray-200 p-3 space-y-2.5">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-gray-500 font-medium w-16">Categoria:</span>
+              {(['Todas', 'Segurança', 'Qualidade', 'Produtividade'] as const).map(c => {
+                const cor = c === 'Segurança' ? (filtroCategoria === c ? 'bg-blue-600 text-white' : 'bg-blue-50 text-blue-600 hover:bg-blue-100')
+                  : c === 'Qualidade' ? (filtroCategoria === c ? 'bg-green-600 text-white' : 'bg-green-50 text-green-600 hover:bg-green-100')
+                  : c === 'Produtividade' ? (filtroCategoria === c ? 'bg-purple-600 text-white' : 'bg-purple-50 text-purple-600 hover:bg-purple-100')
+                  : (filtroCategoria === c ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')
+                return (
+                  <button key={c} onClick={() => setFiltroCategoria(c)} className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${cor}`}>{c}</button>
+                )
+              })}
+            </div>
+            <div className="flex items-center gap-2 flex-wrap border-t border-gray-100 pt-2.5">
+              <span className="text-xs text-gray-500 font-medium w-16">Equipe:</span>
               {equipes.map(e => (
                 <button key={e} onClick={() => setFiltroEquipe(e)} className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${filtroEquipe === e ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{e}</button>
               ))}
-            </div>
-            <div className="flex items-center gap-2 ml-auto">
-              <span className="text-xs text-gray-500 font-medium">Período:</span>
-              <input type="text" placeholder="DD/MM/AAAA" value={filtroPeriodo.de} onChange={e => setFiltroPeriodo(p => ({ ...p, de: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-brand-500" />
-              <span className="text-xs text-gray-400">até</span>
-              <input type="text" placeholder="DD/MM/AAAA" value={filtroPeriodo.ate} onChange={e => setFiltroPeriodo(p => ({ ...p, ate: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+              <div className="flex items-center gap-2 ml-auto">
+                <span className="text-xs text-gray-500 font-medium">Período:</span>
+                <input type="text" placeholder="DD/MM/AAAA" value={filtroPeriodo.de} onChange={e => setFiltroPeriodo(p => ({ ...p, de: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                <span className="text-xs text-gray-400">até</span>
+                <input type="text" placeholder="DD/MM/AAAA" value={filtroPeriodo.ate} onChange={e => setFiltroPeriodo(p => ({ ...p, ate: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+              </div>
             </div>
           </div>
 
@@ -795,7 +816,9 @@ export default function Gsdpq() {
 
               {/* Top 5 mais NOs */}
               <div className="bg-white rounded-xl border border-gray-200 p-5">
-                <p className="text-sm font-semibold text-gray-700 mb-3">Top 5 — Mais NOs</p>
+                <p className="text-sm font-semibold text-gray-700 mb-3">
+                  Top 5 — Mais NOs{filtroCategoria !== 'Todas' ? ` (${filtroCategoria})` : ''}
+                </p>
                 <div className="space-y-2">
                   {resumos.slice(0, 5).map((r, i) => (
                     <div key={r.nome} className="flex items-center gap-3">
@@ -843,20 +866,18 @@ export default function Gsdpq() {
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center gap-3">
                 <span className="text-xs text-gray-500 font-medium">Questões com NOs — ordenadas por frequência</span>
-                <div className="ml-auto flex gap-1.5">
-                  {(['Todas', 'Segurança', 'Qualidade', 'Produtividade'] as const).map(c => (
-                    <button
-                      key={c}
-                      onClick={() => setFiltroCategoria(c)}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${filtroCategoria === c ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
-                    >{c}</button>
-                  ))}
-                </div>
+                {filtroCategoria !== 'Todas' && (
+                  <span className={`text-xs font-medium px-2 py-0.5 rounded ml-1 ${
+                    filtroCategoria === 'Segurança' ? 'bg-blue-50 text-blue-600' :
+                    filtroCategoria === 'Qualidade' ? 'bg-green-50 text-green-600' :
+                    'bg-purple-50 text-purple-600'
+                  }`}>{filtroCategoria}</span>
+                )}
               </div>
               {rankingQuestoes.length === 0
                 ? <p className="text-center py-10 text-gray-400">Nenhum NO registrado</p>
                 : <div className="divide-y divide-gray-100">
-                    {rankingQuestoes.filter(q => filtroCategoria === 'Todas' || q.categoria === filtroCategoria).map((q, i) => {
+                    {rankingQuestoes.map((q, i) => {
                       const total = q.NO + q.OK
                       const pct = total > 0 ? Math.round((q.NO / total) * 100) : 0
                       return (
