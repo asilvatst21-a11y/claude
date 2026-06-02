@@ -97,3 +97,40 @@ export interface GsdpqAcao {
   registrado_por: string | null
   created_at: string
 }
+
+export interface DtoObservacao {
+  id: string
+  filial: string
+  external_id: string | null
+  data_aplicacao: string | null
+  colaborador: string
+  lider_inspecao: string | null
+  avaliador: string | null
+  cargo_avaliador: string | null
+  lider_atual: string | null
+  cpf_avaliado: string | null
+  operacao: string | null
+  area: string | null
+  atividade: string | null
+  duracao: string | null
+  tem_padrao: string | null
+  uso_epis: string | null
+  epis_utilizados: string | null
+  funcionario_treinado: string | null
+  ferramentas_ok: string | null
+  checklist_realizado: string | null
+  executado_wms: string | null
+  cumpre_sop: string | null
+  passo_nao_cumprido: string | null
+  padrao_completo: string | null
+  conhece_padrao: string | null
+  tarefas_seguranca: string | null
+  houve_desvio: string | null
+  tarefa_com_desvio: string | null
+  qual_desvio: string | null
+  acao_gerada: string | null
+  status_acao: 'Pendente' | 'Em Andamento' | 'Concluído'
+  responsavel_acao: string | null
+  prazo_acao: string | null
+  created_at: string
+}

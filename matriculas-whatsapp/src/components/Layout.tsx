@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Users, CreditCard, Upload, MessageSquare, BarChart2, LogOut, Building2, Shield, ClipboardList } from 'lucide-react'
+import { Users, CreditCard, Upload, MessageSquare, BarChart2, LogOut, Building2, Shield, ClipboardList, Activity } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
 const navItems = [
@@ -9,6 +9,7 @@ const navItems = [
   { to: '/disparos', label: 'Disparar Mensagens', icon: Upload },
   { to: '/historico', label: 'Histórico', icon: MessageSquare },
   { to: '/gsdpq', label: 'Análise GSDPQ', icon: ClipboardList },
+  { to: '/dto', label: 'Análise DTO', icon: Activity },
 ]
 const adminItems = [
   { to: '/admin', label: 'Administração', icon: Shield },
