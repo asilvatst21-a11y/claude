@@ -3,23 +3,52 @@ import { useDropzone } from 'react-dropzone'
 import * as XLSX from 'xlsx'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
-  LineChart, Line, CartesianGrid
+  LineChart, Line, CartesianGrid,
 } from 'recharts'
 import {
   Upload, Loader2, Building2, RefreshCw, ChevronDown, ChevronUp,
-  FileSearch, Search, Users
+  FileSearch, Search, Users, Plus, X, CheckCircle2,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { Relato } from '../types'
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface RelatoAcao {
+  id: string
+  filial: string
+  relato_id: string
+  pessoa_relatada: string
+  tipo_relato: string | null
+  data_relato: string | null
+  tipo_acao: string
+  dias_suspensao: number | null
+  observacao: string | null
+  registrado_por: string | null
+  created_at: string
+}
+
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const TIPOS_ACAO = ['Reciclagem', 'Advertência Verbal', 'Advertência Escrita', 'Suspensão']
+
+const COR_ACAO: Record<string, string> = {
+  'Reciclagem':           'bg-blue-50 text-blue-700 border-blue-200',
+  'Advertência Verbal':   'bg-yellow-50 text-yellow-700 border-yellow-200',
+  'Advertência Escrita':  'bg-orange-50 text-orange-700 border-orange-200',
+  'Suspensão':            'bg-red-50 text-red-700 border-red-200',
+}
+
+const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
 // ── Classificação styling ─────────────────────────────────────────────────────
 
 function classColor(c: string | null) {
   if (!c) return '#94a3b8'
   if (c.includes('POSITIVA')) return '#22c55e'
+  if (c.includes('ATO'))      return '#ef4444'   // ATO before INSEGURA
   if (c.includes('INSEGURA')) return '#f97316'
-  if (c.includes('ATO'))      return '#ef4444'
   if (c.includes('QUASE'))    return '#eab308'
   return '#64748b'
 }
@@ -27,11 +56,29 @@ function classColor(c: string | null) {
 function ClassBadge({ value }: { value: string | null }) {
   const css = !value ? 'bg-gray-100 text-gray-500 border-gray-200'
     : value.includes('POSITIVA') ? 'bg-green-100 text-green-800 border-green-300'
-    : value.includes('INSEGURA') ? 'bg-orange-100 text-orange-800 border-orange-300'
     : value.includes('ATO')      ? 'bg-red-100 text-red-700 border-red-300'
+    : value.includes('INSEGURA') ? 'bg-orange-100 text-orange-800 border-orange-300'
     : value.includes('QUASE')    ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
     : 'bg-gray-100 text-gray-600 border-gray-200'
   return <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${css}`}>{value || '—'}</span>
+}
+
+function ClassLegend() {
+  return (
+    <div className="flex flex-wrap gap-4 text-xs text-gray-600">
+      {[
+        { label: 'Abordagem Positiva', color: '#22c55e' },
+        { label: 'Ato Inseguro',       color: '#ef4444' },
+        { label: 'Condição Insegura',  color: '#f97316' },
+        { label: 'Quase Acidente',     color: '#eab308' },
+      ].map(({ label, color }) => (
+        <span key={label} className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: color }} />
+          {label}
+        </span>
+      ))}
+    </div>
+  )
 }
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
@@ -59,7 +106,7 @@ function weekKey(iso: string) {
 
 // ── Parsing ───────────────────────────────────────────────────────────────────
 
-function s(v: unknown) { return String(v ?? '').trim() || null }
+function sv(v: unknown) { return String(v ?? '').trim() || null }
 
 function parseRelatos(buffer: ArrayBuffer, filial: string) {
   const wb = XLSX.read(buffer)
@@ -67,32 +114,32 @@ function parseRelatos(buffer: ArrayBuffer, filial: string) {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { defval: '', raw: false, header: 1 }) as unknown[][]
   return rows.slice(1).filter(r => r[0]).map(r => ({
     filial,
-    external_id:       s(r[0]),
-    data_ocorrencia:   parseDateStr(r[1]),
-    data_cadastro:     parseDateStr(r[2]),
-    cdd:               s(r[3]),
-    empresa:           s(r[4]),
-    matricula:         s(r[5]),
-    relator:           s(r[6]),
-    funcao:            s(r[7]),
-    equipe:            s(r[8]),
-    classificacao:     s(r[9]),
-    tipo_relato:       s(r[10]),
-    area:              s(r[11]),
-    atividade:         s(r[12]),
-    tarefa_seguranca:  s(r[13]),
-    acao_imediata:     s(r[14]),
-    sif:               s(r[15]),
-    empresa_relatada:  s(r[16]),
-    pessoa_relatada:   s(r[17]),
-    detalhamento:      s(r[18]),
-    complementacao:    s(r[19]),
-    origem:            s(r[22]),
-    porque_falhou:     s(r[23]),
-    pq1: s(r[24]), pq2: s(r[25]), pq3: s(r[26]), pq4: s(r[27]), pq5: s(r[28]),
-    motivo1: s(r[29]), acao1: s(r[30]),
-    motivo2: s(r[31]), acao2: s(r[32]),
-    motivo3: s(r[33]), acao3: s(r[34]),
+    external_id:      sv(r[0]),
+    data_ocorrencia:  parseDateStr(r[1]),
+    data_cadastro:    parseDateStr(r[2]),
+    cdd:              sv(r[3]),
+    empresa:          sv(r[4]),
+    matricula:        sv(r[5]),
+    relator:          sv(r[6]),
+    funcao:           sv(r[7]),
+    equipe:           sv(r[8]),
+    classificacao:    sv(r[9]),
+    tipo_relato:      sv(r[10]),
+    area:             sv(r[11]),
+    atividade:        sv(r[12]),
+    tarefa_seguranca: sv(r[13]),
+    acao_imediata:    sv(r[14]),
+    sif:              sv(r[15]),
+    empresa_relatada: sv(r[16]),
+    pessoa_relatada:  sv(r[17]),
+    detalhamento:     sv(r[18]),
+    complementacao:   sv(r[19]),
+    origem:           sv(r[22]),
+    porque_falhou:    sv(r[23]),
+    pq1: sv(r[24]), pq2: sv(r[25]), pq3: sv(r[26]), pq4: sv(r[27]), pq5: sv(r[28]),
+    motivo1: sv(r[29]), acao1: sv(r[30]),
+    motivo2: sv(r[31]), acao2: sv(r[32]),
+    motivo3: sv(r[33]), acao3: sv(r[34]),
     data_investigacao: parseDateStr(r[35]),
   }))
 }
@@ -106,34 +153,241 @@ function topN(data: Relato[], key: keyof Relato, n = 10) {
 }
 
 const PERIODS = [
-  { label: '7 dias',  days: 7   },
-  { label: '30 dias', days: 30  },
-  { label: '90 dias', days: 90  },
-  { label: 'Tudo',    days: 0   },
+  { label: '7 dias',  days: 7  },
+  { label: '30 dias', days: 30 },
+  { label: '90 dias', days: 90 },
+  { label: 'Tudo',    days: 0  },
 ]
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ── Modal Ação Disciplinar ────────────────────────────────────────────────────
+
+interface ModalAcaoProps {
+  pessoaRelatada: string
+  tipoRelato: string | null
+  dataRelato: string | null
+  existente?: RelatoAcao
+  onClose: () => void
+  onSalvar: (tipo: string, dias: number | null, obs: string) => Promise<void>
+}
+
+function ModalAcaoRelato({ pessoaRelatada, tipoRelato, dataRelato, existente, onClose, onSalvar }: ModalAcaoProps) {
+  const [tipo,   setTipo]   = useState(existente?.tipo_acao ?? '')
+  const [dias,   setDias]   = useState(String(existente?.dias_suspensao ?? ''))
+  const [obs,    setObs]    = useState(existente?.observacao ?? '')
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    if (!tipo) return
+    setSaving(true)
+    await onSalvar(tipo, tipo === 'Suspensão' ? (parseInt(dias) || null) : null, obs)
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <p className="font-semibold text-gray-900">Ação Disciplinar</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              <strong>{pessoaRelatada}</strong>
+              {tipoRelato && <> · {tipoRelato}</>}
+              {dataRelato && <> · {fmtDate(dataRelato)}</>}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+        <div className="px-6 py-4 space-y-4">
+          <div>
+            <p className="text-xs font-medium text-gray-600 mb-2">Tipo de Ação</p>
+            <div className="grid grid-cols-2 gap-2">
+              {TIPOS_ACAO.map(t => (
+                <button key={t} onClick={() => setTipo(t)}
+                  className={`px-3 py-2 text-xs rounded-lg border font-medium transition-colors ${
+                    tipo === t ? COR_ACAO[t] : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                  }`}>
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+          {tipo === 'Suspensão' && (
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Dias de Suspensão</label>
+              <input type="number" min={1} value={dias} onChange={e => setDias(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400"
+                placeholder="Ex: 3" />
+            </div>
+          )}
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">Observação</label>
+            <textarea rows={3} value={obs} onChange={e => setObs(e.target.value)}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none"
+              placeholder="Detalhes da ação disciplinar..." />
+          </div>
+        </div>
+        <div className="px-6 py-4 border-t border-gray-100 flex gap-3 justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+          <button onClick={handleSave} disabled={saving || !tipo || (tipo === 'Suspensão' && !dias)}
+            className="px-4 py-2 text-sm bg-brand-700 text-white rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50 flex items-center gap-2">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+            {existente ? 'Atualizar' : 'Registrar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Relatado Detail Panel ─────────────────────────────────────────────────────
+
+function RelatadoDetail({ nome, relatos, acoes, onRegistrarAcao }: {
+  nome: string; relatos: Relato[]; acoes: RelatoAcao[]; onRegistrarAcao: (r: Relato) => void
+}) {
+  const meus = relatos
+    .filter(r => r.pessoa_relatada === nome)
+    .sort((a, b) => (b.data_ocorrencia ?? '').localeCompare(a.data_ocorrencia ?? ''))
+
+  const breakdown = [
+    { label: 'Ato Inseguro',       color: '#ef4444', match: 'ATO'      },
+    { label: 'Condição Insegura',  color: '#f97316', match: 'INSEGURA' },
+    { label: 'Quase Acidente',     color: '#eab308', match: 'QUASE'    },
+    { label: 'Abordagem Positiva', color: '#22c55e', match: 'POSITIVA' },
+  ].map(c => ({ ...c, total: meus.filter(r => r.classificacao?.includes(c.match)).length })).filter(c => c.total > 0)
+
+  return (
+    <div className="bg-red-50/30 border-b border-red-100 px-6 py-4">
+      <div className="max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl border border-gray-100 p-4">
+          <p className="text-xs font-semibold text-gray-600 mb-3">Ocorrências por Tipo — {meus.length} total</p>
+          <div className="space-y-2">
+            {breakdown.map(({ label, color, total }) => (
+              <div key={label} className="flex items-center gap-2">
+                <span className="text-xs text-gray-600 w-36 shrink-0">{label}</span>
+                <div className="flex-1 h-5 bg-gray-100 rounded overflow-hidden">
+                  <div className="h-5 rounded flex items-center justify-end pr-2"
+                    style={{ width: `${Math.max((total / meus.length) * 100, 6)}%`, backgroundColor: color }}>
+                    <span className="text-white text-xs font-bold">{total}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-100 p-4">
+          <p className="text-xs font-semibold text-gray-600 mb-3">Histórico de Relatos</p>
+          <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+            {meus.map(r => {
+              const acao = acoes.find(a => a.relato_id === r.id)
+              const isAto = r.classificacao?.includes('ATO')
+              return (
+                <div key={r.id} className="flex items-center gap-2 text-xs">
+                  <span className="text-gray-400 shrink-0 w-12">{fmtDate(r.data_ocorrencia)}</span>
+                  <span className="flex-1 text-gray-700 truncate">{r.tipo_relato ?? r.classificacao ?? '—'}</span>
+                  <ClassBadge value={r.classificacao} />
+                  {isAto && (
+                    acao
+                      ? <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded border font-medium ${COR_ACAO[acao.tipo_acao]}`}>
+                          {acao.tipo_acao}{acao.dias_suspensao ? ` (${acao.dias_suspensao}d)` : ''}
+                        </span>
+                      : <button onClick={() => onRegistrarAcao(r)}
+                          className="shrink-0 flex items-center gap-0.5 text-xs text-brand-700 border border-brand-200 bg-brand-50 px-1.5 py-0.5 rounded hover:bg-brand-100">
+                          <Plus size={10} /> Ação
+                        </button>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Relatante Detail Panel ────────────────────────────────────────────────────
+
+function RelatanteDetail({ nome, relatos }: { nome: string; relatos: Relato[] }) {
+  const meus = relatos
+    .filter(r => r.relator === nome)
+    .sort((a, b) => (b.data_ocorrencia ?? '').localeCompare(a.data_ocorrencia ?? ''))
+
+  const breakdown = [
+    { label: 'Abordagem Positiva', color: '#22c55e', match: 'POSITIVA' },
+    { label: 'Condição Insegura',  color: '#f97316', match: 'INSEGURA' },
+    { label: 'Ato Inseguro',       color: '#ef4444', match: 'ATO'      },
+    { label: 'Quase Acidente',     color: '#eab308', match: 'QUASE'    },
+  ].map(c => ({ ...c, total: meus.filter(r => r.classificacao?.includes(c.match)).length })).filter(c => c.total > 0)
+
+  const topTiposRelatante = topN(meus, 'tipo_relato', 5)
+
+  return (
+    <div className="bg-green-50/30 border-b border-green-100 px-6 py-4">
+      <div className="max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl border border-gray-100 p-4">
+          <p className="text-xs font-semibold text-gray-600 mb-3">O que reportou — {meus.length} relatos</p>
+          <div className="space-y-2">
+            {breakdown.map(({ label, color, total }) => (
+              <div key={label} className="flex items-center gap-2">
+                <span className="text-xs text-gray-600 w-36 shrink-0">{label}</span>
+                <div className="flex-1 h-5 bg-gray-100 rounded overflow-hidden">
+                  <div className="h-5 rounded flex items-center justify-end pr-2"
+                    style={{ width: `${Math.max((total / meus.length) * 100, 6)}%`, backgroundColor: color }}>
+                    <span className="text-white text-xs font-bold">{total}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-white rounded-xl border border-gray-100 p-4">
+          <p className="text-xs font-semibold text-gray-600 mb-3">Tipos mais relatados</p>
+          <div className="space-y-1.5">
+            {topTiposRelatante.map(({ name, total }) => (
+              <div key={name} className="flex items-center gap-2 text-xs">
+                <span className="flex-1 text-gray-700 truncate">{name}</span>
+                <span className="font-bold text-gray-700">{total}</span>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500">
+            Último relato: <span className="font-medium text-gray-700">{fmtDate(meus[0]?.data_ocorrencia ?? null)}</span>
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
 
 export default function Relatos() {
   const { usuario } = useAuth()
-  const [data,       setData]       = useState<Relato[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [uploading,  setUploading]  = useState(false)
-  const [tab,        setTab]        = useState(0)
-  const [periodDays, setPeriodDays] = useState(30)
-  const [filtroClass,setFiltroClass]= useState('')
-  const [filtroArea, setFiltroArea] = useState('')
-  const [busca,      setBusca]      = useState('')
-  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [data,      setData]      = useState<Relato[]>([])
+  const [acoes,     setAcoes]     = useState<RelatoAcao[]>([])
+  const [loading,   setLoading]   = useState(true)
+  const [uploading, setUploading] = useState(false)
+  const [tab,       setTab]       = useState(0)
+  const [periodDays,    setPeriodDays]    = useState(30)
+  const [filtroClass,   setFiltroClass]   = useState('')
+  const [filtroArea,    setFiltroArea]    = useState('')
+  const [busca,         setBusca]         = useState('')
+  const [expandedId,          setExpandedId]          = useState<string | null>(null)
+  const [expandedRelatadoId,  setExpandedRelatadoId]  = useState<string | null>(null)
+  const [expandedRelatanteId, setExpandedRelatanteId] = useState<string | null>(null)
+  const [modalAcao, setModalAcao] = useState<Relato | null>(null)
 
   async function carregar() {
     if (!usuario) return
     setLoading(true)
-    const { data: rows } = await supabase
-      .from('relatos').select('*')
-      .eq('filial', usuario.filial)
-      .order('data_ocorrencia', { ascending: false })
+    const [{ data: rows }, { data: acoesRows }] = await Promise.all([
+      supabase.from('relatos').select('*').eq('filial', usuario.filial).order('data_ocorrencia', { ascending: false }),
+      supabase.from('relatos_acoes').select('*').eq('filial', usuario.filial),
+    ])
     setData(rows ?? [])
+    setAcoes(acoesRows ?? [])
     setLoading(false)
   }
 
@@ -152,10 +406,40 @@ export default function Relatos() {
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop, multiple: false,
-    accept: { 'application/vnd.ms-excel': ['.xls'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+    accept: {
+      'application/vnd.ms-excel': ['.xls'],
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+    },
   })
 
-  // Filtered data
+  async function salvarAcao(tipo: string, dias: number | null, obs: string) {
+    if (!modalAcao || !usuario) return
+    const existente = acoes.find(a => a.relato_id === modalAcao.id)
+    if (existente) {
+      await supabase.from('relatos_acoes').update({
+        tipo_acao: tipo, dias_suspensao: dias, observacao: obs || null,
+        registrado_por: usuario.nome ?? usuario.login,
+      }).eq('id', existente.id)
+    } else {
+      await supabase.from('relatos_acoes').insert({
+        filial: usuario.filial,
+        relato_id: modalAcao.id,
+        pessoa_relatada: modalAcao.pessoa_relatada ?? '',
+        tipo_relato: modalAcao.tipo_relato,
+        data_relato: modalAcao.data_ocorrencia,
+        tipo_acao: tipo,
+        dias_suspensao: dias,
+        observacao: obs || null,
+        registrado_por: usuario.nome ?? usuario.login,
+      })
+    }
+    setModalAcao(null)
+    const { data: updated } = await supabase.from('relatos_acoes').select('*').eq('filial', usuario.filial)
+    setAcoes(updated ?? [])
+  }
+
+  // ── Filtered data ──────────────────────────────────────────────────────────
+
   const filtered = useMemo(() => {
     let d = data
     if (periodDays > 0) {
@@ -167,79 +451,98 @@ export default function Relatos() {
     return d
   }, [data, periodDays, filtroClass, filtroArea])
 
-  const classes  = useMemo(() => [...new Set(data.map(r => r.classificacao).filter(Boolean))] as string[], [data])
-  const areas    = useMemo(() => [...new Set(data.map(r => r.area).filter(Boolean))] as string[], [data])
+  const classes = useMemo(() => [...new Set(data.map(r => r.classificacao).filter(Boolean))] as string[], [data])
+  const areas   = useMemo(() => [...new Set(data.map(r => r.area).filter(Boolean))] as string[], [data])
 
-  // KPIs
-  const total     = filtered.length
-  const positivos = filtered.filter(r => r.classificacao?.includes('POSITIVA')).length
-  const inseguros = filtered.filter(r => !r.classificacao?.includes('POSITIVA')).length
-  const comInvest = filtered.filter(r => r.pq1).length
+  // ── KPIs ──────────────────────────────────────────────────────────────────
 
-  // Trend
+  const total        = filtered.length
+  const positivos    = filtered.filter(r => r.classificacao?.includes('POSITIVA')).length
+  const atos         = filtered.filter(r => r.classificacao?.includes('ATO')).length
+  const condicoes    = filtered.filter(r => r.classificacao?.includes('INSEGURA') && !r.classificacao.includes('ATO')).length
+  const comInvest    = filtered.filter(r => r.pq1).length
+  const sifPotencial = filtered.filter(r => r.sif && r.sif.trim() !== '' && r.sif.toUpperCase() !== 'NÃO' && r.sif.toUpperCase() !== 'NAO').length
+  const investRate   = atos > 0 ? Math.round((filtered.filter(r => r.classificacao?.includes('ATO') && r.pq1).length / atos) * 100) : 0
+
+  // ── Charts data ───────────────────────────────────────────────────────────
+
   const trendData = useMemo(() => {
     const weeks = new Map<string, number>()
-    filtered.filter(r => r.data_ocorrencia).forEach(r => { const w = weekKey(r.data_ocorrencia!); weeks.set(w, (weeks.get(w) ?? 0) + 1) })
+    filtered.filter(r => r.data_ocorrencia).forEach(r => {
+      const w = weekKey(r.data_ocorrencia!); weeks.set(w, (weeks.get(w) ?? 0) + 1)
+    })
     return [...weeks.entries()].sort(([a], [b]) => a.localeCompare(b)).slice(-10)
       .map(([date, t]) => ({ label: new Date(date + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), total: t }))
   }, [filtered])
 
-  // Classification breakdown
   const classBreak = useMemo(() => {
     const m = new Map<string, number>()
     filtered.forEach(r => { const k = r.classificacao ?? 'Outros'; m.set(k, (m.get(k) ?? 0) + 1) })
     return [...m.entries()].sort((a, b) => b[1] - a[1]).map(([name, total]) => ({ name, total }))
   }, [filtered])
 
-  const topTipos     = useMemo(() => topN(filtered, 'tipo_relato', 10),  [filtered])
-  const topAreas     = useMemo(() => topN(filtered, 'area',        8),   [filtered])
-  const topFuncoes   = useMemo(() => topN(filtered, 'funcao',      10),  [filtered])
-  const topAtividades= useMemo(() => topN(filtered, 'atividade',   8),   [filtered])
-  const topEquipes   = useMemo(() => topN(filtered, 'equipe',      8),   [filtered])
+  const diaSemanaData = useMemo(() => {
+    const counts = [0, 0, 0, 0, 0, 0, 0]
+    filtered.filter(r => r.data_ocorrencia).forEach(r => { counts[new Date(r.data_ocorrencia!).getDay()]++ })
+    return DIAS_SEMANA.map((dia, i) => ({ dia, total: counts[i] }))
+  }, [filtered])
 
-  // Relatantes
+  const topTipos      = useMemo(() => topN(filtered, 'tipo_relato', 10), [filtered])
+  const topAreas      = useMemo(() => topN(filtered, 'area',        8),  [filtered])
+  const topFuncoes    = useMemo(() => topN(filtered, 'funcao',      10), [filtered])
+  const topAtividades = useMemo(() => topN(filtered, 'atividade',   8),  [filtered])
+  const topEquipes    = useMemo(() => topN(filtered, 'equipe',      8),  [filtered])
+
+  // ── Relatantes ────────────────────────────────────────────────────────────
+
   const relatantes = useMemo(() => {
-    const m = new Map<string, { nome: string; funcao: string; equipe: string; total: number; pos: number; ultima: string }>()
+    const m = new Map<string, { nome: string; funcao: string; equipe: string; total: number; pos: number; atos: number; cond: number; ultima: string }>()
     filtered.forEach(r => {
       const k = r.relator ?? '—'
-      const cur = m.get(k) ?? { nome: k, funcao: r.funcao ?? '—', equipe: r.equipe ?? '—', total: 0, pos: 0, ultima: '' }
+      const cur = m.get(k) ?? { nome: k, funcao: r.funcao ?? '—', equipe: r.equipe ?? '—', total: 0, pos: 0, atos: 0, cond: 0, ultima: '' }
       cur.total++
       if (r.classificacao?.includes('POSITIVA')) cur.pos++
+      if (r.classificacao?.includes('ATO'))      cur.atos++
+      if (r.classificacao?.includes('INSEGURA') && !r.classificacao.includes('ATO')) cur.cond++
       if (r.data_ocorrencia && r.data_ocorrencia > cur.ultima) cur.ultima = r.data_ocorrencia
       m.set(k, cur)
     })
     return [...m.values()].sort((a, b) => b.total - a.total)
   }, [filtered])
 
-  // Relatados
+  // ── Relatados ─────────────────────────────────────────────────────────────
+
   const relatados = useMemo(() => {
-    const m = new Map<string, { nome: string; empresa: string; total: number; ultima: string; tipos: string[] }>()
+    const m = new Map<string, { nome: string; empresa: string; total: number; atos: number; cond: number; ultima: string }>()
     filtered.filter(r => r.pessoa_relatada).forEach(r => {
       const k = r.pessoa_relatada!
-      const cur = m.get(k) ?? { nome: k, empresa: r.empresa_relatada ?? '—', total: 0, ultima: '', tipos: [] }
+      const cur = m.get(k) ?? { nome: k, empresa: r.empresa_relatada ?? '—', total: 0, atos: 0, cond: 0, ultima: '' }
       cur.total++
+      if (r.classificacao?.includes('ATO'))      cur.atos++
+      if (r.classificacao?.includes('INSEGURA') && !r.classificacao.includes('ATO')) cur.cond++
       if (r.data_ocorrencia && r.data_ocorrencia > cur.ultima) cur.ultima = r.data_ocorrencia
-      if (r.tipo_relato && !cur.tipos.includes(r.tipo_relato)) cur.tipos.push(r.tipo_relato)
       m.set(k, cur)
     })
     return [...m.values()].sort((a, b) => b.total - a.total)
   }, [filtered])
 
-  // Investigações
+  // ── Investigações ─────────────────────────────────────────────────────────
+
   const investList = useMemo(() =>
     filtered.filter(r => r.pq1 || r.motivo1).sort((a, b) => (b.data_ocorrencia ?? '').localeCompare(a.data_ocorrencia ?? ''))
   , [filtered])
+
   const investFiltered = busca
-    ? investList.filter(r => [r.relator, r.tipo_relato, r.external_id].some(v => v?.toLowerCase().includes(busca.toLowerCase())))
+    ? investList.filter(r => [r.relator, r.tipo_relato, r.external_id, r.pessoa_relatada].some(v => v?.toLowerCase().includes(busca.toLowerCase())))
     : investList
 
-  // Recorrentes
   const recorrentes = relatados.filter(r => r.total >= 3).length
+  const maxDia      = Math.max(...diaSemanaData.map(d => d.total), 1)
 
   const TABS = ['Dashboard', 'Relatantes', 'Relatados', 'Por Setor', 'Investigações']
 
   if (!usuario) return null
-  if (loading)  return (
+  if (loading) return (
     <div className="flex items-center justify-center min-h-screen text-gray-400">
       <Loader2 size={20} className="animate-spin mr-2" /> Carregando...
     </div>
@@ -274,7 +577,7 @@ export default function Relatos() {
       ) : (
         <>
           {/* Filters */}
-          <div className="flex items-center gap-3 flex-wrap mb-5">
+          <div className="flex items-center gap-3 flex-wrap mb-4">
             <div className="flex gap-1">
               {PERIODS.map(opt => (
                 <button key={opt.label} onClick={() => setPeriodDays(opt.days)}
@@ -296,6 +599,11 @@ export default function Relatos() {
             <span className="ml-auto text-xs text-gray-400 font-medium">{filtered.length} relatos no período</span>
           </div>
 
+          {/* Color legend */}
+          <div className="mb-5 px-4 py-3 bg-white rounded-xl border border-gray-100">
+            <ClassLegend />
+          </div>
+
           {/* Tabs */}
           <div className="flex gap-1 border-b border-gray-200 mb-6">
             {TABS.map((t, idx) => (
@@ -306,28 +614,29 @@ export default function Relatos() {
             ))}
           </div>
 
-          {/* ─── DASHBOARD ──────────────────────────────────────────────────── */}
+          {/* ─── DASHBOARD ─────────────────────────────────────────────────── */}
           {tab === 0 && (
             <div className="space-y-5">
               {/* KPIs */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
                 {([
-                  { label: 'Total Relatos',    value: total,     sub: 'no período selecionado',  cor: undefined           },
-                  { label: 'Abordagens +',     value: positivos, sub: 'comportamentos positivos', cor: 'text-green-700'    },
-                  { label: 'Cond. Inseguras',  value: inseguros, sub: 'atos/cond. inseguros',    cor: inseguros > 0 ? 'text-orange-600' : undefined },
-                  { label: 'Com Investigação', value: comInvest, sub: '5-Porquês preenchido',    cor: undefined           },
-                ] as const).map(({ label: lb, value, sub, cor }) => (
+                  { label: 'Total Relatos',    value: total,        cor: undefined,                                    sub: 'no período' },
+                  { label: 'Abordagens +',     value: positivos,    cor: 'text-green-700',                             sub: 'comportamentos positivos' },
+                  { label: 'Atos Inseguros',   value: atos,         cor: atos > 0 ? 'text-red-600' : undefined,        sub: 'atos inseguros' },
+                  { label: 'Cond. Inseguras',  value: condicoes,    cor: condicoes > 0 ? 'text-orange-600' : undefined, sub: 'condições inseguras' },
+                  { label: 'Investigados',     value: comInvest,    cor: undefined,                                    sub: `${investRate}% dos atos c/ 5-Porquês` },
+                  { label: 'Potencial SIF',    value: sifPotencial, cor: sifPotencial > 0 ? 'text-red-700' : undefined, sub: 'risco grave/fatal' },
+                ] as const).map(({ label: lb, value, cor, sub }) => (
                   <div key={lb} className="bg-white rounded-xl border border-gray-200 p-4">
-                    <p className="text-xs text-gray-500">{lb}</p>
-                    <p className={`text-3xl font-bold mt-0.5 ${cor ?? 'text-gray-900'}`}>{value}</p>
+                    <p className="text-xs text-gray-500 leading-tight">{lb}</p>
+                    <p className={`text-2xl font-bold mt-0.5 ${cor ?? 'text-gray-900'}`}>{value}</p>
                     <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
                   </div>
                 ))}
               </div>
 
-              {/* Classificação + Trend */}
+              {/* Por Classificação + Tendência */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {/* Por Classificação */}
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
                   <p className="text-sm font-semibold text-gray-700 mb-4">Por Classificação</p>
                   <div className="space-y-2">
@@ -335,7 +644,7 @@ export default function Relatos() {
                       <div key={name} className="flex items-center gap-3">
                         <span className="w-40 text-xs text-gray-600 truncate shrink-0">{name}</span>
                         <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
-                          <div className="h-5 rounded-full flex items-center justify-end pr-2 transition-all"
+                          <div className="h-5 rounded-full flex items-center justify-end pr-2"
                             style={{ width: `${Math.max(total > 0 ? Math.round((v / total) * 100) : 0, v > 0 ? 4 : 0)}%`, backgroundColor: classColor(name) }}>
                             <span className="text-white text-xs font-bold">{v}</span>
                           </div>
@@ -346,11 +655,10 @@ export default function Relatos() {
                   </div>
                 </div>
 
-                {/* Tendência semanal */}
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
                   <p className="text-sm font-semibold text-gray-700 mb-4">Tendência Semanal</p>
                   {trendData.length < 2 ? (
-                    <div className="flex items-center justify-center py-8 text-xs text-gray-400">Dados insuficientes para tendência.</div>
+                    <div className="flex items-center justify-center py-8 text-xs text-gray-400">Dados insuficientes.</div>
                   ) : (
                     <ResponsiveContainer width="100%" height={160}>
                       <LineChart data={trendData} margin={{ top: 4, right: 10, left: 0, bottom: 4 }}>
@@ -358,7 +666,7 @@ export default function Relatos() {
                         <XAxis dataKey="label" tick={{ fontSize: 10 }} />
                         <YAxis tick={{ fontSize: 10 }} width={24} />
                         <Tooltip />
-                        <Line type="monotone" dataKey="total" stroke="#1a4451" strokeWidth={2} dot={{ fill: '#1a4451', r: 3 }} />
+                        <Line type="monotone" dataKey="total" stroke="#1a4451" strokeWidth={2} dot={{ fill: '#1a4451', r: 3 }} name="Relatos" />
                       </LineChart>
                     </ResponsiveContainer>
                   )}
@@ -409,21 +717,27 @@ export default function Relatos() {
             </div>
           )}
 
-          {/* ─── RELATANTES ─────────────────────────────────────────────────── */}
+          {/* ─── RELATANTES ──────────────────────────────────────────────── */}
           {tab === 1 && (
             <div className="space-y-5">
               {relatantes.length > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
-                  <p className="text-sm font-semibold text-gray-700 mb-4">Top 10 Relatantes (positivos vs inseguros)</p>
+                  <p className="text-sm font-semibold text-gray-700 mb-1">Top 10 Relatantes</p>
+                  <div className="flex flex-wrap gap-4 text-xs text-gray-500 mb-4">
+                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-green-500 inline-block" /> Abordagens Positivas</span>
+                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-orange-500 inline-block" /> Condições Inseguras</span>
+                    <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Atos Inseguros</span>
+                  </div>
                   <ResponsiveContainer width="100%" height={Math.min(relatantes.length, 10) * 32 + 20}>
                     <BarChart
-                      data={relatantes.slice(0, 10).map(r => ({ name: r.nome.split(' ').slice(0, 2).join(' '), pos: r.pos, ins: r.total - r.pos }))}
+                      data={relatantes.slice(0, 10).map(r => ({ name: r.nome.split(' ').slice(0, 2).join(' '), pos: r.pos, cond: r.cond, atos: r.atos }))}
                       layout="vertical" barSize={18} margin={{ left: 100, right: 10 }}>
                       <XAxis type="number" tick={{ fontSize: 10 }} />
                       <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={100} />
-                      <Tooltip formatter={(v, name) => [v, name === 'pos' ? 'Positivos' : 'Inseguros/Atos']} />
-                      <Bar dataKey="pos" stackId="a" fill="#22c55e" name="Positivos" />
-                      <Bar dataKey="ins" stackId="a" fill="#f97316" name="Inseguros/Atos" radius={[0, 4, 4, 0]} />
+                      <Tooltip formatter={(v, name) => [v, name === 'pos' ? 'Abordagens +' : name === 'cond' ? 'Cond. Inseguras' : 'Atos Inseguros']} />
+                      <Bar dataKey="pos"  stackId="a" fill="#22c55e" name="pos" />
+                      <Bar dataKey="cond" stackId="a" fill="#f97316" name="cond" />
+                      <Bar dataKey="atos" stackId="a" fill="#ef4444" name="atos" radius={[0, 4, 4, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -431,28 +745,42 @@ export default function Relatos() {
 
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 text-xs font-medium text-gray-500">
-                  {relatantes.length} relatantes únicos no período
+                  {relatantes.length} relatantes únicos · clique para ver detalhes
                 </div>
                 <table className="w-full text-sm">
                   <thead className="border-b border-gray-100">
                     <tr>
-                      {['#', 'Nome', 'Função', 'Equipe', 'Total', 'Positivos', 'Outros', 'Última ocorrência'].map(h => (
-                        <th key={h} className={`px-4 py-2.5 text-xs font-medium text-gray-500 ${h === '#' || h.includes('Total') || h.includes('Pos') || h.includes('Out') || h.includes('Última') ? 'text-center' : 'text-left'}`}>{h}</th>
+                      {['#', 'Nome', 'Função', 'Equipe', 'Total', 'Positivos', 'Cond.Ins.', 'Atos Ins.', 'Última'].map(h => (
+                        <th key={h} className={`px-4 py-2.5 text-xs font-medium text-gray-500 ${['#','Total','Positivos','Cond.Ins.','Atos Ins.','Última'].includes(h) ? 'text-center' : 'text-left'}`}>{h}</th>
                       ))}
                     </tr>
                   </thead>
                   <tbody>
                     {relatantes.map((r, i) => (
-                      <tr key={r.nome} className="border-b border-gray-50 hover:bg-gray-50">
-                        <td className="px-4 py-2.5 text-xs text-gray-400 font-bold text-center">{i + 1}</td>
-                        <td className="px-4 py-2.5 text-sm font-medium text-gray-900">{r.nome}</td>
-                        <td className="px-4 py-2.5 text-xs text-gray-500">{r.funcao}</td>
-                        <td className="px-4 py-2.5 text-xs text-gray-500">{r.equipe}</td>
-                        <td className="px-4 py-2.5 text-center font-bold text-gray-800">{r.total}</td>
-                        <td className="px-4 py-2.5 text-center text-green-700 font-medium">{r.pos}</td>
-                        <td className="px-4 py-2.5 text-center text-orange-600 font-medium">{r.total - r.pos}</td>
-                        <td className="px-4 py-2.5 text-center text-xs text-gray-400">{fmtDate(r.ultima)}</td>
-                      </tr>
+                      <Fragment key={r.nome}>
+                        <tr className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer"
+                          onClick={() => setExpandedRelatanteId(expandedRelatanteId === r.nome ? null : r.nome)}>
+                          <td className="px-4 py-2.5 text-xs text-gray-400 font-bold text-center">{i + 1}</td>
+                          <td className="px-4 py-2.5 text-sm font-medium text-gray-900">
+                            <span className="flex items-center gap-1">
+                              {r.nome}
+                              {expandedRelatanteId === r.nome ? <ChevronUp size={12} className="text-gray-400" /> : <ChevronDown size={12} className="text-gray-400" />}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-gray-500">{r.funcao}</td>
+                          <td className="px-4 py-2.5 text-xs text-gray-500">{r.equipe}</td>
+                          <td className="px-4 py-2.5 text-center font-bold text-gray-800">{r.total}</td>
+                          <td className="px-4 py-2.5 text-center text-green-700 font-medium">{r.pos}</td>
+                          <td className="px-4 py-2.5 text-center text-orange-600 font-medium">{r.cond}</td>
+                          <td className="px-4 py-2.5 text-center text-red-600 font-medium">{r.atos}</td>
+                          <td className="px-4 py-2.5 text-center text-xs text-gray-400">{fmtDate(r.ultima)}</td>
+                        </tr>
+                        {expandedRelatanteId === r.nome && (
+                          <tr><td colSpan={9} className="p-0">
+                            <RelatanteDetail nome={r.nome} relatos={filtered} />
+                          </td></tr>
+                        )}
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
@@ -460,7 +788,7 @@ export default function Relatos() {
             </div>
           )}
 
-          {/* ─── RELATADOS ──────────────────────────────────────────────────── */}
+          {/* ─── RELATADOS ───────────────────────────────────────────────── */}
           {tab === 2 && (
             <div className="space-y-5">
               {relatados.length === 0 ? (
@@ -468,49 +796,71 @@ export default function Relatos() {
               ) : (
                 <>
                   <div className="bg-white rounded-xl border border-gray-200 p-5">
-                    <p className="text-sm font-semibold text-gray-700 mb-4">Top Relatados — recorrência de ocorrências</p>
+                    <p className="text-sm font-semibold text-gray-700 mb-1">Top Relatados — Atos vs Condições</p>
+                    <div className="flex flex-wrap gap-4 text-xs text-gray-500 mb-4">
+                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-500 inline-block" /> Atos Inseguros</span>
+                      <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-orange-400 inline-block" /> Condições Inseguras</span>
+                    </div>
                     <ResponsiveContainer width="100%" height={Math.min(relatados.length, 8) * 32 + 20}>
-                      <BarChart data={relatados.slice(0, 8).map(r => ({ name: r.nome.split(' ').slice(0, 2).join(' '), total: r.total }))}
+                      <BarChart
+                        data={relatados.slice(0, 8).map(r => ({ name: r.nome.split(' ').slice(0, 2).join(' '), atos: r.atos, cond: r.cond }))}
                         layout="vertical" barSize={18} margin={{ left: 90, right: 30 }}>
                         <XAxis type="number" tick={{ fontSize: 10 }} />
                         <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={90} />
-                        <Tooltip />
-                        <Bar dataKey="total" radius={[0, 4, 4, 0]}>
-                          {relatados.slice(0, 8).map((r, i) => <Cell key={i} fill={r.total >= 3 ? '#ef4444' : i < 2 ? '#f97316' : '#1a4451'} />)}
-                        </Bar>
+                        <Tooltip formatter={(v, name) => [v, name === 'atos' ? 'Atos Inseguros' : 'Cond. Inseguras']} />
+                        <Bar dataKey="atos" stackId="a" fill="#ef4444" name="atos" />
+                        <Bar dataKey="cond" stackId="a" fill="#f97316" name="cond" radius={[0, 4, 4, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
 
                   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                     <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 flex items-center justify-between">
-                      <span className="text-xs font-medium text-gray-500">{relatados.length} pessoas relatadas</span>
+                      <span className="text-xs font-medium text-gray-500">{relatados.length} pessoas relatadas · clique para ver detalhes e registrar ações disciplinares</span>
                       {recorrentes > 0 && <span className="text-xs bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full">{recorrentes} recorrentes (3+)</span>}
                     </div>
                     <table className="w-full text-sm">
                       <thead className="border-b border-gray-100">
                         <tr>
-                          {['#', 'Pessoa Relatada', 'Empresa', 'Ocorrências', 'Última', 'Tipos de relato'].map(h => (
-                            <th key={h} className={`px-4 py-2.5 text-xs font-medium text-gray-500 ${h === '#' || h === 'Ocorrências' || h === 'Última' ? 'text-center' : 'text-left'}`}>{h}</th>
+                          {['#', 'Pessoa Relatada', 'Empresa', 'Total', 'Atos Ins.', 'Cond.Ins.', 'Ações Disc.', 'Última'].map(h => (
+                            <th key={h} className={`px-4 py-2.5 text-xs font-medium text-gray-500 ${['#','Total','Atos Ins.','Cond.Ins.','Ações Disc.','Última'].includes(h) ? 'text-center' : 'text-left'}`}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
-                        {relatados.map((r, i) => (
-                          <tr key={r.nome} className={`border-b border-gray-50 hover:bg-gray-50 ${r.total >= 3 ? 'bg-red-50' : ''}`}>
-                            <td className="px-4 py-2.5 text-xs text-gray-400 font-bold text-center">{i + 1}</td>
-                            <td className="px-4 py-2.5">
-                              <span className="text-sm font-medium text-gray-900">{r.nome}</span>
-                              {r.total >= 3 && <span className="ml-2 text-xs bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded-full">Recorrente</span>}
-                            </td>
-                            <td className="px-4 py-2.5 text-xs text-gray-500">{r.empresa}</td>
-                            <td className="px-4 py-2.5 text-center font-bold text-gray-800">{r.total}</td>
-                            <td className="px-4 py-2.5 text-center text-xs text-gray-400">{fmtDate(r.ultima)}</td>
-                            <td className="px-4 py-2.5 text-xs text-gray-500 max-w-xs truncate">
-                              {r.tipos.slice(0, 2).join(', ')}{r.tipos.length > 2 ? ` +${r.tipos.length - 2}` : ''}
-                            </td>
-                          </tr>
-                        ))}
+                        {relatados.map((r, i) => {
+                          const acoesCount = acoes.filter(a => a.pessoa_relatada === r.nome).length
+                          return (
+                            <Fragment key={r.nome}>
+                              <tr className={`border-b border-gray-50 hover:bg-gray-50 cursor-pointer ${r.total >= 3 ? 'bg-red-50/40' : ''}`}
+                                onClick={() => setExpandedRelatadoId(expandedRelatadoId === r.nome ? null : r.nome)}>
+                                <td className="px-4 py-2.5 text-xs text-gray-400 font-bold text-center">{i + 1}</td>
+                                <td className="px-4 py-2.5">
+                                  <span className="flex items-center gap-1 text-sm font-medium text-gray-900">
+                                    {r.nome}
+                                    {r.total >= 3 && <span className="ml-1 text-xs bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded-full">Recorrente</span>}
+                                    {expandedRelatadoId === r.nome ? <ChevronUp size={12} className="text-gray-400 ml-1" /> : <ChevronDown size={12} className="text-gray-400 ml-1" />}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5 text-xs text-gray-500">{r.empresa}</td>
+                                <td className="px-4 py-2.5 text-center font-bold text-gray-800">{r.total}</td>
+                                <td className="px-4 py-2.5 text-center text-red-600 font-medium">{r.atos}</td>
+                                <td className="px-4 py-2.5 text-center text-orange-600 font-medium">{r.cond}</td>
+                                <td className="px-4 py-2.5 text-center">
+                                  {acoesCount > 0
+                                    ? <span className="text-xs bg-purple-100 text-purple-700 border border-purple-200 px-1.5 py-0.5 rounded-full">{acoesCount}</span>
+                                    : <span className="text-xs text-gray-300">—</span>}
+                                </td>
+                                <td className="px-4 py-2.5 text-center text-xs text-gray-400">{fmtDate(r.ultima)}</td>
+                              </tr>
+                              {expandedRelatadoId === r.nome && (
+                                <tr><td colSpan={8} className="p-0">
+                                  <RelatadoDetail nome={r.nome} relatos={filtered} acoes={acoes} onRegistrarAcao={setModalAcao} />
+                                </td></tr>
+                              )}
+                            </Fragment>
+                          )
+                        })}
                       </tbody>
                     </table>
                   </div>
@@ -519,38 +869,59 @@ export default function Relatos() {
             </div>
           )}
 
-          {/* ─── POR SETOR ──────────────────────────────────────────────────── */}
+          {/* ─── POR SETOR ───────────────────────────────────────────────── */}
           {tab === 3 && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {[
-                { title: 'Por Área',              data: topAreas,      color: '#1a4451' },
-                { title: 'Por Atividade',          data: topAtividades, color: '#0ea5e9' },
-                { title: 'Por Função (Relatante)', data: topFuncoes,    color: '#8b5cf6' },
-                { title: 'Por Equipe',             data: topEquipes,    color: '#f59e0b' },
-              ].map(({ title, data: d, color }) => d.length > 0 && (
-                <div key={title} className="bg-white rounded-xl border border-gray-200 p-5">
-                  <p className="text-sm font-semibold text-gray-700 mb-4">{title}</p>
-                  <ResponsiveContainer width="100%" height={d.length * 32 + 20}>
-                    <BarChart data={d} layout="vertical" barSize={18} margin={{ left: 100, right: 36 }}>
-                      <XAxis type="number" tick={{ fontSize: 10 }} />
-                      <YAxis type="category" dataKey="name" tick={{ fontSize: 9 }} width={100} />
-                      <Tooltip />
-                      <Bar dataKey="total" fill={color} radius={[0, 4, 4, 0]}
-                        label={{ position: 'right', fontSize: 10, fill: '#6b7280' }} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ))}
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {[
+                  { title: 'Por Área',              data: topAreas,      color: '#1a4451' },
+                  { title: 'Por Atividade',          data: topAtividades, color: '#0ea5e9' },
+                  { title: 'Por Função (Relatante)', data: topFuncoes,    color: '#8b5cf6' },
+                  { title: 'Por Equipe',             data: topEquipes,    color: '#f59e0b' },
+                ].map(({ title, data: d, color }) => d.length > 0 && (
+                  <div key={title} className="bg-white rounded-xl border border-gray-200 p-5">
+                    <p className="text-sm font-semibold text-gray-700 mb-4">{title}</p>
+                    <ResponsiveContainer width="100%" height={d.length * 32 + 20}>
+                      <BarChart data={d} layout="vertical" barSize={18} margin={{ left: 100, right: 36 }}>
+                        <XAxis type="number" tick={{ fontSize: 10 }} />
+                        <YAxis type="category" dataKey="name" tick={{ fontSize: 9 }} width={100} />
+                        <Tooltip />
+                        <Bar dataKey="total" fill={color} radius={[0, 4, 4, 0]}
+                          label={{ position: 'right', fontSize: 10, fill: '#6b7280' }} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                ))}
+              </div>
+
+              {/* Dia da semana */}
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <p className="text-sm font-semibold text-gray-700 mb-1">Ocorrências por Dia da Semana</p>
+                <p className="text-xs text-gray-400 mb-4">Identifica os dias de maior concentração de relatos</p>
+                <ResponsiveContainer width="100%" height={160}>
+                  <BarChart data={diaSemanaData} margin={{ top: 4, right: 10, left: 0, bottom: 4 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                    <XAxis dataKey="dia" tick={{ fontSize: 11 }} />
+                    <YAxis tick={{ fontSize: 10 }} width={24} />
+                    <Tooltip formatter={(v) => [v, 'Relatos']} />
+                    <Bar dataKey="total" radius={[4, 4, 0, 0]} name="Relatos">
+                      {diaSemanaData.map((entry, i) => (
+                        <Cell key={i} fill={entry.total === maxDia && maxDia > 0 ? '#ef4444' : '#1a4451'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           )}
 
-          {/* ─── INVESTIGAÇÕES ──────────────────────────────────────────────── */}
+          {/* ─── INVESTIGAÇÕES ───────────────────────────────────────────── */}
           {tab === 4 && (
             <div className="space-y-4">
               <div className="flex items-center gap-3 flex-wrap">
                 <div className="relative flex-1 max-w-sm">
                   <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input type="text" placeholder="Buscar por relator, tipo ou ID..." value={busca} onChange={e => setBusca(e.target.value)}
+                  <input type="text" placeholder="Buscar por relator, tipo, pessoa ou ID..." value={busca} onChange={e => setBusca(e.target.value)}
                     className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
                 </div>
                 <span className="text-xs text-gray-400">{investFiltered.length} relatos com investigação</span>
@@ -566,6 +937,7 @@ export default function Relatos() {
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">ID</th>
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Data</th>
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Relator</th>
+                        <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Pessoa Relatada</th>
                         <th className="text-left px-4 py-2.5 text-xs font-medium text-gray-500">Tipo de Relato</th>
                         <th className="text-center px-4 py-2.5 text-xs font-medium text-gray-500">Classificação</th>
                         <th className="text-center px-4 py-2.5 text-xs font-medium text-gray-500">5-Porquês</th>
@@ -573,15 +945,16 @@ export default function Relatos() {
                     </thead>
                     <tbody>
                       {investFiltered.map(r => {
-                        const isExp = expandedId === r.id
-                        const pqs   = [r.pq1, r.pq2, r.pq3, r.pq4, r.pq5].filter(Boolean) as string[]
-                        const acoes = ([[r.motivo1, r.acao1], [r.motivo2, r.acao2], [r.motivo3, r.acao3]] as [string|null,string|null][]).filter(([m]) => m)
+                        const isExp  = expandedId === r.id
+                        const pqs    = [r.pq1, r.pq2, r.pq3, r.pq4, r.pq5].filter(Boolean) as string[]
+                        const causes = ([[r.motivo1, r.acao1], [r.motivo2, r.acao2], [r.motivo3, r.acao3]] as [string|null,string|null][]).filter(([m]) => m)
                         return (
                           <Fragment key={r.id}>
                             <tr className="border-b border-gray-50 hover:bg-gray-50 cursor-pointer" onClick={() => setExpandedId(isExp ? null : r.id)}>
                               <td className="px-4 py-2.5 text-xs text-gray-400 font-mono">{r.external_id}</td>
                               <td className="px-4 py-2.5 text-xs text-gray-500">{fmtDate(r.data_ocorrencia)}</td>
                               <td className="px-4 py-2.5 text-xs font-medium text-gray-900">{r.relator?.split(' ').slice(0, 2).join(' ')}</td>
+                              <td className="px-4 py-2.5 text-xs text-gray-600">{r.pessoa_relatada?.split(' ').slice(0, 2).join(' ') ?? '—'}</td>
                               <td className="px-4 py-2.5 text-xs text-gray-600 max-w-xs truncate">{r.tipo_relato}</td>
                               <td className="px-4 py-2.5 text-center"><ClassBadge value={r.classificacao} /></td>
                               <td className="px-4 py-2.5 text-center">
@@ -593,17 +966,16 @@ export default function Relatos() {
                             </tr>
                             {isExp && (
                               <tr>
-                                <td colSpan={6} className="bg-gray-50 border-b border-gray-200 px-4 py-4">
+                                <td colSpan={7} className="bg-gray-50 border-b border-gray-200 px-4 py-4">
                                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 text-xs">
-                                    {/* Context */}
                                     <div className="space-y-2">
                                       {[
-                                        { k: 'Área',            v: r.area          },
-                                        { k: 'Atividade',       v: r.atividade     },
+                                        { k: 'Área',            v: r.area            },
+                                        { k: 'Atividade',       v: r.atividade       },
                                         { k: 'Pessoa Relatada', v: r.pessoa_relatada },
-                                        { k: 'Ação Imediata',   v: r.acao_imediata },
-                                        { k: 'Porque Falhou?',  v: r.porque_falhou },
-                                        { k: 'Detalhamento',    v: r.detalhamento  },
+                                        { k: 'Ação Imediata',   v: r.acao_imediata   },
+                                        { k: 'Porque Falhou?',  v: r.porque_falhou   },
+                                        { k: 'Detalhamento',    v: r.detalhamento    },
                                       ].filter(({ v }) => v).map(({ k, v }) => (
                                         <div key={k} className="bg-white rounded-lg border border-gray-100 px-3 py-2">
                                           <span className="text-gray-400 block mb-0.5">{k}</span>
@@ -611,25 +983,24 @@ export default function Relatos() {
                                         </div>
                                       ))}
                                     </div>
-                                    {/* 5-Why + Actions */}
                                     <div className="space-y-2">
                                       {pqs.length > 0 && (
                                         <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
                                           <p className="text-gray-600 font-semibold mb-2">5-Porquês</p>
-                                          {pqs.map((pq, i) => (
-                                            <div key={i} className="flex gap-2 mb-1.5">
-                                              <span className="text-brand-700 font-bold shrink-0">P{i + 1}:</span>
+                                          {pqs.map((pq, idx) => (
+                                            <div key={idx} className="flex gap-2 mb-1.5">
+                                              <span className="text-brand-700 font-bold shrink-0">P{idx + 1}:</span>
                                               <span className="text-gray-700">{pq}</span>
                                             </div>
                                           ))}
                                         </div>
                                       )}
-                                      {acoes.length > 0 && (
+                                      {causes.length > 0 && (
                                         <div className="bg-white rounded-lg border border-gray-100 px-3 py-2">
                                           <p className="text-gray-600 font-semibold mb-2">Causas Raiz e Ações</p>
-                                          {acoes.map(([motivo, acao], i) => (
-                                            <div key={i} className="mb-2 border-l-2 border-brand-300 pl-2">
-                                              <p className="text-gray-500">Causa {i + 1}: <span className="text-gray-900 font-medium">{motivo}</span></p>
+                                          {causes.map(([motivo, acao], idx) => (
+                                            <div key={idx} className="mb-2 border-l-2 border-brand-300 pl-2">
+                                              <p className="text-gray-500">Causa {idx + 1}: <span className="text-gray-900 font-medium">{motivo}</span></p>
                                               {acao && <p className="text-gray-500 mt-0.5">Ação: <span className="text-green-700 font-medium">{acao}</span></p>}
                                             </div>
                                           ))}
@@ -650,6 +1021,18 @@ export default function Relatos() {
             </div>
           )}
         </>
+      )}
+
+      {/* Modal Ação Disciplinar */}
+      {modalAcao && (
+        <ModalAcaoRelato
+          pessoaRelatada={modalAcao.pessoa_relatada ?? '—'}
+          tipoRelato={modalAcao.tipo_relato}
+          dataRelato={modalAcao.data_ocorrencia}
+          existente={acoes.find(a => a.relato_id === modalAcao.id)}
+          onClose={() => setModalAcao(null)}
+          onSalvar={salvarAcao}
+        />
       )}
     </div>
   )
