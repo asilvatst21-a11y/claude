@@ -7,45 +7,26 @@ import {
 } from 'recharts'
 import {
   Upload, Loader2, Building2, RefreshCw, Download,
-  TrendingUp, TrendingDown, Minus, Users,
-  ChevronDown, ChevronUp, Calendar, Search
+  TrendingUp, TrendingDown, Minus, Users, ChevronDown, ChevronUp, Calendar, Search
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { ProntuarioSnapshot, ProntuarioRegistro } from '../types'
 
-// ── Faixa config ──────────────────────────────────────────────────────────────
+// ── Faixa ─────────────────────────────────────────────────────────────────────
 
 const FAIXAS = ['Verde', 'Amarela', 'Laranja', 'Vermelha', 'Roxa'] as const
 type Faixa = typeof FAIXAS[number]
 
 const FAIXA_COR: Record<Faixa, string> = {
-  Verde:    '#22c55e',
-  Amarela:  '#eab308',
-  Laranja:  '#f97316',
-  Vermelha: '#ef4444',
-  Roxa:     '#a855f7',
+  Verde: '#22c55e', Amarela: '#eab308', Laranja: '#f97316', Vermelha: '#ef4444', Roxa: '#a855f7',
 }
-
 const FAIXA_CSS: Record<Faixa, string> = {
   Verde:    'bg-green-100 text-green-800 border-green-300',
   Amarela:  'bg-yellow-100 text-yellow-800 border-yellow-300',
   Laranja:  'bg-orange-100 text-orange-800 border-orange-300',
   Vermelha: 'bg-red-100 text-red-700 border-red-300',
   Roxa:     'bg-purple-100 text-purple-800 border-purple-300',
-}
-
-const CAT_LABEL: Record<string, string> = {
-  acidentes:  'Acidentes',
-  colisoes:   'Colisões',
-  desvios:    'Desvios',
-  fadigas:    'Fadigas',
-  multas:     'Multas',
-  sac:        'SAC',
-  sancoes:    'Sanções',
-  sav:        'SAV',
-  telemetria: 'Telemetria',
-  vmov:       'V-MOV',
 }
 
 function calcFaixa(pont: number): Faixa {
@@ -55,13 +36,152 @@ function calcFaixa(pont: number): Faixa {
   if (pont <= 40.009) return 'Vermelha'
   return 'Roxa'
 }
-
 function FaixaBadge({ faixa }: { faixa: string }) {
   return (
     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${FAIXA_CSS[faixa as Faixa] ?? 'bg-gray-100 text-gray-600'}`}>
       {faixa || '—'}
     </span>
   )
+}
+
+// ── Column definitions ────────────────────────────────────────────────────────
+
+interface ColDef { col: number; key: string; label: string; cat: string }
+
+const CAT_LABEL: Record<string, string> = {
+  acidentes:  'Acidentes',
+  colisoes:   'Colisões / Capotamentos',
+  desvios:    'Desvios Monitoramentos',
+  fadigas:    'Gerenc. de Fadigas',
+  multas:     'Multas',
+  sac:        'SAC',
+  sancoes:    'Sanções Disciplinares',
+  sav:        'SAV',
+  telemetria: 'Telemetria',
+  vmov:       'VMOV',
+}
+
+const MOT_COLS: ColDef[] = [
+  // Acidentes
+  { col: 22, key: 'ac_fai',    label: 'FAI',                           cat: 'acidentes'  },
+  { col: 23, key: 'ac_lti',    label: 'LTI',                           cat: 'acidentes'  },
+  { col: 24, key: 'ac_mdi',    label: 'MDI',                           cat: 'acidentes'  },
+  { col: 25, key: 'ac_mti',    label: 'MTI',                           cat: 'acidentes'  },
+  // Colisões
+  { col: 26, key: 'col_cap',   label: 'Capotamentos',                  cat: 'colisoes'   },
+  { col: 27, key: 'col_col',   label: 'Colisões',                      cat: 'colisoes'   },
+  { col: 28, key: 'col_tom',   label: 'Tombamentos',                   cat: 'colisoes'   },
+  // Desvios
+  { col: 29, key: 'des_din',   label: 'Desc. Manuseio de Dinheiro',    cat: 'desvios'    },
+  { col: 30, key: 'des_pad',   label: 'Desc. Padrão de Segurança',     cat: 'desvios'    },
+  { col: 31, key: 'des_tra',   label: 'Desc. Plano de Tráfego',        cat: 'desvios'    },
+  { col: 32, key: 'des_est',   label: 'Estacionamento Local Proibido', cat: 'desvios'    },
+  { col: 33, key: 'des_emp',   label: 'Falhas Empilhadeira',           cat: 'desvios'    },
+  { col: 34, key: 'des_man',   label: 'Manuseio Produtos/Paleteira',   cat: 'desvios'    },
+  { col: 35, key: 'des_epi',   label: 'Não Uso de EPI',                cat: 'desvios'    },
+  { col: 36, key: 'des_caj',   label: 'Não Uso Cinto – Ajudante',      cat: 'desvios'    },
+  { col: 37, key: 'des_cmo',   label: 'Não Uso Cinto – Motorista',     cat: 'desvios'    },
+  { col: 38, key: 'des_con',   label: 'Não Uso do Cone',               cat: 'desvios'    },
+  { col: 39, key: 'des_sal',   label: 'Saltar da Plataforma',          cat: 'desvios'    },
+  // Fadigas
+  { col: 40, key: 'fad_cel',   label: 'Celular',                       cat: 'fadigas'    },
+  { col: 41, key: 'fad_ali',   label: 'Consumo Alimento',              cat: 'fadigas'    },
+  { col: 42, key: 'fad_fum',   label: 'Fumando',                       cat: 'fadigas'    },
+  { col: 43, key: 'fad_ocl',   label: 'Oclusão',                       cat: 'fadigas'    },
+  { col: 44, key: 'fad_cin',   label: 'Sem Cinto',                     cat: 'fadigas'    },
+  // Multas
+  { col: 45, key: 'mul_gra',   label: 'Grave',                         cat: 'multas'     },
+  { col: 46, key: 'mul_grs',   label: 'Gravíssima',                    cat: 'multas'     },
+  { col: 47, key: 'mul_lev',   label: 'Leve',                          cat: 'multas'     },
+  { col: 48, key: 'mul_med',   label: 'Média',                         cat: 'multas'     },
+  // SAC
+  { col: 49, key: 'sac_imp',   label: 'Imperícia',                     cat: 'sac'        },
+  { col: 50, key: 'sac_ipr',   label: 'Imprudência',                   cat: 'sac'        },
+  // Sanções
+  { col: 51, key: 'san_adv',   label: 'Advertências',                  cat: 'sancoes'    },
+  { col: 52, key: 'san_sus',   label: 'Suspensões',                    cat: 'sancoes'    },
+  // SAV
+  { col: 53, key: 'sav_imp',   label: 'Imperícia',                     cat: 'sav'        },
+  { col: 54, key: 'sav_ipr',   label: 'Imprudência',                   cat: 'sav'        },
+  // Telemetria
+  { col: 55, key: 'tel_ev1',   label: 'Exc. Velocidade 1',             cat: 'telemetria' },
+  { col: 56, key: 'tel_ev2',   label: 'Exc. Velocidade 2',             cat: 'telemetria' },
+  { col: 57, key: 'tel_ev3',   label: 'Exc. Velocidade 3',             cat: 'telemetria' },
+  { col: 58, key: 'tel_via1',  label: 'Exc. Vel. Por Via 1',           cat: 'telemetria' },
+  { col: 59, key: 'tel_via2',  label: 'Exc. Vel. Por Via 2',           cat: 'telemetria' },
+  { col: 60, key: 'tel_via3',  label: 'Exc. Vel. Por Via 3',           cat: 'telemetria' },
+  { col: 61, key: 'tel_fg',    label: 'Força G',                       cat: 'telemetria' },
+  { col: 62, key: 'tel_fre',   label: 'Frenagem Brusca',               cat: 'telemetria' },
+  { col: 63, key: 'tel_pon',   label: 'Power On',                      cat: 'telemetria' },
+  // VMOV
+  { col: 64, key: 'vmv_bot',   label: 'Botas (falta/uso incorreto)',    cat: 'vmov'       },
+  { col: 65, key: 'vmv_cin',   label: 'Cinto Ajudante (não utilização)',cat: 'vmov'       },
+  { col: 66, key: 'vmv_con',   label: 'Cone (falta/uso incorreto)',     cat: 'vmov'       },
+  { col: 67, key: 'vmv_gir',   label: 'Giro 360° (falta/incorreto)',   cat: 'vmov'       },
+  { col: 68, key: 'vmv_luv',   label: 'Luvas (falta/uso incorreto)',    cat: 'vmov'       },
+  { col: 69, key: 'vmv_ocl',   label: 'Oclusão Câmera',                cat: 'vmov'       },
+  { col: 70, key: 'vmv_ocu',   label: 'Óculos (falta/uso incorreto)',   cat: 'vmov'       },
+  { col: 71, key: 'vmv_sal',   label: 'Saltar da Baia / Não usar haste',cat: 'vmov'       },
+]
+
+const AJU_COLS: ColDef[] = [
+  // Acidentes
+  { col: 15, key: 'ac_fai',    label: 'FAI',                           cat: 'acidentes'  },
+  { col: 16, key: 'ac_lti',    label: 'LTI',                           cat: 'acidentes'  },
+  { col: 17, key: 'ac_mdi',    label: 'MDI',                           cat: 'acidentes'  },
+  { col: 18, key: 'ac_mti',    label: 'MTI',                           cat: 'acidentes'  },
+  // Desvios
+  { col: 19, key: 'des_din',   label: 'Desc. Manuseio de Dinheiro',    cat: 'desvios'    },
+  { col: 20, key: 'des_pad',   label: 'Desc. Padrão de Segurança',     cat: 'desvios'    },
+  { col: 21, key: 'des_tra',   label: 'Desc. Plano de Tráfego',        cat: 'desvios'    },
+  { col: 22, key: 'des_est',   label: 'Estacionamento Local Proibido', cat: 'desvios'    },
+  { col: 23, key: 'des_emp',   label: 'Falhas Empilhadeira',           cat: 'desvios'    },
+  { col: 24, key: 'des_man',   label: 'Manuseio Produtos/Paleteira',   cat: 'desvios'    },
+  { col: 25, key: 'des_epi',   label: 'Não Uso de EPI',                cat: 'desvios'    },
+  { col: 26, key: 'des_caj',   label: 'Não Uso Cinto – Ajudante',      cat: 'desvios'    },
+  { col: 27, key: 'des_cmo',   label: 'Não Uso Cinto – Motorista',     cat: 'desvios'    },
+  { col: 28, key: 'des_con',   label: 'Não Uso do Cone',               cat: 'desvios'    },
+  { col: 29, key: 'des_sal',   label: 'Saltar da Plataforma',          cat: 'desvios'    },
+  // SAC
+  { col: 30, key: 'sac_imp',   label: 'Imperícia',                     cat: 'sac'        },
+  { col: 31, key: 'sac_ipr',   label: 'Imprudência',                   cat: 'sac'        },
+  // Sanções
+  { col: 32, key: 'san_adv',   label: 'Advertências',                  cat: 'sancoes'    },
+  { col: 33, key: 'san_sus',   label: 'Suspensões',                    cat: 'sancoes'    },
+  // SAV
+  { col: 34, key: 'sav_imp',   label: 'Imperícia',                     cat: 'sav'        },
+  { col: 35, key: 'sav_ipr',   label: 'Imprudência',                   cat: 'sav'        },
+  // VMOV
+  { col: 36, key: 'vmv_bot',   label: 'Botas (falta/uso incorreto)',    cat: 'vmov'       },
+  { col: 37, key: 'vmv_cin',   label: 'Cinto Ajudante (não utilização)',cat: 'vmov'       },
+  { col: 38, key: 'vmv_con',   label: 'Cone (falta/uso incorreto)',     cat: 'vmov'       },
+  { col: 39, key: 'vmv_gir',   label: 'Giro 360° (falta/incorreto)',   cat: 'vmov'       },
+  { col: 40, key: 'vmv_luv',   label: 'Luvas (falta/uso incorreto)',    cat: 'vmov'       },
+  { col: 41, key: 'vmv_ocl',   label: 'Oclusão Câmera',                cat: 'vmov'       },
+  { col: 42, key: 'vmv_ocu',   label: 'Óculos (falta/uso incorreto)',   cat: 'vmov'       },
+  { col: 43, key: 'vmv_sal',   label: 'Saltar da Baia / Não usar haste',cat: 'vmov'       },
+]
+
+/** Returns {cat → sum} for category-level charts */
+function catSums(detalhes: Record<string, number>, cols: ColDef[]): Record<string, number> {
+  const sums: Record<string, number> = {}
+  for (const c of cols) {
+    const v = detalhes[c.key] ?? 0
+    if (v) sums[c.cat] = (sums[c.cat] ?? 0) + v
+  }
+  return sums
+}
+
+/** Returns {cat → [{key, label, val}]} for per-person detail, only non-zero */
+function catGroups(detalhes: Record<string, number>, cols: ColDef[]) {
+  const groups = new Map<string, Array<{ key: string; label: string; val: number }>>()
+  for (const c of cols) {
+    const v = detalhes[c.key] ?? 0
+    if (!v) continue
+    if (!groups.has(c.cat)) groups.set(c.cat, [])
+    groups.get(c.cat)!.push({ key: c.key, label: c.label, val: v })
+  }
+  return groups
 }
 
 // ── Parsing ───────────────────────────────────────────────────────────────────
@@ -77,50 +197,30 @@ function parseProntuario(buffer: ArrayBuffer, tipo: 'motorista' | 'ajudante', fi
   const wb = XLSX.read(buffer)
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json<string[]>(ws, { defval: '', raw: false, header: 1 }) as string[][]
+  const cols = tipo === 'motorista' ? MOT_COLS : AJU_COLS
+  const isMot = tipo === 'motorista'
 
   return rows.slice(5).filter(r => String(r[1] ?? '').trim()).map(r => {
-    const isMot = tipo === 'motorista'
     const pont = isMot ? pn(r[19]) : pn(r[12])
-
-    const detalhes: Record<string, number> = isMot ? {
-      acidentes:  pn(r[22]) + pn(r[23]) + pn(r[24]) + pn(r[25]),
-      colisoes:   pn(r[26]) + pn(r[27]) + pn(r[28]),
-      desvios:    pn(r[29]) + pn(r[30]) + pn(r[31]) + pn(r[32]) + pn(r[33]) + pn(r[34]) + pn(r[35]) + pn(r[36]) + pn(r[37]) + pn(r[38]) + pn(r[39]),
-      fadigas:    pn(r[40]) + pn(r[41]) + pn(r[42]) + pn(r[43]) + pn(r[44]),
-      multas:     pn(r[45]) + pn(r[46]) + pn(r[47]) + pn(r[48]),
-      sac:        pn(r[49]) + pn(r[50]),
-      sancoes:    pn(r[51]) + pn(r[52]),
-      sav:        pn(r[53]) + pn(r[54]),
-      telemetria: pn(r[55]) + pn(r[56]) + pn(r[57]) + pn(r[58]) + pn(r[59]) + pn(r[60]) + pn(r[61]) + pn(r[62]) + pn(r[63]),
-      vmov:       pn(r[64]) + pn(r[65]) + pn(r[66]) + pn(r[67]) + pn(r[68]) + pn(r[69]) + pn(r[70]) + pn(r[71]),
-    } : {
-      acidentes:  pn(r[15]) + pn(r[16]) + pn(r[17]) + pn(r[18]),
-      colisoes:   0,
-      desvios:    pn(r[19]) + pn(r[20]) + pn(r[21]) + pn(r[22]) + pn(r[23]) + pn(r[24]) + pn(r[25]) + pn(r[26]) + pn(r[27]) + pn(r[28]) + pn(r[29]),
-      fadigas:    0,
-      multas:     0,
-      sac:        pn(r[30]) + pn(r[31]),
-      sancoes:    pn(r[32]) + pn(r[33]),
-      sav:        pn(r[34]) + pn(r[35]),
-      telemetria: 0,
-      vmov:       pn(r[36]) + pn(r[37]) + pn(r[38]) + pn(r[39]) + pn(r[40]) + pn(r[41]) + pn(r[42]) + pn(r[43]),
+    const detalhes: Record<string, number> = {}
+    for (const c of cols) {
+      const v = pn(r[c.col])
+      if (v) detalhes[c.key] = v
     }
-
     return {
-      filial,
-      tipo,
-      cpf: String(r[4] ?? '').trim(),
-      nome: String(r[1] ?? '').trim(),
-      cargo: String(r[6] ?? '').trim() || null,
-      situacao_empregado: String(r[0] ?? '').trim() || null,
-      status: String(isMot ? r[8] : r[7] ?? '').trim() || null,
-      motivo: String(isMot ? r[9] : r[8] ?? '').trim() || null,
+      filial, tipo,
+      cpf:               String(r[4] ?? '').trim(),
+      nome:              String(r[1] ?? '').trim(),
+      cargo:             String(r[6] ?? '').trim() || null,
+      situacao_empregado:String(r[0] ?? '').trim() || null,
+      status:            String(isMot ? r[8] : r[7] ?? '').trim() || null,
+      motivo:            String(isMot ? r[9] : r[8] ?? '').trim() || null,
       pontuacao: pont,
       faixa: calcFaixa(pont),
       sonolencia: Math.round(pn(isMot ? r[21] : r[14])),
       detalhes,
-      regiao: String(isMot ? r[73] : r[45] ?? '').trim() || null,
-      operacao: String(isMot ? r[76] : r[48] ?? '').trim() || null,
+      regiao:    String(isMot ? r[73] : r[45] ?? '').trim() || null,
+      operacao:  String(isMot ? r[76] : r[48] ?? '').trim() || null,
     }
   })
 }
@@ -134,7 +234,6 @@ interface Diff {
   delta: number | null
   mudouFaixa: boolean
   isNovo: boolean
-  piorou: boolean
 }
 
 function calcDiff(atual: ProntuarioRegistro[], anterior: ProntuarioRegistro[]): Diff[] {
@@ -149,53 +248,42 @@ function calcDiff(atual: ProntuarioRegistro[], anterior: ProntuarioRegistro[]): 
       delta,
       mudouFaixa: ant ? r.faixa !== ant.faixa : false,
       isNovo: !ant,
-      piorou: delta != null ? delta > 0 : false,
     }
   }).sort((a, b) => b.reg.pontuacao - a.reg.pontuacao)
 }
 
-// ── Panel component ───────────────────────────────────────────────────────────
+// ── Panel ─────────────────────────────────────────────────────────────────────
 
 interface HistPoint { date: string; pont: number; faixa: string; label: string }
 
 function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; filial: string }) {
-  const [snapshots, setSnapshots] = useState<ProntuarioSnapshot[]>([])
-  const [registros, setRegistros] = useState<Map<string, ProntuarioRegistro[]>>(new Map())
-  const [selectedId, setSelectedId] = useState<string | null>(null)
-  const [uploadDate, setUploadDate] = useState(new Date().toISOString().slice(0, 10))
-  const [uploadando, setUploadando] = useState(false)
-  const [carregando, setCarregando] = useState(false)
-  const [expandedCpf, setExpandedCpf] = useState<string | null>(null)
+  const cols = tipo === 'motorista' ? MOT_COLS : AJU_COLS
+
+  const [snapshots, setSnapshots]       = useState<ProntuarioSnapshot[]>([])
+  const [registros, setRegistros]       = useState<Map<string, ProntuarioRegistro[]>>(new Map())
+  const [selectedId, setSelectedId]     = useState<string | null>(null)
+  const [uploadDate, setUploadDate]     = useState(new Date().toISOString().slice(0, 10))
+  const [uploadando, setUploadando]     = useState(false)
+  const [carregando, setCarregando]     = useState(false)
+  const [expandedCpf, setExpandedCpf]   = useState<string | null>(null)
   const [personHistory, setPersonHistory] = useState<HistPoint[]>([])
-  const [loadingHistory, setLoadingHistory] = useState(false)
-  const [busca, setBusca] = useState('')
+  const [loadingHist, setLoadingHist]   = useState(false)
+  const [busca, setBusca]               = useState('')
   const label = tipo === 'motorista' ? 'Motoristas' : 'Ajudantes'
 
   async function carregar() {
     setCarregando(true)
     const { data: snaps } = await supabase
-      .from('prontuario_snapshots')
-      .select('*')
-      .eq('filial', filial)
-      .eq('tipo', tipo)
-      .order('data_referencia', { ascending: false })
-      .limit(10)
-
+      .from('prontuario_snapshots').select('*')
+      .eq('filial', filial).eq('tipo', tipo)
+      .order('data_referencia', { ascending: false }).limit(10)
     const lista = snaps ?? []
     setSnapshots(lista)
-
     if (lista.length > 0) {
       const ids = lista.slice(0, 2).map(s => s.id)
-      const { data: regs } = await supabase
-        .from('prontuario_registros')
-        .select('*')
-        .in('snapshot_id', ids)
-
+      const { data: regs } = await supabase.from('prontuario_registros').select('*').in('snapshot_id', ids)
       const m = new Map<string, ProntuarioRegistro[]>()
-      ;(regs ?? []).forEach(r => {
-        if (!m.has(r.snapshot_id)) m.set(r.snapshot_id, [])
-        m.get(r.snapshot_id)!.push(r)
-      })
+      ;(regs ?? []).forEach(r => { if (!m.has(r.snapshot_id)) m.set(r.snapshot_id, []); m.get(r.snapshot_id)!.push(r) })
       setRegistros(m)
       setSelectedId(lista[0].id)
     }
@@ -205,45 +293,25 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
   useEffect(() => { carregar() }, [filial, tipo])
 
   async function carregarHistoria(cpf: string, snaps: ProntuarioSnapshot[]) {
-    setLoadingHistory(true)
-    setPersonHistory([])
+    setLoadingHist(true); setPersonHistory([])
     const ids = snaps.map(s => s.id)
-    if (!ids.length) { setLoadingHistory(false); return }
-
-    const { data } = await supabase
-      .from('prontuario_registros')
+    if (!ids.length) { setLoadingHist(false); return }
+    const { data } = await supabase.from('prontuario_registros')
       .select('pontuacao, faixa, snapshot_id')
-      .eq('filial', filial)
-      .eq('tipo', tipo)
-      .eq('cpf', cpf)
-      .in('snapshot_id', ids)
-
+      .eq('filial', filial).eq('tipo', tipo).eq('cpf', cpf).in('snapshot_id', ids)
     const snapMap = new Map(snaps.map(s => [s.id, s]))
     const hist: HistPoint[] = (data ?? [])
       .map(r => {
-        const snap = snapMap.get(r.snapshot_id)
-        return {
-          date: snap?.data_referencia ?? '',
-          pont: r.pontuacao,
-          faixa: r.faixa,
-          label: snap ? new Date(snap.data_referencia + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '',
-        }
+        const s = snapMap.get(r.snapshot_id)
+        return { date: s?.data_referencia ?? '', pont: r.pontuacao, faixa: r.faixa, label: s ? new Date(s.data_referencia + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '' }
       })
-      .filter(h => h.date)
-      .sort((a, b) => a.date.localeCompare(b.date))
-
-    setPersonHistory(hist)
-    setLoadingHistory(false)
+      .filter(h => h.date).sort((a, b) => a.date.localeCompare(b.date))
+    setPersonHistory(hist); setLoadingHist(false)
   }
 
   function toggleRow(cpf: string) {
-    if (expandedCpf === cpf) {
-      setExpandedCpf(null)
-      setPersonHistory([])
-    } else {
-      setExpandedCpf(cpf)
-      carregarHistoria(cpf, snapshots)
-    }
+    if (expandedCpf === cpf) { setExpandedCpf(null); setPersonHistory([]) }
+    else { setExpandedCpf(cpf); carregarHistoria(cpf, snapshots) }
   }
 
   const onDrop = useCallback(async (files: File[]) => {
@@ -251,57 +319,47 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
     setUploadando(true)
     const buffer = await files[0].arrayBuffer()
     const rows = parseProntuario(buffer, tipo, filial)
-
-    const { data: snap } = await supabase
-      .from('prontuario_snapshots')
+    const { data: snap } = await supabase.from('prontuario_snapshots')
       .insert({ filial, tipo, data_referencia: uploadDate, nome_arquivo: files[0].name, total_registros: rows.length })
-      .select()
-      .single()
-
+      .select().single()
     if (snap) {
-      for (let i = 0; i < rows.length; i += 50) {
-        await supabase.from('prontuario_registros').insert(
-          rows.slice(i, i + 50).map(r => ({ ...r, snapshot_id: snap.id }))
-        )
-      }
+      for (let i = 0; i < rows.length; i += 50)
+        await supabase.from('prontuario_registros').insert(rows.slice(i, i + 50).map(r => ({ ...r, snapshot_id: snap.id })))
     }
-    setUploadando(false)
-    carregar()
+    setUploadando(false); carregar()
   }, [filial, tipo, uploadDate])
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'application/vnd.ms-excel': ['.xls'],
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
-    },
-    multiple: false,
+    onDrop, multiple: false,
+    accept: { 'application/vnd.ms-excel': ['.xls'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
   })
 
-  const current = selectedId ? (registros.get(selectedId) ?? []) : []
+  const current  = selectedId ? (registros.get(selectedId) ?? []) : []
   const prevSnap = snapshots[1]
   const previous = prevSnap ? (registros.get(prevSnap.id) ?? []) : []
-  const diffs = calcDiff(current, previous)
+  const diffs    = calcDiff(current, previous)
   const diffsFiltered = busca.trim()
     ? diffs.filter(d => d.reg.nome.toLowerCase().includes(busca.toLowerCase()) || d.reg.cpf.includes(busca))
     : diffs
 
-  const total = current.length
-  const porFaixa = FAIXAS.map(f => ({ faixa: f, count: current.filter(r => r.faixa === f).length }))
+  const total     = current.length
   const emVerde   = current.filter(r => r.faixa === 'Verde').length
   const criticos  = current.filter(r => r.faixa === 'Vermelha').length
   const bloqueios = current.filter(r => r.faixa === 'Roxa').length
   const mediaPont = total > 0 ? (current.reduce((s, r) => s + r.pontuacao, 0) / total).toFixed(2) : '0'
+  const porFaixa  = FAIXAS.map(f => ({ faixa: f, count: current.filter(r => r.faixa === f).length }))
 
-  const mudouFaixa     = diffs.filter(d => d.mudouFaixa)
-  const pioraramFaixa  = mudouFaixa.filter(d => FAIXAS.indexOf(d.reg.faixa as Faixa) > FAIXAS.indexOf(d.faixaAnterior as Faixa))
+  const mudouFaixa      = diffs.filter(d => d.mudouFaixa)
+  const pioraramFaixa   = mudouFaixa.filter(d => FAIXAS.indexOf(d.reg.faixa as Faixa) > FAIXAS.indexOf(d.faixaAnterior as Faixa))
   const melhoraramFaixa = mudouFaixa.filter(d => FAIXAS.indexOf(d.reg.faixa as Faixa) < FAIXAS.indexOf(d.faixaAnterior as Faixa))
-  const novos = diffs.filter(d => d.isNovo)
+  const novos           = diffs.filter(d => d.isNovo)
 
   const topCats = Object.keys(CAT_LABEL)
-    .map(cat => ({ cat, name: CAT_LABEL[cat], total: current.reduce((s, r) => s + (r.detalhes[cat] ?? 0), 0) }))
-    .filter(c => c.total > 0)
-    .sort((a, b) => b.total - a.total)
+    .map(cat => {
+      const catCols = cols.filter(c => c.cat === cat)
+      return { cat, name: CAT_LABEL[cat], total: current.reduce((s, r) => s + catCols.reduce((cs, c) => cs + (r.detalhes[c.key] ?? 0), 0), 0) }
+    })
+    .filter(c => c.total > 0).sort((a, b) => b.total - a.total)
 
   function exportar() {
     const dados = diffs.map(d => ({
@@ -310,17 +368,11 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
       'Pontuação Anterior': d.pontAnterior ?? '', 'Faixa Anterior': d.faixaAnterior ?? '',
       'Variação': d.delta ?? '', 'Mudou Faixa': d.mudouFaixa ? 'SIM' : 'NÃO',
     }))
-    const ws2 = XLSX.utils.json_to_sheet(dados)
-    const wb2 = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb2, ws2, label)
-    XLSX.writeFile(wb2, `Prontuario_${label}_${uploadDate}.xlsx`)
+    const ws2 = XLSX.utils.json_to_sheet(dados); const wb2 = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb2, ws2, label); XLSX.writeFile(wb2, `Prontuario_${label}_${uploadDate}.xlsx`)
   }
 
-  if (carregando) return (
-    <div className="flex items-center justify-center py-16 text-gray-400">
-      <Loader2 size={20} className="animate-spin mr-2" /> Carregando...
-    </div>
-  )
+  if (carregando) return <div className="flex items-center justify-center py-16 text-gray-400"><Loader2 size={20} className="animate-spin mr-2" /> Carregando...</div>
 
   const colSpan = previous.length > 0 ? 6 : 5
 
@@ -346,10 +398,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
       </div>
 
       {snapshots.length === 0 ? (
-        <div className="text-center py-12 text-gray-400">
-          <Users size={36} className="mx-auto mb-2 opacity-40" />
-          <p className="text-sm">Faça o upload do prontuário para começar.</p>
-        </div>
+        <div className="text-center py-12 text-gray-400"><Users size={36} className="mx-auto mb-2 opacity-40" /><p className="text-sm">Faça o upload do prontuário para começar.</p></div>
       ) : (
         <>
           {/* Snapshot selector */}
@@ -359,20 +408,19 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
               {snapshots.map(s => (
                 <button key={s.id} onClick={() => setSelectedId(s.id)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${selectedId === s.id ? 'bg-brand-700 text-white border-brand-700' : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300'}`}>
-                  <Calendar size={11} /> {new Date(s.data_referencia + 'T12:00:00').toLocaleDateString('pt-BR')}
-                  <span className="opacity-60">({s.total_registros})</span>
+                  <Calendar size={11} /> {new Date(s.data_referencia + 'T12:00:00').toLocaleDateString('pt-BR')} <span className="opacity-60">({s.total_registros})</span>
                 </button>
               ))}
             </div>
           )}
 
-          {/* KPI cards */}
+          {/* KPIs */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             {([
-              { lb: 'Total',     value: total,     sub: `Média: ${mediaPont} pts`,  cor: undefined },
-              { lb: 'Em Verde',  value: emVerde,   sub: '0 – 10,009 pts',           cor: 'text-green-700' },
-              { lb: 'Críticos',  value: criticos,  sub: 'Vermelha · 30 – 40 pts',   cor: criticos  > 0 ? 'text-red-600'    : undefined },
-              { lb: 'Bloqueio',  value: bloqueios, sub: 'Roxa · acima de 40 pts',   cor: bloqueios > 0 ? 'text-purple-700' : undefined },
+              { lb: 'Total',    value: total,     sub: `Média: ${mediaPont} pts`,  cor: undefined },
+              { lb: 'Em Verde', value: emVerde,   sub: '0 – 10,009 pts',           cor: 'text-green-700' },
+              { lb: 'Críticos', value: criticos,  sub: 'Vermelha · 30 – 40 pts',   cor: criticos  > 0 ? 'text-red-600'    : undefined },
+              { lb: 'Bloqueio', value: bloqueios, sub: 'Roxa · acima de 40 pts',   cor: bloqueios > 0 ? 'text-purple-700' : undefined },
             ] as const).map(({ lb, value, sub, cor }) => (
               <div key={lb} className="bg-white rounded-xl border border-gray-200 p-4">
                 <p className="text-xs text-gray-500">{lb}</p>
@@ -408,39 +456,28 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
             </div>
           </div>
 
-          {/* Alertas de mudança de faixa */}
+          {/* Alertas */}
           {previous.length > 0 && (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {[
-                {
-                  list: pioraramFaixa, icon: TrendingUp, cor: 'red',
-                  title: `Subiram de faixa (${pioraramFaixa.length})`,
-                  delta: (d: Diff) => d.delta != null ? <span className="text-red-600 font-medium ml-1">+{d.delta.toFixed(2)}</span> : null,
-                },
-                {
-                  list: melhoraramFaixa, icon: TrendingDown, cor: 'green',
-                  title: `Melhoraram de faixa (${melhoraramFaixa.length})`,
-                  delta: (d: Diff) => d.delta != null ? <span className="text-green-600 font-medium ml-1">{d.delta.toFixed(2)}</span> : null,
-                },
-                {
-                  list: novos, icon: Users, cor: 'blue',
-                  title: `Novos / Retornaram (${novos.length})`,
-                  delta: () => null,
-                },
-              ].map(({ list, icon: Icon, cor, title, delta }) => (
+                { list: pioraramFaixa,   Icon: TrendingUp,   cor: 'red',   title: `Subiram de faixa (${pioraramFaixa.length})`,    showDelta: true,  deltaSign: '+' },
+                { list: melhoraramFaixa, Icon: TrendingDown, cor: 'green', title: `Melhoraram de faixa (${melhoraramFaixa.length})`, showDelta: true,  deltaSign: ''  },
+                { list: novos,           Icon: Users,        cor: 'blue',  title: `Novos / Retornaram (${novos.length})`,           showDelta: false, deltaSign: ''  },
+              ].map(({ list, Icon, cor, title, showDelta, deltaSign }) => (
                 <div key={title} className={`rounded-xl border p-4 ${list.length > 0 ? `bg-${cor}-50 border-${cor}-200` : 'bg-gray-50 border-gray-200'}`}>
-                  <p className={`text-xs font-semibold text-${cor}-700 mb-2 flex items-center gap-1`}>
-                    <Icon size={13} /> {title}
-                  </p>
-                  {list.length === 0
-                    ? <p className="text-xs text-gray-400">Nenhum</p>
+                  <p className={`text-xs font-semibold text-${cor}-700 mb-2 flex items-center gap-1`}><Icon size={13} /> {title}</p>
+                  {list.length === 0 ? <p className="text-xs text-gray-400">Nenhum</p>
                     : list.slice(0, 8).map(d => (
                       <div key={d.reg.cpf} className="text-xs mb-1.5">
                         <span className="font-medium text-gray-900">{d.reg.nome.split(' ').slice(0, 2).join(' ')}</span>
                         <div className="flex items-center gap-1 mt-0.5">
                           {d.faixaAnterior && <><FaixaBadge faixa={d.faixaAnterior} /><span className="text-gray-400">→</span></>}
                           <FaixaBadge faixa={d.reg.faixa} />
-                          {delta(d)}
+                          {showDelta && d.delta != null && (
+                            <span className={`font-medium ml-1 ${cor === 'red' ? 'text-red-600' : 'text-green-600'}`}>
+                              {deltaSign}{d.delta.toFixed(2)}
+                            </span>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -455,20 +492,18 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
               <p className="text-sm font-semibold text-gray-700 mb-4">Infrações por Categoria</p>
               <ResponsiveContainer width="100%" height={160}>
                 <BarChart data={topCats.map(c => ({ name: c.name, total: c.total }))} barSize={36}>
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
                   <YAxis tick={{ fontSize: 11 }} width={28} />
                   <Tooltip />
                   <Bar dataKey="total" radius={[4, 4, 0, 0]}>
-                    {topCats.map((_, i) => (
-                      <Cell key={i} fill={i === 0 ? '#ef4444' : i === 1 ? '#f97316' : '#1a4451'} />
-                    ))}
+                    {topCats.map((_, i) => <Cell key={i} fill={i === 0 ? '#ef4444' : i === 1 ? '#f97316' : '#1a4451'} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
           )}
 
-          {/* Ranking table */}
+          {/* Ranking */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center gap-3">
               <span className="text-xs text-gray-500 font-medium shrink-0">Ranking — {current.length} colaboradores</span>
@@ -477,12 +512,9 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                 <input type="text" placeholder="Buscar nome ou CPF..." value={busca} onChange={e => setBusca(e.target.value)}
                   className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
               </div>
-              {previous.length > 0 && (
-                <span className="text-xs text-gray-400 ml-auto shrink-0">
-                  vs {new Date(prevSnap.data_referencia + 'T12:00:00').toLocaleDateString('pt-BR')}
-                </span>
-              )}
+              {previous.length > 0 && <span className="text-xs text-gray-400 ml-auto shrink-0">vs {new Date(prevSnap.data_referencia + 'T12:00:00').toLocaleDateString('pt-BR')}</span>}
             </div>
+
             <table className="w-full text-sm">
               <thead className="border-b border-gray-100">
                 <tr>
@@ -496,11 +528,10 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
               </thead>
               <tbody>
                 {diffsFiltered.map((d, i) => {
-                  const isExp = expandedCpf === d.reg.cpf
-                  const catData = Object.entries(d.reg.detalhes)
-                    .filter(([, v]) => v > 0)
-                    .sort(([, a], [, b]) => b - a)
-                  const maxCat = catData[0]?.[1] ?? 1
+                  const isExp   = expandedCpf === d.reg.cpf
+                  const groups  = catGroups(d.reg.detalhes, cols)
+                  const sums    = catSums(d.reg.detalhes, cols)
+                  const maxCatVal = Math.max(...Object.values(sums), 1)
 
                   return (
                     <Fragment key={d.reg.cpf}>
@@ -520,13 +551,10 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                         <td className="px-4 py-2.5 text-center font-semibold text-gray-800">{d.reg.pontuacao.toFixed(2)}</td>
                         {previous.length > 0 && (
                           <td className="px-4 py-2.5 text-center">
-                            {d.delta == null
-                              ? <span className="text-gray-400 text-xs">—</span>
-                              : d.delta > 0
-                                ? <span className="flex items-center justify-center gap-0.5 text-red-600 text-xs font-medium"><TrendingUp size={12} />+{d.delta.toFixed(2)}</span>
-                                : d.delta < 0
-                                  ? <span className="flex items-center justify-center gap-0.5 text-green-600 text-xs font-medium"><TrendingDown size={12} />{d.delta.toFixed(2)}</span>
-                                  : <span className="text-gray-400"><Minus size={12} className="inline" /></span>}
+                            {d.delta == null ? <span className="text-gray-400 text-xs">—</span>
+                              : d.delta > 0 ? <span className="flex items-center justify-center gap-0.5 text-red-600 text-xs font-medium"><TrendingUp size={12} />+{d.delta.toFixed(2)}</span>
+                              : d.delta < 0 ? <span className="flex items-center justify-center gap-0.5 text-green-600 text-xs font-medium"><TrendingDown size={12} />{d.delta.toFixed(2)}</span>
+                              : <span className="text-gray-400"><Minus size={12} className="inline" /></span>}
                           </td>
                         )}
                         <td className="px-4 py-2.5 text-center">
@@ -540,6 +568,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                         <tr>
                           <td colSpan={colSpan} className="bg-gray-50 border-b border-gray-200 p-4">
                             <div className="space-y-4">
+
                               {/* Info grid */}
                               <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 text-xs">
                                 {[
@@ -559,7 +588,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                                 ))}
                                 {d.faixaAnterior && (
                                   <div className="col-span-2 lg:col-span-4 bg-white rounded-lg border border-gray-100 px-3 py-2 flex items-center gap-2">
-                                    <span className="text-gray-400">Evolução de faixa:</span>
+                                    <span className="text-gray-400 text-xs">Evolução de faixa:</span>
                                     <FaixaBadge faixa={d.faixaAnterior} />
                                     <span className="text-gray-400">→</span>
                                     <FaixaBadge faixa={d.reg.faixa} />
@@ -572,57 +601,46 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                                 )}
                               </div>
 
+                              {/* Histórico + Categorias */}
                               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                {/* Histórico de pontuação */}
+                                {/* Histórico */}
                                 <div className="bg-white rounded-lg border border-gray-100 p-3">
                                   <p className="text-xs font-semibold text-gray-600 mb-2">Histórico de Pontuação</p>
-                                  {loadingHistory ? (
-                                    <div className="flex items-center justify-center py-8 text-gray-400">
-                                      <Loader2 size={16} className="animate-spin mr-1" /> Carregando...
-                                    </div>
+                                  {loadingHist ? (
+                                    <div className="flex items-center justify-center py-8 text-gray-400"><Loader2 size={16} className="animate-spin mr-1" /> Carregando...</div>
                                   ) : personHistory.length < 2 ? (
-                                    <div className="flex items-center justify-center py-8 text-xs text-gray-400 text-center">
-                                      Faça mais uploads para ver a evolução da pontuação ao longo do tempo.
-                                    </div>
+                                    <div className="flex items-center justify-center py-8 text-xs text-gray-400 text-center">Faça mais uploads para ver a evolução ao longo do tempo.</div>
                                   ) : (
                                     <ResponsiveContainer width="100%" height={150}>
-                                      <LineChart data={personHistory} margin={{ top: 4, right: 10, left: 0, bottom: 4 }}>
+                                      <LineChart data={personHistory} margin={{ top: 4, right: 40, left: 0, bottom: 4 }}>
                                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
                                         <XAxis dataKey="label" tick={{ fontSize: 10 }} />
-                                        <YAxis tick={{ fontSize: 10 }} width={30} />
+                                        <YAxis tick={{ fontSize: 10 }} width={28} />
                                         <Tooltip formatter={(v: number) => [`${v.toFixed(2)} pts`, 'Pontuação']} labelFormatter={l => `Semana: ${l}`} />
-                                        <ReferenceLine y={10} stroke="#eab308" strokeDasharray="4 4" strokeWidth={1} label={{ value: 'Amarela', fontSize: 9, fill: '#eab308', position: 'right' }} />
-                                        <ReferenceLine y={20} stroke="#f97316" strokeDasharray="4 4" strokeWidth={1} label={{ value: 'Laranja', fontSize: 9, fill: '#f97316', position: 'right' }} />
-                                        <ReferenceLine y={30} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={1} label={{ value: 'Vermelha', fontSize: 9, fill: '#ef4444', position: 'right' }} />
-                                        <ReferenceLine y={40} stroke="#a855f7" strokeDasharray="4 4" strokeWidth={1} label={{ value: 'Bloqueio', fontSize: 9, fill: '#a855f7', position: 'right' }} />
-                                        <Line type="monotone" dataKey="pont" stroke="#1a4451" strokeWidth={2}
-                                          dot={{ fill: '#1a4451', r: 3 }} activeDot={{ r: 5 }} />
+                                        <ReferenceLine y={10} stroke="#eab308" strokeDasharray="4 4" strokeWidth={1} label={{ value: 'Amarela', fontSize: 9, fill: '#ca8a04', position: 'right' }} />
+                                        <ReferenceLine y={20} stroke="#f97316" strokeDasharray="4 4" strokeWidth={1} label={{ value: 'Laranja', fontSize: 9, fill: '#ea580c', position: 'right' }} />
+                                        <ReferenceLine y={30} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={1} label={{ value: 'Vermelha', fontSize: 9, fill: '#dc2626', position: 'right' }} />
+                                        <ReferenceLine y={40} stroke="#a855f7" strokeDasharray="4 4" strokeWidth={1} label={{ value: 'Bloqueio', fontSize: 9, fill: '#9333ea', position: 'right' }} />
+                                        <Line type="monotone" dataKey="pont" stroke="#1a4451" strokeWidth={2} dot={{ fill: '#1a4451', r: 3 }} activeDot={{ r: 5 }} />
                                       </LineChart>
                                     </ResponsiveContainer>
                                   )}
                                 </div>
 
-                                {/* Infrações por categoria */}
+                                {/* Resumo por categoria (barras) */}
                                 <div className="bg-white rounded-lg border border-gray-100 p-3">
-                                  <p className="text-xs font-semibold text-gray-600 mb-2">Infrações por Categoria</p>
-                                  {catData.length === 0 ? (
-                                    <div className="flex items-center justify-center py-8 text-xs text-gray-400">
-                                      Sem infrações registradas neste upload.
-                                    </div>
+                                  <p className="text-xs font-semibold text-gray-600 mb-2">Pontuação por Categoria</p>
+                                  {Object.keys(sums).length === 0 ? (
+                                    <div className="flex items-center justify-center py-8 text-xs text-gray-400">Sem infrações neste upload.</div>
                                   ) : (
-                                    <div className="space-y-2 pt-1">
-                                      {catData.map(([cat, val]) => (
+                                    <div className="space-y-1.5 pt-1">
+                                      {Object.entries(sums).sort(([, a], [, b]) => b - a).map(([cat, val]) => (
                                         <div key={cat} className="flex items-center gap-2 text-xs">
-                                          <span className="w-20 text-gray-500 text-right shrink-0">{CAT_LABEL[cat] ?? cat}</span>
+                                          <span className="w-28 text-gray-500 text-right shrink-0 truncate">{CAT_LABEL[cat] ?? cat}</span>
                                           <div className="flex-1 h-4 bg-gray-100 rounded overflow-hidden">
                                             <div className="h-4 rounded flex items-center justify-end pr-1.5"
-                                              style={{
-                                                width: `${Math.max((val / maxCat) * 100, 8)}%`,
-                                                backgroundColor: val === maxCat ? '#ef4444' : val >= maxCat * 0.6 ? '#f97316' : '#1a4451',
-                                              }}>
-                                              <span className="text-white text-xs font-bold">
-                                                {val % 1 === 0 ? val : val.toFixed(2)}
-                                              </span>
+                                              style={{ width: `${Math.max((val / maxCatVal) * 100, 6)}%`, backgroundColor: val === maxCatVal ? '#ef4444' : val >= maxCatVal * 0.6 ? '#f97316' : '#1a4451' }}>
+                                              <span className="text-white text-xs font-bold">{val % 1 === 0 ? val : val.toFixed(2)}</span>
                                             </div>
                                           </div>
                                         </div>
@@ -631,6 +649,35 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                                   )}
                                 </div>
                               </div>
+
+                              {/* Ocorrências detalhadas por categoria */}
+                              {groups.size > 0 && (
+                                <div className="bg-white rounded-lg border border-gray-100 p-3">
+                                  <p className="text-xs font-semibold text-gray-600 mb-3">Ocorrências Detalhadas</p>
+                                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
+                                    {Array.from(groups.entries()).map(([cat, items]) => (
+                                      <div key={cat} className="border border-gray-100 rounded-lg overflow-hidden">
+                                        <div className="bg-gray-50 px-3 py-1.5 border-b border-gray-100">
+                                          <span className="text-xs font-semibold text-gray-600">{CAT_LABEL[cat] ?? cat}</span>
+                                        </div>
+                                        <table className="w-full">
+                                          <tbody>
+                                            {items.map(({ key, label, val }) => (
+                                              <tr key={key} className="border-b border-gray-50 last:border-0">
+                                                <td className="px-3 py-1.5 text-xs text-gray-600">{label}</td>
+                                                <td className="px-3 py-1.5 text-xs font-bold text-right" style={{ color: val > 2 ? '#ef4444' : val > 0 ? '#f97316' : '#374151' }}>
+                                                  {val % 1 === 0 ? val : val.toFixed(2)}
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+
                             </div>
                           </td>
                         </tr>
@@ -652,9 +699,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
 export default function Prontuario() {
   const { usuario } = useAuth()
   const [aba, setAba] = useState<'motoristas' | 'ajudantes'>('motoristas')
-
   if (!usuario) return null
-
   return (
     <div className="p-8 max-w-5xl">
       <div className="flex items-center justify-between mb-6">
@@ -662,12 +707,10 @@ export default function Prontuario() {
           <h2 className="text-2xl font-bold text-gray-900">Prontuário</h2>
           <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1"><Building2 size={12} /> {usuario.filial}</p>
         </div>
-        <button onClick={() => window.location.reload()}
-          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">
+        <button onClick={() => window.location.reload()} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50">
           <RefreshCw size={14} /> Atualizar
         </button>
       </div>
-
       <div className="flex gap-1 border-b border-gray-200 mb-6">
         {([['motoristas', 'Motoristas'], ['ajudantes', 'Ajudantes']] as const).map(([id, lbl]) => (
           <button key={id} onClick={() => setAba(id)}
@@ -676,7 +719,6 @@ export default function Prontuario() {
           </button>
         ))}
       </div>
-
       {aba === 'motoristas' && <ProntuarioPanel tipo="motorista" filial={usuario.filial} />}
       {aba === 'ajudantes'  && <ProntuarioPanel tipo="ajudante"  filial={usuario.filial} />}
     </div>
