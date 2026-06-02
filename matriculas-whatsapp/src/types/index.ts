@@ -56,8 +56,43 @@ export interface Disparo {
   created_at: string
 }
 
-export interface LinhaArquivo {
-  matricula: string
-  cliente: string
-  [key: string]: string
+export interface GsdpqColaborador {
+  id: string
+  filial: string
+  matricula: string | null
+  nome: string
+  equipe: string | null
+  funcao: string | null
+  status: string
+  created_at: string
+  updated_at: string
+}
+
+export interface GsdpqAvaliacao {
+  id: string
+  filial: string
+  colaborador_nome: string
+  colaborador_id: string | null
+  realizado_por: string | null
+  equipe: string | null
+  data_avaliacao: string | null
+  questao: string
+  resultado: string
+  observacoes: string | null
+  created_at: string
+}
+
+export interface GsdpqAcao {
+  id: string
+  filial: string
+  colaborador_nome: string
+  colaborador_id: string | null
+  avaliacao_id: string | null
+  questao: string
+  data_avaliacao: string | null
+  tipo_acao: string
+  dias_suspensao: number | null
+  observacao: string | null
+  registrado_por: string | null
+  created_at: string
 }
