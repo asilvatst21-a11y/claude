@@ -96,6 +96,7 @@ const COR_ACAO: Record<string, string> = {
 interface ResumoColaborador {
   nome: string
   equipe: string
+  funcao: string
   totalNO: number
   totalOK: number
   totalAvaliacoes: number
@@ -131,6 +132,7 @@ function parseGsdpqExcel(buffer: ArrayBuffer): { rows: Omit<GsdpqAvaliacao, 'id'
     const colaborador_nome = (r[cols[5]] ?? '').trim()
     if (!colaborador_nome) return
     const realizado_por = r[cols[3]] ?? ''
+    const funcao = (r[cols[6]] ?? '').trim()
     const equipe = r[cols[7]] ?? ''
     const data_avaliacao = r[cols[9]] ?? ''
     const observacoes = r[cols[12]] ?? ''
@@ -139,7 +141,7 @@ function parseGsdpqExcel(buffer: ArrayBuffer): { rows: Omit<GsdpqAvaliacao, 'id'
     questoes.forEach(q => {
       const resultado = (r[q] ?? '').toString().toUpperCase().trim()
       if (!resultado) return
-      rows.push({ filial, colaborador_nome, realizado_por, equipe, data_avaliacao, questao: q, resultado, observacoes })
+      rows.push({ filial, colaborador_nome, realizado_por, funcao: funcao || null, equipe, data_avaliacao, questao: q, resultado, observacoes })
     })
   })
 
@@ -207,8 +209,9 @@ function calcularResumos(avaliacoes: GsdpqAvaliacao[], questoes: string[]): Resu
     const percentualConformidade = totalRespondidas > 0 ? Math.round((totalOK / totalRespondidas) * 100) : 100
     const totalAvaliacoes = datasOrdenadas.length
     const equipe = avs[0].equipe ?? ''
+    const funcao = avs[0].funcao ?? ''
 
-    return { nome, equipe, totalNO, totalOK, totalAvaliacoes, percentualConformidade, reincidencias, nosPorQuestao, evolucao, avaliacoesPorData }
+    return { nome, equipe, funcao, totalNO, totalOK, totalAvaliacoes, percentualConformidade, reincidencias, nosPorQuestao, evolucao, avaliacoesPorData }
   }).sort((a, b) => b.totalNO - a.totalNO)
 }
 
@@ -340,7 +343,7 @@ function ColaboradorRow({ r, avaliacoes, acoes, onRegistrarAcao }: {
             {open ? <ChevronUp size={14} className="text-gray-400 shrink-0" /> : <ChevronDown size={14} className="text-gray-400 shrink-0" />}
             <div>
               <p className="font-medium text-gray-900 text-sm">{r.nome}</p>
-              <p className="text-xs text-gray-400">{r.equipe}</p>
+              <p className="text-xs text-gray-400">{[r.funcao, r.equipe].filter(Boolean).join(' · ')}</p>
             </div>
           </div>
         </td>
@@ -500,15 +503,21 @@ export default function Gsdpq() {
   const [modalAcao, setModalAcao] = useState<ModalAcao | null>(null)
   const [abaUpload, setAbaUpload] = useState<'gsdpq' | 'colaboradores'>('gsdpq')
   const [filtroCategoria, setFiltroCategoria] = useState<Categoria | 'Todas'>('Todas')
+  const [filtroFuncao, setFiltroFuncao] = useState('Todas')
 
   async function carregarDados() {
     if (!usuario) return
     setCarregando(true)
-    const [{ data: avs }, { data: acs }] = await Promise.all([
+    const [{ data: avs }, { data: acs }, { data: colab }] = await Promise.all([
       supabase.from('gsdpq_avaliacoes').select('*').eq('filial', usuario.filial).order('data_avaliacao'),
       supabase.from('gsdpq_acoes').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
+      supabase.from('gsdpq_colaboradores').select('nome, funcao').eq('filial', usuario.filial),
     ])
-    const todasAvs = avs ?? []
+    const colabFuncaoMap = new Map((colab ?? []).map(c => [c.nome.toUpperCase(), c.funcao as string | null]))
+    const todasAvs = (avs ?? []).map(av => ({
+      ...av,
+      funcao: av.funcao || colabFuncaoMap.get(av.colaborador_nome.toUpperCase()) || null,
+    }))
     setAvaliacoes(todasAvs)
     setAcoes(acs ?? [])
     const qs = Array.from(new Set(todasAvs.map(a => a.questao)))
@@ -573,7 +582,7 @@ export default function Gsdpq() {
     multiple: false,
   })
 
-  // Filtro base: equipe + período (sem categoria — usado nos cards de categoria)
+  // Filtro base: equipe + período (sem categoria/função — usado nos cards de categoria)
   const avaliacoesBase = avaliacoes.filter(av => {
     if (filtroEquipe !== 'Todas' && av.equipe !== filtroEquipe) return false
     if (filtroPeriodo.de && av.data_avaliacao && av.data_avaliacao < filtroPeriodo.de) return false
@@ -581,9 +590,10 @@ export default function Gsdpq() {
     return true
   })
 
-  // Filtro completo: equipe + período + categoria
+  // Filtro completo: equipe + período + categoria + função
   const avaliacoesFiltradas = avaliacoesBase.filter(av =>
-    filtroCategoria === 'Todas' || getCategoriaQuestao(av.questao) === filtroCategoria
+    (filtroCategoria === 'Todas' || getCategoriaQuestao(av.questao) === filtroCategoria) &&
+    (filtroFuncao === 'Todas' || av.funcao === filtroFuncao)
   )
 
   const questoesFiltradas = filtroCategoria === 'Todas'
@@ -593,12 +603,22 @@ export default function Gsdpq() {
   const resumos = calcularResumos(avaliacoesFiltradas, questoesFiltradas)
   const rankingQuestoes = calcularRankingQuestoes(avaliacoesFiltradas)
   const equipes = ['Todas', ...Array.from(new Set(avaliacoes.map(a => a.equipe).filter(Boolean) as string[]))]
+  const funcoes = ['Todas', ...Array.from(new Set(avaliacoes.map(a => a.funcao).filter(Boolean) as string[])).sort()]
 
   const totalNO = resumos.reduce((s, r) => s + r.totalNO, 0)
   const totalOK = resumos.reduce((s, r) => s + r.totalOK, 0)
   const conformidadeGeral = totalNO + totalOK > 0 ? Math.round((totalOK / (totalNO + totalOK)) * 100) : 0
   const comReincidencia = resumos.filter(r => r.reincidencias.length > 0).length
   const conformidadeCategorias = calcularConformidadeCategoria(avaliacoesBase)
+
+  const comparativoFuncoes = funcoes.filter(f => f !== 'Todas').map(funcao => {
+    const avs = avaliacoesBase.filter(a => a.funcao === funcao &&
+      (filtroCategoria === 'Todas' || getCategoriaQuestao(a.questao) === filtroCategoria))
+    const nos = avs.filter(a => a.resultado === 'NO').length
+    const oks = avs.filter(a => a.resultado === 'OK').length
+    const total = nos + oks
+    return { funcao, conformidade: total > 0 ? Math.round((oks / total) * 100) : 0, nos }
+  })
 
   // Comparativo por equipe
   const comparativoEquipes = equipes.filter(e => e !== 'Todas').map(equipe => {
@@ -631,6 +651,7 @@ export default function Gsdpq() {
   function exportarExcel() {
     const dados = resumos.map(r => ({
       'Colaborador': r.nome,
+      'Função': r.funcao,
       'Equipe': r.equipe,
       'Avaliações': r.totalAvaliacoes,
       'Total NOs': r.totalNO,
@@ -720,6 +741,14 @@ export default function Gsdpq() {
                 )
               })}
             </div>
+            {funcoes.length > 1 && (
+              <div className="flex items-center gap-2 flex-wrap border-t border-gray-100 pt-2.5">
+                <span className="text-xs text-gray-500 font-medium w-16">Função:</span>
+                {funcoes.map(f => (
+                  <button key={f} onClick={() => setFiltroFuncao(f)} className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${filtroFuncao === f ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{f}</button>
+                ))}
+              </div>
+            )}
             <div className="flex items-center gap-2 flex-wrap border-t border-gray-100 pt-2.5">
               <span className="text-xs text-gray-500 font-medium w-16">Equipe:</span>
               {equipes.map(e => (
@@ -814,10 +843,31 @@ export default function Gsdpq() {
                 </div>
               )}
 
+              {/* Comparativo por função */}
+              {comparativoFuncoes.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <p className="text-sm font-semibold text-gray-700 mb-4">
+                    Conformidade por Função{filtroCategoria !== 'Todas' ? ` — ${filtroCategoria}` : ''}
+                  </p>
+                  <ResponsiveContainer width="100%" height={Math.max(120, comparativoFuncoes.length * 36)}>
+                    <BarChart data={comparativoFuncoes} layout="vertical" barSize={18} margin={{ left: 8 }}>
+                      <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" width={32} />
+                      <YAxis type="category" dataKey="funcao" tick={{ fontSize: 11 }} width={200} />
+                      <Tooltip formatter={(v) => [`${v}%`, 'Conformidade']} />
+                      <Bar dataKey="conformidade" radius={[0, 4, 4, 0]}>
+                        {comparativoFuncoes.map((f) => (
+                          <Cell key={f.funcao} fill={f.conformidade >= 80 ? '#1a4451' : f.conformidade >= 60 ? '#f59e0b' : '#ef4444'} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
               {/* Top 5 mais NOs */}
               <div className="bg-white rounded-xl border border-gray-200 p-5">
                 <p className="text-sm font-semibold text-gray-700 mb-3">
-                  Top 5 — Mais NOs{filtroCategoria !== 'Todas' ? ` (${filtroCategoria})` : ''}
+                  Top 5 — Mais NOs{[filtroFuncao !== 'Todas' ? filtroFuncao : '', filtroCategoria !== 'Todas' ? filtroCategoria : ''].filter(Boolean).map(s => ` · ${s}`).join('')}
                 </p>
                 <div className="space-y-2">
                   {resumos.slice(0, 5).map((r, i) => (

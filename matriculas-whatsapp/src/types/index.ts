@@ -75,6 +75,7 @@ export interface GsdpqAvaliacao {
   colaborador_id: string | null
   realizado_por: string | null
   equipe: string | null
+  funcao: string | null
   data_avaliacao: string | null
   questao: string
   resultado: string
