@@ -134,3 +134,33 @@ export interface DtoObservacao {
   prazo_acao: string | null
   created_at: string
 }
+
+export interface ProntuarioSnapshot {
+  id: string
+  filial: string
+  tipo: string
+  data_referencia: string
+  nome_arquivo: string | null
+  total_registros: number
+  created_at: string
+}
+
+export interface ProntuarioRegistro {
+  id: string
+  snapshot_id: string
+  filial: string
+  tipo: string
+  cpf: string
+  nome: string
+  cargo: string | null
+  situacao_empregado: string | null
+  status: string | null
+  motivo: string | null
+  pontuacao: number
+  faixa: string
+  sonolencia: number
+  detalhes: Record<string, number>
+  regiao: string | null
+  operacao: string | null
+  created_at: string
+}
