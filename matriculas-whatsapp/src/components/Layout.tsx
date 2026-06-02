@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Users, CreditCard, Upload, MessageSquare, BarChart2, LogOut, Building2, Shield, ClipboardList, Activity, FileText } from 'lucide-react'
+import { Users, CreditCard, Upload, MessageSquare, BarChart2, LogOut, Building2, Shield, ClipboardList, Activity, FileText, Flag } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
 const navItems = [
@@ -11,6 +11,7 @@ const navItems = [
   { to: '/gsdpq', label: 'Análise GSDPQ', icon: ClipboardList },
   { to: '/dto', label: 'Análise DTO', icon: Activity },
   { to: '/prontuario', label: 'Prontuário', icon: FileText },
+  { to: '/relatos', label: 'Relatos', icon: Flag },
 ]
 const adminItems = [
   { to: '/admin', label: 'Administração', icon: Shield },

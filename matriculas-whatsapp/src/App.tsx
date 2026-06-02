@@ -11,6 +11,7 @@ import Admin from './pages/Admin'
 import Gsdpq from './pages/Gsdpq'
 import Dto from './pages/Dto'
 import Prontuario from './pages/Prontuario'
+import Relatos from './pages/Relatos'
 
 function ProtectedRoutes() {
   const { usuario, loading } = useAuth()
@@ -41,6 +42,7 @@ export default function App() {
             <Route path="/gsdpq" element={<Gsdpq />} />
             <Route path="/dto" element={<Dto />} />
             <Route path="/prontuario" element={<Prontuario />} />
+            <Route path="/relatos" element={<Relatos />} />
           </Route>
         </Routes>
       </BrowserRouter>

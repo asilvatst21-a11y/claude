@@ -164,3 +164,43 @@ export interface ProntuarioRegistro {
   operacao: string | null
   created_at: string
 }
+
+export interface Relato {
+  id: string
+  filial: string
+  external_id: string | null
+  data_ocorrencia: string | null
+  data_cadastro: string | null
+  cdd: string | null
+  empresa: string | null
+  matricula: string | null
+  relator: string | null
+  funcao: string | null
+  equipe: string | null
+  classificacao: string | null
+  tipo_relato: string | null
+  area: string | null
+  atividade: string | null
+  tarefa_seguranca: string | null
+  acao_imediata: string | null
+  sif: string | null
+  empresa_relatada: string | null
+  pessoa_relatada: string | null
+  detalhamento: string | null
+  complementacao: string | null
+  origem: string | null
+  porque_falhou: string | null
+  pq1: string | null
+  pq2: string | null
+  pq3: string | null
+  pq4: string | null
+  pq5: string | null
+  motivo1: string | null
+  acao1: string | null
+  motivo2: string | null
+  acao2: string | null
+  motivo3: string | null
+  acao3: string | null
+  data_investigacao: string | null
+  created_at: string
+}
