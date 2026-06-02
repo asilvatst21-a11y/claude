@@ -162,12 +162,12 @@ const AJU_COLS: ColDef[] = [
   { col: 43, key: 'vmv_sal',   label: 'Saltar da Baia / Não usar haste', cat: 'vmov',       weight: 5  },
 ]
 
-/** Returns {cat → sum} for category-level charts */
+/** Returns {cat → weighted sum} for category-level charts */
 function catSums(detalhes: Record<string, number>, cols: ColDef[]): Record<string, number> {
   const sums: Record<string, number> = {}
   for (const c of cols) {
     const v = detalhes[c.key] ?? 0
-    if (v) sums[c.cat] = (sums[c.cat] ?? 0) + v
+    if (v) sums[c.cat] = +((sums[c.cat] ?? 0) + v * c.weight).toFixed(3)
   }
   return sums
 }
@@ -363,7 +363,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
   const topCats = Object.keys(CAT_LABEL)
     .map(cat => {
       const catCols = cols.filter(c => c.cat === cat)
-      return { cat, name: CAT_LABEL[cat], total: current.reduce((s, r) => s + catCols.reduce((cs, c) => cs + (r.detalhes[c.key] ?? 0), 0), 0) }
+      return { cat, name: CAT_LABEL[cat], total: current.reduce((s, r) => s + catCols.reduce((cs, c) => cs + (r.detalhes[c.key] ?? 0) * c.weight, 0), 0) }
     })
     .filter(c => c.total > 0).sort((a, b) => b.total - a.total)
 
@@ -662,7 +662,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                                   <p className="text-xs font-semibold text-gray-600 mb-3">Ocorrências Detalhadas</p>
                                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                                     {Array.from(groups.entries()).map(([cat, items]) => {
-                                      const catTotal = items.reduce((s, it) => s + it.val, 0)
+                                      const catTotal = +items.reduce((s, it) => s + it.val * it.weight, 0).toFixed(3)
                                       return (
                                         <div key={cat} className="border border-gray-100 rounded-lg overflow-hidden">
                                           <div className="bg-gray-50 px-3 py-1.5 border-b border-gray-100 flex items-center justify-between">
@@ -679,9 +679,9 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                                               </tr>
                                             </thead>
                                             <tbody>
-                                              {items.sort((a, b) => b.val - a.val).map(({ key, label, val, weight }) => {
-                                                const qtd = weight > 0 ? Math.round(val / weight) : val
-                                                const contrib = weight > 0 ? val : val
+                                              {items.sort((a, b) => b.val * b.weight - a.val * a.weight).map(({ key, label, val, weight }) => {
+                                                const qtd    = val
+                                                const contrib = +(val * weight).toFixed(3)
                                                 const isHigh = contrib > 5
                                                 const isMed  = contrib > 1 && !isHigh
                                                 return (
