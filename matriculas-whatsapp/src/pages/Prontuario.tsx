@@ -46,7 +46,7 @@ function FaixaBadge({ faixa }: { faixa: string }) {
 
 // ── Column definitions ────────────────────────────────────────────────────────
 
-interface ColDef { col: number; key: string; label: string; cat: string }
+interface ColDef { col: number; key: string; label: string; cat: string; weight: number }
 
 const CAT_LABEL: Record<string, string> = {
   acidentes:  'Acidentes',
@@ -63,103 +63,103 @@ const CAT_LABEL: Record<string, string> = {
 
 const MOT_COLS: ColDef[] = [
   // Acidentes
-  { col: 22, key: 'ac_fai',    label: 'FAI',                           cat: 'acidentes'  },
-  { col: 23, key: 'ac_lti',    label: 'LTI',                           cat: 'acidentes'  },
-  { col: 24, key: 'ac_mdi',    label: 'MDI',                           cat: 'acidentes'  },
-  { col: 25, key: 'ac_mti',    label: 'MTI',                           cat: 'acidentes'  },
+  { col: 22, key: 'ac_fai',    label: 'FAI',                           cat: 'acidentes',  weight: 1     },
+  { col: 23, key: 'ac_lti',    label: 'LTI',                           cat: 'acidentes',  weight: 7     },
+  { col: 24, key: 'ac_mdi',    label: 'MDI',                           cat: 'acidentes',  weight: 5     },
+  { col: 25, key: 'ac_mti',    label: 'MTI',                           cat: 'acidentes',  weight: 3     },
   // Colisões
-  { col: 26, key: 'col_cap',   label: 'Capotamentos',                  cat: 'colisoes'   },
-  { col: 27, key: 'col_col',   label: 'Colisões',                      cat: 'colisoes'   },
-  { col: 28, key: 'col_tom',   label: 'Tombamentos',                   cat: 'colisoes'   },
+  { col: 26, key: 'col_cap',   label: 'Capotamentos',                  cat: 'colisoes',   weight: 41    },
+  { col: 27, key: 'col_col',   label: 'Colisões',                      cat: 'colisoes',   weight: 3     },
+  { col: 28, key: 'col_tom',   label: 'Tombamentos',                   cat: 'colisoes',   weight: 41    },
   // Desvios
-  { col: 29, key: 'des_din',   label: 'Desc. Manuseio de Dinheiro',    cat: 'desvios'    },
-  { col: 30, key: 'des_pad',   label: 'Desc. Padrão de Segurança',     cat: 'desvios'    },
-  { col: 31, key: 'des_tra',   label: 'Desc. Plano de Tráfego',        cat: 'desvios'    },
-  { col: 32, key: 'des_est',   label: 'Estacionamento Local Proibido', cat: 'desvios'    },
-  { col: 33, key: 'des_emp',   label: 'Falhas Empilhadeira',           cat: 'desvios'    },
-  { col: 34, key: 'des_man',   label: 'Manuseio Produtos/Paleteira',   cat: 'desvios'    },
-  { col: 35, key: 'des_epi',   label: 'Não Uso de EPI',                cat: 'desvios'    },
-  { col: 36, key: 'des_caj',   label: 'Não Uso Cinto – Ajudante',      cat: 'desvios'    },
-  { col: 37, key: 'des_cmo',   label: 'Não Uso Cinto – Motorista',     cat: 'desvios'    },
-  { col: 38, key: 'des_con',   label: 'Não Uso do Cone',               cat: 'desvios'    },
-  { col: 39, key: 'des_sal',   label: 'Saltar da Plataforma',          cat: 'desvios'    },
+  { col: 29, key: 'des_din',   label: 'Desc. Manuseio de Dinheiro',    cat: 'desvios',    weight: 0.5   },
+  { col: 30, key: 'des_pad',   label: 'Desc. Padrão de Segurança',     cat: 'desvios',    weight: 1     },
+  { col: 31, key: 'des_tra',   label: 'Desc. Plano de Tráfego',        cat: 'desvios',    weight: 0.5   },
+  { col: 32, key: 'des_est',   label: 'Estacionamento Local Proibido', cat: 'desvios',    weight: 1     },
+  { col: 33, key: 'des_emp',   label: 'Falhas Empilhadeira',           cat: 'desvios',    weight: 5     },
+  { col: 34, key: 'des_man',   label: 'Manuseio Produtos/Paleteira',   cat: 'desvios',    weight: 1     },
+  { col: 35, key: 'des_epi',   label: 'Não Uso de EPI',                cat: 'desvios',    weight: 3     },
+  { col: 36, key: 'des_caj',   label: 'Não Uso Cinto – Ajudante',      cat: 'desvios',    weight: 3     },
+  { col: 37, key: 'des_cmo',   label: 'Não Uso Cinto – Motorista',     cat: 'desvios',    weight: 51    },
+  { col: 38, key: 'des_con',   label: 'Não Uso do Cone',               cat: 'desvios',    weight: 3     },
+  { col: 39, key: 'des_sal',   label: 'Saltar da Plataforma',          cat: 'desvios',    weight: 3     },
   // Fadigas
-  { col: 40, key: 'fad_cel',   label: 'Celular',                       cat: 'fadigas'    },
-  { col: 41, key: 'fad_ali',   label: 'Consumo Alimento',              cat: 'fadigas'    },
-  { col: 42, key: 'fad_fum',   label: 'Fumando',                       cat: 'fadigas'    },
-  { col: 43, key: 'fad_ocl',   label: 'Oclusão',                       cat: 'fadigas'    },
-  { col: 44, key: 'fad_cin',   label: 'Sem Cinto',                     cat: 'fadigas'    },
+  { col: 40, key: 'fad_cel',   label: 'Celular',                       cat: 'fadigas',    weight: 15    },
+  { col: 41, key: 'fad_ali',   label: 'Consumo Alimento',              cat: 'fadigas',    weight: 0     },
+  { col: 42, key: 'fad_fum',   label: 'Fumando',                       cat: 'fadigas',    weight: 5     },
+  { col: 43, key: 'fad_ocl',   label: 'Oclusão',                       cat: 'fadigas',    weight: 10    },
+  { col: 44, key: 'fad_cin',   label: 'Sem Cinto',                     cat: 'fadigas',    weight: 41    },
   // Multas
-  { col: 45, key: 'mul_gra',   label: 'Grave',                         cat: 'multas'     },
-  { col: 46, key: 'mul_grs',   label: 'Gravíssima',                    cat: 'multas'     },
-  { col: 47, key: 'mul_lev',   label: 'Leve',                          cat: 'multas'     },
-  { col: 48, key: 'mul_med',   label: 'Média',                         cat: 'multas'     },
+  { col: 45, key: 'mul_gra',   label: 'Grave',                         cat: 'multas',     weight: 5     },
+  { col: 46, key: 'mul_grs',   label: 'Gravíssima',                    cat: 'multas',     weight: 7     },
+  { col: 47, key: 'mul_lev',   label: 'Leve',                          cat: 'multas',     weight: 0.01  },
+  { col: 48, key: 'mul_med',   label: 'Média',                         cat: 'multas',     weight: 4     },
   // SAC
-  { col: 49, key: 'sac_imp',   label: 'Imperícia',                     cat: 'sac'        },
-  { col: 50, key: 'sac_ipr',   label: 'Imprudência',                   cat: 'sac'        },
+  { col: 49, key: 'sac_imp',   label: 'Imperícia',                     cat: 'sac',        weight: 5     },
+  { col: 50, key: 'sac_ipr',   label: 'Imprudência',                   cat: 'sac',        weight: 5     },
   // Sanções
-  { col: 51, key: 'san_adv',   label: 'Advertências',                  cat: 'sancoes'    },
-  { col: 52, key: 'san_sus',   label: 'Suspensões',                    cat: 'sancoes'    },
+  { col: 51, key: 'san_adv',   label: 'Advertências',                  cat: 'sancoes',    weight: 0.01  },
+  { col: 52, key: 'san_sus',   label: 'Suspensões',                    cat: 'sancoes',    weight: 5     },
   // SAV
-  { col: 53, key: 'sav_imp',   label: 'Imperícia',                     cat: 'sav'        },
-  { col: 54, key: 'sav_ipr',   label: 'Imprudência',                   cat: 'sav'        },
+  { col: 53, key: 'sav_imp',   label: 'Imperícia',                     cat: 'sav',        weight: 5     },
+  { col: 54, key: 'sav_ipr',   label: 'Imprudência',                   cat: 'sav',        weight: 5     },
   // Telemetria
-  { col: 55, key: 'tel_ev1',   label: 'Exc. Velocidade 1',             cat: 'telemetria' },
-  { col: 56, key: 'tel_ev2',   label: 'Exc. Velocidade 2',             cat: 'telemetria' },
-  { col: 57, key: 'tel_ev3',   label: 'Exc. Velocidade 3',             cat: 'telemetria' },
-  { col: 58, key: 'tel_via1',  label: 'Exc. Vel. Por Via 1',           cat: 'telemetria' },
-  { col: 59, key: 'tel_via2',  label: 'Exc. Vel. Por Via 2',           cat: 'telemetria' },
-  { col: 60, key: 'tel_via3',  label: 'Exc. Vel. Por Via 3',           cat: 'telemetria' },
-  { col: 61, key: 'tel_fg',    label: 'Força G',                       cat: 'telemetria' },
-  { col: 62, key: 'tel_fre',   label: 'Frenagem Brusca',               cat: 'telemetria' },
-  { col: 63, key: 'tel_pon',   label: 'Power On',                      cat: 'telemetria' },
+  { col: 55, key: 'tel_ev1',   label: 'Exc. Velocidade 1',             cat: 'telemetria', weight: 5     },
+  { col: 56, key: 'tel_ev2',   label: 'Exc. Velocidade 2',             cat: 'telemetria', weight: 20    },
+  { col: 57, key: 'tel_ev3',   label: 'Exc. Velocidade 3',             cat: 'telemetria', weight: 41    },
+  { col: 58, key: 'tel_via1',  label: 'Exc. Vel. Por Via 1',           cat: 'telemetria', weight: 0.001 },
+  { col: 59, key: 'tel_via2',  label: 'Exc. Vel. Por Via 2',           cat: 'telemetria', weight: 0.005 },
+  { col: 60, key: 'tel_via3',  label: 'Exc. Vel. Por Via 3',           cat: 'telemetria', weight: 0.5   },
+  { col: 61, key: 'tel_fg',    label: 'Força G',                       cat: 'telemetria', weight: 0.01  },
+  { col: 62, key: 'tel_fre',   label: 'Frenagem Brusca',               cat: 'telemetria', weight: 2     },
+  { col: 63, key: 'tel_pon',   label: 'Power On',                      cat: 'telemetria', weight: 0.01  },
   // VMOV
-  { col: 64, key: 'vmv_bot',   label: 'Botas (falta/uso incorreto)',    cat: 'vmov'       },
-  { col: 65, key: 'vmv_cin',   label: 'Cinto Ajudante (não utilização)',cat: 'vmov'       },
-  { col: 66, key: 'vmv_con',   label: 'Cone (falta/uso incorreto)',     cat: 'vmov'       },
-  { col: 67, key: 'vmv_gir',   label: 'Giro 360° (falta/incorreto)',   cat: 'vmov'       },
-  { col: 68, key: 'vmv_luv',   label: 'Luvas (falta/uso incorreto)',    cat: 'vmov'       },
-  { col: 69, key: 'vmv_ocl',   label: 'Oclusão Câmera',                cat: 'vmov'       },
-  { col: 70, key: 'vmv_ocu',   label: 'Óculos (falta/uso incorreto)',   cat: 'vmov'       },
-  { col: 71, key: 'vmv_sal',   label: 'Saltar da Baia / Não usar haste',cat: 'vmov'       },
+  { col: 64, key: 'vmv_bot',   label: 'Botas (falta/uso incorreto)',     cat: 'vmov',       weight: 3  },
+  { col: 65, key: 'vmv_cin',   label: 'Cinto Ajudante (não utilização)', cat: 'vmov',       weight: 10 },
+  { col: 66, key: 'vmv_con',   label: 'Cone (falta/uso incorreto)',      cat: 'vmov',       weight: 3  },
+  { col: 67, key: 'vmv_gir',   label: 'Giro 360° (falta/incorreto)',    cat: 'vmov',       weight: 3  },
+  { col: 68, key: 'vmv_luv',   label: 'Luvas (falta/uso incorreto)',     cat: 'vmov',       weight: 3  },
+  { col: 69, key: 'vmv_ocl',   label: 'Oclusão Câmera',                 cat: 'vmov',       weight: 3  },
+  { col: 70, key: 'vmv_ocu',   label: 'Óculos (falta/uso incorreto)',    cat: 'vmov',       weight: 3  },
+  { col: 71, key: 'vmv_sal',   label: 'Saltar da Baia / Não usar haste', cat: 'vmov',       weight: 5  },
 ]
 
 const AJU_COLS: ColDef[] = [
-  // Acidentes
-  { col: 15, key: 'ac_fai',    label: 'FAI',                           cat: 'acidentes'  },
-  { col: 16, key: 'ac_lti',    label: 'LTI',                           cat: 'acidentes'  },
-  { col: 17, key: 'ac_mdi',    label: 'MDI',                           cat: 'acidentes'  },
-  { col: 18, key: 'ac_mti',    label: 'MTI',                           cat: 'acidentes'  },
-  // Desvios
-  { col: 19, key: 'des_din',   label: 'Desc. Manuseio de Dinheiro',    cat: 'desvios'    },
-  { col: 20, key: 'des_pad',   label: 'Desc. Padrão de Segurança',     cat: 'desvios'    },
-  { col: 21, key: 'des_tra',   label: 'Desc. Plano de Tráfego',        cat: 'desvios'    },
-  { col: 22, key: 'des_est',   label: 'Estacionamento Local Proibido', cat: 'desvios'    },
-  { col: 23, key: 'des_emp',   label: 'Falhas Empilhadeira',           cat: 'desvios'    },
-  { col: 24, key: 'des_man',   label: 'Manuseio Produtos/Paleteira',   cat: 'desvios'    },
-  { col: 25, key: 'des_epi',   label: 'Não Uso de EPI',                cat: 'desvios'    },
-  { col: 26, key: 'des_caj',   label: 'Não Uso Cinto – Ajudante',      cat: 'desvios'    },
-  { col: 27, key: 'des_cmo',   label: 'Não Uso Cinto – Motorista',     cat: 'desvios'    },
-  { col: 28, key: 'des_con',   label: 'Não Uso do Cone',               cat: 'desvios'    },
-  { col: 29, key: 'des_sal',   label: 'Saltar da Plataforma',          cat: 'desvios'    },
+  // Acidentes (mesmos pesos)
+  { col: 15, key: 'ac_fai',    label: 'FAI',                            cat: 'acidentes',  weight: 1     },
+  { col: 16, key: 'ac_lti',    label: 'LTI',                            cat: 'acidentes',  weight: 7     },
+  { col: 17, key: 'ac_mdi',    label: 'MDI',                            cat: 'acidentes',  weight: 5     },
+  { col: 18, key: 'ac_mti',    label: 'MTI',                            cat: 'acidentes',  weight: 3     },
+  // Desvios (mesmos pesos)
+  { col: 19, key: 'des_din',   label: 'Desc. Manuseio de Dinheiro',     cat: 'desvios',    weight: 0.5   },
+  { col: 20, key: 'des_pad',   label: 'Desc. Padrão de Segurança',      cat: 'desvios',    weight: 1     },
+  { col: 21, key: 'des_tra',   label: 'Desc. Plano de Tráfego',         cat: 'desvios',    weight: 0.5   },
+  { col: 22, key: 'des_est',   label: 'Estacionamento Local Proibido',  cat: 'desvios',    weight: 1     },
+  { col: 23, key: 'des_emp',   label: 'Falhas Empilhadeira',            cat: 'desvios',    weight: 5     },
+  { col: 24, key: 'des_man',   label: 'Manuseio Produtos/Paleteira',    cat: 'desvios',    weight: 1     },
+  { col: 25, key: 'des_epi',   label: 'Não Uso de EPI',                 cat: 'desvios',    weight: 3     },
+  { col: 26, key: 'des_caj',   label: 'Não Uso Cinto – Ajudante',       cat: 'desvios',    weight: 3     },
+  { col: 27, key: 'des_cmo',   label: 'Não Uso Cinto – Motorista',      cat: 'desvios',    weight: 51    },
+  { col: 28, key: 'des_con',   label: 'Não Uso do Cone',                cat: 'desvios',    weight: 3     },
+  { col: 29, key: 'des_sal',   label: 'Saltar da Plataforma',           cat: 'desvios',    weight: 3     },
   // SAC
-  { col: 30, key: 'sac_imp',   label: 'Imperícia',                     cat: 'sac'        },
-  { col: 31, key: 'sac_ipr',   label: 'Imprudência',                   cat: 'sac'        },
+  { col: 30, key: 'sac_imp',   label: 'Imperícia',                      cat: 'sac',        weight: 5     },
+  { col: 31, key: 'sac_ipr',   label: 'Imprudência',                    cat: 'sac',        weight: 5     },
   // Sanções
-  { col: 32, key: 'san_adv',   label: 'Advertências',                  cat: 'sancoes'    },
-  { col: 33, key: 'san_sus',   label: 'Suspensões',                    cat: 'sancoes'    },
+  { col: 32, key: 'san_adv',   label: 'Advertências',                   cat: 'sancoes',    weight: 0.01  },
+  { col: 33, key: 'san_sus',   label: 'Suspensões',                     cat: 'sancoes',    weight: 5     },
   // SAV
-  { col: 34, key: 'sav_imp',   label: 'Imperícia',                     cat: 'sav'        },
-  { col: 35, key: 'sav_ipr',   label: 'Imprudência',                   cat: 'sav'        },
-  // VMOV
-  { col: 36, key: 'vmv_bot',   label: 'Botas (falta/uso incorreto)',    cat: 'vmov'       },
-  { col: 37, key: 'vmv_cin',   label: 'Cinto Ajudante (não utilização)',cat: 'vmov'       },
-  { col: 38, key: 'vmv_con',   label: 'Cone (falta/uso incorreto)',     cat: 'vmov'       },
-  { col: 39, key: 'vmv_gir',   label: 'Giro 360° (falta/incorreto)',   cat: 'vmov'       },
-  { col: 40, key: 'vmv_luv',   label: 'Luvas (falta/uso incorreto)',    cat: 'vmov'       },
-  { col: 41, key: 'vmv_ocl',   label: 'Oclusão Câmera',                cat: 'vmov'       },
-  { col: 42, key: 'vmv_ocu',   label: 'Óculos (falta/uso incorreto)',   cat: 'vmov'       },
-  { col: 43, key: 'vmv_sal',   label: 'Saltar da Baia / Não usar haste',cat: 'vmov'       },
+  { col: 34, key: 'sav_imp',   label: 'Imperícia',                      cat: 'sav',        weight: 5     },
+  { col: 35, key: 'sav_ipr',   label: 'Imprudência',                    cat: 'sav',        weight: 5     },
+  // VMOV (mesmos pesos)
+  { col: 36, key: 'vmv_bot',   label: 'Botas (falta/uso incorreto)',     cat: 'vmov',       weight: 3  },
+  { col: 37, key: 'vmv_cin',   label: 'Cinto Ajudante (não utilização)', cat: 'vmov',       weight: 10 },
+  { col: 38, key: 'vmv_con',   label: 'Cone (falta/uso incorreto)',      cat: 'vmov',       weight: 3  },
+  { col: 39, key: 'vmv_gir',   label: 'Giro 360° (falta/incorreto)',    cat: 'vmov',       weight: 3  },
+  { col: 40, key: 'vmv_luv',   label: 'Luvas (falta/uso incorreto)',     cat: 'vmov',       weight: 3  },
+  { col: 41, key: 'vmv_ocl',   label: 'Oclusão Câmera',                 cat: 'vmov',       weight: 3  },
+  { col: 42, key: 'vmv_ocu',   label: 'Óculos (falta/uso incorreto)',    cat: 'vmov',       weight: 3  },
+  { col: 43, key: 'vmv_sal',   label: 'Saltar da Baia / Não usar haste', cat: 'vmov',       weight: 5  },
 ]
 
 /** Returns {cat → sum} for category-level charts */
@@ -172,16 +172,22 @@ function catSums(detalhes: Record<string, number>, cols: ColDef[]): Record<strin
   return sums
 }
 
-/** Returns {cat → [{key, label, val}]} for per-person detail, only non-zero */
+interface CatItem { key: string; label: string; val: number; weight: number }
+
+/** Returns {cat → items} for per-person detail, only non-zero */
 function catGroups(detalhes: Record<string, number>, cols: ColDef[]) {
-  const groups = new Map<string, Array<{ key: string; label: string; val: number }>>()
+  const groups = new Map<string, CatItem[]>()
   for (const c of cols) {
     const v = detalhes[c.key] ?? 0
     if (!v) continue
     if (!groups.has(c.cat)) groups.set(c.cat, [])
-    groups.get(c.cat)!.push({ key: c.key, label: c.label, val: v })
+    groups.get(c.cat)!.push({ key: c.key, label: c.label, val: v, weight: c.weight })
   }
   return groups
+}
+
+function fmt(n: number) {
+  return n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
 }
 
 // ── Parsing ───────────────────────────────────────────────────────────────────
@@ -654,26 +660,46 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                               {groups.size > 0 && (
                                 <div className="bg-white rounded-lg border border-gray-100 p-3">
                                   <p className="text-xs font-semibold text-gray-600 mb-3">Ocorrências Detalhadas</p>
-                                  <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-3">
-                                    {Array.from(groups.entries()).map(([cat, items]) => (
-                                      <div key={cat} className="border border-gray-100 rounded-lg overflow-hidden">
-                                        <div className="bg-gray-50 px-3 py-1.5 border-b border-gray-100">
-                                          <span className="text-xs font-semibold text-gray-600">{CAT_LABEL[cat] ?? cat}</span>
-                                        </div>
-                                        <table className="w-full">
-                                          <tbody>
-                                            {items.map(({ key, label, val }) => (
-                                              <tr key={key} className="border-b border-gray-50 last:border-0">
-                                                <td className="px-3 py-1.5 text-xs text-gray-600">{label}</td>
-                                                <td className="px-3 py-1.5 text-xs font-bold text-right" style={{ color: val > 2 ? '#ef4444' : val > 0 ? '#f97316' : '#374151' }}>
-                                                  {val % 1 === 0 ? val : val.toFixed(2)}
-                                                </td>
+                                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                    {Array.from(groups.entries()).map(([cat, items]) => {
+                                      const catTotal = items.reduce((s, it) => s + it.val, 0)
+                                      return (
+                                        <div key={cat} className="border border-gray-100 rounded-lg overflow-hidden">
+                                          <div className="bg-gray-50 px-3 py-1.5 border-b border-gray-100 flex items-center justify-between">
+                                            <span className="text-xs font-semibold text-gray-700">{CAT_LABEL[cat] ?? cat}</span>
+                                            <span className="text-xs font-bold text-brand-700">{fmt(catTotal)} pts</span>
+                                          </div>
+                                          <table className="w-full">
+                                            <thead>
+                                              <tr className="border-b border-gray-50">
+                                                <th className="px-3 py-1 text-xs font-medium text-gray-400 text-left">Infração</th>
+                                                <th className="px-3 py-1 text-xs font-medium text-gray-400 text-right">Qtd</th>
+                                                <th className="px-3 py-1 text-xs font-medium text-gray-400 text-right">Peso/un</th>
+                                                <th className="px-3 py-1 text-xs font-medium text-gray-400 text-right">Total pts</th>
                                               </tr>
-                                            ))}
-                                          </tbody>
-                                        </table>
-                                      </div>
-                                    ))}
+                                            </thead>
+                                            <tbody>
+                                              {items.sort((a, b) => b.val - a.val).map(({ key, label, val, weight }) => {
+                                                const qtd = weight > 0 ? Math.round(val / weight) : val
+                                                const contrib = weight > 0 ? val : val
+                                                const isHigh = contrib > 5
+                                                const isMed  = contrib > 1 && !isHigh
+                                                return (
+                                                  <tr key={key} className="border-b border-gray-50 last:border-0">
+                                                    <td className="px-3 py-1.5 text-xs text-gray-700">{label}</td>
+                                                    <td className="px-3 py-1.5 text-xs text-center font-medium text-gray-600">{qtd}</td>
+                                                    <td className="px-3 py-1.5 text-xs text-right text-gray-400">{fmt(weight)}</td>
+                                                    <td className={`px-3 py-1.5 text-xs font-bold text-right ${isHigh ? 'text-red-600' : isMed ? 'text-orange-500' : 'text-gray-600'}`}>
+                                                      {fmt(contrib)}
+                                                    </td>
+                                                  </tr>
+                                                )
+                                              })}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      )
+                                    })}
                                   </div>
                                 </div>
                               )}
