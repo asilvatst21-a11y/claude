@@ -277,24 +277,32 @@ function RelatadoDetail({ nome, relatos, acoes, onRegistrarAcao }: {
 
         <div className="bg-white rounded-xl border border-gray-100 p-4">
           <p className="text-xs font-semibold text-gray-600 mb-3">Histórico de Relatos</p>
-          <div className="space-y-1.5 max-h-52 overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
             {meus.map(r => {
-              const acao = acoes.find(a => a.relato_id === r.id)
-              const isAto = r.classificacao?.includes('ATO')
+              const acao       = acoes.find(a => a.relato_id === r.id)
+              const isAto      = r.classificacao?.includes('ATO')
+              const isGsdpq    = r.origem?.toUpperCase().includes('GSDPQ')
               return (
-                <div key={r.id} className="flex items-center gap-2 text-xs">
-                  <span className="text-gray-400 shrink-0 w-12">{fmtDate(r.data_ocorrencia)}</span>
-                  <span className="flex-1 text-gray-700 truncate">{r.tipo_relato ?? r.classificacao ?? '—'}</span>
-                  <ClassBadge value={r.classificacao} />
-                  {isAto && (
-                    acao
-                      ? <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded border font-medium ${COR_ACAO[acao.tipo_acao]}`}>
-                          {acao.tipo_acao}{acao.dias_suspensao ? ` (${acao.dias_suspensao}d)` : ''}
-                        </span>
-                      : <button onClick={() => onRegistrarAcao(r)}
-                          className="shrink-0 flex items-center gap-0.5 text-xs text-brand-700 border border-brand-200 bg-brand-50 px-1.5 py-0.5 rounded hover:bg-brand-100">
-                          <Plus size={10} /> Ação
-                        </button>
+                <div key={r.id} className="text-xs border-b border-gray-50 pb-2">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-gray-400 shrink-0 w-12">{fmtDate(r.data_ocorrencia)}</span>
+                    <span className="flex-1 text-gray-700 font-medium truncate">{r.tipo_relato ?? r.classificacao ?? '—'}</span>
+                    <ClassBadge value={r.classificacao} />
+                    {isAto && (
+                      isGsdpq
+                        ? <span className="shrink-0 text-xs text-gray-400 italic border border-gray-200 px-1.5 py-0.5 rounded">GSDPQ</span>
+                        : acao
+                          ? <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded border font-medium ${COR_ACAO[acao.tipo_acao]}`}>
+                              {acao.tipo_acao}{acao.dias_suspensao ? ` (${acao.dias_suspensao}d)` : ''}
+                            </span>
+                          : <button onClick={() => onRegistrarAcao(r)}
+                              className="shrink-0 flex items-center gap-0.5 text-xs text-brand-700 border border-brand-200 bg-brand-50 px-1.5 py-0.5 rounded hover:bg-brand-100">
+                              <Plus size={10} /> Ação
+                            </button>
+                    )}
+                  </div>
+                  {r.detalhamento && (
+                    <p className="text-gray-500 pl-14 leading-relaxed line-clamp-2">{r.detalhamento}</p>
                   )}
                 </div>
               )
@@ -320,8 +328,6 @@ function RelatanteDetail({ nome, relatos }: { nome: string; relatos: Relato[] })
     { label: 'Quase Acidente',     color: '#eab308', match: 'QUASE'    },
   ].map(c => ({ ...c, total: meus.filter(r => r.classificacao?.includes(c.match)).length })).filter(c => c.total > 0)
 
-  const topTiposRelatante = topN(meus, 'tipo_relato', 5)
-
   return (
     <div className="bg-green-50/30 border-b border-green-100 px-6 py-4">
       <div className="max-w-4xl grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -343,18 +349,24 @@ function RelatanteDetail({ nome, relatos }: { nome: string; relatos: Relato[] })
         </div>
 
         <div className="bg-white rounded-xl border border-gray-100 p-4">
-          <p className="text-xs font-semibold text-gray-600 mb-3">Tipos mais relatados</p>
-          <div className="space-y-1.5">
-            {topTiposRelatante.map(({ name, total }) => (
-              <div key={name} className="flex items-center gap-2 text-xs">
-                <span className="flex-1 text-gray-700 truncate">{name}</span>
-                <span className="font-bold text-gray-700">{total}</span>
+          <p className="text-xs font-semibold text-gray-600 mb-3">Relatos realizados</p>
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            {meus.map(r => (
+              <div key={r.id} className="text-xs border-b border-gray-50 pb-2">
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-gray-400 shrink-0 w-12">{fmtDate(r.data_ocorrencia)}</span>
+                  <span className="flex-1 text-gray-700 font-medium truncate">{r.tipo_relato ?? '—'}</span>
+                  <ClassBadge value={r.classificacao} />
+                </div>
+                {r.pessoa_relatada && (
+                  <p className="text-gray-400 pl-14 truncate">Relatado: <span className="text-gray-600">{r.pessoa_relatada}</span></p>
+                )}
+                {r.detalhamento && (
+                  <p className="text-gray-500 pl-14 leading-relaxed line-clamp-2">{r.detalhamento}</p>
+                )}
               </div>
             ))}
           </div>
-          <p className="mt-3 pt-3 border-t border-gray-100 text-xs text-gray-500">
-            Último relato: <span className="font-medium text-gray-700">{fmtDate(meus[0]?.data_ocorrencia ?? null)}</span>
-          </p>
         </div>
       </div>
     </div>
@@ -676,21 +688,17 @@ export default function Relatos() {
               {/* Top tipos */}
               {topTipos.length > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
-                  <p className="text-sm font-semibold text-gray-700 mb-4">Top Tipos de Relato</p>
-                  <div className="space-y-2">
-                    {topTipos.map(({ name, total: v }, i) => (
-                      <div key={name} className="flex items-center gap-3 text-xs">
-                        <span className="w-4 text-gray-400 font-bold text-right shrink-0">{i + 1}</span>
-                        <span className="flex-1 text-gray-700 truncate">{name}</span>
-                        <div className="w-36 h-4 bg-gray-100 rounded overflow-hidden shrink-0">
-                          <div className="h-4 rounded flex items-center justify-end pr-1.5"
-                            style={{ width: `${Math.max((v / (topTipos[0]?.total ?? 1)) * 100, 6)}%`, backgroundColor: i < 2 ? '#1a4451' : '#64748b' }}>
-                            <span className="text-white text-xs font-bold">{v}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <p className="text-sm font-semibold text-gray-700 mb-4">Relatos por Tipo</p>
+                  <ResponsiveContainer width="100%" height={topTipos.length * 32 + 20}>
+                    <BarChart data={topTipos} layout="vertical" barSize={18} margin={{ left: 160, right: 40 }}>
+                      <XAxis type="number" tick={{ fontSize: 10 }} />
+                      <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={160} />
+                      <Tooltip formatter={(v) => [v, 'Relatos']} />
+                      <Bar dataKey="total" radius={[0, 4, 4, 0]} label={{ position: 'right', fontSize: 10, fill: '#6b7280' }}>
+                        {topTipos.map((_, i) => <Cell key={i} fill={i === 0 ? '#1a4451' : i < 3 ? '#334e5a' : '#64748b'} />)}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
                 </div>
               )}
 
