@@ -301,6 +301,11 @@ function RelatadoDetail({ nome, relatos, acoes, onRegistrarAcao }: {
                             </button>
                     )}
                   </div>
+                  {r.relator && (
+                    <p className="text-gray-400 pl-14 truncate">
+                      Relatante: <span className="text-gray-700 font-medium">{r.relator}</span>
+                    </p>
+                  )}
                   {r.detalhamento && (
                     <p className="text-gray-500 pl-14 leading-relaxed line-clamp-2">{r.detalhamento}</p>
                   )}
