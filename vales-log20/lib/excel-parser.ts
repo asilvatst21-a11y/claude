@@ -45,21 +45,22 @@ function getExcelDate(row: unknown[], index: number): string | null {
  * Parses an Excel file buffer and returns structured data.
  * Column indices are 0-based from the spec (which uses 1-based col numbers).
  *
- * Col 10 (idx 9):  Cód. Ajudante 1
- * Col 11 (idx 10): Ajudante 1
- * Col 12 (idx 11): Cód. Ajudante 2
- * Col 13 (idx 12): Ajudante 2
- * Col 14 (idx 13): Mapa
- * Col 15 (idx 14): Data (Excel serial)
- * Col 18 (idx 17): Vale (numero)
- * Col 19 (idx 18): Emissão Vale (Excel serial)
- * Col 20 (idx 19): Item Tipo
- * Col 22 (idx 21): Item (product name)
- * Col 28 (idx 27): Qtde Diferença
- * Col 30 (idx 29): Valor
- * Col 38 (idx 37): Just. Ajudante
- * Col 39 (idx 38): Ação Transportadora
- * Col 67 (idx 66): Status Vale
+ * All indices are 0-based from sheet_to_json({header:1}):
+ * idx 10: Cód. Ajudante 1
+ * idx 11: Ajudante 1
+ * idx 12: Cód. Ajudante 2
+ * idx 13: Ajudante 2
+ * idx 14: Mapa
+ * idx 15: Data (Excel serial)
+ * idx 18: Vale (numero)
+ * idx 19: Emissão Vale (Excel serial)
+ * idx 20: Item Tipo
+ * idx 22: Item (product name)
+ * idx 28: Qtde Diferença
+ * idx 30: Valor
+ * idx 38: Just. Ajudante
+ * idx 39: Ação Transportadora
+ * idx 67: Status Vale
  */
 export function parseExcelBuffer(buffer: ArrayBuffer): ImportacaoSummary {
   const workbook = XLSX.read(buffer, { type: "array" });
@@ -75,11 +76,11 @@ export function parseExcelBuffer(buffer: ArrayBuffer): ImportacaoSummary {
 
   const parsedRows: ExcelRow[] = [];
 
-  // Skip header row(s) — look for the first row where col 17 (0-based) has a numeric vale number
+  // Skip header row(s) — look for the first row where idx 18 has a numeric vale number
   let dataStartIndex = 0;
   for (let i = 0; i < Math.min(rawRows.length, 10); i++) {
     const row = rawRows[i];
-    const valeNum = getNumber(row, 17);
+    const valeNum = getNumber(row, 18);
     if (valeNum !== null && valeNum > 0) {
       dataStartIndex = i;
       break;
@@ -90,28 +91,28 @@ export function parseExcelBuffer(buffer: ArrayBuffer): ImportacaoSummary {
   for (let i = dataStartIndex; i < rawRows.length; i++) {
     const row = rawRows[i];
 
-    const numeroVale = getNumber(row, 17);
+    const numeroVale = getNumber(row, 18);
     if (!numeroVale || numeroVale <= 0) continue;
 
-    const codigoAjudante1 = getNumber(row, 9);
+    const codigoAjudante1 = getNumber(row, 10);
     if (!codigoAjudante1) continue;
 
     const parsed: ExcelRow = {
       codigoAjudante1,
-      nomeAjudante1: getString(row, 10) ?? `Ajudante ${codigoAjudante1}`,
-      codigoAjudante2: getNumber(row, 11),
-      nomeAjudante2: getString(row, 12),
-      mapa: getNumber(row, 13),
-      data: getExcelDate(row, 14),
+      nomeAjudante1: getString(row, 11) ?? `Ajudante ${codigoAjudante1}`,
+      codigoAjudante2: getNumber(row, 12),
+      nomeAjudante2: getString(row, 13),
+      mapa: getNumber(row, 14),
+      data: getExcelDate(row, 15),
       numeroVale,
-      emissaoVale: getExcelDate(row, 18),
-      itemTipo: getString(row, 19),
-      item: getString(row, 21),
-      qtdeDiferenca: getNumber(row, 27),
-      valor: getNumber(row, 29),
-      justAjudante: getString(row, 37),
-      acaoTransportadora: (getString(row, 38) as AcaoTransportadora) ?? null,
-      statusVale: (getString(row, 66) as StatusVale) ?? null,
+      emissaoVale: getExcelDate(row, 19),
+      itemTipo: getString(row, 20),
+      item: getString(row, 22),
+      qtdeDiferenca: getNumber(row, 28),
+      valor: getNumber(row, 30),
+      justAjudante: getString(row, 38),
+      acaoTransportadora: (getString(row, 39) as AcaoTransportadora) ?? null,
+      statusVale: (getString(row, 67) as StatusVale) ?? null,
     };
 
     parsedRows.push(parsed);
