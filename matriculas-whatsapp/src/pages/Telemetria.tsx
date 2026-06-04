@@ -72,8 +72,8 @@ function qualificaAcao(
   limiar_km: number | null,
   duracao_seg: number,
 ): boolean {
-  if (tipo === 'CURVA_BRUSCA' || tipo === 'FREADA_BRUSCA') return true
-  if (tipo === 'EXCESSO_VELOCIDADE' || tipo === 'EXCESSO_VELOCIDADE_POR_VIA') {
+  if (tipo === 'CURVA_BRUSCA' || tipo === 'FREADA_BRUSCA' || tipo === 'EXCESSO_VELOCIDADE') return true
+  if (tipo === 'EXCESSO_VELOCIDADE_POR_VIA') {
     return (
       excesso_km !== null && limiar_km !== null &&
       excesso_km > 50 &&
