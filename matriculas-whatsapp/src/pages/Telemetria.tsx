@@ -155,6 +155,9 @@ async function parseCsv(file: File): Promise<Omit<TelemetriaAlerta, 'id' | 'fili
         const lat = parseFloat(latStr)
         const lon = parseFloat(lonStr)
 
+        const qualifica = qualificaAcao(tipo, excessoKm, limiarKm, duracaoSeg)
+        if (tipo === 'EXCESSO_VELOCIDADE_POR_VIA' && !qualifica) continue
+
         results.push({
           placa,
           prefixo:  prefixo || null,
@@ -179,7 +182,7 @@ async function parseCsv(file: File): Promise<Omit<TelemetriaAlerta, 'id' | 'fili
           status:      status || null,
           integrador:  integrador || null,
           alerta_desconsiderado: alertaDesc || null,
-          qualifica_acao: qualificaAcao(tipo, excessoKm, limiarKm, duracaoSeg),
+          qualifica_acao: qualifica,
         })
       }
       resolve(results)
