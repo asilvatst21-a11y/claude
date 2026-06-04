@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
           if (!ajId) return null;
           return { vale_id: valeId, ajudante_id: ajId, posicao: aj.posicao };
         })
-        .filter(Boolean);
+        .filter((r): r is { vale_id: string; ajudante_id: string; posicao: number } => r !== null);
     });
 
     if (valeAjudantesRows.length > 0) {
