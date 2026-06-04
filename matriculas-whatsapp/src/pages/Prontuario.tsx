@@ -8,11 +8,11 @@ import {
 import {
   Upload, Loader2, Building2, RefreshCw, Download,
   TrendingUp, TrendingDown, Minus, Users, ChevronDown, ChevronUp, Calendar, Search,
-  AlertTriangle, Gauge
+
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import type { ProntuarioSnapshot, ProntuarioRegistro, TelemetriaAlerta } from '../types'
+import type { ProntuarioSnapshot, ProntuarioRegistro } from '../types'
 
 // ── Faixa ─────────────────────────────────────────────────────────────────────
 
@@ -230,90 +230,6 @@ function parseProntuario(buffer: ArrayBuffer, tipo: 'motorista' | 'ajudante', fi
       operacao:  String(isMot ? r[76] : r[48] ?? '').trim() || null,
     }
   })
-}
-
-// ── Telemetria inline helpers ─────────────────────────────────────────────────
-
-const TEL_TIPO_LABEL: Record<string, string> = {
-  CURVA_BRUSCA:               'Curva Brusca',
-  FREADA_BRUSCA:              'Freada Brusca',
-  EXCESSO_VELOCIDADE:         'Exc. Velocidade',
-  EXCESSO_VELOCIDADE_POR_VIA: 'Exc. Veloc. por Via',
-}
-const TEL_TIPO_COR: Record<string, string> = {
-  CURVA_BRUSCA:               'bg-orange-100 text-orange-800 border-orange-300',
-  FREADA_BRUSCA:              'bg-yellow-100 text-yellow-800 border-yellow-300',
-  EXCESSO_VELOCIDADE:         'bg-rose-100 text-rose-700 border-rose-300',
-  EXCESSO_VELOCIDADE_POR_VIA: 'bg-red-100 text-red-700 border-red-300',
-}
-
-function fmtTelDH(dh: string | null) {
-  if (!dh) return '—'
-  const d = new Date(dh)
-  if (isNaN(d.getTime())) return dh
-  return d.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-function TelemetriaSection({ cpf, filial, temScore }: { cpf: string; filial: string; temScore: boolean }) {
-  const [eventos, setEventos] = useState<TelemetriaAlerta[] | null>(null)
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    async function load() {
-      const cpfNorm = cpf?.trim()
-      if (!cpfNorm) { setLoading(false); setEventos([]); return }
-      const { data } = await supabase
-        .from('telemetria_alertas')
-        .select('id,tipo,nivel,logradouro,cidade,excesso_km,limiar_km,data_hora')
-        .eq('filial', filial)
-        .eq('cpf', cpfNorm)
-        .order('data_hora', { ascending: false })
-        .limit(25)
-      setEventos((data ?? []) as TelemetriaAlerta[])
-      setLoading(false)
-    }
-    load()
-  }, [cpf, filial])
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-3 text-xs text-gray-400">
-        <Loader2 size={12} className="animate-spin mr-1" /> Carregando telemetria…
-      </div>
-    )
-  }
-
-  if (!eventos || eventos.length === 0) {
-    if (temScore) {
-      return (
-        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5 text-xs text-amber-700">
-          <AlertTriangle size={13} className="shrink-0 mt-0.5" />
-          <span>
-            Este motorista tem pontuação de telemetria no prontuário, mas não há eventos importados.
-            Importe o histórico de alertas na aba <strong>Telemetria</strong>.
-          </span>
-        </div>
-      )
-    }
-    return <p className="text-xs text-gray-400 text-center py-2">Nenhum evento de telemetria registrado.</p>
-  }
-
-  return (
-    <div className="divide-y divide-gray-50">
-      {eventos.map(a => (
-        <div key={a.id} className="flex items-center gap-3 py-2 flex-wrap">
-          <span className={`text-xs px-1.5 py-0.5 rounded border font-medium shrink-0 ${TEL_TIPO_COR[a.tipo] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-            {TEL_TIPO_LABEL[a.tipo] ?? a.tipo}
-          </span>
-          <span className="text-xs text-gray-500 shrink-0">{fmtTelDH(a.data_hora)}</span>
-          {a.logradouro && <span className="text-xs text-gray-400 truncate">{a.logradouro}{a.cidade ? `, ${a.cidade}` : ''}</span>}
-          {a.excesso_km && a.limiar_km && (
-            <span className="text-xs text-red-600 shrink-0 ml-auto">{a.excesso_km} km/h <span className="text-gray-400">(lim. {a.limiar_km})</span></span>
-          )}
-        </div>
-      ))}
-    </div>
-  )
 }
 
 // ── Comparison ────────────────────────────────────────────────────────────────
@@ -786,19 +702,6 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                                       )
                                     })}
                                   </div>
-                                </div>
-                              )}
-
-                              {/* Eventos de Telemetria */}
-                              {tipo === 'motorista' && (
-                                <div className="bg-white rounded-lg border border-gray-100 p-3">
-                                  <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1.5">
-                                    <Gauge size={12} /> Eventos de Telemetria
-                                    {(sums.telemetria ?? 0) > 0 && (
-                                      <span className="text-brand-600 font-bold ml-1">{sums.telemetria.toFixed(2)} pts no prontuário</span>
-                                    )}
-                                  </p>
-                                  <TelemetriaSection cpf={d.reg.cpf} filial={filial} temScore={(sums.telemetria ?? 0) > 0} />
                                 </div>
                               )}
 
