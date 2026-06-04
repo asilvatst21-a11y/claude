@@ -165,6 +165,50 @@ export interface ProntuarioRegistro {
   created_at: string
 }
 
+export interface TelemetriaAlerta {
+  id: string
+  filial: string
+  placa: string
+  prefixo: string | null
+  motorista: string | null
+  motorista_identificado: string | null
+  cpf: string | null
+  uo: string | null
+  tipo: string
+  nivel: string | null
+  limiar_raw: string | null
+  excesso_raw: string | null
+  limiar_km: number | null
+  excesso_km: number | null
+  duracao_seg: number | null
+  ponto_referencia: string | null
+  categoria: string | null
+  logradouro: string | null
+  cidade: string | null
+  estado: string | null
+  latitude: number | null
+  longitude: number | null
+  data_hora: string | null
+  status: string | null
+  integrador: string | null
+  alerta_desconsiderado: string | null
+  qualifica_acao: boolean
+  created_at: string
+}
+
+export interface TelemetriaAcao {
+  id: string
+  filial: string
+  alerta_id: string
+  placa: string
+  motorista: string
+  tipo_acao: string
+  dias_suspensao: number | null
+  observacao: string | null
+  registrado_por: string | null
+  created_at: string
+}
+
 export interface Relato {
   id: string
   filial: string
