@@ -460,7 +460,7 @@ export default function Telemetria() {
   const [acoes, setAcoes]                 = useState<TelemetriaAcao[]>([])
   const [loading, setLoading]             = useState(true)
   const [uploading, setUploading]         = useState(false)
-  const [tab, setTab]                     = useState<'dash' | 'motoristas' | 'via' | 'semid'>('dash')
+  const [tab, setTab]                     = useState<'dash' | 'motoristas' | 'via' | 'semid' | 'reincidencia' | 'score' | 'serie'>('dash')
   const [expandedMot, setExpandedMot]     = useState<string | null>(null)
   const [modalAcao, setModalAcao]         = useState<TelemetriaAlerta | null>(null)
   const [modalId, setModalId]             = useState<TelemetriaAlerta | null>(null)
@@ -685,6 +685,84 @@ export default function Telemetria() {
     [alertas],
   )
 
+  // Reincidência: mesmo motorista + logradouro + tipo com 2+ eventos
+  const reincidenciaData = useMemo(() => {
+    const map: Record<string, { motorista: string; logradouro: string; tipo: string; eventos: TelemetriaAlerta[] }> = {}
+    filtered.forEach(a => {
+      if (!a.logradouro) return
+      const mot = motoristaEfetivo(a)
+      const key = `${mot}||${a.logradouro}||${a.tipo}`
+      if (!map[key]) map[key] = { motorista: mot, logradouro: a.logradouro, tipo: a.tipo, eventos: [] }
+      map[key].eventos.push(a)
+    })
+    return Object.values(map)
+      .filter(v => v.eventos.length >= 2)
+      .sort((a, b) => b.eventos.length - a.eventos.length)
+  }, [filtered])
+
+  // Score de risco por motorista
+  const scoreData = useMemo(() => {
+    const reincMap: Record<string, number> = {}
+    filtered.forEach(a => {
+      if (!a.logradouro) return
+      const mot = motoristaEfetivo(a)
+      const key = `${mot}||${a.logradouro}||${a.tipo}`
+      reincMap[key] = (reincMap[key] ?? 0) + 1
+    })
+
+    const map: Record<string, { motorista: string; alertas: TelemetriaAlerta[]; score: number }> = {}
+    filtered.forEach(a => {
+      const mot = motoristaEfetivo(a)
+      if (!map[mot]) map[mot] = { motorista: mot, alertas: [], score: 0 }
+      map[mot].alertas.push(a)
+    })
+    Object.values(map).forEach(v => {
+      let score = 0
+      const reincContados = new Set<string>()
+      v.alertas.forEach(a => {
+        if (a.tipo === 'EXCESSO_VELOCIDADE_POR_VIA') score += 10
+        else if (a.tipo === 'EXCESSO_VELOCIDADE')    score += 8
+        else if (a.tipo === 'FREADA_BRUSCA')         score += 6
+        else if (a.tipo === 'CURVA_BRUSCA')          score += 4
+        if (a.excesso_km && a.limiar_km)
+          score += Math.min((a.excesso_km - a.limiar_km) / 5, 10)
+        if (a.logradouro) {
+          const rkey = `${v.motorista}||${a.logradouro}||${a.tipo}`
+          if (reincMap[rkey] >= 2 && !reincContados.has(rkey)) {
+            reincContados.add(rkey)
+            score += 5
+          }
+        }
+      })
+      v.score = Math.round(score)
+    })
+    return Object.values(map).sort((a, b) => b.score - a.score)
+  }, [filtered])
+
+  function riskLevel(score: number) {
+    if (score <= 20)  return { label: 'Baixo',   css: 'bg-green-100 text-green-700 border-green-300',   bar: '#22c55e' }
+    if (score <= 50)  return { label: 'Médio',   css: 'bg-yellow-100 text-yellow-800 border-yellow-300', bar: '#eab308' }
+    if (score <= 100) return { label: 'Alto',    css: 'bg-orange-100 text-orange-800 border-orange-300', bar: '#f97316' }
+    return             { label: 'Crítico', css: 'bg-red-100 text-red-700 border-red-300',     bar: '#ef4444' }
+  }
+  const maxScore = Math.max(...scoreData.map(s => s.score), 1)
+
+  // Eventos em série: mesmo motorista com 3+ eventos no mesmo dia
+  const serieData = useMemo(() => {
+    const map: Record<string, { motorista: string; data: string; eventos: TelemetriaAlerta[] }> = {}
+    filtered.forEach(a => {
+      if (!a.data_hora) return
+      const mot = motoristaEfetivo(a)
+      const date = a.data_hora.slice(0, 10)
+      const key = `${mot}||${date}`
+      if (!map[key]) map[key] = { motorista: mot, data: date, eventos: [] }
+      map[key].eventos.push(a)
+    })
+    return Object.values(map)
+      .filter(v => v.eventos.length >= 3)
+      .sort((a, b) => b.eventos.length - a.eventos.length || b.data.localeCompare(a.data))
+  }, [filtered])
+
   const maxHora = Math.max(...horaData.map(d => d.total), 1)
   const maxDia  = Math.max(...diaSemanaData.map(d => d.total), 1)
 
@@ -746,10 +824,13 @@ export default function Telemetria() {
           {/* Tabs */}
           <div className="flex gap-1 border-b border-gray-200">
             {([
-              ['dash',       'Dashboard'],
-              ['motoristas', 'Motoristas'],
-              ['via',        'Por Via'],
-              ['semid',      `Sem Identificação${semIdAlertas.length > 0 ? ` (${semIdAlertas.length})` : ''}`],
+              ['dash',          'Dashboard'],
+              ['motoristas',    'Motoristas'],
+              ['via',           'Por Via'],
+              ['reincidencia',  'Reincidência'],
+              ['score',         'Score de Risco'],
+              ['serie',         'Eventos em Série'],
+              ['semid',         `Sem Identificação${semIdAlertas.length > 0 ? ` (${semIdAlertas.length})` : ''}`],
             ] as [string, string][]).map(([k, l]) => (
               <button key={k} onClick={() => setTab(k as typeof tab)}
                 className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${tab === k
@@ -1069,6 +1150,150 @@ export default function Telemetria() {
                           </td>
                         </tr>
                       ))}
+                    </tbody>
+                  </table>
+                )
+              }
+            </div>
+          )}
+
+          {/* ── Reincidência Tab ─────────────────────────────────────────── */}
+          {tab === 'reincidencia' && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              {reincidenciaData.length === 0
+                ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <MapPin size={32} className="mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">Nenhuma reincidência encontrada no período.</p>
+                    <p className="text-xs mt-1">Reincidência = mesmo motorista, mesmo trecho, mesmo tipo de evento (≥2 ocorrências)</p>
+                  </div>
+                )
+                : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Motorista</th>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Via</th>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Tipo</th>
+                        <th className="text-center px-3 py-3 text-xs font-semibold text-red-600">Ocorr.</th>
+                        <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Primeira</th>
+                        <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Última</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {reincidenciaData.map((r, i) => {
+                        const sorted = [...r.eventos].sort((a, b) => (a.data_hora ?? '').localeCompare(b.data_hora ?? ''))
+                        const primeira = sorted[0]?.data_hora
+                        const ultima   = sorted[sorted.length - 1]?.data_hora
+                        return (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-4 py-2.5 font-medium text-gray-800 max-w-xs truncate">{r.motorista}</td>
+                            <td className="px-4 py-2.5 text-gray-600 text-xs max-w-xs truncate">{r.logradouro}</td>
+                            <td className="px-4 py-2.5"><TipoBadge tipo={r.tipo} /></td>
+                            <td className="px-3 py-2.5 text-center">
+                              <span className="text-sm font-bold text-red-600">{r.eventos.length}</span>
+                            </td>
+                            <td className="px-3 py-2.5 text-center text-xs text-gray-500">{fmtDataHora(primeira)}</td>
+                            <td className="px-3 py-2.5 text-center text-xs text-gray-500">{fmtDataHora(ultima)}</td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                )
+              }
+            </div>
+          )}
+
+          {/* ── Score de Risco Tab ───────────────────────────────────────── */}
+          {tab === 'score' && (
+            <div className="space-y-4">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700">
+                Score composto: tipo de evento (4–10 pts) + severidade da velocidade + bônus por reincidência no mesmo trecho (+5 pts/trecho).
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">#</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Motorista</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Risco</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-48">Score</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Eventos</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {scoreData.map((s, i) => {
+                      const risk = riskLevel(s.score)
+                      return (
+                        <tr key={s.motorista} className="hover:bg-gray-50">
+                          <td className="px-4 py-2.5 text-xs text-gray-400 font-bold">{i + 1}</td>
+                          <td className="px-4 py-2.5 font-medium text-gray-800 max-w-xs truncate">{s.motorista}</td>
+                          <td className="px-3 py-2.5 text-center">
+                            <span className={`text-xs px-1.5 py-0.5 rounded border font-medium ${risk.css}`}>{risk.label}</span>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <div className="flex items-center gap-2">
+                              <div className="flex-1 h-3 bg-gray-100 rounded-full overflow-hidden">
+                                <div className="h-3 rounded-full" style={{ width: `${(s.score / maxScore) * 100}%`, backgroundColor: risk.bar }} />
+                              </div>
+                              <span className="text-xs font-bold text-gray-700 w-8 text-right">{s.score}</span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-center text-xs text-gray-500">{s.alertas.length}</td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── Eventos em Série Tab ─────────────────────────────────────── */}
+          {tab === 'serie' && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              {serieData.length === 0
+                ? (
+                  <div className="text-center py-12 text-gray-400">
+                    <Clock size={32} className="mx-auto mb-2 opacity-30" />
+                    <p className="text-sm">Nenhum dia com 3 ou mais eventos para o mesmo motorista.</p>
+                  </div>
+                )
+                : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Motorista</th>
+                        <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Data</th>
+                        <th className="text-center px-3 py-3 text-xs font-semibold text-red-600">Eventos</th>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Tipos no dia</th>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Vias</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {serieData.map((s, i) => {
+                        const [y2, m2, d2] = s.data.split('-')
+                        const tipos = [...new Set(s.eventos.map(a => a.tipo))]
+                        const vias  = [...new Set(s.eventos.map(a => a.logradouro).filter(Boolean))]
+                        return (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-4 py-2.5 font-medium text-gray-800 max-w-xs truncate">{s.motorista}</td>
+                            <td className="px-3 py-2.5 text-center text-xs text-gray-600 font-medium">{`${d2}/${m2}/${y2}`}</td>
+                            <td className="px-3 py-2.5 text-center">
+                              <span className="text-sm font-bold text-red-600">{s.eventos.length}</span>
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <div className="flex gap-1 flex-wrap">
+                                {tipos.map(t => <TipoBadge key={t} tipo={t} />)}
+                              </div>
+                            </td>
+                            <td className="px-4 py-2.5 text-xs text-gray-500 max-w-xs truncate">
+                              {vias.length > 0 ? vias.join(', ') : '—'}
+                            </td>
+                          </tr>
+                        )
+                      })}
                     </tbody>
                   </table>
                 )
