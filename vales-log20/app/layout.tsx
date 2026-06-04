@@ -1,0 +1,43 @@
+import type { Metadata } from "next";
+import { Geist, Geist_Mono } from "next/font/google";
+import "./globals.css";
+import { Toaster } from "@/components/ui/toaster";
+import { Nav } from "@/components/nav";
+
+const geistSans = Geist({
+  variable: "--font-geist-sans",
+  subsets: ["latin"],
+});
+
+const geistMono = Geist_Mono({
+  variable: "--font-geist-mono",
+  subsets: ["latin"],
+});
+
+export const metadata: Metadata = {
+  title: "Vales LOG20",
+  description: "Sistema de gerenciamento de vales - LOG20",
+};
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  return (
+    <html
+      lang="pt-BR"
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <body className="min-h-full bg-background text-foreground">
+        <div className="flex h-screen overflow-hidden">
+          <Nav />
+          <main className="flex-1 overflow-y-auto p-6 bg-muted/30">
+            {children}
+          </main>
+        </div>
+        <Toaster />
+      </body>
+    </html>
+  );
+}
