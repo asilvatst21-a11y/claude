@@ -17,18 +17,21 @@ import type { TelemetriaAlerta, TelemetriaAcao } from '../types'
 const TIPO_LABEL: Record<string, string> = {
   CURVA_BRUSCA: 'Curva Brusca',
   FREADA_BRUSCA: 'Freada Brusca',
-  EXCESSO_VELOCIDADE_POR_VIA: 'Exc. Velocidade',
+  EXCESSO_VELOCIDADE: 'Exc. Velocidade',
+  EXCESSO_VELOCIDADE_POR_VIA: 'Exc. Veloc. por Via',
 }
 
 const TIPO_COR: Record<string, string> = {
   CURVA_BRUSCA: 'bg-orange-100 text-orange-800 border-orange-300',
   FREADA_BRUSCA: 'bg-yellow-100 text-yellow-800 border-yellow-300',
+  EXCESSO_VELOCIDADE: 'bg-rose-100 text-rose-700 border-rose-300',
   EXCESSO_VELOCIDADE_POR_VIA: 'bg-red-100 text-red-700 border-red-300',
 }
 
 const TIPO_HEX: Record<string, string> = {
   CURVA_BRUSCA: '#f97316',
   FREADA_BRUSCA: '#eab308',
+  EXCESSO_VELOCIDADE: '#f43f5e',
   EXCESSO_VELOCIDADE_POR_VIA: '#ef4444',
 }
 
@@ -46,7 +49,7 @@ const COR_ACAO: Record<string, string> = {
 }
 
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
-const TIPOS_LISTA = ['CURVA_BRUSCA', 'FREADA_BRUSCA', 'EXCESSO_VELOCIDADE_POR_VIA'] as const
+const TIPOS_LISTA = ['CURVA_BRUSCA', 'FREADA_BRUSCA', 'EXCESSO_VELOCIDADE', 'EXCESSO_VELOCIDADE_POR_VIA'] as const
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -70,7 +73,7 @@ function qualificaAcao(
   duracao_seg: number,
 ): boolean {
   if (tipo === 'CURVA_BRUSCA' || tipo === 'FREADA_BRUSCA') return true
-  if (tipo === 'EXCESSO_VELOCIDADE_POR_VIA') {
+  if (tipo === 'EXCESSO_VELOCIDADE' || tipo === 'EXCESSO_VELOCIDADE_POR_VIA') {
     return (
       excesso_km !== null && limiar_km !== null &&
       excesso_km > 50 &&
@@ -599,14 +602,15 @@ export default function Telemetria() {
 
   // Top motoristas (by effective name)
   const topMotoristas = useMemo(() => {
-    const map: Record<string, { curva: number; freada: number; velocidade: number; total: number }> = {}
+    const map: Record<string, { curva: number; freada: number; veloc: number; velocVia: number; total: number }> = {}
     filtered.forEach(a => {
       const mot = motoristaEfetivo(a)
-      if (!map[mot]) map[mot] = { curva: 0, freada: 0, velocidade: 0, total: 0 }
+      if (!map[mot]) map[mot] = { curva: 0, freada: 0, veloc: 0, velocVia: 0, total: 0 }
       map[mot].total++
-      if (a.tipo === 'CURVA_BRUSCA')               map[mot].curva++
-      else if (a.tipo === 'FREADA_BRUSCA')          map[mot].freada++
-      else if (a.tipo === 'EXCESSO_VELOCIDADE_POR_VIA') map[mot].velocidade++
+      if (a.tipo === 'CURVA_BRUSCA')                    map[mot].curva++
+      else if (a.tipo === 'FREADA_BRUSCA')               map[mot].freada++
+      else if (a.tipo === 'EXCESSO_VELOCIDADE')          map[mot].veloc++
+      else if (a.tipo === 'EXCESSO_VELOCIDADE_POR_VIA')  map[mot].velocVia++
     })
     return Object.entries(map)
       .map(([name, v]) => ({ name, ...v }))
@@ -645,19 +649,20 @@ export default function Telemetria() {
   const motoristasTable = useMemo(() => {
     const map: Record<string, {
       alertas: TelemetriaAlerta[]
-      curva: number; freada: number; velocidade: number
+      curva: number; freada: number; veloc: number; velocVia: number
       qualificados: number; comAcao: number
       sevMedia: number | null
     }> = {}
     filtered.forEach(a => {
       const mot = motoristaEfetivo(a)
-      if (!map[mot]) map[mot] = { alertas: [], curva: 0, freada: 0, velocidade: 0, qualificados: 0, comAcao: 0, sevMedia: null }
+      if (!map[mot]) map[mot] = { alertas: [], curva: 0, freada: 0, veloc: 0, velocVia: 0, qualificados: 0, comAcao: 0, sevMedia: null }
       map[mot].alertas.push(a)
-      if (a.tipo === 'CURVA_BRUSCA')               map[mot].curva++
-      else if (a.tipo === 'FREADA_BRUSCA')          map[mot].freada++
-      else if (a.tipo === 'EXCESSO_VELOCIDADE_POR_VIA') map[mot].velocidade++
+      if (a.tipo === 'CURVA_BRUSCA')                    map[mot].curva++
+      else if (a.tipo === 'FREADA_BRUSCA')               map[mot].freada++
+      else if (a.tipo === 'EXCESSO_VELOCIDADE')          map[mot].veloc++
+      else if (a.tipo === 'EXCESSO_VELOCIDADE_POR_VIA')  map[mot].velocVia++
       if (a.qualifica_acao) map[mot].qualificados++
-      if (acoes.some(x => x.alerta_id === a.id))   map[mot].comAcao++
+      if (acoes.some(x => x.alerta_id === a.id))        map[mot].comAcao++
     })
     // Severidade média (excesso - limiar) para velocidade
     Object.values(map).forEach(v => {
@@ -817,18 +822,20 @@ export default function Telemetria() {
                     <XAxis type="number" tick={{ fontSize: 10 }} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={200} />
                     <Tooltip />
-                    <Bar dataKey="curva"      stackId="a" fill={TIPO_HEX.CURVA_BRUSCA}               name="Curva Brusca"    />
-                    <Bar dataKey="freada"     stackId="a" fill={TIPO_HEX.FREADA_BRUSCA}              name="Freada Brusca"   />
-                    <Bar dataKey="velocidade" stackId="a" fill={TIPO_HEX.EXCESSO_VELOCIDADE_POR_VIA} name="Exc. Velocidade" radius={[0, 4, 4, 0]}
-                      label={{ position: 'right', fontSize: 10, fill: '#6b7280', formatter: (_: unknown, entry: { curva: number; freada: number; velocidade: number }) => entry ? entry.curva + entry.freada + entry.velocidade : '' }}
+                    <Bar dataKey="curva"    stackId="a" fill={TIPO_HEX.CURVA_BRUSCA}               name="Curva Brusca"       />
+                    <Bar dataKey="freada"   stackId="a" fill={TIPO_HEX.FREADA_BRUSCA}              name="Freada Brusca"      />
+                    <Bar dataKey="veloc"    stackId="a" fill={TIPO_HEX.EXCESSO_VELOCIDADE}         name="Exc. Velocidade"    />
+                    <Bar dataKey="velocVia" stackId="a" fill={TIPO_HEX.EXCESSO_VELOCIDADE_POR_VIA} name="Exc. Veloc. por Via" radius={[0, 4, 4, 0]}
+                      label={{ position: 'right', fontSize: 10, fill: '#6b7280', formatter: (_: unknown, entry: { curva: number; freada: number; veloc: number; velocVia: number }) => entry ? entry.curva + entry.freada + entry.veloc + entry.velocVia : '' }}
                     />
                   </BarChart>
                 </ResponsiveContainer>
                 <div className="flex gap-4 mt-2 text-xs text-gray-500">
                   {[
-                    { label: 'Curva Brusca',    color: TIPO_HEX.CURVA_BRUSCA },
-                    { label: 'Freada Brusca',   color: TIPO_HEX.FREADA_BRUSCA },
-                    { label: 'Exc. Velocidade', color: TIPO_HEX.EXCESSO_VELOCIDADE_POR_VIA },
+                    { label: 'Curva Brusca',         color: TIPO_HEX.CURVA_BRUSCA },
+                    { label: 'Freada Brusca',        color: TIPO_HEX.FREADA_BRUSCA },
+                    { label: 'Exc. Velocidade',      color: TIPO_HEX.EXCESSO_VELOCIDADE },
+                    { label: 'Exc. Veloc. por Via',  color: TIPO_HEX.EXCESSO_VELOCIDADE_POR_VIA },
                   ].map(({ label, color }) => (
                     <span key={label} className="flex items-center gap-1">
                       <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: color }} />
@@ -882,14 +889,15 @@ export default function Telemetria() {
                     <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Total</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-orange-600" title="Curva Brusca">Curva</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-yellow-600" title="Freada Brusca">Freada</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-red-600" title="Excesso Velocidade">Veloc.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-rose-600" title="Excesso Velocidade">Veloc.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-red-600" title="Excesso Velocidade por Via">V. Via</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Qualif.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Sev. Méd.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-brand-700">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {motoristasTable.map(({ mot, alertas: al, curva, freada, velocidade, qualificados, comAcao, sevMedia }) => (
+                  {motoristasTable.map(({ mot, alertas: al, curva, freada, veloc, velocVia, qualificados, comAcao, sevMedia }) => (
                     <Fragment key={mot}>
                       <tr
                         className="hover:bg-gray-50 cursor-pointer"
@@ -902,7 +910,8 @@ export default function Telemetria() {
                         <td className="px-3 py-3 text-center font-semibold text-gray-700">{al.length}</td>
                         <td className="px-3 py-3 text-center text-orange-700">{curva || '—'}</td>
                         <td className="px-3 py-3 text-center text-yellow-700">{freada || '—'}</td>
-                        <td className="px-3 py-3 text-center text-red-700">{velocidade || '—'}</td>
+                        <td className="px-3 py-3 text-center text-rose-700">{veloc || '—'}</td>
+                        <td className="px-3 py-3 text-center text-red-700">{velocVia || '—'}</td>
                         <td className="px-3 py-3 text-center">
                           {qualificados > 0
                             ? <span className="text-xs font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded">{qualificados}</span>
@@ -989,7 +998,8 @@ export default function Telemetria() {
                       <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Total</th>
                       <th className="text-center px-3 py-3 text-xs font-semibold text-orange-600">Curva</th>
                       <th className="text-center px-3 py-3 text-xs font-semibold text-yellow-600">Freada</th>
-                      <th className="text-center px-3 py-3 text-xs font-semibold text-red-600">Veloc.</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-rose-600">Veloc.</th>
+                      <th className="text-center px-3 py-3 text-xs font-semibold text-red-600">V. Via</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -1003,6 +1013,7 @@ export default function Telemetria() {
                           <td className="px-3 py-2.5 text-center font-semibold text-gray-700">{total}</td>
                           <td className="px-3 py-2.5 text-center text-orange-700">{vAl.filter(a => a.tipo === 'CURVA_BRUSCA').length || '—'}</td>
                           <td className="px-3 py-2.5 text-center text-yellow-700">{vAl.filter(a => a.tipo === 'FREADA_BRUSCA').length || '—'}</td>
+                          <td className="px-3 py-2.5 text-center text-rose-700">{vAl.filter(a => a.tipo === 'EXCESSO_VELOCIDADE').length || '—'}</td>
                           <td className="px-3 py-2.5 text-center text-red-700">{vAl.filter(a => a.tipo === 'EXCESSO_VELOCIDADE_POR_VIA').length || '—'}</td>
                         </tr>
                       )
