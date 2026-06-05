@@ -7,13 +7,17 @@ import {
 } from 'recharts'
 import {
   Upload, Loader2, RefreshCw, Clock, TrendingUp, TrendingDown,
-  AlertTriangle, Users, ThumbsUp,
+  AlertTriangle, Users, ThumbsUp, Filter, X, UserCog,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import type { JornadaRegistro } from '../types'
+import type { JornadaRegistro, Colaborador } from '../types'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function normName(s: string): string {
+  return s.trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
+}
 
 function fmtH(h: number): string {
   if (h === 0) return '—'
@@ -47,6 +51,19 @@ function ConfigInput({ label, value, onChange }: { label: string; value: number;
         onChange={e => onChange(parseFloat(e.target.value) || 0)}
         className="w-16 text-center text-xs border border-yellow-300 bg-yellow-50 rounded px-1.5 py-1 font-semibold" />
     </div>
+  )
+}
+
+function FiltroSelect({ label, value, onChange, options }: {
+  label: string; value: string; onChange: (v: string) => void; options: string[]
+}) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)}
+      className={`text-xs border rounded-lg px-2 py-1.5 max-w-[180px] truncate transition-colors ${
+        value ? 'border-brand-400 bg-brand-50 text-brand-700 font-medium' : 'border-gray-200 text-gray-600'}`}>
+      <option value="">{label}: todos</option>
+      {options.map(o => <option key={o} value={o}>{o}</option>)}
+    </select>
   )
 }
 
@@ -136,6 +153,48 @@ function parseDadosPonto(wb: XLSX.WorkBook, filial: string): Omit<JornadaRegistr
   return results
 }
 
+// Detects whether a workbook is the COLABORADORES cadastro
+function isColaboradoresFile(wb: XLSX.WorkBook): boolean {
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  if (!ws) return false
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as unknown[][]
+  const hdr = (rows[0] ?? []).map(h => String(h).trim().toUpperCase())
+  return hdr.includes('COLABORADOR') && hdr.includes('FUNCAO') && hdr.includes('EQUIPE')
+}
+
+function parseColaboradores(buffer: ArrayBuffer, filial: string): Omit<Colaborador, 'id' | 'created_at'>[] {
+  const wb = XLSX.read(buffer)
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as unknown[][]
+  const hdr = (rows[0] ?? []).map(h => String(h).trim().toUpperCase())
+  const col = (name: string) => hdr.indexOf(name)
+  const iMat = col('MATR'), iNome = col('COLABORADOR'), iStatus = col('STATUS')
+  const iProj = col('PROJETO'), iSub = col('SUBPROJETO'), iFunc = col('FUNCAO')
+  const iEq = col('EQUIPE'), iCargo = col('CARGO AMBEV')
+
+  const seen = new Set<string>()
+  const out: Omit<Colaborador, 'id' | 'created_at'>[] = []
+  rows.slice(1).forEach(r => {
+    const nome = String(r[iNome] ?? '').trim()
+    if (!nome) return
+    const key = normName(nome)
+    if (seen.has(key)) return
+    seen.add(key)
+    const val = (i: number) => (i >= 0 ? String(r[i] ?? '').trim() || null : null)
+    out.push({
+      filial, nome,
+      matricula:  val(iMat),
+      status:     val(iStatus),
+      projeto:    val(iProj),
+      subprojeto: val(iSub),
+      funcao:     val(iFunc),
+      equipe:     val(iEq),
+      cargo:      val(iCargo),
+    })
+  })
+  return out
+}
+
 // ─── Upload Zone ──────────────────────────────────────────────────────────────
 
 function UploadZone({ onUpload, uploading }: { onUpload: (f: File) => void; uploading: boolean }) {
@@ -152,7 +211,7 @@ function UploadZone({ onUpload, uploading }: { onUpload: (f: File) => void; uplo
       <input {...getInputProps()} />
       {uploading
         ? <><Loader2 size={22} className="mx-auto mb-1.5 text-brand-500 animate-spin" /><p className="text-sm text-gray-600">Importando…</p></>
-        : <><Upload size={22} className="mx-auto mb-1.5 text-gray-400" /><p className="text-sm text-gray-600">Arraste o <strong>relatório de ponto (.xls/.xlsx)</strong> ou <span className="text-brand-600">clique para selecionar</span></p><p className="text-xs text-gray-400 mt-0.5">Relatório de ponto funcionário ou Dash_ponto.xlsx</p></>
+        : <><Upload size={22} className="mx-auto mb-1.5 text-gray-400" /><p className="text-sm text-gray-600">Arraste o <strong>relatório de ponto</strong> ou a <strong>planilha de colaboradores</strong> (.xls/.xlsx) ou <span className="text-brand-600">clique para selecionar</span></p><p className="text-xs text-gray-400 mt-0.5">Detecta automaticamente o tipo — ponto, Dash_ponto ou cadastro de COLABORADORES</p></>
       }
     </div>
   )
@@ -167,11 +226,18 @@ export default function Jornada() {
   const { usuario } = useAuth()
 
   const [registros, setRegistros]   = useState<JornadaRegistro[]>([])
+  const [colaboradores, setColaboradores] = useState<Colaborador[]>([])
   const [loading, setLoading]       = useState(true)
   const [uploading, setUploading]   = useState(false)
   const [tab, setTab]               = useState<Tab>('evolucao')
   const [ocorrTipo, setOcorrTipo]   = useState<OcorrTipo>('faltas')
   const [tipoCalor, setTipoCalor]   = useState<OcorrTipo>('faltas')
+
+  // Filters
+  const [fColab, setFColab]     = useState('')
+  const [fEquipe, setFEquipe]   = useState('')
+  const [fFuncao, setFFuncao]   = useState('')
+  const [fProjeto, setFProjeto] = useState('')
 
   // Pontualidade weights
   const [pesoFaltas, setPesoFaltas]             = useState(3)
@@ -188,10 +254,12 @@ export default function Jornada() {
   async function loadData() {
     if (!usuario) return
     setLoading(true)
-    const { data } = await supabase
-      .from('jornada_registros').select('*').eq('filial', usuario.filial)
-      .order('sort').order('nome')
-    setRegistros(data ?? [])
+    const [reg, col] = await Promise.all([
+      supabase.from('jornada_registros').select('*').eq('filial', usuario.filial).order('sort').order('nome'),
+      supabase.from('colaboradores').select('*').eq('filial', usuario.filial),
+    ])
+    setRegistros(reg.data ?? [])
+    setColaboradores(col.data ?? [])
     setLoading(false)
   }
 
@@ -202,11 +270,21 @@ export default function Jornada() {
     setUploading(true)
     try {
       const buffer = await file.arrayBuffer()
-      const rows   = parseJornada(buffer, usuario.filial)
-      const CHUNK  = 100
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        await supabase.from('jornada_registros')
-          .upsert(rows.slice(i, i + CHUNK), { onConflict: 'filial,nome,sort' })
+      const wb = XLSX.read(buffer)
+      if (isColaboradoresFile(wb)) {
+        const rows = parseColaboradores(buffer, usuario.filial)
+        const CHUNK = 100
+        for (let i = 0; i < rows.length; i += CHUNK) {
+          await supabase.from('colaboradores')
+            .upsert(rows.slice(i, i + CHUNK), { onConflict: 'filial,nome' })
+        }
+      } else {
+        const rows = parseJornada(buffer, usuario.filial)
+        const CHUNK = 100
+        for (let i = 0; i < rows.length; i += CHUNK) {
+          await supabase.from('jornada_registros')
+            .upsert(rows.slice(i, i + CHUNK), { onConflict: 'filial,nome,sort' })
+        }
       }
       await loadData()
     } catch (e) {
@@ -218,6 +296,46 @@ export default function Jornada() {
 
   // ── Derived data ─────────────────────────────────────────────────────────────
 
+  // Lookup colaborador metadata by normalized name, with matrícula fallback
+  const colabByNome = useMemo(() => {
+    const m = new Map<string, Colaborador>()
+    colaboradores.forEach(c => m.set(normName(c.nome), c))
+    return m
+  }, [colaboradores])
+
+  const colabByMatr = useMemo(() => {
+    const m = new Map<string, Colaborador>()
+    colaboradores.forEach(c => { if (c.matricula) m.set(c.matricula.trim(), c) })
+    return m
+  }, [colaboradores])
+
+  const infoOf = useCallback((r: JornadaRegistro): Colaborador | undefined => {
+    if (r.matricula && colabByMatr.has(r.matricula.trim())) return colabByMatr.get(r.matricula.trim())
+    return colabByNome.get(normName(r.nome))
+  }, [colabByNome, colabByMatr])
+
+  // Distinct filter options (from registros that have colaborador metadata)
+  const optsEquipe = useMemo(() =>
+    [...new Set(registros.map(r => infoOf(r)?.equipe).filter(Boolean) as string[])].sort(), [registros, infoOf])
+  const optsFuncao = useMemo(() =>
+    [...new Set(registros.map(r => infoOf(r)?.funcao).filter(Boolean) as string[])].sort(), [registros, infoOf])
+  const optsProjeto = useMemo(() =>
+    [...new Set(registros.map(r => infoOf(r)?.projeto).filter(Boolean) as string[])].sort(), [registros, infoOf])
+  const optsColab = useMemo(() =>
+    [...new Set(registros.map(r => r.nome))].sort(), [registros])
+
+  const filtros = useMemo(() => registros.filter(r => {
+    if (fColab && r.nome !== fColab) return false
+    const info = infoOf(r)
+    if (fEquipe && info?.equipe !== fEquipe) return false
+    if (fFuncao && info?.funcao !== fFuncao) return false
+    if (fProjeto && info?.projeto !== fProjeto) return false
+    return true
+  }), [registros, fColab, fEquipe, fFuncao, fProjeto, infoOf])
+
+  const filtrosAtivos = !!(fColab || fEquipe || fFuncao || fProjeto)
+  function limparFiltros() { setFColab(''); setFEquipe(''); setFFuncao(''); setFProjeto('') }
+
   const meses = useMemo(() => {
     const seen = new Map<string, number>()
     registros.forEach(r => seen.set(r.mes, r.sort))
@@ -225,20 +343,20 @@ export default function Jornada() {
   }, [registros])
 
   const funcionarios = useMemo(() =>
-    [...new Set(registros.map(r => r.nome))].sort(),
-    [registros])
+    [...new Set(filtros.map(r => r.nome))].sort(),
+    [filtros])
 
   const byFuncMes = useMemo(() => {
     const map: Record<string, Record<string, JornadaRegistro>> = {}
-    registros.forEach(r => {
+    filtros.forEach(r => {
       if (!map[r.nome]) map[r.nome] = {}
       map[r.nome][r.mes] = r
     })
     return map
-  }, [registros])
+  }, [filtros])
 
   const evolucaoData = useMemo(() => meses.map(mes => {
-    const regs = registros.filter(r => r.mes === mes)
+    const regs = filtros.filter(r => r.mes === mes)
     const he = regs.reduce((s, r) => s + r.horas_extras, 0)
     const hm = regs.reduce((s, r) => s + r.horas_menos, 0)
     return {
@@ -250,7 +368,7 @@ export default function Jornada() {
       atestados:    regs.reduce((s, r) => s + r.atestados, 0),
       afastamentos: regs.reduce((s, r) => s + r.afastamentos, 0),
     }
-  }), [registros, meses])
+  }), [filtros, meses])
 
   const ultimoMes = evolucaoData[evolucaoData.length - 1]
 
@@ -294,8 +412,8 @@ export default function Jornada() {
 
   const maxCalor = useMemo(() => {
     const field = tipoCalor as keyof JornadaRegistro
-    return Math.max(...registros.map(r => Number(r[field]) || 0), 1)
-  }, [registros, tipoCalor])
+    return Math.max(...filtros.map(r => Number(r[field]) || 0), 1)
+  }, [filtros, tipoCalor])
 
   const maxScore = Math.max(...scoreRanking.map(s => s.score), 1)
 
@@ -339,6 +457,35 @@ export default function Jornada() {
 
       {registros.length > 0 && (
         <>
+          {/* Filtros */}
+          <div className="bg-white rounded-xl border border-gray-100 p-3 shadow-sm">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 mr-1">
+                <Filter size={14} /> Filtros
+              </span>
+              <FiltroSelect label="Colaborador" value={fColab} onChange={setFColab} options={optsColab} />
+              <FiltroSelect label="Equipe"      value={fEquipe} onChange={setFEquipe} options={optsEquipe} />
+              <FiltroSelect label="Função"      value={fFuncao} onChange={setFFuncao} options={optsFuncao} />
+              <FiltroSelect label="Projeto"     value={fProjeto} onChange={setFProjeto} options={optsProjeto} />
+              {filtrosAtivos && (
+                <button onClick={limparFiltros}
+                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-600 px-2 py-1.5 rounded-lg hover:bg-red-50">
+                  <X size={13} /> Limpar
+                </button>
+              )}
+              {colaboradores.length === 0 && (
+                <span className="flex items-center gap-1 text-xs text-amber-600 ml-auto">
+                  <UserCog size={13} /> Importe a planilha de COLABORADORES para filtrar por equipe/função/projeto
+                </span>
+              )}
+            </div>
+            {filtrosAtivos && (
+              <p className="text-xs text-gray-400 mt-2">
+                Mostrando {funcionarios.length} colaborador(es) de {optsColab.length}.
+              </p>
+            )}
+          </div>
+
           {/* Tabs */}
           <div className="flex gap-0.5 border-b border-gray-200 overflow-x-auto">
             {TABS.map(([k, l]) => (

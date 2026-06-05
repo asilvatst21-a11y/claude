@@ -181,6 +181,20 @@ export interface JornadaRegistro {
   created_at: string
 }
 
+export interface Colaborador {
+  id: string
+  filial: string
+  matricula: string | null
+  nome: string
+  status: string | null
+  projeto: string | null
+  subprojeto: string | null
+  funcao: string | null
+  equipe: string | null
+  cargo: string | null
+  created_at: string
+}
+
 export interface TelemetriaAlerta {
   id: string
   filial: string
