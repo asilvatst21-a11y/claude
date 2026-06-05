@@ -26,7 +26,6 @@ import { formatCurrency, formatDateBR } from "@/lib/utils";
 import type { StatusVale } from "@/lib/types";
 
 interface ValeRow extends ValeDetalhes {
-  mapa: number | null;
   notificacao_pendente_enviada: boolean;
   notificacao_final_enviada: boolean;
 }

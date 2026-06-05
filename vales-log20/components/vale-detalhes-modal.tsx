@@ -33,6 +33,8 @@ export interface ValeDetalhes {
   numero_vale: number;
   data_emissao: string | null;
   data_rota: string | null;
+  mapa: number | null;
+  motorista: string | null;
   status_vale: string | null;
   acao_transportadora: string | null;
   justificativa_transportadora: string | null;
@@ -93,9 +95,11 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
             <div className="space-y-1.5">
               <InfoRow label="Data da Rota" value={formatDateBR(vale.data_rota)} />
               <InfoRow label="Data de Emissão" value={formatDateBR(vale.data_emissao)} />
+              <InfoRow label="Mapa" value={vale.mapa != null ? String(vale.mapa) : null} />
+              <InfoRow label="Motorista" value={vale.motorista} />
               <InfoRow
-                label="Ajudante(s)"
-                value={vale.ajudantes.map((a) => `${a.nome} (cód. ${a.codigo})`).join(", ")}
+                label={vale.ajudantes.length > 1 ? "Ajudantes (vale dividido)" : "Ajudante"}
+                value={vale.ajudantes.map((a) => `${a.nome} (cód. ${a.codigo})`).join(" • ")}
               />
               <InfoRow label="Valor Total" value={<span className="font-semibold">{formatCurrency(vale.valor_total)}</span>} />
             </div>

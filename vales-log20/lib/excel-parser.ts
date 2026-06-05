@@ -98,6 +98,7 @@ export function parseExcelBuffer(buffer: ArrayBuffer): ImportacaoSummary {
     if (!codigoAjudante1) continue;
 
     const parsed: ExcelRow = {
+      motorista: getString(row, 7),
       codigoAjudante1,
       nomeAjudante1: getString(row, 11) ?? `Ajudante ${codigoAjudante1}`,
       codigoAjudante2: getNumber(row, 12),
@@ -144,6 +145,7 @@ function groupByVale(rows: ExcelRow[]): ImportacaoSummary {
         dataEmissao: row.emissaoVale,
         dataRota: row.data,
         mapa: row.mapa,
+        motorista: row.motorista,
         statusVale: row.statusVale,
         acaoTransportadora: row.acaoTransportadora,
         justificativaTransportadora: row.justificativaTransportadora,
