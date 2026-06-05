@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Users,
   Truck,
+  History,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +22,11 @@ const navItems = [
     href: "/importar",
     label: "Importar Planilha",
     icon: FileSpreadsheet,
+  },
+  {
+    href: "/importacoes",
+    label: "Histórico",
+    icon: History,
   },
   {
     href: "/vales",

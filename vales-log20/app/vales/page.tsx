@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { MessageCircle, Loader2, RefreshCw, Eye } from "lucide-react";
+import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send } from "lucide-react";
 import { ValeDetalhesModal, type ValeDetalhes } from "@/components/vale-detalhes-modal";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
@@ -21,6 +22,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 import type { StatusVale } from "@/lib/types";
@@ -54,6 +63,14 @@ function getAcaoBadgeVariant(acao: string | null) {
   }
 }
 
+function buildMensagemPendente(vale: ValeRow, ajudante: { nome: string }) {
+  return (
+    `Olá ${ajudante.nome}! Você possui vale(s) pendente(s) no sistema LOG20. ` +
+    `Por favor, procure o financeiro para regularizar. ` +
+    `Vale(s): #${vale.numero_vale}`
+  );
+}
+
 export default function ValesPage() {
   const { toast } = useToast();
   const [vales, setVales] = useState<ValeRow[]>([]);
@@ -61,6 +78,14 @@ export default function ValesPage() {
   const [activeTab, setActiveTab] = useState("todos");
   const [notifyingId, setNotifyingId] = useState<string | null>(null);
   const [detalhesVale, setDetalhesVale] = useState<ValeDetalhes | null>(null);
+
+  // Filters
+  const [busca, setBusca] = useState("");
+  const [dataInicio, setDataInicio] = useState("");
+  const [dataFim, setDataFim] = useState("");
+
+  // WhatsApp preview
+  const [previewVale, setPreviewVale] = useState<ValeRow | null>(null);
 
   const fetchVales = useCallback(async () => {
     setIsLoading(true);
@@ -84,8 +109,9 @@ export default function ValesPage() {
     fetchVales();
   }, [fetchVales]);
 
-  const handleNotificar = async (valeId: string, numeroVale: number) => {
+  const sendNotificacao = async (valeId: string, numeroVale: number) => {
     setNotifyingId(valeId);
+    setPreviewVale(null);
     try {
       const response = await fetch("/api/notificar", {
         method: "POST",
@@ -116,31 +142,54 @@ export default function ValesPage() {
     }
   };
 
-  const filterVales = (tab: string): ValeRow[] => {
+  const hasFilters = busca || dataInicio || dataFim;
+
+  function applySearchAndDate(list: ValeRow[]): ValeRow[] {
+    return list.filter((v) => {
+      if (dataInicio && v.data_emissao && v.data_emissao < dataInicio) return false;
+      if (dataFim && v.data_emissao && v.data_emissao > dataFim) return false;
+      if (busca) {
+        const q = busca.toLowerCase();
+        const matchVale = String(v.numero_vale).includes(q);
+        const matchAj = v.ajudantes.some((a) => a.nome.toLowerCase().includes(q));
+        const matchMotorista = v.motorista?.toLowerCase().includes(q) ?? false;
+        if (!matchVale && !matchAj && !matchMotorista) return false;
+      }
+      return true;
+    });
+  }
+
+  function filterByTab(list: ValeRow[], tab: string): ValeRow[] {
     switch (tab) {
       case "pendentes":
-        return vales.filter(
+        return list.filter(
           (v) => v.status_vale === "Sem Ação" || v.status_vale === "Faturar"
         );
       case "abonados":
-        return vales.filter((v) => v.status_vale === "Abonado");
+        return list.filter((v) => v.status_vale === "Abonado");
       case "faturados":
-        return vales.filter((v) => v.status_vale === "Faturado");
+        return list.filter((v) => v.status_vale === "Faturado");
       default:
-        return vales;
+        return list;
     }
-  };
+  }
 
-  const filteredVales = filterVales(activeTab);
+  const valesFiltered = applySearchAndDate(vales);
+  const filteredVales = filterByTab(valesFiltered, activeTab);
 
   const tabCounts = {
-    todos: vales.length,
-    pendentes: vales.filter(
+    todos: valesFiltered.length,
+    pendentes: valesFiltered.filter(
       (v) => v.status_vale === "Sem Ação" || v.status_vale === "Faturar"
     ).length,
-    abonados: vales.filter((v) => v.status_vale === "Abonado").length,
-    faturados: vales.filter((v) => v.status_vale === "Faturado").length,
+    abonados: valesFiltered.filter((v) => v.status_vale === "Abonado").length,
+    faturados: valesFiltered.filter((v) => v.status_vale === "Faturado").length,
   };
+
+  const ajudantesComTelefone =
+    previewVale?.ajudantes.filter((a) => a.telefone) ?? [];
+  const ajudantesSemTelefone =
+    previewVale?.ajudantes.filter((a) => !a.telefone) ?? [];
 
   return (
     <div className="space-y-6">
@@ -149,6 +198,82 @@ export default function ValesPage() {
         open={!!detalhesVale}
         onClose={() => setDetalhesVale(null)}
       />
+
+      {/* WhatsApp Preview Modal */}
+      {previewVale && (
+        <Dialog open={!!previewVale} onOpenChange={(o) => !o && setPreviewVale(null)}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <MessageCircle className="h-5 w-5 text-green-600" />
+                Preview — Notificação WhatsApp
+              </DialogTitle>
+              <DialogDescription>
+                Vale #{previewVale.numero_vale} — confirme antes de enviar
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-2">
+              {ajudantesComTelefone.length > 0 ? (
+                <div className="space-y-3">
+                  {ajudantesComTelefone.map((aj) => (
+                    <div key={aj.id} className="rounded-md border p-3 space-y-1.5">
+                      <p className="text-sm font-medium">
+                        {aj.nome}{" "}
+                        <span className="text-muted-foreground font-normal">
+                          · {aj.telefone}
+                        </span>
+                      </p>
+                      <div className="bg-green-50 border border-green-200 rounded p-2.5">
+                        <p className="text-sm text-green-900 leading-snug whitespace-pre-wrap">
+                          {buildMensagemPendente(previewVale, aj)}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3">
+                  <p className="text-sm text-yellow-800">
+                    Nenhum ajudante deste vale tem telefone cadastrado. Cadastre os
+                    telefones na aba Ajudantes antes de notificar.
+                  </p>
+                </div>
+              )}
+
+              {ajudantesSemTelefone.length > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  Sem telefone (não serão notificados):{" "}
+                  {ajudantesSemTelefone.map((a) => a.nome).join(", ")}
+                </p>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setPreviewVale(null)}
+                disabled={!!notifyingId}
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={() => sendNotificacao(previewVale.id, previewVale.numero_vale)}
+                disabled={!!notifyingId || ajudantesComTelefone.length === 0}
+                className="gap-2"
+              >
+                {notifyingId ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+                Confirmar e Enviar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -161,6 +286,47 @@ export default function ValesPage() {
           <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
           Atualizar
         </Button>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 items-center">
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <Input
+            className="pl-8"
+            placeholder="Buscar por nº do vale, ajudante ou motorista..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Input
+            type="date"
+            className="w-36"
+            value={dataInicio}
+            onChange={(e) => setDataInicio(e.target.value)}
+            title="Data inicial (emissão)"
+          />
+          <span className="text-muted-foreground text-sm">até</span>
+          <Input
+            type="date"
+            className="w-36"
+            value={dataFim}
+            onChange={(e) => setDataFim(e.target.value)}
+            title="Data final (emissão)"
+          />
+        </div>
+        {hasFilters && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setBusca(""); setDataInicio(""); setDataFim(""); }}
+            className="gap-1"
+          >
+            <X className="h-3.5 w-3.5" />
+            Limpar
+          </Button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -180,7 +346,7 @@ export default function ValesPage() {
           </TabsTrigger>
         </TabsList>
 
-        {["todos", "pendentes", "abonados", "faturados"].map((tab) => (
+        {(["todos", "pendentes", "abonados", "faturados"] as const).map((tab) => (
           <TabsContent key={tab} value={tab}>
             <Card>
               <CardHeader>
@@ -188,7 +354,10 @@ export default function ValesPage() {
                   {tab === "todos" ? "Todos os Vales" : tab.charAt(0).toUpperCase() + tab.slice(1)}
                 </CardTitle>
                 <CardDescription>
-                  {filterVales(tab).length} vale(s) encontrado(s)
+                  {filterByTab(valesFiltered, tab).length} vale(s) encontrado(s)
+                  {hasFilters && (
+                    <span className="text-primary"> · filtro ativo</span>
+                  )}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -199,7 +368,9 @@ export default function ValesPage() {
                   </div>
                 ) : filteredVales.length === 0 ? (
                   <div className="text-center py-12 text-muted-foreground">
-                    Nenhum vale encontrado nesta categoria.
+                    {hasFilters
+                      ? "Nenhum vale encontrado com os filtros aplicados."
+                      : "Nenhum vale encontrado nesta categoria."}
                   </div>
                 ) : (
                   <Table>
@@ -302,7 +473,7 @@ export default function ValesPage() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => handleNotificar(vale.id, vale.numero_vale)}
+                                onClick={() => setPreviewVale(vale)}
                                 disabled={notifyingId === vale.id}
                                 title="Enviar notificação WhatsApp"
                               >
