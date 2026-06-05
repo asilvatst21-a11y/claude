@@ -456,7 +456,12 @@ export default async function DashboardPage() {
                   {topPendentes.map((aj) => (
                     <TableRow key={aj.id}>
                       <TableCell>
-                        <div className="font-medium text-sm">{aj.nome}</div>
+                        <Link
+                          href={`/vales?ajudante=${aj.id}`}
+                          className="font-medium text-sm hover:underline text-primary"
+                        >
+                          {aj.nome}
+                        </Link>
                         <div className="text-xs text-muted-foreground font-mono">
                           {aj.codigo}
                         </div>
@@ -568,7 +573,14 @@ export default async function DashboardPage() {
               <TableBody>
                 {ajudantesComVales.map((aj) => (
                   <TableRow key={aj.id}>
-                    <TableCell className="font-medium">{aj.nome}</TableCell>
+                    <TableCell>
+                      <Link
+                        href={`/vales?ajudante=${aj.id}`}
+                        className="font-medium hover:underline text-primary"
+                      >
+                        {aj.nome}
+                      </Link>
+                    </TableCell>
                     <TableCell className="font-mono text-sm text-muted-foreground">
                       {aj.codigo}
                     </TableCell>

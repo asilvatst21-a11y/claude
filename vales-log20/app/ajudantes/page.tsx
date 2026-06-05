@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import { Pencil, Loader2, RefreshCw, Phone, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -158,7 +159,14 @@ export default function AjudantesPage() {
                     <TableCell className="font-mono text-sm">
                       {ajudante.codigo}
                     </TableCell>
-                    <TableCell className="font-medium">{ajudante.nome}</TableCell>
+                    <TableCell>
+                      <Link
+                        href={`/vales?ajudante=${ajudante.id}`}
+                        className="font-medium hover:underline text-primary"
+                      >
+                        {ajudante.nome}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       {ajudante.telefone ? (
                         <div className="flex items-center gap-1.5">

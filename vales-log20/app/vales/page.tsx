@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus } from "lucide-react";
 import { ValeDetalhesModal, type ValeDetalhes } from "@/components/vale-detalhes-modal";
 import { Button } from "@/components/ui/button";
@@ -77,7 +78,8 @@ function buildMensagemPendente(vale: ValeRow, ajudante: { nome: string }) {
   );
 }
 
-export default function ValesPage() {
+function ValesContent() {
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const [vales, setVales] = useState<ValeRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -85,11 +87,13 @@ export default function ValesPage() {
   const [notifyingId, setNotifyingId] = useState<string | null>(null);
   const [detalhesVale, setDetalhesVale] = useState<ValeDetalhes | null>(null);
 
-  // Filters
+  // Filters — initialize ajudante filter from URL param if present
   const [busca, setBusca] = useState("");
   const [dataInicio, setDataInicio] = useState("");
   const [dataFim, setDataFim] = useState("");
-  const [ajudanteFiltro, setAjudanteFiltro] = useState("todos");
+  const [ajudanteFiltro, setAjudanteFiltro] = useState(
+    searchParams.get("ajudante") ?? "todos"
+  );
 
   // Ajudantes list for filter + atribuir
   const [ajudantesList, setAjudantesList] = useState<AjudanteSimples[]>([]);
@@ -260,6 +264,7 @@ export default function ValesPage() {
   return (
     <div className="space-y-6">
       <ValeDetalhesModal
+
         vale={detalhesVale}
         open={!!detalhesVale}
         onClose={() => setDetalhesVale(null)}
@@ -610,5 +615,13 @@ export default function ValesPage() {
         ))}
       </Tabs>
     </div>
+  );
+}
+
+export default function ValesPage() {
+  return (
+    <Suspense>
+      <ValesContent />
+    </Suspense>
   );
 }
