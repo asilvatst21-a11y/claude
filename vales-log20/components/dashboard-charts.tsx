@@ -97,9 +97,17 @@ const PIE_COLORS = ["#22c55e", "#ef4444", "#f97316", "#94a3b8"];
 
 export function DashboardCharts({ monthlyData, dailyData, valorAbonado, valorFaturado, valorPendente }: Props) {
   const [viewMode, setViewMode] = useState<"mensal" | "diario">("mensal");
+  const [selectedMonth, setSelectedMonth] = useState<string>(
+    monthlyData[monthlyData.length - 1]?.month ?? ""
+  );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const volumeData: any[] = viewMode === "diario" ? dailyData : monthlyData;
+  const volumeData: any[] =
+    viewMode === "diario"
+      ? dailyData.filter((d) => d.month === selectedMonth)
+      : monthlyData;
+
+  const selectedMonthLabel = monthlyData.find((m) => m.month === selectedMonth)?.label ?? selectedMonth;
 
   const pieData = [
     { name: "Abonado", value: valorAbonado },
@@ -125,28 +133,49 @@ export function DashboardCharts({ monthlyData, dailyData, valorAbonado, valorFat
       {/* Chart 1 — Volume de Vales */}
       <Card>
         <CardHeader>
-          <div className="flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <div>
               <CardTitle>Volume de Vales por Período</CardTitle>
               <CardDescription>
                 {viewMode === "diario"
-                  ? "Quantidade emitida por dia"
+                  ? `Quantidade emitida por dia — ${selectedMonthLabel}`
                   : "Quantidade emitida por mês"}
               </CardDescription>
             </div>
-            <div className="flex rounded-md border overflow-hidden text-sm">
-              <button
-                className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "mensal" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-                onClick={() => setViewMode("mensal")}
-              >
-                Mensal
-              </button>
-              <button
-                className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "diario" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
-                onClick={() => setViewMode("diario")}
-              >
-                Diário
-              </button>
+            <div className="flex items-center gap-2 flex-wrap">
+              {/* Month navigator — only in daily mode */}
+              {viewMode === "diario" && (
+                <div className="flex items-center gap-1 rounded-md border overflow-hidden text-xs">
+                  {monthlyData.map((m) => (
+                    <button
+                      key={m.month}
+                      onClick={() => setSelectedMonth(m.month)}
+                      className={`px-2.5 py-1.5 font-medium transition-colors ${
+                        m.month === selectedMonth
+                          ? "bg-primary text-primary-foreground"
+                          : "hover:bg-accent"
+                      }`}
+                    >
+                      {m.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {/* Mensal / Diário toggle */}
+              <div className="flex rounded-md border overflow-hidden text-sm">
+                <button
+                  className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "mensal" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                  onClick={() => setViewMode("mensal")}
+                >
+                  Mensal
+                </button>
+                <button
+                  className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "diario" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                  onClick={() => setViewMode("diario")}
+                >
+                  Diário
+                </button>
+              </div>
             </div>
           </div>
         </CardHeader>
