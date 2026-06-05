@@ -21,11 +21,13 @@ export interface Vale {
   id: string;
   numero_vale: number;
   data_emissao: string | null;
+  data_rota: string | null;
   mapa: number | null;
   motorista: string | null;
   veiculo: string | null;
   status_vale: StatusVale | null;
   acao_transportadora: AcaoTransportadora | null;
+  justificativa_transportadora: string | null;
   acao_primeiro_nivel: string | null;
   data_primeiro_nivel: string | null;
   usuario_primeiro_nivel: string | null;
@@ -52,6 +54,7 @@ export interface ValeItem {
   qtde_saida: number | null;
   qtde_retorno: number | null;
   qtde_diferenca: number | null;
+  qtde_diferenca_avulsa: number | null;
   valor: number | null;
   justificativa_ajudante: string | null;
   acao_transportadora: string | null;
@@ -88,15 +91,18 @@ export interface ExcelRow {
   codigoAjudante2: number | null;
   nomeAjudante2: string | null;
   mapa: number | null;
-  data: string | null; // ISO date
+  data: string | null; // data da rota (P)
   numeroVale: number;
-  emissaoVale: string | null; // ISO date
+  emissaoVale: string | null;
   item: string | null;
+  unidade: string | null;
   itemTipo: string | null;
   qtdeDiferenca: number | null;
+  qtdeDiferencaAvulsa: number | null;
   valor: number | null;
   justAjudante: string | null;
   acaoTransportadora: AcaoTransportadora | null;
+  justificativaTransportadora: string | null;
   statusVale: StatusVale | null;
   acaoPrimeiroNivel: string | null;
   dataPrimeiroNivel: string | null;
@@ -109,9 +115,11 @@ export interface ExcelRow {
 export interface ValeParseado {
   numeroVale: number;
   dataEmissao: string | null;
+  dataRota: string | null;
   mapa: number | null;
   statusVale: StatusVale | null;
   acaoTransportadora: AcaoTransportadora | null;
+  justificativaTransportadora: string | null;
   acaoPrimeiroNivel: string | null;
   dataPrimeiroNivel: string | null;
   usuarioPrimeiroNivel: string | null;
@@ -126,7 +134,9 @@ export interface ValeParseado {
   itens: {
     tipoItem: string | null;
     item: string | null;
+    unidade: string | null;
     qtdeDiferenca: number | null;
+    qtdeDiferencaAvulsa: number | null;
     valor: number | null;
     justificativaAjudante: string | null;
     acaoTransportadora: string | null;

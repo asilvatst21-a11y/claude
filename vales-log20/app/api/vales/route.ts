@@ -41,7 +41,9 @@ export async function GET() {
           id,
           tipo_item,
           item,
+          unidade,
           qtde_diferenca,
+          qtde_diferenca_avulsa,
           valor,
           justificativa_ajudante,
           acao_transportadora

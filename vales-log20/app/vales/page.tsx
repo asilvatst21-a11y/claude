@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { MessageCircle, Loader2, RefreshCw } from "lucide-react";
+import { MessageCircle, Loader2, RefreshCw, Eye } from "lucide-react";
+import { ValeDetalhesModal, type ValeDetalhes } from "@/components/vale-detalhes-modal";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -24,20 +25,10 @@ import { useToast } from "@/components/ui/use-toast";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 import type { StatusVale } from "@/lib/types";
 
-interface ValeRow {
-  id: string;
-  numero_vale: number;
-  data_emissao: string | null;
+interface ValeRow extends ValeDetalhes {
   mapa: number | null;
-  status_vale: string | null;
-  acao_transportadora: string | null;
-  acao_primeiro_nivel: string | null;
-  justificativa_primeiro_nivel: string | null;
-  valor_total: number;
   notificacao_pendente_enviada: boolean;
   notificacao_final_enviada: boolean;
-  ajudantes: { id: string; nome: string; telefone: string | null }[];
-  itens: { id: string; item: string | null; valor: number | null }[];
 }
 
 function getStatusBadgeVariant(status: string | null) {
@@ -70,6 +61,7 @@ export default function ValesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("todos");
   const [notifyingId, setNotifyingId] = useState<string | null>(null);
+  const [detalhesVale, setDetalhesVale] = useState<ValeDetalhes | null>(null);
 
   const fetchVales = useCallback(async () => {
     setIsLoading(true);
@@ -153,6 +145,11 @@ export default function ValesPage() {
 
   return (
     <div className="space-y-6">
+      <ValeDetalhesModal
+        vale={detalhesVale}
+        open={!!detalhesVale}
+        onClose={() => setDetalhesVale(null)}
+      />
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -293,20 +290,31 @@ export default function ValesPage() {
                             )}
                           </TableCell>
                           <TableCell className="text-right">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleNotificar(vale.id, vale.numero_vale)}
-                              disabled={notifyingId === vale.id}
-                              title="Enviar notificação WhatsApp"
-                            >
-                              {notifyingId === vale.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <MessageCircle className="h-4 w-4" />
-                              )}
-                              <span className="ml-1 hidden sm:inline">Notificar</span>
-                            </Button>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setDetalhesVale(vale)}
+                                title="Ver detalhes do vale"
+                              >
+                                <Eye className="h-4 w-4" />
+                                <span className="ml-1 hidden sm:inline">Detalhes</span>
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleNotificar(vale.id, vale.numero_vale)}
+                                disabled={notifyingId === vale.id}
+                                title="Enviar notificação WhatsApp"
+                              >
+                                {notifyingId === vale.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <MessageCircle className="h-4 w-4" />
+                                )}
+                                <span className="ml-1 hidden sm:inline">Notificar</span>
+                              </Button>
+                            </div>
                           </TableCell>
                         </TableRow>
                       ))}
