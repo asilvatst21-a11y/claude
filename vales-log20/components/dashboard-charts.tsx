@@ -17,8 +17,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { ChevronLeft, TrendingUp } from "lucide-react";
+import { TrendingUp } from "lucide-react";
 import { formatCurrency } from "@/lib/utils";
 
 export interface MonthlyData {
@@ -51,7 +50,7 @@ interface Props {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function VolumeTooltip({ active, payload, label, isDrilled }: any) {
+function VolumeTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border bg-white p-3 shadow-md text-xs space-y-1 min-w-[140px]">
@@ -62,9 +61,6 @@ function VolumeTooltip({ active, payload, label, isDrilled }: any) {
           <span className="tabular-nums font-semibold">{p.value}</span>
         </div>
       ))}
-      {!isDrilled && (
-        <p className="text-muted-foreground mt-2 pt-1 border-t">Clique para ver por dia</p>
-      )}
     </div>
   );
 }
@@ -100,23 +96,10 @@ function PieTooltip({ active, payload }: any) {
 const PIE_COLORS = ["#22c55e", "#ef4444", "#f97316", "#94a3b8"];
 
 export function DashboardCharts({ monthlyData, dailyData, valorAbonado, valorFaturado, valorPendente }: Props) {
-  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<"mensal" | "diario">("mensal");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const volumeData: any[] = selectedMonth
-    ? dailyData.filter((d) => d.month === selectedMonth)
-    : monthlyData;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleVolumeClick = (data: any) => {
-    if (!selectedMonth && data?.activePayload?.[0]?.payload?.month) {
-      setSelectedMonth(data.activePayload[0].payload.month);
-    }
-  };
-
-  const selectedMonthLabel = selectedMonth
-    ? monthlyData.find((m) => m.month === selectedMonth)?.label ?? selectedMonth
-    : null;
+  const volumeData: any[] = viewMode === "diario" ? dailyData : monthlyData;
 
   const pieData = [
     { name: "Abonado", value: valorAbonado },
@@ -139,33 +122,37 @@ export function DashboardCharts({ monthlyData, dailyData, valorAbonado, valorFat
 
   return (
     <div className="space-y-6">
-      {/* Chart 1 — Volume de Vales (drill-down) */}
+      {/* Chart 1 — Volume de Vales */}
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between flex-wrap gap-2">
             <div>
               <CardTitle>Volume de Vales por Período</CardTitle>
               <CardDescription>
-                {selectedMonth
-                  ? `Detalhe diário — ${selectedMonthLabel}`
-                  : "Quantidade emitida por mês · clique num ponto para ver o detalhe diário"}
+                {viewMode === "diario"
+                  ? "Quantidade emitida por dia"
+                  : "Quantidade emitida por mês"}
               </CardDescription>
             </div>
-            {selectedMonth && (
-              <Button variant="outline" size="sm" onClick={() => setSelectedMonth(null)} className="gap-1">
-                <ChevronLeft className="h-4 w-4" />
-                Voltar para meses
-              </Button>
-            )}
+            <div className="flex rounded-md border overflow-hidden text-sm">
+              <button
+                className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "mensal" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                onClick={() => setViewMode("mensal")}
+              >
+                Mensal
+              </button>
+              <button
+                className={`px-3 py-1.5 font-medium transition-colors ${viewMode === "diario" ? "bg-primary text-primary-foreground" : "hover:bg-accent"}`}
+                onClick={() => setViewMode("diario")}
+              >
+                Diário
+              </button>
+            </div>
           </div>
         </CardHeader>
         <CardContent>
           <ResponsiveContainer width="100%" height={280}>
-            <LineChart
-              data={volumeData}
-              onClick={handleVolumeClick}
-              style={{ cursor: selectedMonth ? "default" : "pointer" }}
-            >
+            <LineChart data={volumeData}>
               <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
               <XAxis
                 dataKey="label"
@@ -179,7 +166,7 @@ export function DashboardCharts({ monthlyData, dailyData, valorAbonado, valorFat
                 axisLine={false}
                 width={30}
               />
-              <Tooltip content={<VolumeTooltip isDrilled={!!selectedMonth} />} />
+              <Tooltip content={<VolumeTooltip />} />
               <Legend
                 wrapperStyle={{ fontSize: 12, paddingTop: 12 }}
                 formatter={(value) => <span style={{ color: "#555" }}>{value}</span>}
