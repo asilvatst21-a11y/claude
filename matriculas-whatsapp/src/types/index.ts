@@ -165,6 +165,22 @@ export interface ProntuarioRegistro {
   created_at: string
 }
 
+export interface JornadaRegistro {
+  id: string
+  filial: string
+  nome: string
+  matricula: string | null
+  mes: string
+  sort: number
+  horas_extras: number
+  horas_menos: number
+  faltas: number
+  folgas: number
+  atestados: number
+  afastamentos: number
+  created_at: string
+}
+
 export interface TelemetriaAlerta {
   id: string
   filial: string
