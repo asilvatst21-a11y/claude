@@ -31,10 +31,14 @@ export async function GET() {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    // Calculate pending vales per ajudante
+    // Calculate vales per status per ajudante
     const ajudantesComVales = (ajudantes ?? []).map((aj) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const valesPendentes = (aj.vale_ajudantes as any[]).filter((va) => {
+      const valeLinks = aj.vale_ajudantes as any[];
+
+      const valesAbonados = valeLinks.filter((va) => va.vales?.status_vale === "Abonado").length;
+      const valesFaturados = valeLinks.filter((va) => va.vales?.status_vale === "Faturado").length;
+      const valesPendentes = valeLinks.filter((va) => {
         const status = va.vales?.status_vale;
         return status === "Sem Ação" || status === "Faturar";
       }).length;
@@ -47,6 +51,8 @@ export async function GET() {
         created_at: aj.created_at,
         updated_at: aj.updated_at,
         vales_pendentes: valesPendentes,
+        vales_abonados: valesAbonados,
+        vales_faturados: valesFaturados,
       };
     });
 

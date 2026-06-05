@@ -30,6 +30,11 @@ CREATE TABLE vales (
   status_vale TEXT,
   acao_transportadora TEXT,
   valor_total NUMERIC DEFAULT 0,
+  acao_primeiro_nivel TEXT,
+  data_primeiro_nivel DATE,
+  usuario_primeiro_nivel TEXT,
+  motivo_primeiro_nivel TEXT,
+  justificativa_primeiro_nivel TEXT,
   notificacao_pendente_enviada BOOLEAN DEFAULT FALSE,
   notificacao_final_enviada BOOLEAN DEFAULT FALSE,
   importacao_id UUID REFERENCES importacoes(id),
@@ -99,3 +104,10 @@ CREATE TRIGGER update_ajudantes_updated_at
 CREATE TRIGGER update_vales_updated_at
   BEFORE UPDATE ON vales
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- Migration: Add 1º Nível columns to existing deployments
+-- ALTER TABLE vales ADD COLUMN IF NOT EXISTS acao_primeiro_nivel TEXT;
+-- ALTER TABLE vales ADD COLUMN IF NOT EXISTS data_primeiro_nivel DATE;
+-- ALTER TABLE vales ADD COLUMN IF NOT EXISTS usuario_primeiro_nivel TEXT;
+-- ALTER TABLE vales ADD COLUMN IF NOT EXISTS motivo_primeiro_nivel TEXT;
+-- ALTER TABLE vales ADD COLUMN IF NOT EXISTS justificativa_primeiro_nivel TEXT;

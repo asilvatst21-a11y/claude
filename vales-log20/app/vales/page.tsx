@@ -31,6 +31,8 @@ interface ValeRow {
   mapa: number | null;
   status_vale: string | null;
   acao_transportadora: string | null;
+  acao_primeiro_nivel: string | null;
+  justificativa_primeiro_nivel: string | null;
   valor_total: number;
   notificacao_pendente_enviada: boolean;
   notificacao_final_enviada: boolean;
@@ -214,6 +216,8 @@ export default function ValesPage() {
                         <TableHead>Valor Total</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Ação Transp.</TableHead>
+                        <TableHead>Ação Ambev</TableHead>
+                        <TableHead>Justificativa</TableHead>
                         <TableHead>Notificado</TableHead>
                         <TableHead className="text-right">Ações</TableHead>
                       </TableRow>
@@ -246,6 +250,37 @@ export default function ValesPage() {
                               <Badge variant={getAcaoBadgeVariant(vale.acao_transportadora)}>
                                 {vale.acao_transportadora}
                               </Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            {vale.acao_primeiro_nivel ? (
+                              <Badge
+                                variant={
+                                  vale.acao_primeiro_nivel === "Aprovado"
+                                    ? "success"
+                                    : vale.acao_primeiro_nivel === "Reprovado"
+                                    ? "destructive"
+                                    : "gray"
+                                }
+                              >
+                                {vale.acao_primeiro_nivel}
+                              </Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-sm">-</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="max-w-[200px]">
+                            {vale.justificativa_primeiro_nivel ? (
+                              <span
+                                className="text-sm truncate block"
+                                title={vale.justificativa_primeiro_nivel}
+                              >
+                                {vale.justificativa_primeiro_nivel.length > 60
+                                  ? vale.justificativa_primeiro_nivel.slice(0, 60) + "…"
+                                  : vale.justificativa_primeiro_nivel}
+                              </span>
                             ) : (
                               <span className="text-muted-foreground text-sm">-</span>
                             )}

@@ -26,6 +26,11 @@ export interface Vale {
   veiculo: string | null;
   status_vale: StatusVale | null;
   acao_transportadora: AcaoTransportadora | null;
+  acao_primeiro_nivel: string | null;
+  data_primeiro_nivel: string | null;
+  usuario_primeiro_nivel: string | null;
+  motivo_primeiro_nivel: string | null;
+  justificativa_primeiro_nivel: string | null;
   valor_total: number;
   notificacao_pendente_enviada: boolean;
   notificacao_final_enviada: boolean;
@@ -93,6 +98,11 @@ export interface ExcelRow {
   justAjudante: string | null;
   acaoTransportadora: AcaoTransportadora | null;
   statusVale: StatusVale | null;
+  acaoPrimeiroNivel: string | null;
+  dataPrimeiroNivel: string | null;
+  usuarioPrimeiroNivel: string | null;
+  motivoPrimeiroNivel: string | null;
+  justificativaPrimeiroNivel: string | null;
 }
 
 // Grouped vale data from Excel parsing
@@ -102,6 +112,11 @@ export interface ValeParseado {
   mapa: number | null;
   statusVale: StatusVale | null;
   acaoTransportadora: AcaoTransportadora | null;
+  acaoPrimeiroNivel: string | null;
+  dataPrimeiroNivel: string | null;
+  usuarioPrimeiroNivel: string | null;
+  motivoPrimeiroNivel: string | null;
+  justificativaPrimeiroNivel: string | null;
   valorTotal: number;
   ajudantes: {
     codigo: number;
@@ -137,4 +152,6 @@ export interface ValeComAjudantes extends Vale {
 // Ajudante with pending vales count
 export interface AjudanteComVales extends Ajudante {
   vales_pendentes: number;
+  vales_abonados: number;
+  vales_faturados: number;
 }

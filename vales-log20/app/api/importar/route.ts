@@ -76,6 +76,11 @@ export async function POST(request: NextRequest) {
       mapa: v.mapa,
       status_vale: v.statusVale,
       acao_transportadora: v.acaoTransportadora,
+      acao_primeiro_nivel: v.acaoPrimeiroNivel,
+      data_primeiro_nivel: v.dataPrimeiroNivel,
+      usuario_primeiro_nivel: v.usuarioPrimeiroNivel,
+      motivo_primeiro_nivel: v.motivoPrimeiroNivel,
+      justificativa_primeiro_nivel: v.justificativaPrimeiroNivel,
       valor_total: v.valorTotal,
       importacao_id: importacao.id,
     }));

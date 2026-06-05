@@ -147,7 +147,8 @@ export default function AjudantesPage() {
                   <TableHead>Código</TableHead>
                   <TableHead>Nome</TableHead>
                   <TableHead>WhatsApp</TableHead>
-                  <TableHead>Vales Pendentes</TableHead>
+                  <TableHead>Vales</TableHead>
+                  <TableHead>Pendentes</TableHead>
                   <TableHead className="text-right">Ações</TableHead>
                 </TableRow>
               </TableHeader>
@@ -169,6 +170,39 @@ export default function AjudantesPage() {
                           Não cadastrado
                         </span>
                       )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {ajudante.vales_abonados > 0 && (
+                          <span
+                            className="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-800"
+                            title="Abonados"
+                          >
+                            {ajudante.vales_abonados} Ab
+                          </span>
+                        )}
+                        {ajudante.vales_faturados > 0 && (
+                          <span
+                            className="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-800"
+                            title="Faturados"
+                          >
+                            {ajudante.vales_faturados} Fat
+                          </span>
+                        )}
+                        {ajudante.vales_pendentes > 0 && (
+                          <span
+                            className="inline-flex items-center rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-semibold text-yellow-800"
+                            title="Pendentes"
+                          >
+                            {ajudante.vales_pendentes} Pend
+                          </span>
+                        )}
+                        {ajudante.vales_abonados === 0 &&
+                          ajudante.vales_faturados === 0 &&
+                          ajudante.vales_pendentes === 0 && (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       {ajudante.vales_pendentes > 0 ? (

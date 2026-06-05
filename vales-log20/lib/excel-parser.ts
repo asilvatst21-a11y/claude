@@ -113,6 +113,11 @@ export function parseExcelBuffer(buffer: ArrayBuffer): ImportacaoSummary {
       justAjudante: getString(row, 38),
       acaoTransportadora: (getString(row, 39) as AcaoTransportadora) ?? null,
       statusVale: (getString(row, 67) as StatusVale) ?? null,
+      acaoPrimeiroNivel: getString(row, 46),
+      dataPrimeiroNivel: getExcelDate(row, 47),
+      usuarioPrimeiroNivel: getString(row, 49),
+      motivoPrimeiroNivel: getString(row, 50),
+      justificativaPrimeiroNivel: getString(row, 52),
     };
 
     parsedRows.push(parsed);
@@ -137,6 +142,11 @@ function groupByVale(rows: ExcelRow[]): ImportacaoSummary {
         mapa: row.mapa,
         statusVale: row.statusVale,
         acaoTransportadora: row.acaoTransportadora,
+        acaoPrimeiroNivel: row.acaoPrimeiroNivel,
+        dataPrimeiroNivel: row.dataPrimeiroNivel,
+        usuarioPrimeiroNivel: row.usuarioPrimeiroNivel,
+        motivoPrimeiroNivel: row.motivoPrimeiroNivel,
+        justificativaPrimeiroNivel: row.justificativaPrimeiroNivel,
         valorTotal: 0,
         ajudantes: [],
         itens: [],
@@ -147,6 +157,12 @@ function groupByVale(rows: ExcelRow[]): ImportacaoSummary {
     // Update status/acao from latest row (they should be consistent per vale)
     if (row.statusVale) vale.statusVale = row.statusVale;
     if (row.acaoTransportadora) vale.acaoTransportadora = row.acaoTransportadora;
+    // Update 1º Nível fields from first row that has a value
+    if (row.acaoPrimeiroNivel && !vale.acaoPrimeiroNivel) vale.acaoPrimeiroNivel = row.acaoPrimeiroNivel;
+    if (row.dataPrimeiroNivel && !vale.dataPrimeiroNivel) vale.dataPrimeiroNivel = row.dataPrimeiroNivel;
+    if (row.usuarioPrimeiroNivel && !vale.usuarioPrimeiroNivel) vale.usuarioPrimeiroNivel = row.usuarioPrimeiroNivel;
+    if (row.motivoPrimeiroNivel && !vale.motivoPrimeiroNivel) vale.motivoPrimeiroNivel = row.motivoPrimeiroNivel;
+    if (row.justificativaPrimeiroNivel && !vale.justificativaPrimeiroNivel) vale.justificativaPrimeiroNivel = row.justificativaPrimeiroNivel;
 
     // Add ajudante 1 if not already present
     if (!vale.ajudantes.find((a) => a.codigo === row.codigoAjudante1)) {
