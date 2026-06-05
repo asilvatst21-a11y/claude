@@ -152,12 +152,17 @@ function topN(data: Relato[], key: keyof Relato, n = 10) {
   return [...m.entries()].sort((a, b) => b[1] - a[1]).slice(0, n).map(([name, total]) => ({ name, total }))
 }
 
-const PERIODS = [
-  { label: '7 dias',  days: 7  },
-  { label: '30 dias', days: 30 },
-  { label: '90 dias', days: 90 },
-  { label: 'Tudo',    days: 0  },
+const ATALHOS = [
+  { label: '7d',    dias: 7   },
+  { label: '30d',   dias: 30  },
+  { label: '90d',   dias: 90  },
+  { label: '6m',    dias: 180 },
+  { label: '1 ano', dias: 365 },
 ]
+
+function toISO(d: Date) { return d.toISOString().slice(0, 10) }
+function isoToday()     { return toISO(new Date()) }
+function isoMinus(dias: number) { const d = new Date(); d.setDate(d.getDate() - dias); return toISO(d) }
 
 // ── Modal Ação Disciplinar ────────────────────────────────────────────────────
 
@@ -387,7 +392,8 @@ export default function Relatos() {
   const [loading,   setLoading]   = useState(true)
   const [uploading, setUploading] = useState(false)
   const [tab,       setTab]       = useState(0)
-  const [periodDays,    setPeriodDays]    = useState(30)
+  const [dateFrom, setDateFrom] = useState(() => isoMinus(30))
+  const [dateTo,   setDateTo]   = useState(() => isoToday())
   const [filtroClass,   setFiltroClass]   = useState('')
   const [filtroArea,    setFiltroArea]    = useState('')
   const [busca,         setBusca]         = useState('')
@@ -459,14 +465,12 @@ export default function Relatos() {
 
   const filtered = useMemo(() => {
     let d = data
-    if (periodDays > 0) {
-      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - periodDays)
-      d = d.filter(r => r.data_ocorrencia && new Date(r.data_ocorrencia) >= cutoff)
-    }
+    if (dateFrom) d = d.filter(r => r.data_ocorrencia && r.data_ocorrencia.slice(0, 10) >= dateFrom)
+    if (dateTo)   d = d.filter(r => r.data_ocorrencia && r.data_ocorrencia.slice(0, 10) <= dateTo)
     if (filtroClass) d = d.filter(r => r.classificacao === filtroClass)
     if (filtroArea)  d = d.filter(r => r.area === filtroArea)
     return d
-  }, [data, periodDays, filtroClass, filtroArea])
+  }, [data, dateFrom, dateTo, filtroClass, filtroArea])
 
   const classes = useMemo(() => [...new Set(data.map(r => r.classificacao).filter(Boolean))] as string[], [data])
   const areas   = useMemo(() => [...new Set(data.map(r => r.area).filter(Boolean))] as string[], [data])
@@ -594,26 +598,46 @@ export default function Relatos() {
       ) : (
         <>
           {/* Filters */}
-          <div className="flex items-center gap-3 flex-wrap mb-4">
-            <div className="flex gap-1">
-              {PERIODS.map(opt => (
-                <button key={opt.label} onClick={() => setPeriodDays(opt.days)}
-                  className={`px-3 py-1.5 text-xs rounded-lg font-medium transition-colors border ${periodDays === opt.days ? 'bg-brand-700 text-white border-brand-700' : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300'}`}>
-                  {opt.label}
+          <div className="bg-white border border-gray-100 rounded-xl px-4 py-3 mb-4 space-y-2.5 shadow-sm">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-semibold text-gray-500">Período</span>
+              <div className="flex items-center gap-1.5">
+                <input type="date" value={dateFrom} max={dateTo || isoToday()}
+                  onChange={e => setDateFrom(e.target.value)}
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                <span className="text-xs text-gray-400">até</span>
+                <input type="date" value={dateTo} min={dateFrom} max={isoToday()}
+                  onChange={e => setDateTo(e.target.value)}
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+              </div>
+              <div className="flex gap-1">
+                {ATALHOS.map(a => (
+                  <button key={a.label}
+                    onClick={() => { setDateFrom(isoMinus(a.dias)); setDateTo(isoToday()) }}
+                    className="px-2.5 py-1 text-xs rounded-lg border border-gray-200 text-gray-500 hover:border-brand-400 hover:text-brand-700 transition-colors">
+                    {a.label}
+                  </button>
+                ))}
+                <button onClick={() => { setDateFrom(''); setDateTo('') }}
+                  className="px-2.5 py-1 text-xs rounded-lg border border-gray-200 text-gray-500 hover:border-brand-400 hover:text-brand-700 transition-colors">
+                  Tudo
                 </button>
-              ))}
+              </div>
+              <span className="ml-auto text-xs text-gray-400 font-medium">{filtered.length} relatos no período</span>
             </div>
-            <select value={filtroClass} onChange={e => setFiltroClass(e.target.value)}
-              className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-400">
-              <option value="">Todas classificações</option>
-              {classes.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-            <select value={filtroArea} onChange={e => setFiltroArea(e.target.value)}
-              className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-400">
-              <option value="">Todas as áreas</option>
-              {areas.map(a => <option key={a} value={a}>{a}</option>)}
-            </select>
-            <span className="ml-auto text-xs text-gray-400 font-medium">{filtered.length} relatos no período</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs font-semibold text-gray-500">Filtros</span>
+              <select value={filtroClass} onChange={e => setFiltroClass(e.target.value)}
+                className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-400">
+                <option value="">Todas classificações</option>
+                {classes.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+              <select value={filtroArea} onChange={e => setFiltroArea(e.target.value)}
+                className="px-2 py-1.5 text-xs border border-gray-200 rounded-lg bg-white text-gray-600 focus:outline-none focus:ring-1 focus:ring-brand-400">
+                <option value="">Todas as áreas</option>
+                {areas.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
           </div>
 
           {/* Color legend */}
