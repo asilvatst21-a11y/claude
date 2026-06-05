@@ -30,6 +30,10 @@ import {
 } from "lucide-react";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 import type { StatusVale } from "@/lib/types";
+import { DashboardCharts } from "@/components/dashboard-charts";
+import type { MonthlyData, DailyData } from "@/components/dashboard-charts";
+
+const MONTHS_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
 function getStatusBadgeVariant(status: StatusVale | null | string) {
   switch (status) {
@@ -69,6 +73,7 @@ async function getDashboardData() {
         id,
         numero_vale,
         data_emissao,
+        data_rota,
         status_vale,
         acao_transportadora,
         valor_total,
@@ -97,9 +102,60 @@ async function getDashboardData() {
       .filter((v) => v.status_vale === "Abonado")
       .reduce((sum, v) => sum + (v.valor_total ?? 0), 0);
 
+    const valorTotalPendente = allVales
+      .filter((v) => v.status_vale === "Sem Ação" || v.status_vale === "Faturar")
+      .reduce((sum, v) => sum + (v.valor_total ?? 0), 0);
+
     // Status distribution (for bar chart)
     const semAcao = allVales.filter((v) => v.status_vale === "Sem Ação" || !v.status_vale).length;
     const faturar = allVales.filter((v) => v.status_vale === "Faturar").length;
+
+    // ── Chart data ──────────────────────────────────────────────────────────
+    interface PeriodStats {
+      total: number; abonados: number; faturados: number;
+      faturar: number; semAcao: number; valorAbonado: number; valorFaturado: number;
+    }
+    const monthMap = new Map<string, PeriodStats>();
+    const dayMap = new Map<string, PeriodStats>();
+
+    for (const vale of allVales) {
+      const rawDate = (vale as { data_emissao?: string | null }).data_emissao
+        ?? (vale.created_at ? String(vale.created_at).substring(0, 10) : null);
+      if (!rawDate) continue;
+      const month = String(rawDate).substring(0, 7);
+      const day = String(rawDate).substring(0, 10);
+      const status = vale.status_vale;
+      const valor = vale.valor_total ?? 0;
+      for (const key of [month, day]) {
+        const map = key.length === 7 ? monthMap : dayMap;
+        const s = map.get(key) ?? { total: 0, abonados: 0, faturados: 0, faturar: 0, semAcao: 0, valorAbonado: 0, valorFaturado: 0 };
+        s.total++;
+        if (status === "Abonado") { s.abonados++; s.valorAbonado += valor; }
+        else if (status === "Faturado") { s.faturados++; s.valorFaturado += valor; }
+        else if (status === "Faturar") s.faturar++;
+        else s.semAcao++;
+        map.set(key, s);
+      }
+    }
+
+    const monthlyData: MonthlyData[] = Array.from(monthMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([month, s]) => {
+        const [year, m] = month.split("-");
+        return { month, label: `${MONTHS_PT[parseInt(m) - 1]}/${year.slice(2)}`, ...s };
+      });
+
+    const dailyData: DailyData[] = Array.from(dayMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([day, s]) => ({
+        day,
+        label: day.substring(8),
+        month: day.substring(0, 7),
+        total: s.total,
+        abonados: s.abonados,
+        faturados: s.faturados,
+      }));
+    // ────────────────────────────────────────────────────────────────────────
 
     // Recent 10 vales
     const recentValesRaw = allVales.slice(0, 10);
@@ -205,10 +261,13 @@ async function getDashboardData() {
         faturar,
         valorTotalFaturado,
         valorTotalAbonado,
+        valorTotalPendente,
       },
       recentVales,
       topPendentes,
       ajudantesComVales,
+      monthlyData,
+      dailyData,
     };
   } catch {
     return {
@@ -221,16 +280,19 @@ async function getDashboardData() {
         faturar: 0,
         valorTotalFaturado: 0,
         valorTotalAbonado: 0,
+        valorTotalPendente: 0,
       },
       recentVales: [],
       topPendentes: [],
       ajudantesComVales: [],
+      monthlyData: [],
+      dailyData: [],
     };
   }
 }
 
 export default async function DashboardPage() {
-  const { stats, recentVales, topPendentes, ajudantesComVales } = await getDashboardData();
+  const { stats, recentVales, topPendentes, ajudantesComVales, monthlyData, dailyData } = await getDashboardData();
 
   const total = stats.total || 1; // avoid division by zero
   const pctAbonados = Math.round((stats.abonados / total) * 100);
@@ -349,6 +411,15 @@ export default async function DashboardPage() {
           </Link>
         </Button>
       </div>
+
+      {/* Charts */}
+      <DashboardCharts
+        monthlyData={monthlyData}
+        dailyData={dailyData}
+        valorAbonado={stats.valorTotalAbonado}
+        valorFaturado={stats.valorTotalFaturado}
+        valorPendente={stats.valorTotalPendente}
+      />
 
       {/* Resumo por Status — horizontal stacked bar */}
       {stats.total > 0 && (

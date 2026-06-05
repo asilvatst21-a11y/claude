@@ -231,6 +231,17 @@ function ValesContent() {
   const valesFiltered = applyFilters(vales);
   const filteredVales = filterByTab(valesFiltered, activeTab);
 
+  // Resumo acumulado dos vales filtrados
+  const resumo = {
+    total: valesFiltered.length,
+    valorTotal: valesFiltered.reduce((s, v) => s + (v.valor_total ?? 0), 0),
+    abonados: valesFiltered.filter((v) => v.status_vale === "Abonado").length,
+    valorAbonado: valesFiltered.filter((v) => v.status_vale === "Abonado").reduce((s, v) => s + (v.valor_total ?? 0), 0),
+    faturados: valesFiltered.filter((v) => v.status_vale === "Faturado" || v.status_vale === "Faturar").length,
+    valorFaturado: valesFiltered.filter((v) => v.status_vale === "Faturado" || v.status_vale === "Faturar").reduce((s, v) => s + (v.valor_total ?? 0), 0),
+    pendentes: valesFiltered.filter((v) => v.status_vale === "Sem Ação").length,
+  };
+
   const tabCounts = {
     todos: valesFiltered.length,
     pendentes: valesFiltered.filter((v) => v.status_vale === "Sem Ação").length,
@@ -451,6 +462,34 @@ function ValesContent() {
           </Button>
         )}
       </div>
+
+      {/* Resumo acumulado — sempre visível */}
+      {valesFiltered.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="rounded-lg border bg-card p-3">
+            <p className="text-xs text-muted-foreground mb-0.5">Total</p>
+            <p className="text-lg font-bold">{resumo.total}</p>
+            <p className="text-xs text-muted-foreground">{formatCurrency(resumo.valorTotal)}</p>
+          </div>
+          <div className="rounded-lg border bg-card p-3">
+            <p className="text-xs text-muted-foreground mb-0.5">Pendentes</p>
+            <p className="text-lg font-bold text-yellow-600">{resumo.pendentes}</p>
+            <p className="text-xs text-muted-foreground">
+              {resumo.total > 0 ? `${Math.round((resumo.pendentes / resumo.total) * 100)}%` : "—"}
+            </p>
+          </div>
+          <div className="rounded-lg border bg-card p-3">
+            <p className="text-xs text-muted-foreground mb-0.5">Abonados</p>
+            <p className="text-lg font-bold text-green-600">{resumo.abonados}</p>
+            <p className="text-xs text-muted-foreground">{formatCurrency(resumo.valorAbonado)}</p>
+          </div>
+          <div className="rounded-lg border bg-card p-3">
+            <p className="text-xs text-muted-foreground mb-0.5">Faturados</p>
+            <p className="text-lg font-bold text-red-600">{resumo.faturados}</p>
+            <p className="text-xs text-muted-foreground">{formatCurrency(resumo.valorFaturado)}</p>
+          </div>
+        </div>
+      )}
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
