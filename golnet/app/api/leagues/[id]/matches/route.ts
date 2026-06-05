@@ -42,7 +42,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     .filter((m) => m.status === "LIVE" || m.status === "FINISHED")
     .map((m) => m.id);
 
-  let otherPredsByMatch: Record<string, { userId: string; name: string | null; username: string | null; image: string | null; homeScore: number; awayScore: number; result: string | null; points: number; bonusPoints: number }[]> = {};
+  const otherPredsByMatch: Record<string, { userId: string; name: string | null; username: string | null; image: string | null; homeScore: number; awayScore: number; result: string | null; points: number; bonusPoints: number }[]> = {};
 
   if (lockedMatchIds.length > 0) {
     const leagueMembers = await prisma.leagueMember.findMany({
