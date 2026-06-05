@@ -22,7 +22,7 @@ interface ZAPIResponse {
 export async function sendMessage(
   phone: string,
   message: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
   if (!ZAPI_INSTANCE_ID || !ZAPI_TOKEN || !ZAPI_CLIENT_TOKEN) {
     console.warn("Z-API credentials not configured. Skipping WhatsApp message.");
     return { success: false, error: "Z-API não configurado" };
@@ -57,7 +57,7 @@ export async function sendMessage(
       };
     }
 
-    return { success: true };
+    return { success: true, messageId: data.messageId ?? data.zaapId ?? data.id };
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Erro desconhecido";
     return { success: false, error: msg };
