@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 
 export async function GET() {
   try {
-    const supabase = await createClient();
+    const supabase = await createServiceClient();
 
     // Get ajudantes with their pending vales count
     const { data: ajudantes, error } = await supabase

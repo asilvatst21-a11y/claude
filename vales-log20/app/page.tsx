@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import {
   Card,
   CardContent,
@@ -45,7 +45,7 @@ function getStatusBadgeVariant(status: StatusVale | null | string) {
 
 async function getDashboardData() {
   try {
-    const supabase = await createClient();
+    const supabase = await createServiceClient();
 
     // Get vale counts by status
     const { data: vales, error } = await supabase
