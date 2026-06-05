@@ -57,10 +57,27 @@ const QUESTOES_CATEGORIAS: Record<string, Categoria> = {
   'Calço e cones foram retirados corretamente conforme orientação da FABET após a finalização da entrega?': 'Segurança',
   ' O motorista faz o giro 360º antes de sair com o veículo, avaliando se existe algum obstáculo que dificulte a manobra ou algo embaixo do caminhão?': 'Segurança',
   'Caso seja necessária uma manobra de ré, o ajudante se posiciona em local correto e auxilia o motorista?': 'Segurança',
+  // Produtividade — operacional/digital
+  'A equipe deu início no Bees Deliver?': 'Produtividade',
+  'A Equipe notificou o primeiro cliente dentro do CDD?': 'Produtividade',
+  'A equipe notificou o primeiro cliente dentro do CDD?': 'Produtividade',
+  'O motorista iniciou o roteiro dentro do horário previsto?': 'Produtividade',
+  'A equipe finalizou todas as entregas conforme o roteiro?': 'Produtividade',
+  'A equipe registrou as devoluções corretamente no sistema?': 'Produtividade',
+  'A equipe realizou o check-list do veículo antes de sair?': 'Segurança',
+  'O veículo saiu do CD dentro do horário previsto?': 'Produtividade',
+  'A equipe realizou a conferência do roteiro antes de sair?': 'Produtividade',
+  'O motorista seguiu o roteiro conforme planejado?': 'Produtividade',
+  'A equipe finalizou o roteiro no Bees Deliver?': 'Produtividade',
+  'A equipe utilizou o Bees Deliver durante todo o roteiro?': 'Produtividade',
+  'A equipe realizou a pesquisa de satisfação do cliente?': 'Produtividade',
+  'A equipe realizou todas as entregas dentro do prazo?': 'Produtividade',
 }
 
 function getCategoriaQuestao(questao: string): Categoria {
-  return QUESTOES_CATEGORIAS[questao.trim()] ?? 'Segurança'
+  // Strip _N suffix added by XLSX for duplicate column names (e.g. "Questão?_1" → "Questão?")
+  const clean = questao.trim().replace(/_\d+$/, '')
+  return QUESTOES_CATEGORIAS[clean] ?? QUESTOES_CATEGORIAS[questao.trim()] ?? 'Produtividade'
 }
 
 function calcularConformidadeCategoria(avaliacoes: GsdpqAvaliacao[]) {
@@ -582,11 +599,23 @@ export default function Gsdpq() {
     multiple: false,
   })
 
+  // Parse any date string (YYYY-MM-DD or DD/MM/YYYY) to a comparable Date
+  function parseAvDate(s: string | null): Date | null {
+    if (!s) return null
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) return new Date(s.slice(0, 10) + 'T00:00:00')
+    const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+    if (m) return new Date(`${m[3]}-${m[2]}-${m[1]}T00:00:00`)
+    return null
+  }
+
   // Filtro base: equipe + período (sem categoria/função — usado nos cards de categoria)
   const avaliacoesBase = avaliacoes.filter(av => {
     if (filtroEquipe !== 'Todas' && av.equipe !== filtroEquipe) return false
-    if (filtroPeriodo.de && av.data_avaliacao && av.data_avaliacao < filtroPeriodo.de) return false
-    if (filtroPeriodo.ate && av.data_avaliacao && av.data_avaliacao > filtroPeriodo.ate) return false
+    if (filtroPeriodo.de || filtroPeriodo.ate) {
+      const avDate = parseAvDate(av.data_avaliacao)
+      if (filtroPeriodo.de && (!avDate || avDate < new Date(filtroPeriodo.de + 'T00:00:00'))) return false
+      if (filtroPeriodo.ate && (!avDate || avDate > new Date(filtroPeriodo.ate + 'T00:00:00'))) return false
+    }
     return true
   })
 
@@ -756,9 +785,9 @@ export default function Gsdpq() {
               ))}
               <div className="flex items-center gap-2 ml-auto">
                 <span className="text-xs text-gray-500 font-medium">Período:</span>
-                <input type="text" placeholder="DD/MM/AAAA" value={filtroPeriodo.de} onChange={e => setFiltroPeriodo(p => ({ ...p, de: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                <input type="date" value={filtroPeriodo.de} max={filtroPeriodo.ate || undefined} onChange={e => setFiltroPeriodo(p => ({ ...p, de: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500" />
                 <span className="text-xs text-gray-400">até</span>
-                <input type="text" placeholder="DD/MM/AAAA" value={filtroPeriodo.ate} onChange={e => setFiltroPeriodo(p => ({ ...p, ate: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                <input type="date" value={filtroPeriodo.ate} min={filtroPeriodo.de || undefined} onChange={e => setFiltroPeriodo(p => ({ ...p, ate: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500" />
               </div>
             </div>
           </div>
