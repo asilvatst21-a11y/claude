@@ -95,12 +95,11 @@ export function parseExcelBuffer(buffer: ArrayBuffer): ImportacaoSummary {
     if (!numeroVale || numeroVale <= 0) continue;
 
     const codigoAjudante1 = getNumber(row, 10);
-    if (!codigoAjudante1) continue;
 
     const parsed: ExcelRow = {
       motorista: getString(row, 7),
       codigoAjudante1,
-      nomeAjudante1: getString(row, 11) ?? `Ajudante ${codigoAjudante1}`,
+      nomeAjudante1: getString(row, 11) ?? (codigoAjudante1 ? `Ajudante ${codigoAjudante1}` : null),
       codigoAjudante2: getNumber(row, 12),
       nomeAjudante2: getString(row, 13),
       mapa: getNumber(row, 14),
@@ -171,8 +170,12 @@ function groupByVale(rows: ExcelRow[]): ImportacaoSummary {
     if (row.motivoPrimeiroNivel && !vale.motivoPrimeiroNivel) vale.motivoPrimeiroNivel = row.motivoPrimeiroNivel;
     if (row.justificativaPrimeiroNivel && !vale.justificativaPrimeiroNivel) vale.justificativaPrimeiroNivel = row.justificativaPrimeiroNivel;
 
-    // Add ajudante 1 if not already present
-    if (!vale.ajudantes.find((a) => a.codigo === row.codigoAjudante1)) {
+    // Add ajudante 1 if present and not already in list
+    if (
+      row.codigoAjudante1 &&
+      row.nomeAjudante1 &&
+      !vale.ajudantes.find((a) => a.codigo === row.codigoAjudante1)
+    ) {
       vale.ajudantes.push({
         codigo: row.codigoAjudante1,
         nome: row.nomeAjudante1,

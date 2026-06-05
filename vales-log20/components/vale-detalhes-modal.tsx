@@ -1,5 +1,6 @@
 "use client";
 
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -7,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -16,6 +18,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
+import { Loader2, Plus } from "lucide-react";
 import { formatCurrency, formatDateBR } from "@/lib/utils";
 
 interface ValeItem {
@@ -26,6 +29,12 @@ interface ValeItem {
   qtde_diferenca: number | null;
   qtde_diferenca_avulsa: number | null;
   valor: number | null;
+}
+
+interface ValeNota {
+  id: string;
+  texto: string;
+  created_at: string;
 }
 
 export interface ValeDetalhes {
@@ -72,7 +81,60 @@ function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
+function formatNotaDate(value: string) {
+  return new Date(value).toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function ValeDetalhesModal({ vale, open, onClose }: Props) {
+  const [notas, setNotas] = useState<ValeNota[]>([]);
+  const [loadingNotas, setLoadingNotas] = useState(false);
+  const [novoTexto, setNovoTexto] = useState("");
+  const [salvandoNota, setSalvandoNota] = useState(false);
+
+  const fetchNotas = useCallback(async () => {
+    if (!vale) return;
+    setLoadingNotas(true);
+    try {
+      const res = await fetch(`/api/vales/${vale.id}/notas`);
+      if (res.ok) setNotas(await res.json());
+    } finally {
+      setLoadingNotas(false);
+    }
+  }, [vale]);
+
+  useEffect(() => {
+    if (open && vale) {
+      fetchNotas();
+    } else {
+      setNotas([]);
+      setNovoTexto("");
+    }
+  }, [open, vale, fetchNotas]);
+
+  const handleAdicionarNota = async () => {
+    if (!vale || !novoTexto.trim()) return;
+    setSalvandoNota(true);
+    try {
+      const res = await fetch(`/api/vales/${vale.id}/notas`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ texto: novoTexto }),
+      });
+      if (res.ok) {
+        setNovoTexto("");
+        await fetchNotas();
+      }
+    } finally {
+      setSalvandoNota(false);
+    }
+  };
+
   if (!vale) return null;
 
   return (
@@ -99,7 +161,11 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
               <InfoRow label="Motorista" value={vale.motorista} />
               <InfoRow
                 label={vale.ajudantes.length > 1 ? "Ajudantes (vale dividido)" : "Ajudante"}
-                value={vale.ajudantes.map((a) => `${a.nome} (cód. ${a.codigo})`).join(" • ")}
+                value={
+                  vale.ajudantes.length > 0
+                    ? vale.ajudantes.map((a) => `${a.nome} (cód. ${a.codigo})`).join(" • ")
+                    : <span className="text-muted-foreground italic">Sem ajudante identificado</span>
+                }
               />
               <InfoRow label="Valor Total" value={<span className="font-semibold">{formatCurrency(vale.valor_total)}</span>} />
             </div>
@@ -174,6 +240,60 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
             {!vale.acao_primeiro_nivel && !vale.justificativa_primeiro_nivel && (
               <p className="text-sm text-muted-foreground italic">Pendente de tratativa Ambev</p>
             )}
+          </section>
+
+          <Separator />
+
+          {/* Notas / Comentários */}
+          <section>
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+              Anotações
+            </h3>
+
+            {loadingNotas ? (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Carregando anotações...
+              </div>
+            ) : notas.length > 0 ? (
+              <div className="space-y-2 mb-4">
+                {notas.map((nota) => (
+                  <div key={nota.id} className="rounded-md border bg-muted/30 px-3 py-2">
+                    <p className="text-sm">{nota.texto}</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {formatNotaDate(nota.created_at)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground italic mb-4">
+                Nenhuma anotação registrada.
+              </p>
+            )}
+
+            <div className="flex flex-col gap-2">
+              <textarea
+                className="flex min-h-[72px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                placeholder="Ex: Entrevista feita. Ajudante não quis assinar..."
+                value={novoTexto}
+                onChange={(e) => setNovoTexto(e.target.value)}
+                disabled={salvandoNota}
+              />
+              <Button
+                size="sm"
+                onClick={handleAdicionarNota}
+                disabled={!novoTexto.trim() || salvandoNota}
+                className="self-end gap-1"
+              >
+                {salvandoNota ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Plus className="h-3.5 w-3.5" />
+                )}
+                Adicionar anotação
+              </Button>
+            </div>
           </section>
 
         </div>
