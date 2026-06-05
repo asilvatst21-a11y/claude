@@ -1,6 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { NextRequest } from "next/server";
-import { sendMessage } from "@/lib/zapi";
+import { sendMessage, sendGroupMessage } from "@/lib/zapi";
 import {
   normalizarPedidoReposicao,
   normalizarAudioReposicao,
@@ -8,6 +8,9 @@ import {
 } from "@/lib/anthropic";
 
 const VALIDADOR_TELEFONE = process.env.VALIDADOR_TELEFONE ?? "";
+// Optional: ID of the WhatsApp group that receives validation requests.
+// When set, requests are posted to the group and ANY member can reply.
+const VALIDADOR_GRUPO_ID = process.env.VALIDADOR_GRUPO_ID ?? "";
 
 function normalizePhone(raw: string | undefined | null): string {
   if (!raw) return "";
@@ -18,6 +21,42 @@ function isValidador(phone: string): boolean {
   const vPhone = normalizePhone(VALIDADOR_TELEFONE);
   const sPhone = normalizePhone(phone);
   return !!vPhone && sPhone === vPhone;
+}
+
+// True when the incoming message belongs to the configured validation group.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function isValidacaoGrupo(payload: any): boolean {
+  if (!VALIDADOR_GRUPO_ID) return false;
+  if (payload.isGroupMsg !== true) return false;
+  const groupDigits = normalizePhone(VALIDADOR_GRUPO_ID);
+  const incoming = normalizePhone(payload.phone);
+  return !!groupDigits && incoming === groupDigits;
+}
+
+/**
+ * Sends the validation request either to the group (if configured) or the
+ * single validador. Returns the messageId for quoted-reply matching.
+ */
+async function enviarPedidoValidacao(
+  texto: string
+): Promise<{ messageId?: string } | null> {
+  if (VALIDADOR_GRUPO_ID) {
+    return sendGroupMessage(VALIDADOR_GRUPO_ID, texto).catch(() => null);
+  }
+  if (VALIDADOR_TELEFONE) {
+    return sendMessage(VALIDADOR_TELEFONE, texto).catch(() => null);
+  }
+  return null;
+}
+
+/** Replies into the validation channel (group or single validador). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function responderValidacao(payload: any, texto: string) {
+  if (isValidacaoGrupo(payload) && VALIDADOR_GRUPO_ID) {
+    await sendGroupMessage(VALIDADOR_GRUPO_ID, texto).catch(() => null);
+  } else {
+    await sendMessage(normalizePhone(payload.phone), texto).catch(() => null);
+  }
 }
 
 async function gerarNumero(supabase: Awaited<ReturnType<typeof createServiceClient>>) {
@@ -109,27 +148,26 @@ async function processDriverMessage(supabase: Awaited<ReturnType<typeof createSe
 
   await sendMessage(phone, confirmMsg).catch(() => null);
 
-  // Send validation request to validador
-  if (VALIDADOR_TELEFONE) {
-    const validMsg =
-      `🔄 *SOLICITAÇÃO DE REPOSIÇÃO*\n` +
-      `Nº ${numero}\n\n` +
-      `📦 Produto: ${normalizado.produto || "—"}\n` +
-      `🔢 Quantidade: ${normalizado.quantidade || "—"}\n` +
-      `🗺️ Mapa: ${normalizado.mapa || "—"}\n` +
-      `👤 Cliente: ${normalizado.cliente || "—"}\n` +
-      `❓ Motivo: ${normalizado.motivo || "—"}\n` +
-      `🚛 Motorista: ${senderName}\n\n` +
-      `Responda *SIM* para validar ou *NÃO* para negar.`;
+  // Send validation request to the group or the single validador
+  const validMsg =
+    `🔄 *SOLICITAÇÃO DE REPOSIÇÃO*\n` +
+    `Nº ${numero}\n\n` +
+    `📦 Produto: ${normalizado.produto || "—"}\n` +
+    `🔢 Quantidade: ${normalizado.quantidade || "—"}\n` +
+    `🗺️ Mapa: ${normalizado.mapa || "—"}\n` +
+    `👤 Cliente: ${normalizado.cliente || "—"}\n` +
+    `❓ Motivo: ${normalizado.motivo || "—"}\n` +
+    `🚛 Motorista: ${senderName}\n\n` +
+    `Para validar/negar, *responda a esta mensagem* (ou cite o número ${numero}) ` +
+    `com *SIM* para validar ou *NÃO* para negar.`;
 
-    const sent = await sendMessage(VALIDADOR_TELEFONE, validMsg).catch(() => null);
+  const sent = await enviarPedidoValidacao(validMsg);
 
-    if (sent?.messageId) {
-      await supabase
-        .from("reposicoes")
-        .update({ validador_message_id: sent.messageId })
-        .eq("id", rep.id);
-    }
+  if (sent?.messageId) {
+    await supabase
+      .from("reposicoes")
+      .update({ validador_message_id: sent.messageId })
+      .eq("id", rep.id);
   }
 }
 
@@ -137,6 +175,8 @@ async function processDriverMessage(supabase: Awaited<ReturnType<typeof createSe
 async function processValidadorMessage(supabase: Awaited<ReturnType<typeof createServiceClient>>, payload: any) {
   const refId: string | null = payload.referenceMessageId ?? null;
   const texto: string = payload.text?.message ?? "";
+  const quemRespondeu: string =
+    payload.participantPhone ? normalizePhone(payload.participantPhone) : normalizePhone(payload.phone);
 
   if (!texto) return;
 
@@ -167,15 +207,30 @@ async function processValidadorMessage(supabase: Awaited<ReturnType<typeof creat
     }
   }
 
-  if (!rep) return;
+  // In a group there can be many pending requests, so we cannot guess which one
+  // a loose reply refers to. Require a quote or an explicit REP number.
+  if (!rep) {
+    if (isValidacaoGrupo(payload)) {
+      const resultadoLoose = await verificarValidacao(texto);
+      // Only nudge when the message looks like an actual validation attempt
+      if (resultadoLoose !== "inconclusivo") {
+        await responderValidacao(
+          payload,
+          "❓ Não identifiquei a qual reposição você se refere. " +
+            "*Responda diretamente* à mensagem da solicitação ou cite o número (ex: REP-20260605-0001)."
+        );
+      }
+    }
+    return;
+  }
 
   const resultado = await verificarValidacao(texto);
 
   if (resultado === "inconclusivo") {
-    await sendMessage(
-      normalizePhone(payload.phone),
+    await responderValidacao(
+      payload,
       `❓ Não entendi a resposta para *${rep.numero}*. Responda *SIM* para validar ou *NÃO* para negar.`
-    ).catch(() => null);
+    );
     return;
   }
 
@@ -198,12 +253,10 @@ async function processValidadorMessage(supabase: Awaited<ReturnType<typeof creat
     ).catch(() => null);
   }
 
-  // Confirm to validador
-  const confirmWord = newStatus === "validado" ? "Reposição validada ✅" : "Reposição negada ❌";
-  await sendMessage(
-    normalizePhone(payload.phone),
-    `${confirmWord} para *${rep.numero}*`
-  ).catch(() => null);
+  // Confirm in the validation channel
+  const confirmWord = newStatus === "validado" ? "validada ✅" : "negada ❌";
+  const porQuem = quemRespondeu ? ` (por ${quemRespondeu})` : "";
+  await responderValidacao(payload, `Reposição *${rep.numero}* ${confirmWord}${porQuem}`);
 }
 
 export async function POST(request: NextRequest) {
@@ -214,12 +267,20 @@ export async function POST(request: NextRequest) {
 
   // Skip messages sent by us (fromMe)
   if (payload.fromMe === true) return Response.json({ ok: true });
-  // Skip group messages
-  if (payload.isGroupMsg === true) return Response.json({ ok: true });
 
   const supabase = await createServiceClient();
   const phone = normalizePhone(payload.phone);
 
+  // Group messages: only the configured validation group is processed.
+  if (payload.isGroupMsg === true) {
+    if (isValidacaoGrupo(payload)) {
+      await processValidadorMessage(supabase, payload).catch(console.error);
+    }
+    // Any other group is ignored.
+    return Response.json({ ok: true });
+  }
+
+  // Direct messages: a fixed validador (when no group is used) or a driver.
   if (isValidador(phone)) {
     await processValidadorMessage(supabase, payload).catch(console.error);
   } else {

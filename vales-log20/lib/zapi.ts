@@ -23,14 +23,36 @@ export async function sendMessage(
   phone: string,
   message: string
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  if (!ZAPI_INSTANCE_ID || !ZAPI_TOKEN || !ZAPI_CLIENT_TOKEN) {
-    console.warn("Z-API credentials not configured. Skipping WhatsApp message.");
-    return { success: false, error: "Z-API não configurado" };
-  }
-
   const formattedPhone = formatPhoneForZAPI(phone);
   if (!formattedPhone) {
     return { success: false, error: "Número de telefone inválido" };
+  }
+  return sendTextRaw(formattedPhone, message);
+}
+
+/**
+ * Sends a WhatsApp message to a group via Z-API.
+ * Group IDs must NOT pass through the Brazilian phone formatter, so the
+ * raw id (e.g. "120363019502650977-group") is used as-is.
+ */
+export async function sendGroupMessage(
+  groupId: string,
+  message: string
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (!groupId) return { success: false, error: "ID do grupo inválido" };
+  return sendTextRaw(groupId, message);
+}
+
+/**
+ * Low-level send-text call. `phone` is used verbatim (already formatted or a group id).
+ */
+async function sendTextRaw(
+  phone: string,
+  message: string
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  if (!ZAPI_INSTANCE_ID || !ZAPI_TOKEN || !ZAPI_CLIENT_TOKEN) {
+    console.warn("Z-API credentials not configured. Skipping WhatsApp message.");
+    return { success: false, error: "Z-API não configurado" };
   }
 
   const url = `${getZAPIBaseURL()}/send-text`;
@@ -43,7 +65,7 @@ export async function sendMessage(
         "Client-Token": ZAPI_CLIENT_TOKEN,
       },
       body: JSON.stringify({
-        phone: formattedPhone,
+        phone,
         message,
       }),
     });
