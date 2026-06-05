@@ -52,39 +52,85 @@ function ConfigInput({ label, value, onChange }: { label: string; value: number;
 
 // ─── Parser ───────────────────────────────────────────────────────────────────
 
+// Parses "Relatório de Ponto" (raw daily format: Sheet1)
+// Cols: 2=Nome, 3=Matrícula, 6=Data, 7=Horário, 10=H.E.(min), 14=Descontos, 15=BH Débito(min)
 function parseJornada(buffer: ArrayBuffer, filial: string): Omit<JornadaRegistro, 'id' | 'created_at'>[] {
   const wb = XLSX.read(buffer)
-  const ws = wb.Sheets['_Dados_Ponto']
-  if (!ws) throw new Error('Aba "_Dados_Ponto" não encontrada no arquivo.')
+
+  // Support both raw report (Sheet1) and legacy _Dados_Ponto
+  if (wb.Sheets['_Dados_Ponto']) return parseDadosPonto(wb, filial)
+
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  if (!ws) throw new Error('Nenhuma aba encontrada no arquivo.')
 
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as unknown[][]
 
+  type Acc = { he: number; hm: number; faltas: number; folgas: number; atestados: number; afastamentos: number }
+  const byKey: Record<string, { nome: string; matricula: string; mes: string; sort: number; acc: Acc }> = {}
+
+  rows.slice(1).forEach(r => {
+    const nome = String(r[2] ?? '').trim()
+    const mat  = String(r[3] ?? '').trim()
+    const dateRaw = String(r[6] ?? '')
+    const horario  = String(r[7] ?? '').trim()
+    const heMin    = Number(r[10]) || 0
+    const desconto = String(r[14] ?? '')
+    const bhDeb    = Number(r[15]) || 0
+
+    if (!nome || !dateRaw) return
+    const m = dateRaw.match(/(\d{2})\/(\d{2})\/(\d{4})/)
+    if (!m) return
+
+    const mes  = `${m[3]}-${m[2]}`
+    const sort = parseInt(`${m[3]}${m[2]}`, 10)
+    const key  = `${nome}|||${mes}`
+
+    if (!byKey[key]) byKey[key] = { nome, matricula: mat, mes, sort, acc: { he: 0, hm: 0, faltas: 0, folgas: 0, atestados: 0, afastamentos: 0 } }
+    const a = byKey[key].acc
+    a.he += heMin
+    a.hm += bhDeb
+    if (desconto.includes('Falta')) a.faltas++
+    if (horario.includes('Folga')) a.folgas++
+    else if (horario.includes('Atestado')) a.atestados++
+    else if (horario === 'Afastamento' || horario.includes('Licença') || horario.includes('Doação') || horario.includes('Luto')) a.afastamentos++
+  })
+
+  return Object.values(byKey).map(({ nome, matricula, mes, sort, acc }) => ({
+    filial,
+    nome,
+    matricula: matricula || null,
+    mes,
+    sort,
+    horas_extras: Math.round((acc.he / 60) * 100) / 100,
+    horas_menos:  Math.round((acc.hm / 60) * 100) / 100,
+    faltas:       acc.faltas,
+    folgas:       acc.folgas,
+    atestados:    acc.atestados,
+    afastamentos: acc.afastamentos,
+  }))
+}
+
+// Legacy parser for _Dados_Ponto sheet (Dash_ponto.xlsx format)
+function parseDadosPonto(wb: XLSX.WorkBook, filial: string): Omit<JornadaRegistro, 'id' | 'created_at'>[] {
+  const ws = wb.Sheets['_Dados_Ponto']
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as unknown[][]
   const matriculaMap: Record<string, string> = {}
   rows.slice(1).forEach(r => {
     const nome = String(r[10] ?? '').trim()
     const mat  = r[11]
     if (nome && mat) matriculaMap[nome] = String(mat)
   })
-
   const results: Omit<JornadaRegistro, 'id' | 'created_at'>[] = []
   rows.slice(1).forEach(r => {
     const nome = String(r[0] ?? '').trim()
     const mes  = String(r[1] ?? '').trim()
     const sort = Number(r[2]) || 0
     if (!nome || !mes || !sort) return
-
     results.push({
-      filial,
-      nome,
-      matricula:    matriculaMap[nome] ?? null,
-      mes,
-      sort,
-      horas_extras: Number(r[3]) || 0,
-      horas_menos:  Number(r[4]) || 0,
-      faltas:       Number(r[5]) || 0,
-      folgas:       Number(r[6]) || 0,
-      atestados:    Number(r[7]) || 0,
-      afastamentos: Number(r[8]) || 0,
+      filial, nome, matricula: matriculaMap[nome] ?? null, mes, sort,
+      horas_extras: Number(r[3]) || 0, horas_menos: Number(r[4]) || 0,
+      faltas: Number(r[5]) || 0, folgas: Number(r[6]) || 0,
+      atestados: Number(r[7]) || 0, afastamentos: Number(r[8]) || 0,
     })
   })
   return results
@@ -106,7 +152,7 @@ function UploadZone({ onUpload, uploading }: { onUpload: (f: File) => void; uplo
       <input {...getInputProps()} />
       {uploading
         ? <><Loader2 size={22} className="mx-auto mb-1.5 text-brand-500 animate-spin" /><p className="text-sm text-gray-600">Importando…</p></>
-        : <><Upload size={22} className="mx-auto mb-1.5 text-gray-400" /><p className="text-sm text-gray-600">Arraste o <strong>Dash_ponto.xlsx</strong> ou <span className="text-brand-600">clique para selecionar</span></p><p className="text-xs text-gray-400 mt-0.5">O arquivo deve conter a aba "_Dados_Ponto"</p></>
+        : <><Upload size={22} className="mx-auto mb-1.5 text-gray-400" /><p className="text-sm text-gray-600">Arraste o <strong>relatório de ponto (.xls/.xlsx)</strong> ou <span className="text-brand-600">clique para selecionar</span></p><p className="text-xs text-gray-400 mt-0.5">Relatório de ponto funcionário ou Dash_ponto.xlsx</p></>
       }
     </div>
   )
