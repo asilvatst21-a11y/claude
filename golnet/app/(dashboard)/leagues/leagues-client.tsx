@@ -133,10 +133,6 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
   const [championEnabled, setChampionEnabled] = useState(false);
   const [championPoints, setChampionPoints] = useState(20);
 
-  // Goal scorer prediction
-  const [goalScorerEnabled, setGoalScorerEnabled] = useState(false);
-  const [goalScorerPoints, setGoalScorerPoints] = useState(5);
-
   const load = async () => {
     try {
       const res = await fetch("/api/leagues");
@@ -187,8 +183,6 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
           teamFilter,
           championPredictionEnabled: championEnabled,
           championPredictionPoints: championPoints,
-          goalScorerEnabled,
-          goalScorerPoints,
           ...(isPro && useCustomScoring ? scoring : {}),
         }),
       });
@@ -211,8 +205,6 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
       setShowFilterSection(false);
       setChampionEnabled(false);
       setChampionPoints(20);
-      setGoalScorerEnabled(false);
-      setGoalScorerPoints(5);
       await load();
       await loadPublic();
     } catch {
@@ -422,33 +414,6 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
                     <button onClick={() => setChampionPoints((v) => Math.max(1, v - 5))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center">−</button>
                     <span className="w-12 text-center font-bold text-yellow-400">{championPoints}</span>
                     <button onClick={() => setChampionPoints((v) => Math.min(500, v + 5))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center">+</button>
-                    <span className="text-xs text-zinc-500">pts</span>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Goal scorer prediction */}
-            <div className="mt-2">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <div
-                  onClick={() => setGoalScorerEnabled((v) => !v)}
-                  className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${goalScorerEnabled ? "bg-blue-500" : "bg-zinc-700"}`}
-                >
-                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${goalScorerEnabled ? "translate-x-5" : "translate-x-1"}`} />
-                </div>
-                <span className="text-sm font-medium text-zinc-300">Palpite de Artilheiro ⚽</span>
-              </label>
-              {goalScorerEnabled && (
-                <div className="mt-3 bg-zinc-800 rounded-xl p-4">
-                  <p className="text-xs text-zinc-400 mb-3">
-                    Membros palpitam o nome de um jogador que vai marcar gol. Se acertar, ganham pontos bônus.
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-zinc-300">Pontos pelo acerto:</span>
-                    <button onClick={() => setGoalScorerPoints((v) => Math.max(1, v - 1))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center">−</button>
-                    <span className="w-12 text-center font-bold text-blue-400">{goalScorerPoints}</span>
-                    <button onClick={() => setGoalScorerPoints((v) => Math.min(100, v + 1))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center">+</button>
                     <span className="text-xs text-zinc-500">pts</span>
                   </div>
                 </div>

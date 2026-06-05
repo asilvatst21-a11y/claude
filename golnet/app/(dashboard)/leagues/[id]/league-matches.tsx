@@ -4,9 +4,10 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import { MatchCard } from "@/components/predictions/match-card";
-import type { Match, Prediction } from "@/types";
+import { OtherPredictionsList } from "@/components/predictions/other-predictions-list";
+import type { Match, Prediction, OtherPrediction } from "@/types";
 
-type MatchWithPred = Match & { predictions: Prediction[] };
+type MatchWithPred = Match & { predictions: Prediction[]; otherPredictions: OtherPrediction[] };
 
 function getCurrentRoundIndex(rounds: string[], matchesByRound: Record<string, MatchWithPred[]>): number {
   // Priority 1: round with a LIVE match
@@ -31,7 +32,7 @@ export function LeagueMatches({ leagueId }: { leagueId: string }) {
     try {
       const res = await fetch(`/api/leagues/${leagueId}/matches`);
       const data = await res.json();
-      if (Array.isArray(data)) setMatches(data);
+      if (Array.isArray(data)) setMatches(data.map((m: MatchWithPred) => ({ ...m, otherPredictions: m.otherPredictions ?? [] })));
     } catch {
       // ignore
     } finally {
@@ -151,7 +152,12 @@ export function LeagueMatches({ leagueId }: { leagueId: string }) {
       {/* Match cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {roundMatches.map((match) => (
-          <MatchCard key={match.id} match={match} onSaved={load} />
+          <div key={match.id} className="flex flex-col gap-2">
+            <MatchCard match={match} onSaved={load} />
+            {(match.status === "LIVE" || match.status === "FINISHED") && match.otherPredictions.length > 0 && (
+              <OtherPredictionsList predictions={match.otherPredictions} />
+            )}
+          </div>
         ))}
       </div>
 

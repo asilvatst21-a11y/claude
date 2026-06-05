@@ -92,10 +92,7 @@ async function runSync(): Promise<{ synced: number }> {
 
     const [regularPreds, duelPreds] = await Promise.all([
       prisma.prediction.findMany({ where: { matchId: { in: finishedMatchIds }, result: null } }),
-      prisma.duelPrediction.findMany({
-        where: { matchId: { in: finishedMatchIds }, result: null },
-        include: { duel: { select: { goalScorerEnabled: true, goalScorerPoints: true } } },
-      }),
+      prisma.duelPrediction.findMany({ where: { matchId: { in: finishedMatchIds }, result: null } }),
     ]);
 
     await Promise.all(regularPreds.map(async (pred) => {
@@ -111,50 +108,13 @@ async function runSync(): Promise<{ synced: number }> {
 
       const memberships = await prisma.leagueMember.findMany({
         where: { userId: pred.userId },
-        select: { leagueId: true, league: { select: { goalScorerEnabled: true, goalScorerPoints: true } } },
+        select: { leagueId: true },
       });
-
-      // Score goal scorer prediction
-      let goalScorerCorrect: boolean | null = null;
-      const gsOps: Promise<unknown>[] = [];
-
-      if (pred.goalScorerPrediction) {
-        const matchGoals = freshGoals[match.id] ?? (match.goals as GoalEvent[] | null) ?? [];
-        const norm = (s: string) => s.toLowerCase().trim();
-        let predictedPlayers: string[] = [];
-        try {
-          const parsed = JSON.parse(pred.goalScorerPrediction) as { home?: string[]; away?: string[] };
-          predictedPlayers = [...(parsed.home ?? []), ...(parsed.away ?? [])].filter((s) => s.trim());
-        } catch {
-          predictedPlayers = [pred.goalScorerPrediction];
-        }
-        goalScorerCorrect = predictedPlayers.some((predicted) => {
-          const p = norm(predicted);
-          return matchGoals.some((g) => { const a = norm(g.player); return a.includes(p) || p.includes(a); });
-        });
-        if (goalScorerCorrect) {
-          for (const m of memberships) {
-            if (!m.league.goalScorerEnabled) continue;
-            const gsPoints = m.league.goalScorerPoints;
-            gsOps.push(
-              prisma.leagueMember.updateMany({
-                where: { userId: pred.userId, leagueId: m.leagueId },
-                data: { totalPoints: { increment: gsPoints } },
-              }),
-              prisma.roundRanking.upsert({
-                where: { leagueId_userId_round: { leagueId: m.leagueId, userId: pred.userId, round } },
-                create: { leagueId: m.leagueId, userId: pred.userId, round, points: gsPoints },
-                update: { points: { increment: gsPoints } },
-              })
-            );
-          }
-        }
-      }
 
       await Promise.all([
         prisma.prediction.update({
           where: { id: pred.id },
-          data: { result, points, bonusPoints, ...(pred.goalScorerPrediction != null ? { goalScorerCorrect } : {}) },
+          data: { result, points, bonusPoints },
         }),
         prisma.leagueMember.updateMany({ where: { userId: pred.userId }, data: { totalPoints: { increment: total } } }),
         ...memberships.map((m) =>
@@ -164,7 +124,6 @@ async function runSync(): Promise<{ synced: number }> {
             update: { points: { increment: total } },
           })
         ),
-        ...gsOps,
       ]);
     }));
 
@@ -172,34 +131,14 @@ async function runSync(): Promise<{ synced: number }> {
       const match = matchById[dp.matchId];
       if (!match || match.homeScore === null || match.awayScore === null) return;
 
-      const scored = calculatePoints({
+      const { result, points, bonusPoints } = calculatePoints({
         predHome: dp.homeScore, predAway: dp.awayScore,
         realHome: match.homeScore, realAway: match.awayScore, stage: match.stage,
       });
-      const { result, points } = scored;
-      let bonusPoints = scored.bonusPoints;
-      let goalScorerCorrect: boolean | null = null;
-
-      if (dp.goalScorerPrediction) {
-        const matchGoals = freshGoals[match.id] ?? (match.goals as GoalEvent[] | null) ?? [];
-        const norm = (s: string) => s.toLowerCase().trim();
-        let predictedPlayers: string[] = [];
-        try {
-          const parsed = JSON.parse(dp.goalScorerPrediction) as { home?: string[]; away?: string[] };
-          predictedPlayers = [...(parsed.home ?? []), ...(parsed.away ?? [])].filter((s) => s.trim());
-        } catch {
-          predictedPlayers = [dp.goalScorerPrediction];
-        }
-        goalScorerCorrect = predictedPlayers.some((predicted) => {
-          const p = norm(predicted);
-          return matchGoals.some((g) => { const a = norm(g.player); return a.includes(p) || p.includes(a); });
-        });
-        if (goalScorerCorrect && dp.duel.goalScorerEnabled) bonusPoints += dp.duel.goalScorerPoints;
-      }
 
       await prisma.duelPrediction.update({
         where: { id: dp.id },
-        data: { result, points, bonusPoints, ...(dp.goalScorerPrediction != null ? { goalScorerCorrect } : {}) },
+        data: { result, points, bonusPoints },
       });
     }));
 

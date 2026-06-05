@@ -32,8 +32,21 @@ export type LeagueWithMembers = League & {
   members: (LeagueMember & { user: Pick<User, "id" | "name" | "image" | "username"> })[];
 };
 
+export type OtherPrediction = {
+  userId: string;
+  name: string | null;
+  username: string | null;
+  image: string | null;
+  homeScore: number;
+  awayScore: number;
+  result: string | null;
+  points: number;
+  bonusPoints: number;
+};
+
 export type MatchWithPrediction = Match & {
   predictions?: Prediction[];
+  otherPredictions?: OtherPrediction[];
 };
 
 export type RankingEntry = {

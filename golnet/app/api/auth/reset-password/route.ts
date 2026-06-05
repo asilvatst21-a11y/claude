@@ -9,20 +9,25 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Dados inválidos" }, { status: 400 });
   }
 
-  const record = await prisma.passwordResetToken.findUnique({ where: { token } });
+  try {
+    const record = await prisma.passwordResetToken.findUnique({ where: { token } });
 
-  if (!record || record.expiresAt < new Date()) {
-    return NextResponse.json({ error: "Link inválido ou expirado" }, { status: 400 });
+    if (!record || record.expiresAt < new Date()) {
+      return NextResponse.json({ error: "Link inválido ou expirado" }, { status: 400 });
+    }
+
+    const hashed = await bcrypt.hash(password, 12);
+
+    await prisma.user.update({
+      where: { email: record.email },
+      data: { password: hashed },
+    });
+
+    await prisma.passwordResetToken.delete({ where: { token } });
+  } catch (err) {
+    console.error("[reset-password]", err);
+    return NextResponse.json({ error: "Erro ao redefinir senha. Tente novamente." }, { status: 500 });
   }
-
-  const hashed = await bcrypt.hash(password, 12);
-
-  await prisma.user.update({
-    where: { email: record.email },
-    data: { password: hashed },
-  });
-
-  await prisma.passwordResetToken.delete({ where: { token } });
 
   return NextResponse.json({ ok: true });
 }

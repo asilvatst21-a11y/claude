@@ -35,8 +35,6 @@ type LeagueScoring = {
   ptsCorrectDraw: number;
   championPredictionEnabled: boolean;
   championPredictionPoints: number;
-  goalScorerEnabled: boolean;
-  goalScorerPoints: number;
 };
 
 interface LeagueTabsProps {
@@ -62,7 +60,7 @@ export function LeagueTabs({
   const [activeTab, setActiveTab] = useState<Tab>("Jogos");
   const isPro = userPlan !== "FREE";
 
-  const hasBonus = scoring.championPredictionEnabled || scoring.goalScorerEnabled;
+  const hasBonus = scoring.championPredictionEnabled;
 
   const mainScoring = [
     {
@@ -355,21 +353,6 @@ export function LeagueTabs({
                     </div>
                     <div className="text-right shrink-0">
                       <span className="text-xl font-bold text-yellow-400">{scoring.championPredictionPoints}</span>
-                      <span className="text-zinc-500 text-xs ml-1">pts</span>
-                    </div>
-                  </div>
-                )}
-                {scoring.goalScorerEnabled && (
-                  <div className="flex items-center gap-4 px-4 py-3.5">
-                    <span className="text-2xl shrink-0">⚽</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-white">Artilheiro da partida</p>
-                      <p className="text-xs text-zinc-500 mt-0.5">
-                        Bônus por acertar o artilheiro de cada jogo
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <span className="text-xl font-bold text-yellow-400">+{scoring.goalScorerPoints}</span>
                       <span className="text-zinc-500 text-xs ml-1">pts</span>
                     </div>
                   </div>
