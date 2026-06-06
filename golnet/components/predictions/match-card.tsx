@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import type { Match, Prediction } from "@/types";
@@ -13,6 +13,37 @@ import { MatchStatsModal } from "./match-stats-modal";
 interface MatchCardProps {
   match: Match & { predictions?: Prediction[] };
   onSaved?: () => void;
+}
+
+function useCountdown(cutoff: Date) {
+  const [msLeft, setMsLeft] = useState(() => cutoff.getTime() - Date.now());
+
+  useEffect(() => {
+    if (msLeft <= 0) return;
+    const id = setInterval(() => {
+      const remaining = cutoff.getTime() - Date.now();
+      setMsLeft(remaining);
+      if (remaining <= 0) clearInterval(id);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [cutoff]);
+
+  return msLeft;
+}
+
+function formatCountdown(ms: number): { text: string; urgent: boolean } {
+  if (ms <= 0) return { text: "Encerrado", urgent: true };
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) return { text: `${days}d ${hours}h`, urgent: false };
+  if (hours > 0) return { text: `${hours}h ${minutes}min`, urgent: false };
+  if (minutes >= 10) return { text: `${minutes} min`, urgent: false };
+  if (minutes > 0) return { text: `${minutes}min ${seconds.toString().padStart(2, "0")}s`, urgent: true };
+  return { text: `${seconds}s`, urgent: true };
 }
 
 const statusLabel: Record<string, string> = {
@@ -43,6 +74,9 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
   const [showStats, setShowStats] = useState(false);
 
   const locked = isPredictionLocked(new Date(match.startsAt));
+  const cutoff = new Date(new Date(match.startsAt).getTime() - 5 * 60 * 1000);
+  const msLeft = useCountdown(cutoff);
+  const countdown = !locked && match.status === "SCHEDULED" ? formatCountdown(msLeft) : null;
 
   const handleSave = async () => {
     setSaving(true);
@@ -147,6 +181,15 @@ export function MatchCard({ match, onSaved }: MatchCardProps) {
 
       {/* Prediction area */}
       <div className="border-t border-zinc-800 pt-3 flex flex-col gap-3">
+        {countdown && (
+          <div className={cn(
+            "flex items-center gap-1.5 text-xs",
+            countdown.urgent ? "text-orange-400" : "text-zinc-500"
+          )}>
+            <span>{countdown.urgent ? "⏰" : "🕐"}</span>
+            <span>Fecha em <span className="font-semibold">{countdown.text}</span></span>
+          </div>
+        )}
         {locked ? (
           <div className="flex items-center justify-between text-sm">
             <span className="flex items-center gap-1.5 text-zinc-500">
