@@ -1,4 +1,5 @@
 {
+  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- matriculas-whatsapp/",
   "rewrites": [
     { "source": "/(.*)", "destination": "/index.html" }
   ]
