@@ -1,7 +1,6 @@
 {
   "framework": "nextjs",
-  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- golnet/",
-  "crons": [
+"crons": [
     {
       "path": "/api/cron/sync-matches",
       "schedule": "0 3 * * *"
