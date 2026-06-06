@@ -12,8 +12,11 @@ export async function POST(req: Request) {
 
   const user = await prisma.user.findUnique({ where: { email } });
 
+  console.log("[forgot-password] user found:", !!user, "has password:", !!user?.password);
+
   // Always return success to avoid email enumeration
   if (!user || !user.password) {
+    console.log("[forgot-password] skipping — no user or no password (OAuth account?)");
     return NextResponse.json({ ok: true });
   }
 
