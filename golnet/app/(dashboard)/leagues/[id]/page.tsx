@@ -5,6 +5,7 @@ import { CopyInviteButton } from "./copy-invite-button";
 import { LeagueTabs } from "./league-tabs";
 import { ChampionWidget } from "./champion-widget";
 import { DeleteLeagueButton } from "./delete-league-button";
+import { JoinRequestsPanel } from "./join-requests-panel";
 
 export const metadata = { title: "Liga — PalpitaAí" };
 
@@ -156,6 +157,12 @@ export default async function LeagueDetailPage({
           )}
         </div>
       </div>
+
+      {(isOwner || currentMember.role === "ADMIN") && league.visibility === "PRIVATE" && (
+        <div className="mb-6">
+          <JoinRequestsPanel leagueId={params.id} />
+        </div>
+      )}
 
       {isOwner && (
         <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 mb-6">
