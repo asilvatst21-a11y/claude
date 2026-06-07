@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus } from "lucide-react";
+import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, AlertTriangle, Clock } from "lucide-react";
 import { ValeDetalhesModal, type ValeDetalhes } from "@/components/vale-detalhes-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +39,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useToast } from "@/components/ui/use-toast";
-import { formatCurrency, formatDateBR } from "@/lib/utils";
+import { formatCurrency, formatDateBR, calcPrazo, type PrazoStatus } from "@/lib/utils";
 
 interface ValeRow extends ValeDetalhes {
   notificacao_pendente_enviada: boolean;
@@ -68,6 +68,25 @@ function getAcaoBadgeVariant(acao: string | null) {
     case "Reprovado": return "destructive" as const;
     default: return "secondary" as const;
   }
+}
+
+const PRAZO_STYLES: Record<PrazoStatus, string> = {
+  ok:      "bg-green-50 text-green-700 border-green-200",
+  alerta:  "bg-yellow-50 text-yellow-700 border-yellow-200",
+  urgente: "bg-orange-50 text-orange-700 border-orange-200",
+  vencido: "bg-red-50 text-red-700 border-red-200",
+};
+
+function PrazoBadge({ dataEmissao }: { dataEmissao: string | null }) {
+  const info = calcPrazo(dataEmissao);
+  if (!info) return <span className="text-muted-foreground text-sm">—</span>;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${PRAZO_STYLES[info.status]}`}>
+      {(info.status === "urgente" || info.status === "vencido") && <AlertTriangle className="h-3 w-3" />}
+      {info.status === "ok" && <Clock className="h-3 w-3" />}
+      {info.label}
+    </span>
+  );
 }
 
 function buildMensagemPendente(vale: ValeRow, ajudante: { nome: string }) {
@@ -512,6 +531,24 @@ function ValesContent() {
                 </CardDescription>
               </CardHeader>
               <CardContent>
+                {/* Prazo banner — only on pendentes tab */}
+                {tab.value === "pendentes" && (() => {
+                  const pendentesTab = filterByTab(valesFiltered, "pendentes");
+                  const vencidos = pendentesTab.filter((v) => calcPrazo(v.data_emissao)?.status === "vencido").length;
+                  const urgentes = pendentesTab.filter((v) => calcPrazo(v.data_emissao)?.status === "urgente").length;
+                  if (!vencidos && !urgentes) return null;
+                  return (
+                    <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
+                      <AlertTriangle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
+                      <div className="text-sm text-red-800">
+                        <span className="font-semibold">Atenção ao prazo de 3 dias! </span>
+                        {vencidos > 0 && <span>{vencidos} vale{vencidos > 1 ? "s" : ""} com prazo <strong>vencido</strong>. </span>}
+                        {urgentes > 0 && <span>{urgentes} vale{urgentes > 1 ? "s" : ""} vencem em <strong>menos de 24h</strong>. </span>}
+                        <span className="text-red-600">Regularize no sistema Ambev imediatamente.</span>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {isLoading ? (
                   <div className="flex items-center justify-center py-12">
                     <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -534,6 +571,7 @@ function ValesContent() {
                         <TableHead>Itens</TableHead>
                         <TableHead>Valor Total</TableHead>
                         <TableHead>Status</TableHead>
+                        <TableHead>Prazo</TableHead>
                         <TableHead>Ação Transp.</TableHead>
                         <TableHead>Ação Ambev</TableHead>
                         <TableHead>Justificativa</TableHead>
@@ -562,6 +600,12 @@ function ValesContent() {
                             <Badge variant={getStatusBadgeVariant(vale.status_vale)}>
                               {vale.status_vale ?? "Sem Ação"}
                             </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {vale.status_vale === "Sem Ação"
+                              ? <PrazoBadge dataEmissao={vale.data_emissao} />
+                              : <span className="text-muted-foreground text-sm">—</span>
+                            }
                           </TableCell>
                           <TableCell>
                             {vale.acao_transportadora ? (

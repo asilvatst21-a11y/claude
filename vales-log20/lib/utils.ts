@@ -65,6 +65,37 @@ export function formatCurrency(value: number): string {
   }).format(value);
 }
 
+export type PrazoStatus = "ok" | "alerta" | "urgente" | "vencido";
+
+export interface PrazoInfo {
+  status: PrazoStatus;
+  label: string;
+  horasRestantes: number;
+}
+
+/**
+ * Calculates the 3-day deadline status for a pending vale based on its emission date.
+ */
+export function calcPrazo(dataEmissao: string | null | undefined): PrazoInfo | null {
+  if (!dataEmissao) return null;
+  const emissao = new Date(dataEmissao + "T00:00:00");
+  const deadline = new Date(emissao.getTime() + 3 * 24 * 60 * 60 * 1000);
+  const now = new Date();
+  const diffMs = deadline.getTime() - now.getTime();
+  const horasRestantes = Math.floor(diffMs / (1000 * 60 * 60));
+
+  if (horasRestantes < 0) {
+    const atraso = Math.abs(Math.floor(horasRestantes / 24));
+    return { status: "vencido", label: atraso === 0 ? "Vencido hoje" : `Vencido ${atraso}d`, horasRestantes };
+  }
+  if (horasRestantes < 24) {
+    return { status: "urgente", label: horasRestantes <= 1 ? "< 1h" : `${horasRestantes}h restantes`, horasRestantes };
+  }
+  const dias = Math.floor(horasRestantes / 24);
+  if (dias === 1) return { status: "alerta", label: "Amanhã", horasRestantes };
+  return { status: "ok", label: `${dias} dias`, horasRestantes };
+}
+
 /**
  * Formats a date in Brazilian format (DD/MM/YYYY).
  */

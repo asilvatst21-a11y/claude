@@ -76,6 +76,7 @@ export async function POST(request: NextRequest) {
       data_rota: v.dataRota,
       mapa: v.mapa,
       motorista: v.motorista,
+      veiculo: v.veiculo,
       status_vale: v.statusVale,
       acao_transportadora: v.acaoTransportadora,
       justificativa_transportadora: v.justificativaTransportadora,

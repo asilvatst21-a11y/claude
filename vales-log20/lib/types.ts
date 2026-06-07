@@ -86,6 +86,7 @@ export type AcaoTransportadora = "Aprovado" | "Reprovado" | "Sem ação";
 
 // Parsed row from Excel
 export interface ExcelRow {
+  veiculo: string | null;
   motorista: string | null;
   codigoAjudante1: number | null;
   nomeAjudante1: string | null;
@@ -119,6 +120,7 @@ export interface ValeParseado {
   dataRota: string | null;
   mapa: number | null;
   motorista: string | null;
+  veiculo: string | null;
   statusVale: StatusVale | null;
   acaoTransportadora: AcaoTransportadora | null;
   justificativaTransportadora: string | null;
