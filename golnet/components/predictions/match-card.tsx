@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import { ptBR } from "date-fns/locale";
 import type { Match, Prediction } from "@/types";
@@ -13,19 +13,37 @@ import { MatchStatsModal } from "./match-stats-modal";
 interface MatchCardProps {
   match: Match & { predictions?: Prediction[] };
   onSaved?: () => void;
-  goalScorerEnabled?: boolean;
-  goalScorerPoints?: number;
 }
 
-type GsData = { home: string[]; away: string[] };
+function useCountdown(cutoff: Date) {
+  const [msLeft, setMsLeft] = useState(() => cutoff.getTime() - Date.now());
 
-function parseGs(raw: string | null | undefined): GsData {
-  if (!raw) return { home: [], away: [] };
-  try {
-    const parsed = JSON.parse(raw) as GsData;
-    if (Array.isArray(parsed.home) && Array.isArray(parsed.away)) return parsed;
-  } catch { /* legacy plain-text — ignore */ }
-  return { home: [], away: [] };
+  useEffect(() => {
+    if (msLeft <= 0) return;
+    const id = setInterval(() => {
+      const remaining = cutoff.getTime() - Date.now();
+      setMsLeft(remaining);
+      if (remaining <= 0) clearInterval(id);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [cutoff]);
+
+  return msLeft;
+}
+
+function formatCountdown(ms: number): { text: string; urgent: boolean } {
+  if (ms <= 0) return { text: "Encerrado", urgent: true };
+  const totalSeconds = Math.floor(ms / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) return { text: `${days}d ${hours}h`, urgent: false };
+  if (hours > 0) return { text: `${hours}h ${minutes}min`, urgent: false };
+  if (minutes >= 10) return { text: `${minutes} min`, urgent: false };
+  if (minutes > 0) return { text: `${minutes}min ${seconds.toString().padStart(2, "0")}s`, urgent: true };
+  return { text: `${seconds}s`, urgent: true };
 }
 
 const statusLabel: Record<string, string> = {
@@ -44,63 +62,25 @@ const resultColor: Record<string, string> = {
   WRONG: "text-red-400",
 };
 
-export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints = 5 }: MatchCardProps) {
+export function MatchCard({ match, onSaved }: MatchCardProps) {
   const existing = match.predictions?.[0];
-  const existingGs = parseGs((existing as { goalScorerPrediction?: string | null })?.goalScorerPrediction);
 
   const [home, setHome] = useState(existing?.homeScore?.toString() ?? "");
   const [away, setAway] = useState(existing?.awayScore?.toString() ?? "");
-  const [gsHome, setGsHome] = useState<string[]>(existingGs.home);
-  const [gsAway, setGsAway] = useState<string[]>(existingGs.away);
-  // gsEditMode: true = showing inputs; false = showing saved summary
-  const [gsEditMode, setGsEditMode] = useState(existingGs.home.length === 0 && existingGs.away.length === 0);
-  const [players, setPlayers] = useState<{ home: string[]; away: string[] } | null>(null);
-  const [loadingPlayers, setLoadingPlayers] = useState(false);
   const [saving, setSaving] = useState(false);
   const [isSaved, setIsSaved] = useState(!!existing);
   const [isEditing, setIsEditing] = useState(!existing);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [showStats, setShowStats] = useState(false);
-  const playersLoadedRef = useRef(false);
 
   const locked = isPredictionLocked(new Date(match.startsAt));
-
-  const homeGoalCount = Math.max(0, parseInt(home) || 0);
-  const awayGoalCount = Math.max(0, parseInt(away) || 0);
-  const totalGoals = homeGoalCount + awayGoalCount;
-
-  // Derived scorer arrays: always sized to current goal count
-  const homeScorers = Array.from({ length: homeGoalCount }, (_, i) => gsHome[i] ?? "");
-  const awayScorers = Array.from({ length: awayGoalCount }, (_, i) => gsAway[i] ?? "");
-
-  // Auto-load squad when goal slots become visible
-  useEffect(() => {
-    if (totalGoals > 0 && !playersLoadedRef.current && !locked) {
-      playersLoadedRef.current = true;
-      setLoadingPlayers(true);
-      fetch(`/api/matches/${match.id}/players`)
-        .then((r) => r.ok ? r.json() : null)
-        .then((data) => { if (data) setPlayers(data); })
-        .finally(() => setLoadingPlayers(false));
-    }
-  }, [totalGoals > 0, locked]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const updateGs = (team: "home" | "away", idx: number, val: string) => {
-    if (team === "home") setGsHome((p) => { const n = [...p]; n[idx] = val; return n; });
-    else setGsAway((p) => { const n = [...p]; n[idx] = val; return n; });
-  };
-
-  const buildGsPayload = () => {
-    const h = homeScorers.map((s) => s.trim()).filter(Boolean);
-    const a = awayScorers.map((s) => s.trim()).filter(Boolean);
-    if (h.length === 0 && a.length === 0) return undefined;
-    return JSON.stringify({ home: h, away: a });
-  };
+  const cutoff = new Date(new Date(match.startsAt).getTime() - 5 * 60 * 1000);
+  const msLeft = useCountdown(cutoff);
+  const countdown = !locked && match.status === "SCHEDULED" ? formatCountdown(msLeft) : null;
 
   const handleSave = async () => {
     setSaving(true);
     setSaveError(null);
-    const gsPayload = buildGsPayload();
     const res = await fetch("/api/predictions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -108,47 +88,18 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
         matchId: match.id,
         homeScore: parseInt(home),
         awayScore: parseInt(away),
-        ...(gsPayload ? { goalScorerPrediction: gsPayload } : {}),
       }),
     });
     setSaving(false);
     if (res.ok) {
       setIsSaved(true);
       setIsEditing(false);
-      if (gsPayload) setGsEditMode(false);
       onSaved?.();
     } else {
       const data = await res.json();
       setSaveError(data.error ?? "Erro ao salvar");
     }
   };
-
-  // Save only goal scorers (score already saved)
-  const handleSaveGs = async () => {
-    if (home === "" || away === "") return;
-    setSaving(true);
-    setSaveError(null);
-    const gsPayload = buildGsPayload();
-    const res = await fetch("/api/predictions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        matchId: match.id,
-        homeScore: parseInt(home),
-        awayScore: parseInt(away),
-        ...(gsPayload ? { goalScorerPrediction: gsPayload } : {}),
-      }),
-    });
-    setSaving(false);
-    if (res.ok) {
-      setGsEditMode(false);
-    } else {
-      const data = await res.json();
-      setSaveError(data.error ?? "Erro ao salvar");
-    }
-  };
-
-  const hasSavedScorers = gsHome.some(Boolean) || gsAway.some(Boolean);
 
   return (
     <div className={cn(
@@ -230,47 +181,29 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
 
       {/* Prediction area */}
       <div className="border-t border-zinc-800 pt-3 flex flex-col gap-3">
+        {countdown && (
+          <div className={cn(
+            "flex items-center gap-1.5 text-xs",
+            countdown.urgent ? "text-orange-400" : "text-zinc-500"
+          )}>
+            <span>{countdown.urgent ? "⏰" : "🕐"}</span>
+            <span>Fecha em <span className="font-semibold">{countdown.text}</span></span>
+          </div>
+        )}
         {locked ? (
-          /* LOCKED */
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between text-sm">
-              <span className="flex items-center gap-1.5 text-zinc-500">
-                <span>🔒</span>
-                {existing ? `Seu palpite: ${existing.homeScore} x ${existing.awayScore}` : "Sem palpite"}
+          <div className="flex items-center justify-between text-sm">
+            <span className="flex items-center gap-1.5 text-zinc-500">
+              <span>🔒</span>
+              {existing ? `Seu palpite: ${existing.homeScore} x ${existing.awayScore}` : "Sem palpite"}
+            </span>
+            {existing?.result && (
+              <span className={cn("font-semibold", resultColor[existing.result])}>
+                +{(existing.points ?? 0) + (existing.bonusPoints ?? 0)} pts
               </span>
-              {existing?.result && (
-                <span className={cn("font-semibold", resultColor[existing.result])}>
-                  +{(existing.points ?? 0) + (existing.bonusPoints ?? 0)} pts
-                </span>
-              )}
-            </div>
-            {(existingGs.home.length > 0 || existingGs.away.length > 0) && (
-              <div className="flex gap-4 text-xs">
-                {existingGs.home.length > 0 && (
-                  <div>
-                    <p className="text-zinc-600 mb-0.5">{match.homeTeam}</p>
-                    {existingGs.home.map((p, i) => (
-                      <p key={i} className="text-zinc-300">⚽ {p}
-                        {goalScorerEnabled && (existing as { goalScorerCorrect?: boolean | null })?.goalScorerCorrect === true && <span className="text-green-400 ml-1">✓ +{goalScorerPoints}pts</span>}
-                      </p>
-                    ))}
-                  </div>
-                )}
-                {existingGs.away.length > 0 && (
-                  <div>
-                    <p className="text-zinc-600 mb-0.5">{match.awayTeam}</p>
-                    {existingGs.away.map((p, i) => (
-                      <p key={i} className="text-zinc-300">⚽ {p}</p>
-                    ))}
-                  </div>
-                )}
-              </div>
             )}
           </div>
         ) : (
-          /* NOT LOCKED */
           <>
-            {/* Score row */}
             {isSaved && !isEditing ? (
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 text-sm text-green-400 font-medium">
@@ -304,8 +237,6 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
                         setIsEditing(false);
                         setHome(existing?.homeScore?.toString() ?? home);
                         setAway(existing?.awayScore?.toString() ?? away);
-                        setGsHome(existingGs.home);
-                        setGsAway(existingGs.away);
                       }}
                       className="text-xs text-zinc-400 hover:text-white border border-zinc-700 rounded-lg px-3 py-1.5 transition-colors"
                     >
@@ -316,143 +247,6 @@ export function MatchCard({ match, onSaved, goalScorerEnabled, goalScorerPoints 
                     Salvar
                   </Button>
                 </div>
-              </div>
-            )}
-
-            {/* Marcadores do jogo */}
-            {totalGoals > 0 && (
-              <div className="bg-zinc-800/50 border border-zinc-700/50 rounded-xl p-3 flex flex-col gap-3">
-                {/* Header */}
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-zinc-300">
-                    ⚽ Marcadores do jogo
-                    {goalScorerEnabled && <span className="text-blue-400 ml-1">(+{goalScorerPoints} pts por acerto)</span>}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    {loadingPlayers && <span className="text-xs text-zinc-500">Carregando...</span>}
-                    {/* Editar button — only when saved and in view mode */}
-                    {!gsEditMode && isSaved && !isEditing && (
-                      <button
-                        onClick={() => setGsEditMode(true)}
-                        className="text-xs text-zinc-400 hover:text-white border border-zinc-700 hover:border-zinc-500 rounded-lg px-2 py-0.5 transition-colors"
-                      >
-                        Editar
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {/* Datalists */}
-                {players && (
-                  <>
-                    <datalist id={`home-pl-${match.id}`}>
-                      {players.home.map((p) => <option key={p} value={p} />)}
-                    </datalist>
-                    <datalist id={`away-pl-${match.id}`}>
-                      {players.away.map((p) => <option key={p} value={p} />)}
-                    </datalist>
-                  </>
-                )}
-
-                {/* VIEW mode: show saved scorers summary */}
-                {!gsEditMode && hasSavedScorers && (
-                  <div className="flex flex-col gap-2">
-                    {gsHome.filter(Boolean).length > 0 && (
-                      <div>
-                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-                          {match.homeTeamFlag && <img src={teamLogo(match.homeTeamFlag) ?? ""} alt="" className="w-3 h-3 object-contain" />}
-                          {match.homeTeam}
-                        </p>
-                        {gsHome.filter(Boolean).map((p, i) => (
-                          <p key={i} className="text-xs text-zinc-300">⚽ {p}</p>
-                        ))}
-                      </div>
-                    )}
-                    {gsAway.filter(Boolean).length > 0 && (
-                      <div>
-                        <p className="text-[10px] text-zinc-500 uppercase tracking-wider mb-1 flex items-center gap-1">
-                          {match.awayTeamFlag && <img src={teamLogo(match.awayTeamFlag) ?? ""} alt="" className="w-3 h-3 object-contain" />}
-                          {match.awayTeam}
-                        </p>
-                        {gsAway.filter(Boolean).map((p, i) => (
-                          <p key={i} className="text-xs text-zinc-300">⚽ {p}</p>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* EDIT mode: inputs */}
-                {(gsEditMode || !hasSavedScorers) && (
-                  <>
-                    {homeGoalCount > 0 && (
-                      <div>
-                        <p className="text-xs text-zinc-500 mb-1.5 flex items-center gap-1">
-                          {match.homeTeamFlag && <img src={teamLogo(match.homeTeamFlag) ?? ""} alt="" className="w-3.5 h-3.5 object-contain" />}
-                          {match.homeTeam} — {homeGoalCount} gol{homeGoalCount !== 1 ? "s" : ""}
-                        </p>
-                        <div className="flex flex-col gap-1.5">
-                          {homeScorers.map((val, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <span className="text-xs text-zinc-600 w-10 shrink-0">Gol {i + 1}</span>
-                              <input
-                                type="text"
-                                list={players ? `home-pl-${match.id}` : undefined}
-                                value={val}
-                                onChange={(e) => updateGs("home", i, e.target.value)}
-                                placeholder={loadingPlayers ? "Carregando..." : "Nome do jogador"}
-                                maxLength={80}
-                                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {awayGoalCount > 0 && (
-                      <div>
-                        <p className="text-xs text-zinc-500 mb-1.5 flex items-center gap-1">
-                          {match.awayTeamFlag && <img src={teamLogo(match.awayTeamFlag) ?? ""} alt="" className="w-3.5 h-3.5 object-contain" />}
-                          {match.awayTeam} — {awayGoalCount} gol{awayGoalCount !== 1 ? "s" : ""}
-                        </p>
-                        <div className="flex flex-col gap-1.5">
-                          {awayScorers.map((val, i) => (
-                            <div key={i} className="flex items-center gap-2">
-                              <span className="text-xs text-zinc-600 w-10 shrink-0">Gol {i + 1}</span>
-                              <input
-                                type="text"
-                                list={players ? `away-pl-${match.id}` : undefined}
-                                value={val}
-                                onChange={(e) => updateGs("away", i, e.target.value)}
-                                placeholder={loadingPlayers ? "Carregando..." : "Nome do jogador"}
-                                maxLength={80}
-                                className="flex-1 bg-zinc-800 border border-zinc-700 rounded-lg px-3 py-1.5 text-white text-xs placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                              />
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Save / Cancel buttons — only when score is already saved */}
-                    {isSaved && !isEditing && (
-                      <div className="flex gap-2 justify-end">
-                        {gsEditMode && hasSavedScorers && (
-                          <button
-                            onClick={() => { setGsHome(existingGs.home); setGsAway(existingGs.away); setGsEditMode(false); }}
-                            className="text-xs text-zinc-400 hover:text-white border border-zinc-700 rounded-lg px-3 py-1.5 transition-colors"
-                          >
-                            Cancelar
-                          </button>
-                        )}
-                        <Button size="sm" onClick={handleSaveGs} loading={saving}>
-                          Salvar marcadores ✓
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                )}
               </div>
             )}
 

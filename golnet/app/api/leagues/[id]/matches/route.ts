@@ -37,5 +37,58 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     orderBy: { startsAt: "asc" },
   });
 
-  return NextResponse.json(matches);
+  // For locked matches (LIVE/FINISHED), fetch other league members' predictions
+  const lockedMatchIds = matches
+    .filter((m) => m.status === "LIVE" || m.status === "FINISHED")
+    .map((m) => m.id);
+
+  const otherPredsByMatch: Record<string, { userId: string; name: string | null; username: string | null; image: string | null; homeScore: number; awayScore: number; result: string | null; points: number; bonusPoints: number }[]> = {};
+
+  if (lockedMatchIds.length > 0) {
+    const leagueMembers = await prisma.leagueMember.findMany({
+      where: { leagueId: params.id, userId: { not: session.user.id } },
+      include: { user: { select: { id: true, name: true, username: true, image: true } } },
+    });
+    const memberUserIds = leagueMembers.map((m) => m.userId);
+
+    if (memberUserIds.length > 0) {
+      const otherPreds = await prisma.prediction.findMany({
+        where: { matchId: { in: lockedMatchIds }, userId: { in: memberUserIds } },
+        select: {
+          matchId: true,
+          userId: true,
+          homeScore: true,
+          awayScore: true,
+          result: true,
+          points: true,
+          bonusPoints: true,
+        },
+      });
+
+      const userMap = Object.fromEntries(leagueMembers.map((m) => [m.userId, m.user]));
+
+      for (const pred of otherPreds) {
+        if (!otherPredsByMatch[pred.matchId]) otherPredsByMatch[pred.matchId] = [];
+        const user = userMap[pred.userId];
+        otherPredsByMatch[pred.matchId].push({
+          userId: pred.userId,
+          name: user?.name ?? null,
+          username: user?.username ?? null,
+          image: user?.image ?? null,
+          homeScore: pred.homeScore,
+          awayScore: pred.awayScore,
+          result: pred.result,
+          points: (pred.points ?? 0) + (pred.bonusPoints ?? 0),
+          bonusPoints: pred.bonusPoints ?? 0,
+        });
+      }
+    }
+  }
+
+  const result = matches.map((m) => ({
+    ...m,
+    otherPredictions: otherPredsByMatch[m.id] ?? [],
+  }));
+
+  return NextResponse.json(result);
 }

@@ -75,6 +75,7 @@ model User {
   accounts        Account[]
   sessions        Session[]
   leagueMembers   LeagueMember[]
+  leagueJoinRequests LeagueJoinRequest[]
   predictions     Prediction[]
   achievements    UserAchievement[]
   supportTickets  SupportTicket[]
@@ -135,6 +136,7 @@ model League {
   updatedAt   DateTime         @updatedAt
 
   members             LeagueMember[]
+  joinRequests        LeagueJoinRequest[]
   championPredictions ChampionPrediction[]
 }
 
@@ -151,6 +153,19 @@ model LeagueMember {
   role        LeagueRole @default(MEMBER)
   totalPoints Int        @default(0)
   joinedAt    DateTime   @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, leagueId])
+}
+
+model LeagueJoinRequest {
+  id        String   @id @default(cuid())
+  userId    String
+  leagueId  String
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)

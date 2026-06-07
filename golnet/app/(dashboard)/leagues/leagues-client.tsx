@@ -21,9 +21,11 @@ type PublicLeague = {
   id: string;
   name: string;
   description: string | null;
+  visibility: string;
   competitionName: string | null;
   teamFilter: string[];
   _count: { members: number };
+  hasPendingRequest: boolean;
 };
 
 type ScoringForm = {
@@ -133,10 +135,6 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
   const [championEnabled, setChampionEnabled] = useState(false);
   const [championPoints, setChampionPoints] = useState(20);
 
-  // Goal scorer prediction
-  const [goalScorerEnabled, setGoalScorerEnabled] = useState(false);
-  const [goalScorerPoints, setGoalScorerPoints] = useState(5);
-
   const load = async () => {
     try {
       const res = await fetch("/api/leagues");
@@ -187,8 +185,6 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
           teamFilter,
           championPredictionEnabled: championEnabled,
           championPredictionPoints: championPoints,
-          goalScorerEnabled,
-          goalScorerPoints,
           ...(isPro && useCustomScoring ? scoring : {}),
         }),
       });
@@ -211,8 +207,6 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
       setShowFilterSection(false);
       setChampionEnabled(false);
       setChampionPoints(20);
-      setGoalScorerEnabled(false);
-      setGoalScorerPoints(5);
       await load();
       await loadPublic();
     } catch {
@@ -240,6 +234,20 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
       setShowJoin(false);
       setInviteCode("");
       await load();
+      await loadPublic();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const requestJoin = async (leagueId: string) => {
+    setSaving(true);
+    try {
+      await fetch("/api/leagues/join-request", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ leagueId }),
+      });
       await loadPublic();
     } finally {
       setSaving(false);
@@ -428,33 +436,6 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
               )}
             </div>
 
-            {/* Goal scorer prediction */}
-            <div className="mt-2">
-              <label className="flex items-center gap-3 cursor-pointer">
-                <div
-                  onClick={() => setGoalScorerEnabled((v) => !v)}
-                  className={`w-10 h-6 rounded-full transition-colors relative shrink-0 ${goalScorerEnabled ? "bg-blue-500" : "bg-zinc-700"}`}
-                >
-                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${goalScorerEnabled ? "translate-x-5" : "translate-x-1"}`} />
-                </div>
-                <span className="text-sm font-medium text-zinc-300">Palpite de Artilheiro ⚽</span>
-              </label>
-              {goalScorerEnabled && (
-                <div className="mt-3 bg-zinc-800 rounded-xl p-4">
-                  <p className="text-xs text-zinc-400 mb-3">
-                    Membros palpitam o nome de um jogador que vai marcar gol. Se acertar, ganham pontos bônus.
-                  </p>
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm text-zinc-300">Pontos pelo acerto:</span>
-                    <button onClick={() => setGoalScorerPoints((v) => Math.max(1, v - 1))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center">−</button>
-                    <span className="w-12 text-center font-bold text-blue-400">{goalScorerPoints}</span>
-                    <button onClick={() => setGoalScorerPoints((v) => Math.min(100, v + 1))} className="w-7 h-7 rounded-lg bg-zinc-700 hover:bg-zinc-600 text-white flex items-center justify-center">+</button>
-                    <span className="text-xs text-zinc-500">pts</span>
-                  </div>
-                </div>
-              )}
-            </div>
-
             {/* Custom scoring — PRO only */}
             {isPro ? (
               <div className="mt-2">
@@ -570,37 +551,51 @@ export function LeaguesClient({ isPro }: { isPro: boolean }) {
         )
       )}
 
-      {/* Discover public leagues tab */}
+      {/* Discover leagues tab */}
       {tab === "discover" && (
         publicLeagues.length === 0 ? (
           <div className="text-center text-zinc-500 py-20">
             <p className="text-4xl mb-4">🔍</p>
-            <p className="text-lg">Nenhuma liga pública disponível.</p>
-            <p className="text-sm mt-2">Seja o primeiro a criar uma liga pública!</p>
+            <p className="text-lg">Nenhuma liga disponível no momento.</p>
+            <p className="text-sm mt-2">Seja o primeiro a criar uma liga!</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {publicLeagues.map((league) => (
-              <div key={league.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-                <h3 className="font-semibold text-white mb-1">{league.name}</h3>
-                {league.description && <p className="text-sm text-zinc-400 mb-2">{league.description}</p>}
-                {league.competitionName && (
-                  <p className="text-xs text-blue-400 mb-2">🏟️ {league.competitionName}{league.teamFilter.length > 0 ? ` · ${league.teamFilter.join(", ")}` : ""}</p>
-                )}
-                <div className="flex items-center justify-between mt-3">
-                  <span className="text-xs text-zinc-500">
-                    👥 {league._count.members} {league._count.members === 1 ? "membro" : "membros"}
-                  </span>
-                  <Button
-                    size="sm"
-                    loading={saving}
-                    onClick={() => joinLeague(league.id)}
-                  >
-                    Entrar
-                  </Button>
+            {publicLeagues.map((league) => {
+              const isPrivate = league.visibility === "PRIVATE";
+              return (
+                <div key={league.id} className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
+                  <div className="flex items-start justify-between mb-1 gap-2">
+                    <h3 className="font-semibold text-white">{league.name}</h3>
+                    <span className="text-xs shrink-0 text-zinc-500">{isPrivate ? "🔒 Privada" : "🌐 Pública"}</span>
+                  </div>
+                  {league.description && <p className="text-sm text-zinc-400 mb-2">{league.description}</p>}
+                  {league.competitionName && (
+                    <p className="text-xs text-blue-400 mb-2">🏟️ {league.competitionName}{league.teamFilter.length > 0 ? ` · ${league.teamFilter.join(", ")}` : ""}</p>
+                  )}
+                  <div className="flex items-center justify-between mt-3">
+                    <span className="text-xs text-zinc-500">
+                      👥 {league._count.members} {league._count.members === 1 ? "membro" : "membros"}
+                    </span>
+                    {isPrivate ? (
+                      league.hasPendingRequest ? (
+                        <span className="text-xs text-yellow-400 border border-yellow-400/30 bg-yellow-400/10 rounded-lg px-3 py-1.5">
+                          ⏳ Aguardando aprovação
+                        </span>
+                      ) : (
+                        <Button size="sm" variant="secondary" loading={saving} onClick={() => requestJoin(league.id)}>
+                          Solicitar entrada
+                        </Button>
+                      )
+                    ) : (
+                      <Button size="sm" loading={saving} onClick={() => joinLeague(league.id)}>
+                        Entrar
+                      </Button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )
       )}
