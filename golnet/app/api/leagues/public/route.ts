@@ -8,26 +8,30 @@ export async function GET() {
   const session = await auth();
   const userId = session?.user?.id ?? "";
 
-  // Get IDs of leagues the user already belongs to
   const myMemberships = userId
-    ? await prisma.leagueMember.findMany({
-        where: { userId },
-        select: { leagueId: true },
-      })
+    ? await prisma.leagueMember.findMany({ where: { userId }, select: { leagueId: true } })
     : [];
   const myLeagueIds = myMemberships.map((m) => m.leagueId);
 
+  const myRequests = userId
+    ? await prisma.leagueJoinRequest.findMany({
+        where: { userId, status: "PENDING" },
+        select: { leagueId: true },
+      })
+    : [];
+  const pendingRequestLeagueIds = new Set(myRequests.map((r) => r.leagueId));
+
   const leagues = await prisma.league.findMany({
-    where: {
-      visibility: "PUBLIC",
-      id: { notIn: myLeagueIds },
-    },
-    include: {
-      _count: { select: { members: true } },
-    },
+    where: { id: { notIn: myLeagueIds } },
+    include: { _count: { select: { members: true } } },
     orderBy: { createdAt: "desc" },
-    take: 30,
+    take: 50,
   });
 
-  return NextResponse.json(leagues);
+  const result = leagues.map((l) => ({
+    ...l,
+    hasPendingRequest: pendingRequestLeagueIds.has(l.id),
+  }));
+
+  return NextResponse.json(result);
 }
