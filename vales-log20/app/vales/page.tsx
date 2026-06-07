@@ -527,6 +527,7 @@ function ValesContent() {
                   <Table>
                     <TableHeader>
                       <TableRow>
+                        <TableHead>Mapa</TableHead>
                         <TableHead>Vale #</TableHead>
                         <TableHead>Data</TableHead>
                         <TableHead>Ajudante(s)</TableHead>
@@ -543,6 +544,7 @@ function ValesContent() {
                     <TableBody>
                       {filteredVales.map((vale) => (
                         <TableRow key={vale.id}>
+                          <TableCell className="text-muted-foreground">{vale.mapa ?? "—"}</TableCell>
                           <TableCell className="font-medium">#{vale.numero_vale}</TableCell>
                           <TableCell>{formatDateBR(vale.data_emissao)}</TableCell>
                           <TableCell className="max-w-[180px]">

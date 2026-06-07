@@ -44,6 +44,7 @@ export interface ValeDetalhes {
   data_rota: string | null;
   mapa: number | null;
   motorista: string | null;
+  veiculo: string | null;
   status_vale: string | null;
   acao_transportadora: string | null;
   justificativa_transportadora: string | null;
@@ -159,6 +160,7 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
               <InfoRow label="Data de Emissão" value={formatDateBR(vale.data_emissao)} />
               <InfoRow label="Mapa" value={vale.mapa != null ? String(vale.mapa) : null} />
               <InfoRow label="Motorista" value={vale.motorista} />
+              <InfoRow label="Placa do Veículo" value={vale.veiculo} />
               <InfoRow
                 label={vale.ajudantes.length > 1 ? "Ajudantes (vale dividido)" : "Ajudante"}
                 value={
