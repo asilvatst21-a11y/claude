@@ -39,7 +39,7 @@ export default function Layout() {
           <p className="text-brand-200 text-xs">Sistema de Disparos</p>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
