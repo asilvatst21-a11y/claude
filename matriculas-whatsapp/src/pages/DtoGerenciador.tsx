@@ -236,18 +236,29 @@ export default function DtoGerenciador() {
   const [filtroFilaResp, setFiltroFilaResp] = useState('Todos')
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
 
-  function motivoTexto(l: LinhaCalc): string {
-    if (l.status === 'Nunca') return 'Esta atividade nunca teve um DTO realizado.'
-    const partes: string[] = [`Criticidade base ${l.ativ.criticidade_base}`]
-    if (l.d26 > 0) partes.push(`${l.d26} desvio(s) DTO em ${ANO_ATUAL}`)
-    if (l.gatilho === 'S') {
-      partes.push(`atos inseguros subiram de ${l.atosAnteriores} (${LABEL_ANTERIOR}) para ${l.atosRecentes} (${LABEL_RECENTE}) — gatilho ativado`)
-    } else if (l.abordPos > 0 && l.abordPos >= l.atosRecentes) {
-      partes.push(`abordagem positiva (${l.abordPos}) ≥ atos inseguros (${l.atosRecentes}) — risco reduziu`)
-    } else {
-      partes.push('sem variação de tendência')
-    }
-    return partes.join('. ') + '.'
+
+  function exportarCSV() {
+    const header = ['#', 'Atividade', 'Área', 'Responsável', 'Risco Final', 'Periodicidade (dias)', 'Status', 'Último DTO', 'Vencimento']
+    const rows = filaExport.map((l, i) => [
+      i + 1,
+      l.ativ.nome_atividade,
+      l.ativ.area,
+      l.ativ.responsavel ?? '',
+      l.risco,
+      l.periodicidade,
+      l.status + (l.diasRestantes !== null ? ` (${Math.abs(l.diasRestantes)}d)` : ''),
+      fmtData(l.ultimoDTO),
+      fmtData(l.vencimento),
+    ])
+    const csv = [header, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    const { seg } = semanaAtual()
+    a.download = `DTO_Fila_${seg.toLocaleDateString('pt-BR').replace(/\//g, '-')}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   async function exportarImagem() {
@@ -390,6 +401,17 @@ export default function DtoGerenciador() {
 
   // Fila da semana = vencidos + a vencer
   const fila = linhasOrdenadas.filter(l => l.status === 'Vencido' || l.status === 'Nunca' || l.status === 'A vencer')
+
+  // Fila filtrada (usada na aba e nos exports)
+  const areasNaFila = ['Todas', ...Array.from(new Set(fila.map(l => l.ativ.area)))]
+  const respsNaFila = ['Todos', ...Array.from(new Set(fila.map(l => l.ativ.responsavel?.trim() || 'Sem responsável')))]
+  const filaFiltrada = fila.filter(l =>
+    (filtroFilaArea === 'Todas' || l.ativ.area === filtroFilaArea) &&
+    (filtroFilaResp === 'Todos' || (l.ativ.responsavel?.trim() || 'Sem responsável') === filtroFilaResp)
+  )
+  const filaExport = selecionados.size > 0
+    ? filaFiltrada.filter(l => selecionados.has(l.ativ.id))
+    : filaFiltrada
 
   // Por responsável
   const porResp = useMemo(() => {
@@ -569,17 +591,7 @@ export default function DtoGerenciador() {
 
           {/* ── Fila da Semana ── */}
           {aba === 'fila' && (() => {
-            const areasNaFila = ['Todas', ...Array.from(new Set(fila.map(l => l.ativ.area)))]
-            const respsNaFila = ['Todos', ...Array.from(new Set(fila.map(l => l.ativ.responsavel?.trim() || 'Sem responsável')))]
-            const filaFiltrada = fila.filter(l =>
-              (filtroFilaArea === 'Todas' || l.ativ.area === filtroFilaArea) &&
-              (filtroFilaResp === 'Todos' || (l.ativ.responsavel?.trim() || 'Sem responsável') === filtroFilaResp)
-            )
-            const filaExport = selecionados.size > 0
-              ? filaFiltrada.filter(l => selecionados.has(l.ativ.id))
-              : filaFiltrada
             const todosSelec = filaFiltrada.length > 0 && filaFiltrada.every(l => selecionados.has(l.ativ.id))
-
             function toggleTodos() {
               setSelecionados(prev => {
                 const next = new Set(prev)
@@ -591,7 +603,7 @@ export default function DtoGerenciador() {
             function toggleItem(id: string) {
               setSelecionados(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
             }
-
+            const label = selecionados.size > 0 ? `(${filaExport.length})` : 'todos'
             return (
               <div className="space-y-3">
                 {/* Filtros */}
@@ -625,11 +637,17 @@ export default function DtoGerenciador() {
                       <input type="checkbox" checked={todosSelec} onChange={toggleTodos} className="accent-brand-700" />
                       {selecionados.size > 0 ? `${selecionados.size} selecionado(s)` : 'Selecionar todos'}
                     </label>
-                    <button onClick={exportarImagem} disabled={exportandoImg || filaExport.length === 0}
-                      className="flex items-center gap-2 text-sm text-brand-700 border border-brand-200 px-3 py-1.5 rounded-lg hover:bg-brand-50 disabled:opacity-40">
-                      {exportandoImg ? <Loader2 size={14} className="animate-spin" /> : <Image size={14} />}
-                      Exportar {selecionados.size > 0 ? `(${filaExport.length})` : 'todos'} como imagem
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button onClick={exportarCSV} disabled={filaExport.length === 0}
+                        className="flex items-center gap-2 text-sm text-gray-600 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-40">
+                        <Download size={14} /> CSV {label}
+                      </button>
+                      <button onClick={exportarImagem} disabled={exportandoImg || filaExport.length === 0}
+                        className="flex items-center gap-2 text-sm text-brand-700 border border-brand-200 px-3 py-1.5 rounded-lg hover:bg-brand-50 disabled:opacity-40">
+                        {exportandoImg ? <Loader2 size={14} className="animate-spin" /> : <Image size={14} />}
+                        Imagem {label}
+                      </button>
+                    </div>
                   </div>
                 )}
 
@@ -653,8 +671,8 @@ export default function DtoGerenciador() {
                       </div>}
                 </div>
 
-                {/* Template oculto para exportação */}
-                <FilaExportTemplate ref={exportRef} fila={filaExport} filial={usuario.filial} motivoTexto={motivoTexto} />
+                {/* Template oculto para exportação de imagem */}
+                <FilaExportTemplate ref={exportRef} fila={filaExport} filial={usuario.filial} />
               </div>
             )
           })()}
@@ -773,71 +791,69 @@ const RISCO_COLOR: Record<string, string> = {
 const FilaExportTemplate = forwardRef<HTMLDivElement, {
   fila: LinhaCalc[]
   filial: string
-  motivoTexto: (l: LinhaCalc) => string
-}>(function FilaExportTemplate({ fila, filial, motivoTexto }, ref) {
+}>(function FilaExportTemplate({ fila, filial }, ref) {
   const { seg, dom } = semanaAtual()
   const semana = `${seg.toLocaleDateString('pt-BR')} a ${dom.toLocaleDateString('pt-BR')}`
+  const th: React.CSSProperties = { padding: '8px 12px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left', whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '9px 12px', fontSize: '12px', verticalAlign: 'middle' }
 
   return (
-    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '760px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '32px' }}>
+    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '720px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
       {/* Cabeçalho */}
-      <div style={{ borderBottom: '2px solid #1e3a5f', paddingBottom: '16px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '20px' }}>
         <div>
-          <p style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 4px' }}>Gerenciador de DTOs</p>
-          <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Fila da Semana</h1>
+          <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Gerenciador de DTOs</p>
+          <h1 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Fila da Semana</h1>
         </div>
-        <p style={{ fontSize: '13px', color: '#475569', textAlign: 'right', margin: 0 }}>{filial}<br />{semana}</p>
+        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0 }}>{filial}<br />{semana}</p>
       </div>
 
-      {/* Cards — coluna única */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        {fila.map((l, i) => {
-          const cor = RISCO_COLOR[l.risco] ?? '#6b7280'
-          const statusCor = l.status === 'Vencido' ? '#dc2626' : l.status === 'Nunca' ? '#7c3aed' : '#d97706'
-          const statusTxt = l.status === 'Vencido'
-            ? `Vencido há ${Math.abs(l.diasRestantes ?? 0)}d`
-            : l.status === 'Nunca' ? 'Nunca realizado'
-            : `Vence em ${l.diasRestantes}d`
-          return (
-            <div key={l.ativ.id} style={{ background: '#fff', borderRadius: '10px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', borderBottom: '1px solid #f1f5f9' }}>
-                <div style={{ width: '6px', background: cor, flexShrink: 0 }} />
-                <div style={{ flex: 1, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', minWidth: '18px' }}>#{i + 1}</span>
-                      <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{l.ativ.nome_atividade}</span>
-                    </div>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>{l.ativ.area}{l.ativ.responsavel ? ` · ${l.ativ.responsavel}` : ''}</span>
+      {/* Tabela compacta */}
+      <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+        <thead>
+          <tr style={{ background: '#1e3a5f' }}>
+            <th style={{ ...th, width: '32px', textAlign: 'center' }}>#</th>
+            <th style={th}>Atividade</th>
+            <th style={{ ...th, width: '90px', textAlign: 'center' }}>Risco</th>
+            <th style={{ ...th, width: '110px', textAlign: 'center' }}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {fila.map((l, i) => {
+            const cor = RISCO_COLOR[l.risco] ?? '#6b7280'
+            const statusCor = l.status === 'Vencido' ? '#dc2626' : l.status === 'Nunca' ? '#7c3aed' : '#d97706'
+            const statusTxt = l.status === 'Vencido'
+              ? `Vencido há ${Math.abs(l.diasRestantes ?? 0)}d`
+              : l.status === 'Nunca' ? 'Nunca realizado'
+              : `Vence em ${l.diasRestantes}d`
+            const bg = i % 2 === 0 ? '#fff' : '#f8fafc'
+            return (
+              <tr key={l.ativ.id} style={{ background: bg, borderTop: '1px solid #f1f5f9' }}>
+                <td style={{ ...td, textAlign: 'center', fontWeight: 700, color: '#94a3b8', fontSize: '11px' }}>{i + 1}</td>
+                <td style={td}>
+                  <div style={{ fontWeight: 600, color: '#0f172a' }}>{l.ativ.nome_atividade}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b', marginTop: '2px' }}>
+                    {l.ativ.area}{l.ativ.responsavel ? ` · ${l.ativ.responsavel}` : ''}
+                    {l.ultimoDTO ? ` · Último: ${fmtData(l.ultimoDTO)}` : ''}
                   </div>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: statusCor, background: `${statusCor}18`, padding: '3px 8px', borderRadius: '999px', border: `1px solid ${statusCor}40`, flexShrink: 0, marginLeft: '12px' }}>
+                </td>
+                <td style={{ ...td, textAlign: 'center' }}>
+                  <span style={{ fontWeight: 800, color: cor, fontSize: '13px' }}>{l.risco}</span>
+                  <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '1px' }}>{l.periodicidade}d</div>
+                </td>
+                <td style={{ ...td, textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: statusCor, background: `${statusCor}15`, padding: '3px 8px', borderRadius: '999px', border: `1px solid ${statusCor}35`, whiteSpace: 'nowrap' }}>
                     {statusTxt}
                   </span>
-                </div>
-              </div>
-              <div style={{ padding: '10px 16px 12px 22px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                <div style={{ flexShrink: 0, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', textAlign: 'center', minWidth: '110px' }}>
-                  <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>Risco Final</div>
-                  <div style={{ fontSize: '16px', fontWeight: 800, color: cor }}>{l.risco}</div>
-                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>a cada {l.periodicidade} dias</div>
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: '12px', color: '#374151', lineHeight: '1.5', margin: '0 0 8px 0' }}>
-                    <strong style={{ color: '#1e3a5f' }}>Motivo: </strong>{motivoTexto(l)}
-                  </p>
-                  <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Último DTO: <strong style={{ color: '#475569' }}>{fmtData(l.ultimoDTO)}</strong></span>
-                    {l.vencimento && <span>Vencimento: <strong style={{ color: statusCor }}>{fmtData(l.vencimento)}</strong></span>}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
 
       {/* Rodapé */}
-      <div style={{ marginTop: '24px', paddingTop: '12px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#94a3b8' }}>
+      <div style={{ marginTop: '16px', paddingTop: '10px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#94a3b8' }}>
         <span>Gerado em {HOJE.toLocaleDateString('pt-BR')}</span>
         <span>Total: {fila.length} DTO(s) na fila</span>
       </div>
