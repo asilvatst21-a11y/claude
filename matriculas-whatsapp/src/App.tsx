@@ -14,6 +14,7 @@ import Prontuario from './pages/Prontuario'
 import Relatos from './pages/Relatos'
 import Telemetria from './pages/Telemetria'
 import Jornada from './pages/Jornada'
+import FluxoPunitivo from './pages/FluxoPunitivo'
 
 function ProtectedRoutes() {
   const { usuario, loading } = useAuth()
@@ -47,6 +48,7 @@ export default function App() {
             <Route path="/relatos" element={<Relatos />} />
             <Route path="/telemetria" element={<Telemetria />} />
             <Route path="/jornada" element={<Jornada />} />
+            <Route path="/fluxo"   element={<FluxoPunitivo />} />
           </Route>
         </Routes>
       </BrowserRouter>

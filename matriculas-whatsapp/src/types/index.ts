@@ -181,6 +181,20 @@ export interface JornadaRegistro {
   created_at: string
 }
 
+export interface FluxoPunitivo {
+  id: string
+  filial: string
+  colaborador_nome: string
+  origem: 'GSDPQ' | 'Relatos' | 'Telemetria' | 'Manual'
+  tipo_acao: string
+  dias_suspensao: number | null
+  data_acao: string | null
+  observacao: string | null
+  registrado_por: string | null
+  source_id: string | null
+  created_at: string
+}
+
 export interface Colaborador {
   id: string
   filial: string
