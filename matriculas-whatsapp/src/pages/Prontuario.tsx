@@ -238,6 +238,7 @@ interface Diff {
   reg: ProntuarioRegistro
   pontAnterior: number | null
   faixaAnterior: string | null
+  detalhesAnterior: Record<string, number> | null
   delta: number | null
   mudouFaixa: boolean
   isNovo: boolean
@@ -252,6 +253,7 @@ function calcDiff(atual: ProntuarioRegistro[], anterior: ProntuarioRegistro[]): 
       reg: r,
       pontAnterior: ant?.pontuacao ?? null,
       faixaAnterior: ant?.faixa ?? null,
+      detalhesAnterior: ant?.detalhes ?? null,
       delta,
       mudouFaixa: ant ? r.faixa !== ant.faixa : false,
       isNovo: !ant,
@@ -566,6 +568,20 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                   const sums    = catSums(d.reg.detalhes, cols)
                   const maxCatVal = Math.max(...Object.values(sums), 1)
 
+                  type ChangedItem = { label: string; cat: string; curr: number; prev: number; diff: number; scoreDiff: number }
+                  const changedItems: ChangedItem[] = d.detalhesAnterior
+                    ? cols.map(c => {
+                        const curr = d.reg.detalhes[c.key] ?? 0
+                        const prev = d.detalhesAnterior![c.key] ?? 0
+                        const diff = curr - prev
+                        if (diff === 0) return null
+                        return { label: c.label, cat: c.cat, curr, prev, diff, scoreDiff: +(diff * c.weight).toFixed(3) }
+                      }).filter((x): x is ChangedItem => x !== null)
+                      .sort((a, b) => Math.abs(b.scoreDiff) - Math.abs(a.scoreDiff))
+                    : []
+                  const piorouItems  = changedItems.filter(x => x.scoreDiff > 0)
+                  const melhorouItems = changedItems.filter(x => x.scoreDiff < 0)
+
                   return (
                     <Fragment key={d.reg.cpf}>
                       <tr
@@ -633,6 +649,48 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                                   </div>
                                 )}
                               </div>
+
+                              {/* Variação de ocorrências vs snapshot anterior */}
+                              {changedItems.length > 0 && (
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className={`rounded-lg border p-3 ${piorouItems.length > 0 ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-gray-100'}`}>
+                                    <p className="text-xs font-semibold text-red-700 mb-2 flex items-center gap-1">
+                                      <TrendingUp size={12} /> Piorou ({piorouItems.length})
+                                    </p>
+                                    {piorouItems.length === 0
+                                      ? <p className="text-xs text-gray-400">Nenhuma ocorrência nova</p>
+                                      : <div className="space-y-1.5">
+                                          {piorouItems.map(x => (
+                                            <div key={x.label} className="flex items-center justify-between gap-2 text-xs">
+                                              <span className="text-gray-700 truncate">{x.label}</span>
+                                              <span className="text-red-600 font-semibold shrink-0 whitespace-nowrap">
+                                                {x.prev}→{x.curr} <span className="text-red-400">(+{x.scoreDiff.toFixed(2)}pts)</span>
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                    }
+                                  </div>
+                                  <div className={`rounded-lg border p-3 ${melhorouItems.length > 0 ? 'bg-green-50 border-green-100' : 'bg-gray-50 border-gray-100'}`}>
+                                    <p className="text-xs font-semibold text-green-700 mb-2 flex items-center gap-1">
+                                      <TrendingDown size={12} /> Melhorou ({melhorouItems.length})
+                                    </p>
+                                    {melhorouItems.length === 0
+                                      ? <p className="text-xs text-gray-400">Nenhuma ocorrência reduzida</p>
+                                      : <div className="space-y-1.5">
+                                          {melhorouItems.map(x => (
+                                            <div key={x.label} className="flex items-center justify-between gap-2 text-xs">
+                                              <span className="text-gray-700 truncate">{x.label}</span>
+                                              <span className="text-green-600 font-semibold shrink-0 whitespace-nowrap">
+                                                {x.prev}→{x.curr} <span className="text-green-400">({x.scoreDiff.toFixed(2)}pts)</span>
+                                              </span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                    }
+                                  </div>
+                                </div>
+                              )}
 
                               {/* Histórico + Categorias */}
                               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
