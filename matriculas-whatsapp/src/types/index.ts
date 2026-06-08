@@ -135,6 +135,19 @@ export interface DtoObservacao {
   created_at: string
 }
 
+export interface DtoAtividade {
+  id: string
+  filial: string
+  area: string
+  nome_atividade: string
+  frequencia_atividade: string | null
+  criticidade_base: string
+  responsavel: string | null
+  ultimo_dto_manual: string | null
+  ativo: boolean
+  created_at: string
+}
+
 export interface ProntuarioSnapshot {
   id: string
   filial: string

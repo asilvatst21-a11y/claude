@@ -10,6 +10,7 @@ import Historico from './pages/Historico'
 import Admin from './pages/Admin'
 import Gsdpq from './pages/Gsdpq'
 import Dto from './pages/Dto'
+import DtoGerenciador from './pages/DtoGerenciador'
 import Prontuario from './pages/Prontuario'
 import Relatos from './pages/Relatos'
 import Telemetria from './pages/Telemetria'
@@ -44,6 +45,7 @@ export default function App() {
             <Route path="/admin" element={<Admin />} />
             <Route path="/gsdpq" element={<Gsdpq />} />
             <Route path="/dto" element={<Dto />} />
+            <Route path="/dto-gerenciador" element={<DtoGerenciador />} />
             <Route path="/prontuario" element={<Prontuario />} />
             <Route path="/relatos" element={<Relatos />} />
             <Route path="/telemetria" element={<Telemetria />} />
