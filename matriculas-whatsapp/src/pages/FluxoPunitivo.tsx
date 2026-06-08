@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { FluxoPunitivo } from '../types'
 
-// ─── Sequência punitiva ───────────────────────────────────────────────────────
+// ─── Sequência punitiva ──────────────────────────────────────────────────
 
 type TipoAcao = 'Advertência Verbal' | 'DTO' | 'Advertência Escrita' | 'Suspensão'
 
@@ -30,7 +30,7 @@ const ACAO_COLOR: Record<string, string> = {
   'Suspensão':            'bg-rose-100 text-rose-800 border-rose-300',
 }
 
-// ─── Lógica de sequência ──────────────────────────────────────────────────────
+// ─── Lógica de sequência ────────────────────────────────────────────
 
 interface ProximaAcao {
   tipo: TipoAcao
@@ -82,7 +82,7 @@ function posicaoBar(historico: FluxoPunitivo[]) {
   return { verbais, dtos, escritas, susps }
 }
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────────────────
 
 function fmtDate(s: string | null) {
   if (!s) return '—'
@@ -90,7 +90,7 @@ function fmtDate(s: string | null) {
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
-// ─── Modal nova ação ─────────────────────────────────────────────────────────
+// ─── Modal nova ação ─────────────────────────────────────────────────────────────────
 
 interface ModalProps {
   filial: string
@@ -217,7 +217,7 @@ function ModalNovaAcao({ filial, colaboradorInicial = '', colaboradores, registr
   )
 }
 
-// ─── Progress bar component ───────────────────────────────────────────────────
+// ─── Progress bar component ────────────────────────────────────────────────────────────────────
 
 function SequenciaBar({ historico }: { historico: FluxoPunitivo[] }) {
   const { verbais, dtos, escritas, susps } = posicaoBar(historico)
@@ -243,7 +243,7 @@ function SequenciaBar({ historico }: { historico: FluxoPunitivo[] }) {
   )
 }
 
-// ─── Linha do colaborador ─────────────────────────────────────────────────────
+// ─── Linha do colaborador ────────────────────────────────────────────────────────────────
 
 function ColabRow({ nome, historico, onAdd }: {
   nome: string; historico: FluxoPunitivo[]; onAdd: () => void
@@ -315,7 +315,7 @@ function ColabRow({ nome, historico, onAdd }: {
   )
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Main Component ──────────────────────────────────────────────────────────────────────────
 
 export default function FluxoPunitivo() {
   const { usuario } = useAuth()
@@ -329,19 +329,15 @@ export default function FluxoPunitivo() {
     if (!usuario) return
     setLoading(true)
 
-    // Load manual entries
     const { data: manual } = await supabase
       .from('fluxo_punitivo').select('*').eq('filial', usuario.filial)
 
-    // Load GSDPQ actions and normalize
     const { data: gsdpq } = await supabase
       .from('gsdpq_acoes').select('*').eq('filial', usuario.filial)
 
-    // Load Relatos actions and normalize
     const { data: relatos } = await supabase
       .from('relatos_acoes').select('*').eq('filial', usuario.filial)
 
-    // Load Telemetria actions and normalize
     const { data: telemetria } = await supabase
       .from('telemetria_acoes').select('*').eq('filial', usuario.filial)
 
@@ -374,7 +370,7 @@ export default function FluxoPunitivo() {
         registrado_por: a.registrado_por ?? null,
         source_id: a.id,
         created_at: a.created_at,
-      })).filter(a => a.colaborador_nome),
+      })).filter((a: any) => a.colaborador_nome),
 
       ...(telemetria ?? []).map((a: any) => ({
         id: 'tel_' + a.id,
@@ -388,7 +384,7 @@ export default function FluxoPunitivo() {
         registrado_por: a.registrado_por ?? null,
         source_id: a.id,
         created_at: a.created_at,
-      })).filter(a => a.colaborador_nome),
+      })).filter((a: any) => a.colaborador_nome),
     ]
 
     setAcoes(merged)
@@ -424,7 +420,6 @@ export default function FluxoPunitivo() {
     return true
   }), [colaboradores, busca, filtroOrigem, byColab])
 
-  // KPIs
   const totalColab = colaboradores.length
   const emRisco = colaboradores.filter(n => {
     const p = calcProxima(byColab.get(n) ?? [])
