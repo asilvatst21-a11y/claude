@@ -33,10 +33,12 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full bg-background text-foreground">
-        <div className="flex h-screen overflow-hidden">
+        <div className="flex flex-col h-screen overflow-hidden">
           <Nav />
-          <main className="flex-1 overflow-y-auto p-6 bg-muted/30">
-            {children}
+          <main className="flex-1 overflow-y-auto bg-muted/30">
+            <div className="max-w-[1400px] mx-auto p-6">
+              {children}
+            </div>
           </main>
         </div>
         <Toaster />

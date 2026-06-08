@@ -1,13 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   FileSpreadsheet,
   ClipboardList,
   Users,
-  Truck,
   History,
   RotateCcw,
   Settings,
@@ -15,95 +15,65 @@ import {
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  {
-    href: "/",
-    label: "Dashboard",
-    icon: LayoutDashboard,
-  },
-  {
-    href: "/importar",
-    label: "Importar Planilha",
-    icon: FileSpreadsheet,
-  },
-  {
-    href: "/importacoes",
-    label: "Histórico",
-    icon: History,
-  },
-  {
-    href: "/vales",
-    label: "Vales",
-    icon: ClipboardList,
-  },
-  {
-    href: "/ajudantes",
-    label: "Ajudantes",
-    icon: Users,
-  },
-  {
-    href: "/reposicoes",
-    label: "Reposições",
-    icon: RotateCcw,
-  },
-  {
-    href: "/configuracoes",
-    label: "Configurações",
-    icon: Settings,
-  },
+  { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/vales", label: "Vales", icon: ClipboardList },
+  { href: "/ajudantes", label: "Ajudantes", icon: Users },
+  { href: "/importar", label: "Importar", icon: FileSpreadsheet },
+  { href: "/importacoes", label: "Histórico", icon: History },
+  { href: "/reposicoes", label: "Reposições", icon: RotateCcw },
+  { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
 export function Nav() {
   const pathname = usePathname();
 
   return (
-    <aside className="w-64 flex-shrink-0 bg-white border-r border-border flex flex-col">
-      {/* Logo / Header */}
-      <div className="h-16 flex items-center px-6 border-b border-border bg-[#00445a]">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center justify-center w-8 h-8 rounded-md bg-[#c97d1e]">
-            <Truck className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <p className="font-extrabold text-base leading-none tracking-wide text-white">
-              LOG<span className="text-[#c97d1e]">20</span>
-            </p>
-            <p className="text-[10px] leading-none mt-0.5 tracking-widest uppercase text-white/60">
-              Logística
-            </p>
-          </div>
-        </div>
-      </div>
+    <header className="h-14 shrink-0 border-b bg-white flex items-center px-4 gap-6 z-10 shadow-sm">
+      {/* Logo */}
+      <Link href="/" className="shrink-0 flex items-center">
+        <Image
+          src="/logo.png"
+          alt="LOG20 Logística"
+          width={120}
+          height={36}
+          className="h-8 w-auto object-contain"
+          priority
+        />
+      </Link>
 
-      {/* Navigation Links */}
-      <nav className="flex-1 p-4 space-y-1">
+      <div className="w-px h-6 bg-border shrink-0" />
+
+      {/* Nav links */}
+      <nav className="flex items-center gap-0.5 flex-1 overflow-x-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
-          const isActive = pathname === item.href;
+          const isActive =
+            item.href === "/"
+              ? pathname === "/"
+              : pathname.startsWith(item.href);
 
           return (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors whitespace-nowrap",
                 isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  ? "bg-[#00445a] text-white"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted"
               )}
             >
-              <Icon className="h-4 w-4 flex-shrink-0" />
+              <Icon className="h-4 w-4 shrink-0" />
               {item.label}
             </Link>
           );
         })}
       </nav>
 
-      {/* Footer */}
-      <div className="p-4 border-t border-border">
-        <p className="text-xs text-muted-foreground text-center">
-          LOG20 Logística &copy; {new Date().getFullYear()}
-        </p>
-      </div>
-    </aside>
+      {/* Brand tag */}
+      <span className="shrink-0 text-xs text-muted-foreground hidden md:block">
+        LOG20 Logística
+      </span>
+    </header>
   );
 }
