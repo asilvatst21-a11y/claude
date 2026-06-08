@@ -32,7 +32,7 @@ export function Nav() {
       {/* Logo */}
       <Link href="/" className="shrink-0 flex items-center">
         <Image
-          src="/logo.png"
+          src="/logo (1).png"
           alt="LOG20 Logística"
           width={120}
           height={36}
