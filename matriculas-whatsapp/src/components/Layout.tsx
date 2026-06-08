@@ -65,7 +65,7 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen flex bg-gray-50">
-      <aside className="w-64 bg-brand-700 flex flex-col">
+      <aside className="w-64 bg-brand-700 flex flex-col h-screen sticky top-0 shrink-0">
         <div className="px-6 py-5 border-b border-brand-600">
           <div className="bg-white rounded-lg p-2 mb-3">
             <img src="/logo.png" alt="LOG20" className="h-10 w-full object-contain" />
