@@ -163,12 +163,8 @@ function PrazoBadge({ dataEmissao }: { dataEmissao: string | null }) {
   );
 }
 
-function buildMensagemPendente(vale: ValeRow, ajudante: { nome: string }) {
-  return (
-    `Olá ${ajudante.nome}! Você possui vale(s) pendente(s) no sistema LOG20. ` +
-    `Por favor, procure o financeiro para regularizar. ` +
-    `Vale(s): #${vale.numero_vale}`
-  );
+function buildMensagem(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
 }
 
 function ValesContent() {
@@ -191,6 +187,11 @@ function ValesContent() {
   // Sorting
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  // Notification template (loaded from config)
+  const [notifTemplate, setNotifTemplate] = useState(
+    "Olá {nome}! Você possui {qtd} vale(s) pendente(s) no sistema LOG20 que precisam ser tratados. Vale(s): {vales}. Por favor, procure o financeiro para regularizar."
+  );
 
   function handleSort(field: SortField) {
     if (sortField === field) {
@@ -242,6 +243,14 @@ function ValesContent() {
   useEffect(() => {
     fetchVales();
     fetchAjudantes();
+    fetch("/api/configuracoes")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.notificacao_template_pendente) {
+          setNotifTemplate(data.notificacao_template_pendente);
+        }
+      })
+      .catch(() => {});
   }, [fetchVales, fetchAjudantes]);
 
   const sendNotificacao = async (valeId: string, numeroVale: number) => {
@@ -411,7 +420,11 @@ function ValesContent() {
                       </p>
                       <div className="bg-green-50 border border-green-200 rounded p-2.5">
                         <p className="text-sm text-green-900 leading-snug whitespace-pre-wrap">
-                          {buildMensagemPendente(previewVale, aj)}
+                          {buildMensagem(notifTemplate, {
+                            nome: aj.nome,
+                            qtd: "1",
+                            vales: `#${previewVale.numero_vale}`,
+                          })}
                         </p>
                       </div>
                     </div>
