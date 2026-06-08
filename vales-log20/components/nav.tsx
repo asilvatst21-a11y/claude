@@ -58,13 +58,17 @@ export function Nav() {
   return (
     <aside className="w-64 flex-shrink-0 bg-white border-r border-border flex flex-col">
       {/* Logo / Header */}
-      <div className="h-16 flex items-center px-6 border-b border-border">
-        <div className="flex items-center gap-2">
-          <Truck className="h-6 w-6 text-primary" />
+      <div className="h-16 flex items-center px-6 border-b border-border bg-[#00445a]">
+        <div className="flex items-center gap-3">
+          <div className="flex items-center justify-center w-8 h-8 rounded-md bg-[#c97d1e]">
+            <Truck className="h-5 w-5 text-white" />
+          </div>
           <div>
-            <p className="font-bold text-sm leading-none">LOG20</p>
-            <p className="text-xs text-muted-foreground leading-none mt-0.5">
-              Sistema de Vales
+            <p className="font-extrabold text-base leading-none tracking-wide text-white">
+              LOG<span className="text-[#c97d1e]">20</span>
+            </p>
+            <p className="text-[10px] leading-none mt-0.5 tracking-widest uppercase text-white/60">
+              Logística
             </p>
           </div>
         </div>
@@ -97,7 +101,7 @@ export function Nav() {
       {/* Footer */}
       <div className="p-4 border-t border-border">
         <p className="text-xs text-muted-foreground text-center">
-          Vales LOG20 &copy; {new Date().getFullYear()}
+          LOG20 Logística &copy; {new Date().getFullYear()}
         </p>
       </div>
     </aside>

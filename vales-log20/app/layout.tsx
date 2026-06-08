@@ -15,8 +15,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Vales LOG20",
-  description: "Sistema de gerenciamento de vales - LOG20",
+  title: {
+    template: "%s | LOG20 Logística",
+    default: "LOG20 Logística",
+  },
+  description: "Sistema de gestão de vales — LOG20 Logística",
 };
 
 export default function RootLayout({
