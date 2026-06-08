@@ -113,8 +113,8 @@ function criticidadeInicial(d25: number, d26: number, base: string): string {
   const c = d25 === 0 ? 'Baixo' : d26 <= d25 ? 'Médio' : 'Alto'
   return nivelIdx(base) > nivelIdx(c) ? base : c
 }
-/** Gatilho dispara quando os atos inseguros do ano corrente superam o ano anterior. */
-function calcGatilho(atos25: number, atos26: number): 'S' | 'N' { return atos26 > atos25 ? 'S' : 'N' }
+/** Gatilho dispara quando os atos inseguros dos 2 meses recentes superam os 2 meses anteriores (intra-ano). */
+function calcGatilho(atosAnt: number, atosRec: number): 'S' | 'N' { return atosRec > atosAnt ? 'S' : 'N' }
 /** Risco final: gatilho S→sobe 1; abordagem≥atos→desce 1; senão mantém. */
 function riscoFinal(cInicial: string, gat: 'S' | 'N', abordPos: number, atos: number): string {
   if (gat === 'S') return subir(cInicial)
@@ -155,7 +155,7 @@ function fmtData(d: Date | null): string {
 interface LinhaCalc {
   ativ: DtoAtividade
   d25: number; d26: number
-  atos25: number; atos26: number; abordPos: number
+  atosRecentes: number; atosAnteriores: number; abordPos: number
   cInicial: string
   gatilho: 'S' | 'N'
   risco: string
@@ -169,6 +169,14 @@ interface LinhaCalc {
 const ANO_ATUAL = new Date().getFullYear()
 const ANO_ANTERIOR = ANO_ATUAL - 1
 const HOJE = new Date(); HOJE.setHours(0, 0, 0, 0)
+const MES_ATUAL = new Date().getMonth() + 1 // 1–12
+const MESES_RECENTES   = [MES_ATUAL - 2, MES_ATUAL - 1].filter(m => m > 0)
+const MESES_ANTERIORES = [MES_ATUAL - 4, MES_ATUAL - 3].filter(m => m > 0)
+const NOMES_MESES = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez']
+const labelJanela = (meses: number[]) =>
+  meses.length === 0 ? '—' : meses.map(m => NOMES_MESES[m - 1]).join('–') + `/${ANO_ATUAL}`
+const LABEL_RECENTE  = labelJanela(MESES_RECENTES)
+const LABEL_ANTERIOR = labelJanela(MESES_ANTERIORES)
 
 function ehAtoInseguro(classificacao: string | null): boolean {
   return norm(classificacao).includes('ATO INSEGURO')
@@ -252,19 +260,22 @@ export default function DtoGerenciador() {
     setAtividades(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a))
   }
 
-  // ── Agregados de relato por ATIVIDADE (campo ATIVIDADE do relato, ~90% preenchido) ──
+  // ── Agregados de relato por ATIVIDADE — janela móvel intra-2026 (2 meses recentes vs 2 anteriores) ──
   const relatoPorAtividade = useMemo(() => {
-    const m = new Map<string, { atos25: number; atos26: number; abordPos: number }>()
+    const m = new Map<string, { atosRecentes: number; atosAnteriores: number; abordPos: number }>()
     for (const r of relatos) {
       const key = norm(r.atividade)
       if (!key) continue
-      const ano = anoDe(r.data_ocorrencia)
-      if (!m.has(key)) m.set(key, { atos25: 0, atos26: 0, abordPos: 0 })
+      const d = parseData(r.data_ocorrencia)
+      if (!d) continue
+      const ano = d.getFullYear()
+      const mes = d.getMonth() + 1
+      if (!m.has(key)) m.set(key, { atosRecentes: 0, atosAnteriores: 0, abordPos: 0 })
       const acc = m.get(key)!
       if (ehAtoInseguro(r.classificacao)) {
-        if (ano === ANO_ANTERIOR) acc.atos25++
-        else if (ano === ANO_ATUAL) acc.atos26++
-      } else if (ehAbordagemPositiva(r.classificacao) && ano === ANO_ATUAL) {
+        if (ano === ANO_ATUAL && MESES_RECENTES.includes(mes)) acc.atosRecentes++
+        else if (ano === ANO_ATUAL && MESES_ANTERIORES.includes(mes)) acc.atosAnteriores++
+      } else if (ehAbordagemPositiva(r.classificacao) && ano === ANO_ATUAL && MESES_RECENTES.includes(mes)) {
         acc.abordPos++
       }
     }
@@ -293,10 +304,10 @@ export default function DtoGerenciador() {
   const linhas = useMemo<LinhaCalc[]>(() => {
     return atividades.filter(a => a.ativo).map(ativ => {
       const dto = dtoPorAtividade.get(norm(ativ.nome_atividade)) ?? { d25: 0, d26: 0, ultimo: null }
-      const rel = relatoPorAtividade.get(norm(ativ.nome_atividade)) ?? { atos25: 0, atos26: 0, abordPos: 0 }
+      const rel = relatoPorAtividade.get(norm(ativ.nome_atividade)) ?? { atosRecentes: 0, atosAnteriores: 0, abordPos: 0 }
       const cInicial = criticidadeInicial(dto.d25, dto.d26, ativ.criticidade_base)
-      const gatilho = calcGatilho(rel.atos25, rel.atos26)
-      const risco = riscoFinal(cInicial, gatilho, rel.abordPos, rel.atos26)
+      const gatilho = calcGatilho(rel.atosAnteriores, rel.atosRecentes)
+      const risco = riscoFinal(cInicial, gatilho, rel.abordPos, rel.atosRecentes)
       const periodicidade = periodicidadeDias(risco)
       const ultimoDTO = ativ.ultimo_dto_manual ? parseData(ativ.ultimo_dto_manual) : dto.ultimo
       let vencimento: Date | null = null
@@ -307,7 +318,7 @@ export default function DtoGerenciador() {
         diasRestantes = Math.round((vencimento.getTime() - HOJE.getTime()) / 86400000)
         status = diasRestantes < 0 ? 'Vencido' : diasRestantes <= 7 ? 'A vencer' : 'Em dia'
       }
-      return { ativ, d25: dto.d25, d26: dto.d26, atos25: rel.atos25, atos26: rel.atos26, abordPos: rel.abordPos, cInicial, gatilho, risco, periodicidade, ultimoDTO, vencimento, diasRestantes, status }
+      return { ativ, d25: dto.d25, d26: dto.d26, atosRecentes: rel.atosRecentes, atosAnteriores: rel.atosAnteriores, abordPos: rel.abordPos, cInicial, gatilho, risco, periodicidade, ultimoDTO, vencimento, diasRestantes, status }
     })
   }, [atividades, dtoPorAtividade, relatoPorAtividade])
 
@@ -350,8 +361,8 @@ export default function DtoGerenciador() {
       'Área': l.ativ.area, 'Atividade': l.ativ.nome_atividade,
       'Criticidade Base': l.ativ.criticidade_base, 'Criticidade Inicial': l.cInicial,
       ['Desvios DTO ' + ANO_ANTERIOR]: l.d25, ['Desvios DTO ' + ANO_ATUAL]: l.d26,
-      ['Atos Inseguros ' + ANO_ANTERIOR]: l.atos25, ['Atos Inseguros ' + ANO_ATUAL]: l.atos26,
-      'Abordagem Positiva': l.abordPos, 'Gatilho': l.gatilho,
+      ['Atos Inseguros ' + LABEL_ANTERIOR]: l.atosAnteriores, ['Atos Inseguros ' + LABEL_RECENTE]: l.atosRecentes,
+      ['Abordagem Positiva ' + LABEL_RECENTE]: l.abordPos, 'Gatilho': l.gatilho,
       'Risco Final': l.risco, 'Periodicidade (dias)': l.periodicidade,
       'Último DTO': fmtData(l.ultimoDTO), 'Vencimento': fmtData(l.vencimento),
       'Status': l.status, 'Responsável': l.ativ.responsavel ?? '',
@@ -488,14 +499,14 @@ export default function DtoGerenciador() {
                               <td colSpan={7} className="bg-gray-50 border-b border-gray-200 px-6 py-4">
                                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                                   <MemoBox titulo={`Desvios DTO ${ANO_ANTERIOR} → ${ANO_ATUAL}`} val={`${l.d25} → ${l.d26}`} trend={l.d26 - l.d25} />
-                                  <MemoBox titulo={`Atos inseguros ${ANO_ANTERIOR} → ${ANO_ATUAL}`} val={`${l.atos25} → ${l.atos26}`} trend={l.atos26 - l.atos25} />
-                                  <MemoBox titulo={`Abordagem positiva (${ANO_ATUAL})`} val={String(l.abordPos)} trend={-l.abordPos} />
+                                  <MemoBox titulo={`Atos inseguros ${LABEL_ANTERIOR} → ${LABEL_RECENTE}`} val={`${l.atosAnteriores} → ${l.atosRecentes}`} trend={l.atosRecentes - l.atosAnteriores} />
+                                  <MemoBox titulo={`Abordagem positiva (${LABEL_RECENTE})`} val={String(l.abordPos)} trend={-l.abordPos} />
                                   <MemoBox titulo="Vencimento previsto" val={fmtData(l.vencimento)} />
                                 </div>
                                 <div className="mt-3 text-xs text-gray-500 bg-white rounded-lg border border-gray-100 p-3 leading-relaxed">
                                   <span className="font-semibold text-gray-700">Memória de cálculo:</span>{' '}
                                   Criticidade base <b>{l.ativ.criticidade_base}</b> + desvios DTO ({l.d25}→{l.d26}) ⇒ inicial <b>{l.cInicial}</b>.{' '}
-                                  Gatilho <b>{l.gatilho}</b> {l.gatilho === 'S' ? `(atos subiram ${l.atos25}→${l.atos26}) ⇒ sobe 1 nível` : l.abordPos >= l.atos26 ? `(abordagem ${l.abordPos} ≥ atos ${l.atos26}) ⇒ desce 1 nível` : '⇒ mantém'}.{' '}
+                                  Gatilho <b>{l.gatilho}</b> {l.gatilho === 'S' ? `(atos ${LABEL_ANTERIOR}: ${l.atosAnteriores} → ${LABEL_RECENTE}: ${l.atosRecentes}) ⇒ sobe 1 nível` : l.abordPos >= l.atosRecentes ? `(abordagem ${l.abordPos} ≥ atos ${l.atosRecentes} em ${LABEL_RECENTE}) ⇒ desce 1 nível` : '⇒ mantém'}.{' '}
                                   Risco final <b>{l.risco}</b> ⇒ DTO a cada <b>{l.periodicidade} dias</b>.
                                 </div>
                               </td>
