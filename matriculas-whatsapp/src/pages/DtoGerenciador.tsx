@@ -235,7 +235,25 @@ export default function DtoGerenciador() {
   const [filtroFilaArea, setFiltroFilaArea] = useState('Todas')
   const [filtroFilaResp, setFiltroFilaResp] = useState('Todos')
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
+  const [sincronizando, setSincronizando] = useState(false)
 
+  async function sincronizarDatas() {
+    setSincronizando(true)
+    const pendentes = atividades.filter(a => !a.ultimo_dto_manual)
+    const updates: { id: string; ultimo_dto_manual: string }[] = []
+    for (const ativ of pendentes) {
+      const dto = dtoPorAtividade.get(norm(ativ.nome_atividade))
+      if (dto?.ultimo) {
+        updates.push({ id: ativ.id, ultimo_dto_manual: dto.ultimo.toISOString().split('T')[0] })
+      }
+    }
+    for (const u of updates) {
+      await supabase.from('dto_atividades').update({ ultimo_dto_manual: u.ultimo_dto_manual }).eq('id', u.id)
+    }
+    setSincronizando(false)
+    await carregar()
+    alert(`${updates.length} de ${pendentes.length} atividade(s) atualizada(s) com o último DTO encontrado nas observações.`)
+  }
 
   function exportarCSV() {
     const header = ['#', 'Atividade', 'Área', 'Responsável', 'Risco Final', 'Periodicidade (dias)', 'Status', 'Último DTO', 'Vencimento']
@@ -707,11 +725,18 @@ export default function DtoGerenciador() {
           {/* ── Cadastro ── */}
           {aba === 'cadastro' && (
             <div className="space-y-4">
-              <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 gap-4">
                 <p className="text-xs text-blue-800">Edite a criticidade base (piso), o responsável e a data do último DTO. Os cálculos atualizam automaticamente.</p>
-                <button onClick={semearBase} disabled={semeando} className="flex items-center gap-1.5 text-xs text-blue-700 border border-blue-300 px-3 py-1.5 rounded-lg hover:bg-blue-100 shrink-0">
-                  {semeando ? <Loader2 size={13} className="animate-spin" /> : <Database size={13} />} Reimportar base
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button onClick={sincronizarDatas} disabled={sincronizando}
+                    className="flex items-center gap-1.5 text-xs text-green-700 border border-green-300 bg-green-50 px-3 py-1.5 rounded-lg hover:bg-green-100 disabled:opacity-60">
+                    {sincronizando ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                    Sincronizar com observações
+                  </button>
+                  <button onClick={semearBase} disabled={semeando} className="flex items-center gap-1.5 text-xs text-blue-700 border border-blue-300 px-3 py-1.5 rounded-lg hover:bg-blue-100 disabled:opacity-60">
+                    {semeando ? <Loader2 size={13} className="animate-spin" /> : <Database size={13} />} Reimportar base
+                  </button>
+                </div>
               </div>
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <table className="w-full text-sm">
