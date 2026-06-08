@@ -13,7 +13,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { Relato } from '../types'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────────────────
 
 interface RelatoAcao {
   id: string
@@ -29,7 +29,7 @@ interface RelatoAcao {
   created_at: string
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────────────────
 
 const TIPOS_ACAO = ['Reciclagem', 'Advertência Verbal', 'Advertência Escrita', 'Suspensão']
 
@@ -42,12 +42,12 @@ const COR_ACAO: Record<string, string> = {
 
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
 
-// ── Classificação styling ─────────────────────────────────────────────────────
+// ── Classificação styling ───────────────────────────────────────────────────────────────────
 
 function classColor(c: string | null) {
   if (!c) return '#94a3b8'
   if (c.includes('POSITIVA')) return '#22c55e'
-  if (c.includes('ATO'))      return '#ef4444'   // ATO before INSEGURA
+  if (c.includes('ATO'))      return '#ef4444'
   if (c.includes('INSEGURA')) return '#f97316'
   if (c.includes('QUASE'))    return '#eab308'
   return '#64748b'
@@ -81,7 +81,7 @@ function ClassLegend() {
   )
 }
 
-// ── Date helpers ──────────────────────────────────────────────────────────────
+// ── Date helpers ────────────────────────────────────────────────────────────────────────────
 
 function parseDateStr(v: unknown): string | null {
   if (!v) return null
@@ -104,7 +104,7 @@ function weekKey(iso: string) {
   return mon.toISOString().slice(0, 10)
 }
 
-// ── Parsing ───────────────────────────────────────────────────────────────────
+// ── Parsing ───────────────────────────────────────────────────────────────────────────────
 
 function sv(v: unknown) { return String(v ?? '').trim() || null }
 
@@ -144,7 +144,7 @@ function parseRelatos(buffer: ArrayBuffer, filial: string) {
   }))
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────────────────
 
 function topN(data: Relato[], key: keyof Relato, n = 10) {
   const m = new Map<string, number>()
@@ -164,7 +164,7 @@ function toISO(d: Date) { return d.toISOString().slice(0, 10) }
 function isoToday()     { return toISO(new Date()) }
 function isoMinus(dias: number) { const d = new Date(); d.setDate(d.getDate() - dias); return toISO(d) }
 
-// ── Modal Ação Disciplinar ────────────────────────────────────────────────────
+// ── Modal Ação Disciplinar ──────────────────────────────────────────────────────────────────
 
 interface ModalAcaoProps {
   pessoaRelatada: string
@@ -244,7 +244,7 @@ function ModalAcaoRelato({ pessoaRelatada, tipoRelato, dataRelato, existente, on
   )
 }
 
-// ── Relatado Detail Panel ─────────────────────────────────────────────────────
+// ── Relatado Detail Panel ─────────────────────────────────────────────────────────────────
 
 function RelatadoDetail({ nome, relatos, acoes, onRegistrarAcao }: {
   nome: string; relatos: Relato[]; acoes: RelatoAcao[]; onRegistrarAcao: (r: Relato) => void
@@ -324,7 +324,7 @@ function RelatadoDetail({ nome, relatos, acoes, onRegistrarAcao }: {
   )
 }
 
-// ── Relatante Detail Panel ────────────────────────────────────────────────────
+// ── Relatante Detail Panel ────────────────────────────────────────────────────────────────
 
 function RelatanteDetail({ nome, relatos }: { nome: string; relatos: Relato[] }) {
   const meus = relatos
@@ -383,7 +383,7 @@ function RelatanteDetail({ nome, relatos }: { nome: string; relatos: Relato[] })
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// ── Main Component ────────────────────────────────────────────────────────────────────────────
 
 export default function Relatos() {
   const { usuario } = useAuth()
@@ -461,7 +461,7 @@ export default function Relatos() {
     setAcoes(updated ?? [])
   }
 
-  // ── Filtered data ──────────────────────────────────────────────────────────
+  // ── Filtered data ────────────────────────────────────────────────────────────────────
 
   const filtered = useMemo(() => {
     let d = data
@@ -475,7 +475,7 @@ export default function Relatos() {
   const classes = useMemo(() => [...new Set(data.map(r => r.classificacao).filter(Boolean))] as string[], [data])
   const areas   = useMemo(() => [...new Set(data.map(r => r.area).filter(Boolean))] as string[], [data])
 
-  // ── KPIs ──────────────────────────────────────────────────────────────────
+  // ── KPIs ───────────────────────────────────────────────────────────────────────────────
 
   const total        = filtered.length
   const positivos    = filtered.filter(r => r.classificacao?.includes('POSITIVA')).length
@@ -485,7 +485,7 @@ export default function Relatos() {
   const sifPotencial = filtered.filter(r => r.sif && r.sif.trim() !== '' && r.sif.toUpperCase() !== 'NÃO' && r.sif.toUpperCase() !== 'NAO').length
   const investRate   = atos > 0 ? Math.round((filtered.filter(r => r.classificacao?.includes('ATO') && r.pq1).length / atos) * 100) : 0
 
-  // ── Charts data ───────────────────────────────────────────────────────────
+  // ── Charts data ──────────────────────────────────────────────────────────────────────────
 
   const trendData = useMemo(() => {
     const weeks = new Map<string, number>()
@@ -514,7 +514,7 @@ export default function Relatos() {
   const topAtividades = useMemo(() => topN(filtered, 'atividade',   8),  [filtered])
   const topEquipes    = useMemo(() => topN(filtered, 'equipe',      8),  [filtered])
 
-  // ── Relatantes ────────────────────────────────────────────────────────────
+  // ── Relatantes ────────────────────────────────────────────────────────────────────────────
 
   const relatantes = useMemo(() => {
     const m = new Map<string, { nome: string; funcao: string; equipe: string; total: number; pos: number; atos: number; cond: number; ultima: string }>()
@@ -531,7 +531,7 @@ export default function Relatos() {
     return [...m.values()].sort((a, b) => b.total - a.total)
   }, [filtered])
 
-  // ── Relatados ─────────────────────────────────────────────────────────────
+  // ── Relatados ─────────────────────────────────────────────────────────────────────────────
 
   const relatados = useMemo(() => {
     const m = new Map<string, { nome: string; empresa: string; total: number; atos: number; cond: number; ultima: string }>()
@@ -547,7 +547,7 @@ export default function Relatos() {
     return [...m.values()].sort((a, b) => b.total - a.total)
   }, [filtered])
 
-  // ── Investigações ─────────────────────────────────────────────────────────
+  // ── Investigações ─────────────────────────────────────────────────────────────────────────
 
   const investList = useMemo(() =>
     filtered.filter(r => r.pq1 || r.motivo1).sort((a, b) => (b.data_ocorrencia ?? '').localeCompare(a.data_ocorrencia ?? ''))
@@ -655,7 +655,7 @@ export default function Relatos() {
             ))}
           </div>
 
-          {/* ─── DASHBOARD ─────────────────────────────────────────────────── */}
+          {/* ─── DASHBOARD ──────────────────────────────────────────────────────────────────── */}
           {tab === 0 && (
             <div className="space-y-5">
               {/* KPIs */}
@@ -714,7 +714,6 @@ export default function Relatos() {
                 </div>
               </div>
 
-              {/* Top tipos */}
               {topTipos.length > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
                   <p className="text-sm font-semibold text-gray-700 mb-4">Relatos por Tipo</p>
@@ -731,7 +730,6 @@ export default function Relatos() {
                 </div>
               )}
 
-              {/* Insight cards */}
               {relatados.length > 0 && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                   <div className={`rounded-xl border p-4 ${recorrentes > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
@@ -754,7 +752,7 @@ export default function Relatos() {
             </div>
           )}
 
-          {/* ─── RELATANTES ──────────────────────────────────────────────── */}
+          {/* ─── RELATANTES ──────────────────────────────────────────────────────────────────── */}
           {tab === 1 && (
             <div className="space-y-5">
               {relatantes.length > 0 && (
@@ -825,7 +823,7 @@ export default function Relatos() {
             </div>
           )}
 
-          {/* ─── RELATADOS ───────────────────────────────────────────────── */}
+          {/* ─── RELATADOS ──────────────────────────────────────────────────────────────────── */}
           {tab === 2 && (
             <div className="space-y-5">
               {relatados.length === 0 ? (
@@ -906,7 +904,7 @@ export default function Relatos() {
             </div>
           )}
 
-          {/* ─── POR SETOR ───────────────────────────────────────────────── */}
+          {/* ─── POR SETOR ──────────────────────────────────────────────────────────────────── */}
           {tab === 3 && (
             <div className="space-y-4">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -931,7 +929,6 @@ export default function Relatos() {
                 ))}
               </div>
 
-              {/* Dia da semana */}
               <div className="bg-white rounded-xl border border-gray-200 p-5">
                 <p className="text-sm font-semibold text-gray-700 mb-1">Ocorrências por Dia da Semana</p>
                 <p className="text-xs text-gray-400 mb-4">Identifica os dias de maior concentração de relatos</p>
@@ -952,7 +949,7 @@ export default function Relatos() {
             </div>
           )}
 
-          {/* ─── INVESTIGAÇÕES ───────────────────────────────────────────── */}
+          {/* ─── INVESTIGAÇÕES ──────────────────────────────────────────────────────────────────── */}
           {tab === 4 && (
             <div className="space-y-4">
               <div className="flex items-center gap-3 flex-wrap">
