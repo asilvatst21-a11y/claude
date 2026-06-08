@@ -533,9 +533,10 @@ function ValesContent() {
               <CardContent>
                 {/* Prazo banner — only on pendentes tab */}
                 {tab.value === "pendentes" && (() => {
-                  const pendentesTab = filterByTab(valesFiltered, "pendentes");
-                  const vencidos = pendentesTab.filter((v) => calcPrazo(v.data_emissao)?.status === "vencido").length;
-                  const urgentes = pendentesTab.filter((v) => calcPrazo(v.data_emissao)?.status === "urgente").length;
+                  const semTratativa = filterByTab(valesFiltered, "pendentes")
+                    .filter((v) => !v.acao_transportadora || v.acao_transportadora === "Sem ação");
+                  const vencidos = semTratativa.filter((v) => calcPrazo(v.data_emissao)?.status === "vencido").length;
+                  const urgentes = semTratativa.filter((v) => calcPrazo(v.data_emissao)?.status === "urgente").length;
                   if (!vencidos && !urgentes) return null;
                   return (
                     <div className="mb-4 flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 px-4 py-3">
@@ -602,7 +603,7 @@ function ValesContent() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            {vale.status_vale === "Sem Ação"
+                            {vale.status_vale === "Sem Ação" && (!vale.acao_transportadora || vale.acao_transportadora === "Sem ação")
                               ? <PrazoBadge dataEmissao={vale.data_emissao} />
                               : <span className="text-muted-foreground text-sm">—</span>
                             }
