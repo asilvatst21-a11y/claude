@@ -1,9 +1,10 @@
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Building2, RefreshCw, Loader2, CalendarClock, AlertTriangle, ListChecks,
-  Users, Download, ChevronDown, ChevronUp, Database, Zap, TrendingUp, TrendingDown, Minus,
+  Users, Download, ChevronDown, ChevronUp, Database, Zap, TrendingUp, TrendingDown, Minus, Image,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
+import html2canvas from 'html2canvas'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { DtoAtividade, DtoAvaliador, DtoObservacao, Relato } from '../types'
@@ -149,6 +150,13 @@ function anoDe(s: string | null | undefined): number | null {
 function fmtData(d: Date | null): string {
   return d ? d.toLocaleDateString('pt-BR') : '—'
 }
+function semanaAtual(): { seg: Date; dom: Date } {
+  const hoje = new Date()
+  const dow = hoje.getDay()
+  const seg = new Date(hoje); seg.setDate(hoje.getDate() - (dow === 0 ? 6 : dow - 1))
+  const dom = new Date(seg); dom.setDate(seg.getDate() + 6)
+  return { seg, dom }
+}
 
 // ── Tipos derivados ─────────────────────────────────────────────────────────────────────
 
@@ -222,6 +230,38 @@ export default function DtoGerenciador() {
   const [filtroArea, setFiltroArea] = useState('Todas')
   const [filtroStatus, setFiltroStatus] = useState<'Todos' | LinhaCalc['status']>('Todos')
   const [expand, setExpand] = useState<string | null>(null)
+  const [exportandoImg, setExportandoImg] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
+
+  function motivoTexto(l: LinhaCalc): string {
+    if (l.status === 'Nunca') return 'Esta atividade nunca teve um DTO realizado.'
+    const partes: string[] = [`Criticidade base ${l.ativ.criticidade_base}`]
+    if (l.d26 > 0) partes.push(`${l.d26} desvio(s) DTO em ${ANO_ATUAL}`)
+    if (l.gatilho === 'S') {
+      partes.push(`atos inseguros subiram de ${l.atosAnteriores} (${LABEL_ANTERIOR}) para ${l.atosRecentes} (${LABEL_RECENTE}) — gatilho ativado`)
+    } else if (l.abordPos > 0 && l.abordPos >= l.atosRecentes) {
+      partes.push(`abordagem positiva (${l.abordPos}) ≥ atos inseguros (${l.atosRecentes}) — risco reduziu`)
+    } else {
+      partes.push('sem variação de tendência')
+    }
+    return partes.join('. ') + '.'
+  }
+
+  async function exportarImagem() {
+    if (!exportRef.current) return
+    setExportandoImg(true)
+    try {
+      const canvas = await html2canvas(exportRef.current, { scale: 2, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+      const url = canvas.toDataURL('image/png')
+      const a = document.createElement('a')
+      a.href = url
+      const { seg, dom } = semanaAtual()
+      a.download = `DTO_Semana_${seg.toLocaleDateString('pt-BR').replace(/\//g,'-')}_${dom.toLocaleDateString('pt-BR').replace(/\//g,'-')}.png`
+      a.click()
+    } finally {
+      setExportandoImg(false)
+    }
+  }
 
   async function carregar() {
     if (!usuario) return
@@ -526,22 +566,39 @@ export default function DtoGerenciador() {
 
           {/* ── Fila da Semana ── */}
           {aba === 'fila' && (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              {fila.length === 0
-                ? <p className="text-center py-12 text-gray-400">Nenhum DTO vencido ou a vencer. 🎉</p>
-                : <div className="divide-y divide-gray-100">
-                    {fila.map((l, i) => (
-                      <div key={l.ativ.id} className="px-4 py-3 flex items-center gap-3">
-                        <span className="text-xs font-bold text-gray-300 w-5 text-right">{i + 1}</span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{l.ativ.nome_atividade}</p>
-                          <p className="text-xs text-gray-400">{l.ativ.area} · {l.ativ.responsavel?.trim() || 'sem responsável'} · último DTO {fmtData(l.ultimoDTO)}</p>
+            <div className="space-y-3">
+              {fila.length > 0 && (
+                <div className="flex justify-end">
+                  <button
+                    onClick={exportarImagem}
+                    disabled={exportandoImg}
+                    className="flex items-center gap-2 text-sm text-brand-700 border border-brand-200 px-3 py-1.5 rounded-lg hover:bg-brand-50 disabled:opacity-60"
+                  >
+                    {exportandoImg ? <Loader2 size={14} className="animate-spin" /> : <Image size={14} />}
+                    Exportar como imagem
+                  </button>
+                </div>
+              )}
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                {fila.length === 0
+                  ? <p className="text-center py-12 text-gray-400">Nenhum DTO vencido ou a vencer. 🎉</p>
+                  : <div className="divide-y divide-gray-100">
+                      {fila.map((l, i) => (
+                        <div key={l.ativ.id} className="px-4 py-3 flex items-center gap-3">
+                          <span className="text-xs font-bold text-gray-300 w-5 text-right">{i + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{l.ativ.nome_atividade}</p>
+                            <p className="text-xs text-gray-400">{l.ativ.area} · {l.ativ.responsavel?.trim() || 'sem responsável'} · último DTO {fmtData(l.ultimoDTO)}</p>
+                          </div>
+                          <NivelBadge nivel={l.risco} />
+                          <StatusBadge status={l.status} dias={l.diasRestantes} />
                         </div>
-                        <NivelBadge nivel={l.risco} />
-                        <StatusBadge status={l.status} dias={l.diasRestantes} />
-                      </div>
-                    ))}
-                  </div>}
+                      ))}
+                    </div>}
+              </div>
+
+              {/* Template oculto para exportação */}
+              <FilaExportTemplate ref={exportRef} fila={fila} filial={usuario.filial} motivoTexto={motivoTexto} />
             </div>
           )}
 
@@ -651,6 +708,107 @@ export default function DtoGerenciador() {
     </div>
   )
 }
+
+const RISCO_COLOR: Record<string, string> = {
+  Crítico: '#dc2626', Alto: '#ea580c', Médio: '#ca8a04', Baixo: '#16a34a', Trivial: '#6b7280',
+}
+
+const FilaExportTemplate = forwardRef<HTMLDivElement, {
+  fila: LinhaCalc[]
+  filial: string
+  motivoTexto: (l: LinhaCalc) => string
+}>(function FilaExportTemplate({ fila, filial, motivoTexto }, ref) {
+  const { seg, dom } = semanaAtual()
+  const semana = `${seg.toLocaleDateString('pt-BR')} a ${dom.toLocaleDateString('pt-BR')}`
+
+  return (
+    <div
+      ref={ref}
+      style={{
+        position: 'absolute', left: '-9999px', top: 0,
+        width: '760px', fontFamily: 'Inter, system-ui, sans-serif',
+        background: '#f8fafc', padding: '32px',
+      }}
+    >
+      {/* Cabeçalho */}
+      <div style={{ borderBottom: '2px solid #1e3a5f', paddingBottom: '16px', marginBottom: '24px' }}>
+        <p style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '4px' }}>
+          Gerenciador de DTOs
+        </p>
+        <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
+          Fila da Semana
+        </h1>
+        <p style={{ fontSize: '13px', color: '#475569', marginTop: '4px' }}>
+          {filial} &nbsp;·&nbsp; {semana}
+        </p>
+      </div>
+
+      {/* Cards */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        {fila.map((l, i) => {
+          const cor = RISCO_COLOR[l.risco] ?? '#6b7280'
+          const statusCor = l.status === 'Vencido' ? '#dc2626' : l.status === 'Nunca' ? '#7c3aed' : '#d97706'
+          const statusTxt = l.status === 'Vencido'
+            ? `Vencido há ${Math.abs(l.diasRestantes ?? 0)}d`
+            : l.status === 'Nunca' ? 'Nunca realizado'
+            : `Vence em ${l.diasRestantes}d`
+
+          return (
+            <div key={l.ativ.id} style={{ background: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+              {/* Barra lateral colorida + header do card */}
+              <div style={{ display: 'flex', borderBottom: '1px solid #f1f5f9' }}>
+                <div style={{ width: '6px', background: cor, flexShrink: 0 }} />
+                <div style={{ flex: 1, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', minWidth: '18px' }}>#{i + 1}</span>
+                      <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{l.ativ.nome_atividade}</span>
+                    </div>
+                    <span style={{ fontSize: '11px', color: '#64748b' }}>
+                      {l.ativ.area}{l.ativ.responsavel ? ` · ${l.ativ.responsavel}` : ''}
+                    </span>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '12px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: 700, color: statusCor, background: `${statusCor}18`, padding: '3px 8px', borderRadius: '999px', border: `1px solid ${statusCor}40` }}>
+                      {statusTxt}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Corpo do card */}
+              <div style={{ padding: '10px 16px 12px 22px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
+                {/* Risco + periodicidade */}
+                <div style={{ flexShrink: 0, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', textAlign: 'center', minWidth: '110px' }}>
+                  <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>Risco Final</div>
+                  <div style={{ fontSize: '16px', fontWeight: 800, color: cor }}>{l.risco}</div>
+                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>a cada {l.periodicidade} dias</div>
+                </div>
+
+                {/* Motivo + datas */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <p style={{ fontSize: '12px', color: '#374151', lineHeight: '1.5', margin: '0 0 8px 0' }}>
+                    <strong style={{ color: '#1e3a5f' }}>Motivo: </strong>{motivoTexto(l)}
+                  </p>
+                  <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: '#94a3b8' }}>
+                    <span>Último DTO: <strong style={{ color: '#475569' }}>{fmtData(l.ultimoDTO)}</strong></span>
+                    {l.vencimento && <span>Vencimento: <strong style={{ color: statusCor }}>{fmtData(l.vencimento)}</strong></span>}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Rodapé */}
+      <div style={{ marginTop: '24px', paddingTop: '12px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#94a3b8' }}>
+        <span>Gerado em {HOJE.toLocaleDateString('pt-BR')}</span>
+        <span>Total: {fila.length} DTO(s) na fila</span>
+      </div>
+    </div>
+  )
+})
 
 function MemoBox({ titulo, sub, val, trend }: { titulo: string; sub?: string; val: string; trend?: number }) {
   return (
