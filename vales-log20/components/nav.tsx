@@ -13,6 +13,7 @@ import {
   Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "./theme-toggle";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -69,6 +70,8 @@ export function Nav() {
           );
         })}
       </nav>
+
+      <ThemeToggle />
 
       {/* Brand tag */}
       <span className="shrink-0 text-xs text-muted-foreground hidden md:block">

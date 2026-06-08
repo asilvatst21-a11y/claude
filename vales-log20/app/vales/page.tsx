@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, AlertTriangle, Clock } from "lucide-react";
+import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, AlertTriangle, Clock, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
 import { ValeDetalhesModal, type ValeDetalhes } from "@/components/vale-detalhes-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -77,6 +77,80 @@ const PRAZO_STYLES: Record<PrazoStatus, string> = {
   vencido: "bg-red-50 text-red-700 border-red-200",
 };
 
+type SortField = "mapa" | "numero_vale" | "data_emissao" | "itens" | "valor_total" | "status_vale" | "prazo";
+type SortDir = "asc" | "desc";
+
+function SortableHead({
+  field,
+  label,
+  sortField,
+  sortDir,
+  onSort,
+  className,
+}: {
+  field: SortField;
+  label: string;
+  sortField: SortField | null;
+  sortDir: SortDir;
+  onSort: (f: SortField) => void;
+  className?: string;
+}) {
+  const active = sortField === field;
+  return (
+    <TableHead className={className}>
+      <button
+        onClick={() => onSort(field)}
+        className="flex items-center gap-1 font-medium hover:text-foreground transition-colors"
+      >
+        {label}
+        {active ? (
+          sortDir === "asc" ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground/50" />
+        )}
+      </button>
+    </TableHead>
+  );
+}
+
+const PRAZO_ORDER: Record<string, number> = { vencido: 0, urgente: 1, alerta: 2, ok: 3 };
+
+function sortVales(list: ValeRow[], field: SortField | null, dir: SortDir): ValeRow[] {
+  if (!field) return list;
+  return [...list].sort((a, b) => {
+    let cmp = 0;
+    switch (field) {
+      case "mapa":
+        cmp = (a.mapa ?? -1) - (b.mapa ?? -1);
+        break;
+      case "numero_vale":
+        cmp = (a.numero_vale ?? 0) - (b.numero_vale ?? 0);
+        break;
+      case "data_emissao":
+        cmp = (a.data_emissao ?? "").localeCompare(b.data_emissao ?? "");
+        break;
+      case "itens":
+        cmp = a.itens.length - b.itens.length;
+        break;
+      case "valor_total":
+        cmp = (a.valor_total ?? 0) - (b.valor_total ?? 0);
+        break;
+      case "status_vale":
+        cmp = (a.status_vale ?? "").localeCompare(b.status_vale ?? "", "pt-BR");
+        break;
+      case "prazo": {
+        const pa = calcPrazo(a.data_emissao);
+        const pb = calcPrazo(b.data_emissao);
+        const oa = pa ? PRAZO_ORDER[pa.status] ?? 9 : 9;
+        const ob = pb ? PRAZO_ORDER[pb.status] ?? 9 : 9;
+        cmp = oa - ob;
+        break;
+      }
+    }
+    return dir === "asc" ? cmp : -cmp;
+  });
+}
+
 function PrazoBadge({ dataEmissao }: { dataEmissao: string | null }) {
   const info = calcPrazo(dataEmissao);
   if (!info) return <span className="text-muted-foreground text-sm">—</span>;
@@ -113,6 +187,19 @@ function ValesContent() {
   const [ajudanteFiltro, setAjudanteFiltro] = useState(
     searchParams.get("ajudante") ?? "todos"
   );
+
+  // Sorting
+  const [sortField, setSortField] = useState<SortField | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  function handleSort(field: SortField) {
+    if (sortField === field) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortDir("asc");
+    }
+  }
 
   // Ajudantes list for filter + atribuir
   const [ajudantesList, setAjudantesList] = useState<AjudanteSimples[]>([]);
@@ -248,7 +335,7 @@ function ValesContent() {
   }
 
   const valesFiltered = applyFilters(vales);
-  const filteredVales = filterByTab(valesFiltered, activeTab);
+  const filteredVales = sortVales(filterByTab(valesFiltered, activeTab), sortField, sortDir);
 
   // Resumo acumulado dos vales filtrados
   const resumo = {
@@ -565,14 +652,14 @@ function ValesContent() {
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Mapa</TableHead>
-                        <TableHead>Vale #</TableHead>
-                        <TableHead>Data</TableHead>
+                        <SortableHead field="mapa" label="Mapa" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortableHead field="numero_vale" label="Vale #" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortableHead field="data_emissao" label="Data" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                         <TableHead>Ajudante(s)</TableHead>
-                        <TableHead>Itens</TableHead>
-                        <TableHead>Valor Total</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Prazo</TableHead>
+                        <SortableHead field="itens" label="Itens" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortableHead field="valor_total" label="Valor Total" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortableHead field="status_vale" label="Status" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
+                        <SortableHead field="prazo" label="Prazo" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                         <TableHead>Ação Transp.</TableHead>
                         <TableHead>Ação Ambev</TableHead>
                         <TableHead>Justificativa</TableHead>
