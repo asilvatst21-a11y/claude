@@ -34,6 +34,8 @@ import { formatCurrency, formatDateBR, calcPrazo } from "@/lib/utils";
 import type { StatusVale } from "@/lib/types";
 import { DashboardCharts } from "@/components/dashboard-charts";
 import type { MonthlyData, DailyData } from "@/components/dashboard-charts";
+import { DashboardSortHead } from "@/components/dashboard-sort-head";
+import { Suspense } from "react";
 
 const MONTHS_PT = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
@@ -311,8 +313,53 @@ async function getDashboardData() {
   }
 }
 
-export default async function DashboardPage() {
+type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
+
+function sortBy<T>(arr: T[], field: string | null, dir: string, getters: Record<string, (item: T) => string | number>): T[] {
+  if (!field || !getters[field]) return arr;
+  return [...arr].sort((a, b) => {
+    const va = getters[field](a);
+    const vb = getters[field](b);
+    const cmp = typeof va === "number" && typeof vb === "number"
+      ? va - vb
+      : String(va).localeCompare(String(vb), "pt-BR", { numeric: true });
+    return dir === "desc" ? -cmp : cmp;
+  });
+}
+
+export default async function DashboardPage({ searchParams }: { searchParams: SearchParams }) {
+  const sp = await searchParams;
   const { stats, recentVales, topPendentes, ajudantesComVales, monthlyData, dailyData, qtdVencidos, qtdUrgentes } = await getDashboardData();
+
+  const recentSort = (sp.recent_sort as string) ?? null;
+  const recentDir = (sp.recent_dir as string) ?? "asc";
+  const histSort = (sp.hist_sort as string) ?? null;
+  const histDir = (sp.hist_dir as string) ?? "asc";
+  const topSort = (sp.top_sort as string) ?? null;
+  const topDir = (sp.top_dir as string) ?? "asc";
+
+  const sortedRecent = sortBy(recentVales, recentSort, recentDir, {
+    numero_vale: (v) => v.numero_vale ?? 0,
+    data_emissao: (v) => v.data_emissao ?? "",
+    valor_total: (v) => v.valor_total ?? 0,
+    status_vale: (v) => v.status_vale ?? "",
+  });
+
+  const sortedTop = sortBy(topPendentes, topSort, topDir, {
+    nome: (a) => a.nome,
+    pendentes: (a) => a.pendentes,
+    valorTotal: (a) => a.valorTotal,
+  });
+
+  const sortedHist = sortBy(ajudantesComVales, histSort, histDir, {
+    nome: (a) => a.nome,
+    codigo: (a) => a.codigo,
+    totalVales: (a) => a.totalVales,
+    abonados: (a) => a.abonados,
+    faturados: (a) => a.faturados,
+    pendentes: (a) => a.pendentes,
+    valorTotal: (a) => a.valorTotal,
+  });
 
   const total = stats.total || 1; // avoid division by zero
   const pctAbonados = Math.round((stats.abonados / total) * 100);
@@ -567,17 +614,18 @@ export default async function DashboardPage() {
                 </p>
               </div>
             ) : (
+              <Suspense>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Ajudante</TableHead>
-                    <TableHead className="text-center">Pend.</TableHead>
-                    <TableHead className="text-right">Valor em Risco</TableHead>
+                    <DashboardSortHead field="nome" label="Ajudante" prefix="top" />
+                    <DashboardSortHead field="pendentes" label="Pend." prefix="top" className="text-center" />
+                    <DashboardSortHead field="valorTotal" label="Valor em Risco" prefix="top" className="text-right" />
                     <TableHead className="text-center">Tel.</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {topPendentes.map((aj) => (
+                  {sortedTop.map((aj) => (
                     <TableRow key={aj.id}>
                       <TableCell>
                         <Link
@@ -607,6 +655,7 @@ export default async function DashboardPage() {
                   ))}
                 </TableBody>
               </Table>
+              </Suspense>
             )}
           </CardContent>
         </Card>
@@ -632,17 +681,18 @@ export default async function DashboardPage() {
                 </Button>
               </div>
             ) : (
+              <Suspense>
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Vale #</TableHead>
+                    <DashboardSortHead field="numero_vale" label="Vale #" prefix="recent" />
                     <TableHead>Ajudante(s)</TableHead>
-                    <TableHead className="text-right">Valor</TableHead>
-                    <TableHead>Status</TableHead>
+                    <DashboardSortHead field="valor_total" label="Valor" prefix="recent" className="text-right" />
+                    <DashboardSortHead field="status_vale" label="Status" prefix="recent" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {recentVales.map((vale) => (
+                  {sortedRecent.map((vale) => (
                     <TableRow key={vale.id}>
                       <TableCell className="font-medium">
                         <div>#{vale.numero_vale}</div>
@@ -667,6 +717,7 @@ export default async function DashboardPage() {
                   ))}
                 </TableBody>
               </Table>
+              </Suspense>
             )}
           </CardContent>
         </Card>
@@ -682,20 +733,21 @@ export default async function DashboardPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            <Suspense>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Ajudante</TableHead>
-                  <TableHead>Código</TableHead>
-                  <TableHead className="text-center">Total</TableHead>
-                  <TableHead className="text-center">Abonados</TableHead>
-                  <TableHead className="text-center">Faturados</TableHead>
-                  <TableHead className="text-center">Pendentes</TableHead>
-                  <TableHead className="text-right">Valor Total</TableHead>
+                  <DashboardSortHead field="nome" label="Ajudante" prefix="hist" />
+                  <DashboardSortHead field="codigo" label="Código" prefix="hist" />
+                  <DashboardSortHead field="totalVales" label="Total" prefix="hist" className="text-center" />
+                  <DashboardSortHead field="abonados" label="Abonados" prefix="hist" className="text-center" />
+                  <DashboardSortHead field="faturados" label="Faturados" prefix="hist" className="text-center" />
+                  <DashboardSortHead field="pendentes" label="Pendentes" prefix="hist" className="text-center" />
+                  <DashboardSortHead field="valorTotal" label="Valor Total" prefix="hist" className="text-right" />
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {ajudantesComVales.map((aj) => (
+                {sortedHist.map((aj) => (
                   <TableRow key={aj.id}>
                     <TableCell>
                       <Link
@@ -745,6 +797,7 @@ export default async function DashboardPage() {
                 ))}
               </TableBody>
             </Table>
+            </Suspense>
           </CardContent>
         </Card>
       )}
