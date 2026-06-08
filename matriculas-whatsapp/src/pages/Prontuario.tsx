@@ -14,7 +14,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { ProntuarioSnapshot, ProntuarioRegistro } from '../types'
 
-// ── Faixa ─────────────────────────────────────────────────────────────────────
+// ── Faixa ───────────────────────────────────────────────────────────────────────────────
 
 const FAIXAS = ['Verde', 'Amarela', 'Laranja', 'Vermelha', 'Roxa'] as const
 type Faixa = typeof FAIXAS[number]
@@ -45,7 +45,7 @@ function FaixaBadge({ faixa }: { faixa: string }) {
   )
 }
 
-// ── Column definitions ────────────────────────────────────────────────────────
+// ── Column definitions ────────────────────────────────────────────────────────────────
 
 interface ColDef { col: number; key: string; label: string; cat: string; weight: number }
 
@@ -191,7 +191,7 @@ function fmt(n: number) {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 3, maximumFractionDigits: 3 })
 }
 
-// ── Parsing ───────────────────────────────────────────────────────────────────
+// ── Parsing ─────────────────────────────────────────────────────────────────────────────
 
 function pn(v: unknown): number {
   if (!v || v === 'N / A' || v === 'N/A' || v === '-') return 0
@@ -232,7 +232,7 @@ function parseProntuario(buffer: ArrayBuffer, tipo: 'motorista' | 'ajudante', fi
   })
 }
 
-// ── Comparison ────────────────────────────────────────────────────────────────
+// ── Comparison ────────────────────────────────────────────────────────────────────
 
 interface Diff {
   reg: ProntuarioRegistro
@@ -259,7 +259,7 @@ function calcDiff(atual: ProntuarioRegistro[], anterior: ProntuarioRegistro[]): 
   }).sort((a, b) => b.reg.pontuacao - a.reg.pontuacao)
 }
 
-// ── Panel ─────────────────────────────────────────────────────────────────────
+// ── Panel ──────────────────────────────────────────────────────────────────────────────
 
 interface HistPoint { date: string; pont: number; faixa: string; label: string }
 
@@ -283,7 +283,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
     const { data: snaps } = await supabase
       .from('prontuario_snapshots').select('*')
       .eq('filial', filial).eq('tipo', tipo)
-      .order('data_referencia', { ascending: false }).limit(10)
+      .order('data_referencia', { ascending: false }).limit(24)
     const lista = snaps ?? []
     setSnapshots(lista)
     if (lista.length > 0) {
@@ -298,6 +298,22 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
   }
 
   useEffect(() => { carregar() }, [filial, tipo])
+
+  // Load data for selected snapshot + its predecessor when not yet in cache
+  useEffect(() => {
+    if (!selectedId || snapshots.length === 0) return
+    const selectedIdx = snapshots.findIndex(s => s.id === selectedId)
+    const pred = selectedIdx >= 0 && selectedIdx + 1 < snapshots.length ? snapshots[selectedIdx + 1] : null
+    const toLoad = [selectedId, pred?.id].filter((id): id is string => !!id && !registros.has(id))
+    if (toLoad.length === 0) return
+    supabase.from('prontuario_registros').select('*').in('snapshot_id', toLoad).then(({ data }) => {
+      setRegistros(prev => {
+        const m = new Map(prev)
+        ;(data ?? []).forEach(r => { if (!m.has(r.snapshot_id)) m.set(r.snapshot_id, []); m.get(r.snapshot_id)!.push(r) })
+        return m
+      })
+    })
+  }, [selectedId, snapshots])
 
   async function carregarHistoria(cpf: string, snaps: ProntuarioSnapshot[]) {
     setLoadingHist(true); setPersonHistory([])
@@ -326,6 +342,15 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
     setUploadando(true)
     const buffer = await files[0].arrayBuffer()
     const rows = parseProntuario(buffer, tipo, filial)
+
+    // Sobrescreve snapshot existente da mesma data
+    const { data: existing } = await supabase.from('prontuario_snapshots')
+      .select('id').eq('filial', filial).eq('tipo', tipo).eq('data_referencia', uploadDate)
+    for (const ex of existing ?? []) {
+      await supabase.from('prontuario_registros').delete().eq('snapshot_id', ex.id)
+      await supabase.from('prontuario_snapshots').delete().eq('id', ex.id)
+    }
+
     const { data: snap } = await supabase.from('prontuario_snapshots')
       .insert({ filial, tipo, data_referencia: uploadDate, nome_arquivo: files[0].name, total_registros: rows.length })
       .select().single()
@@ -341,9 +366,10 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
     accept: { 'application/vnd.ms-excel': ['.xls'], 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
   })
 
-  const current  = selectedId ? (registros.get(selectedId) ?? []) : []
-  const prevSnap = snapshots[1]
-  const previous = prevSnap ? (registros.get(prevSnap.id) ?? []) : []
+  const current     = selectedId ? (registros.get(selectedId) ?? []) : []
+  const selectedIdx = snapshots.findIndex(s => s.id === selectedId)
+  const prevSnap    = selectedIdx >= 0 && selectedIdx + 1 < snapshots.length ? snapshots[selectedIdx + 1] : null
+  const previous    = prevSnap ? (registros.get(prevSnap.id) ?? []) : []
   const diffs    = calcDiff(current, previous)
   const diffsFiltered = busca.trim()
     ? diffs.filter(d => d.reg.nome.toLowerCase().includes(busca.toLowerCase()) || d.reg.cpf.includes(busca))
@@ -519,7 +545,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                 <input type="text" placeholder="Buscar nome ou CPF..." value={busca} onChange={e => setBusca(e.target.value)}
                   className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
               </div>
-              {previous.length > 0 && <span className="text-xs text-gray-400 ml-auto shrink-0">vs {new Date(prevSnap.data_referencia + 'T12:00:00').toLocaleDateString('pt-BR')}</span>}
+              {previous.length > 0 && prevSnap && <span className="text-xs text-gray-400 ml-auto shrink-0">vs {new Date(prevSnap.data_referencia + 'T12:00:00').toLocaleDateString('pt-BR')}</span>}
             </div>
 
             <table className="w-full text-sm">
@@ -721,7 +747,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
   )
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────────
+// ── Main Page ────────────────────────────────────────────────────────────────
 
 export default function Prontuario() {
   const { usuario } = useAuth()
