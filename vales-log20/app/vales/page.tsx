@@ -640,8 +640,7 @@ function ValesContent() {
                   {hasFilters && <span className="text-primary"> · filtro ativo</span>}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="overflow-x-auto p-0">
-                <div className="px-6 pb-6 pt-0">
+              <CardContent>
                 {/* Prazo banner — only on pendentes tab */}
                 {tab.value === "pendentes" && (() => {
                   const semTratativa = filterByTab(valesFiltered, "pendentes")
@@ -673,8 +672,8 @@ function ValesContent() {
                       : "Nenhum vale encontrado nesta categoria."}
                   </div>
                 ) : (
-                  <Table>
-                    <TableHeader>
+                  <Table containerClassName="max-h-[70vh]">
+                    <TableHeader className="[&_th]:sticky [&_th]:top-0 [&_th]:z-20 [&_th]:bg-background">
                       <TableRow>
                         <SortableHead field="mapa" label="Mapa" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
                         <SortableHead field="numero_vale" label="Vale #" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
@@ -688,7 +687,7 @@ function ValesContent() {
                         <TableHead>Ação Ambev</TableHead>
                         <TableHead>Justificativa</TableHead>
                         <TableHead>Notificado</TableHead>
-                        <TableHead className="sticky right-0 bg-background text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Ações</TableHead>
+                        <TableHead className="sticky right-0 !z-30 bg-background text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -763,7 +762,7 @@ function ValesContent() {
                               <Badge variant="gray">Não</Badge>
                             )}
                           </TableCell>
-                          <TableCell className="sticky right-0 bg-background text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
+                          <TableCell className="sticky right-0 z-10 bg-background text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
                             <div className="flex items-center justify-end gap-1">
                               {vale.ajudantes.length === 0 && (
                                 <Button
@@ -806,7 +805,6 @@ function ValesContent() {
                     </TableBody>
                   </Table>
                 )}
-                </div>
               </CardContent>
             </Card>
           </TabsContent>
