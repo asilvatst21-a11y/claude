@@ -10,6 +10,7 @@ import {
   Truck,
   History,
   RotateCcw,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,11 @@ const navItems = [
     href: "/reposicoes",
     label: "Reposições",
     icon: RotateCcw,
+  },
+  {
+    href: "/configuracoes",
+    label: "Configurações",
+    icon: Settings,
   },
 ];
 

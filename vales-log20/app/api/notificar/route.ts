@@ -1,6 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { sendValeNotificacao, sendValeResolvido } from "@/lib/zapi";
+import { sendMessage, sendValeResolvido } from "@/lib/zapi";
+import { formatPhoneForZAPI } from "@/lib/utils";
+
+const TEMPLATE_DEFAULT =
+  "Olá {nome}! Você possui {qtd} vale(s) pendente(s) no sistema LOG20 que precisam ser tratados. " +
+  "Vale(s): {vales}. Por favor, procure o financeiro para regularizar.";
+
+function buildMensagem(template: string, vars: Record<string, string>): string {
+  return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -61,6 +70,12 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Load message template from settings
+    const { data: configRows } = await supabase.from("configuracoes").select("chave, valor");
+    const config: Record<string, string> = {};
+    for (const row of configRows ?? []) config[row.chave] = row.valor ?? "";
+    const template = config.notificacao_template_pendente || TEMPLATE_DEFAULT;
+
     let sent = 0;
     const errors: string[] = [];
 
@@ -70,7 +85,17 @@ export async function POST(request: NextRequest) {
       if (tipo === "resolvido") {
         result = await sendValeResolvido(ajudante, vale as never);
       } else {
-        result = await sendValeNotificacao(ajudante, [vale as never]);
+        const phone = formatPhoneForZAPI(ajudante.telefone);
+        if (!phone) {
+          result = { success: false, error: "Número inválido" };
+        } else {
+          const mensagemFinal = buildMensagem(template, {
+            nome: ajudante.nome,
+            qtd: "1",
+            vales: `#${vale.numero_vale}`,
+          });
+          result = await sendMessage(phone, mensagemFinal);
+        }
       }
 
       // Record notification
