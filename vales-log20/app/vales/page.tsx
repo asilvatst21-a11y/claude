@@ -640,7 +640,8 @@ function ValesContent() {
                   {hasFilters && <span className="text-primary"> · filtro ativo</span>}
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="overflow-x-auto p-0">
+                <div className="px-6 pb-6 pt-0">
                 {/* Prazo banner — only on pendentes tab */}
                 {tab.value === "pendentes" && (() => {
                   const semTratativa = filterByTab(valesFiltered, "pendentes")
@@ -672,7 +673,6 @@ function ValesContent() {
                       : "Nenhum vale encontrado nesta categoria."}
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -805,8 +805,8 @@ function ValesContent() {
                       ))}
                     </TableBody>
                   </Table>
-                  </div>
                 )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
