@@ -13,7 +13,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { JornadaRegistro, Colaborador } from '../types'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────────────────
 
 function normName(s: string): string {
   return s.trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -133,14 +133,11 @@ function FiltroMulti({ label, selected, onChange, options }: {
   )
 }
 
-// ─── Parser ───────────────────────────────────────────────────────────────────
+// ─── Parser ───────────────────────────────────────────────────────────────────────────────
 
-// Parses "Relatório de Ponto" (raw daily format: Sheet1)
-// Cols: 2=Nome, 3=Matrícula, 6=Data, 7=Horário, 10=H.E.(min), 14=Descontos, 15=BH Débito(min)
 function parseJornada(buffer: ArrayBuffer, filial: string): Omit<JornadaRegistro, 'id' | 'created_at'>[] {
   const wb = XLSX.read(buffer)
 
-  // Support both raw report (Sheet1) and legacy _Dados_Ponto
   if (wb.Sheets['_Dados_Ponto']) return parseDadosPonto(wb, filial)
 
   const ws = wb.Sheets[wb.SheetNames[0]]
@@ -193,7 +190,6 @@ function parseJornada(buffer: ArrayBuffer, filial: string): Omit<JornadaRegistro
   }))
 }
 
-// Legacy parser for _Dados_Ponto sheet (Dash_ponto.xlsx format)
 function parseDadosPonto(wb: XLSX.WorkBook, filial: string): Omit<JornadaRegistro, 'id' | 'created_at'>[] {
   const ws = wb.Sheets['_Dados_Ponto']
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as unknown[][]
@@ -219,7 +215,6 @@ function parseDadosPonto(wb: XLSX.WorkBook, filial: string): Omit<JornadaRegistr
   return results
 }
 
-// Detects whether a workbook is the COLABORADORES cadastro
 function isColaboradoresFile(wb: XLSX.WorkBook): boolean {
   const ws = wb.Sheets[wb.SheetNames[0]]
   if (!ws) return false
@@ -261,7 +256,7 @@ function parseColaboradores(buffer: ArrayBuffer, filial: string): Omit<Colaborad
   return out
 }
 
-// ─── Upload Zone ──────────────────────────────────────────────────────────────
+// ─── Upload Zone ──────────────────────────────────────────────────────────────────────────────
 
 function UploadZone({ onUpload, uploading }: { onUpload: (f: File) => void; uploading: boolean }) {
   const onDrop = useCallback((files: File[]) => { if (files[0]) onUpload(files[0]) }, [onUpload])
@@ -283,7 +278,7 @@ function UploadZone({ onUpload, uploading }: { onUpload: (f: File) => void; uplo
   )
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Main Component ──────────────────────────────────────────────────────────────────────────
 
 type Tab = 'evolucao' | 'horas' | 'ocorrencias' | 'pontualidade' | 'alertas' | 'calor'
 type OcorrTipo = 'faltas' | 'atestados' | 'afastamentos' | 'folgas'
@@ -299,19 +294,16 @@ export default function Jornada() {
   const [ocorrTipo, setOcorrTipo]   = useState<OcorrTipo>('faltas')
   const [tipoCalor, setTipoCalor]   = useState<OcorrTipo>('faltas')
 
-  // Filters (multi-select)
   const [fColab, setFColab]     = useState<string[]>([])
   const [fEquipe, setFEquipe]   = useState<string[]>([])
   const [fFuncao, setFFuncao]   = useState<string[]>([])
   const [fProjeto, setFProjeto] = useState<string[]>([])
 
-  // Pontualidade weights
   const [pesoFaltas, setPesoFaltas]             = useState(3)
   const [pesoHM, setPesoHM]                     = useState(2)
   const [pesoAtestados, setPesoAtestados]       = useState(1)
   const [pesoAfastamentos, setPesoAfastamentos] = useState(1)
 
-  // Alert thresholds
   const [thFaltas, setThFaltas]           = useState(2)
   const [thHM, setThHM]                   = useState(30)
   const [thAtestados, setThAtestados]     = useState(1)
@@ -360,9 +352,6 @@ export default function Jornada() {
     }
   }
 
-  // ── Derived data ─────────────────────────────────────────────────────────────
-
-  // Lookup colaborador metadata by normalized name, with matrícula fallback
   const colabByNome = useMemo(() => {
     const m = new Map<string, Colaborador>()
     colaboradores.forEach(c => m.set(normName(c.nome), c))
@@ -380,7 +369,6 @@ export default function Jornada() {
     return colabByNome.get(normName(r.nome))
   }, [colabByNome, colabByMatr])
 
-  // Distinct filter options (from registros that have colaborador metadata)
   const optsEquipe = useMemo(() =>
     [...new Set(registros.map(r => infoOf(r)?.equipe).filter(Boolean) as string[])].sort(), [registros, infoOf])
   const optsFuncao = useMemo(() =>
@@ -568,10 +556,8 @@ export default function Jornada() {
             ))}
           </div>
 
-          {/* ── EVOLUÇÃO MENSAL ─────────────────────────────────────── */}
           {tab === 'evolucao' && (
             <div className="space-y-5">
-              {/* KPIs do último mês */}
               {ultimoMes && (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
                   {[
@@ -593,7 +579,6 @@ export default function Jornada() {
                 </div>
               )}
 
-              {/* HE e HM por mês */}
               <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">Horas Extras × Horas a Menos — Equipe</h3>
                 <ResponsiveContainer width="100%" height={220}>
@@ -609,7 +594,6 @@ export default function Jornada() {
                 </ResponsiveContainer>
               </div>
 
-              {/* Saldo linha + Ocorrências */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
                   <h3 className="text-sm font-semibold text-gray-700 mb-3">Saldo HE − HM</h3>
@@ -619,8 +603,7 @@ export default function Jornada() {
                       <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
                       <YAxis tick={{ fontSize: 10 }} />
                       <Tooltip formatter={(v: number) => fmtH(v)} />
-                      <Line type="monotone" dataKey="saldo" name="Saldo" stroke="#1a4451" strokeWidth={2} dot={{ r: 3 }}>
-                      </Line>
+                      <Line type="monotone" dataKey="saldo" name="Saldo" stroke="#1a4451" strokeWidth={2} dot={{ r: 3 }} />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -644,7 +627,6 @@ export default function Jornada() {
             </div>
           )}
 
-          {/* ── HORAS POR FUNCIONÁRIO ────────────────────────────────── */}
           {tab === 'horas' && (
             <div className="space-y-6">
               {[
@@ -684,7 +666,6 @@ export default function Jornada() {
             </div>
           )}
 
-          {/* ── OCORRÊNCIAS ──────────────────────────────────────────── */}
           {tab === 'ocorrencias' && (
             <div className="space-y-4">
               <div className="flex gap-2">
@@ -731,10 +712,8 @@ export default function Jornada() {
             </div>
           )}
 
-          {/* ── PONTUALIDADE ────────────────────────────────────────── */}
           {tab === 'pontualidade' && (
             <div className="space-y-4">
-              {/* Weights config */}
               <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
                 <p className="text-xs font-semibold text-yellow-800 mb-3">⚙️ Pesos (editáveis) — Score = (Faltas × P1) + (HM acum. × P2) + (Atestados × P3) + (Afastamentos × P4)</p>
                 <div className="flex flex-wrap gap-4">
@@ -790,7 +769,6 @@ export default function Jornada() {
             </div>
           )}
 
-          {/* ── ALERTAS ─────────────────────────────────────────────── */}
           {tab === 'alertas' && (
             <div className="space-y-4">
               <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4">
@@ -860,7 +838,6 @@ export default function Jornada() {
             </div>
           )}
 
-          {/* ── MAPA DE CALOR ───────────────────────────────────────── */}
           {tab === 'calor' && (
             <div className="space-y-4">
               <div className="flex gap-2 items-center">
