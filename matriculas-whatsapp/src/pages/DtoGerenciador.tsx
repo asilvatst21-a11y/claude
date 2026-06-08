@@ -583,7 +583,17 @@ export default function DtoGerenciador() {
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs">Atividade</th>
-                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Crit. Base</th>
+                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">
+                        <span className="flex items-center justify-center gap-1">
+                          Crit. Base
+                          <span className="group relative inline-flex">
+                            <span className="w-3.5 h-3.5 rounded-full bg-gray-300 text-white text-[9px] font-bold flex items-center justify-center cursor-default leading-none">?</span>
+                            <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-56 rounded-lg bg-gray-800 text-white text-[11px] leading-relaxed px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg whitespace-normal text-left font-normal">
+                              Piso de criticidade definido pela <strong>Avaliação de Riscos</strong> da atividade. O motor pode elevar acima deste valor, mas nunca cair abaixo.
+                            </span>
+                          </span>
+                        </span>
+                      </th>
                       <th className="text-left px-3 py-2.5 font-medium text-gray-500 text-xs">Responsável</th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Último DTO (manual)</th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Ativo</th>
