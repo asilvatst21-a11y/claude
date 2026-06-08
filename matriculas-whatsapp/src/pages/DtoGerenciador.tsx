@@ -232,6 +232,9 @@ export default function DtoGerenciador() {
   const [expand, setExpand] = useState<string | null>(null)
   const [exportandoImg, setExportandoImg] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
+  const [filtroFilaArea, setFiltroFilaArea] = useState('Todas')
+  const [filtroFilaResp, setFiltroFilaResp] = useState('Todos')
+  const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
 
   function motivoTexto(l: LinhaCalc): string {
     if (l.status === 'Nunca') return 'Esta atividade nunca teve um DTO realizado.'
@@ -251,7 +254,7 @@ export default function DtoGerenciador() {
     if (!exportRef.current) return
     setExportandoImg(true)
     try {
-      const canvas = await html2canvas(exportRef.current, { scale: 2, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+      const canvas = await html2canvas(exportRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
       const url = canvas.toDataURL('image/png')
       const a = document.createElement('a')
       a.href = url
@@ -565,42 +568,96 @@ export default function DtoGerenciador() {
           )}
 
           {/* ── Fila da Semana ── */}
-          {aba === 'fila' && (
-            <div className="space-y-3">
-              {fila.length > 0 && (
-                <div className="flex justify-end">
-                  <button
-                    onClick={exportarImagem}
-                    disabled={exportandoImg}
-                    className="flex items-center gap-2 text-sm text-brand-700 border border-brand-200 px-3 py-1.5 rounded-lg hover:bg-brand-50 disabled:opacity-60"
-                  >
-                    {exportandoImg ? <Loader2 size={14} className="animate-spin" /> : <Image size={14} />}
-                    Exportar como imagem
-                  </button>
-                </div>
-              )}
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                {fila.length === 0
-                  ? <p className="text-center py-12 text-gray-400">Nenhum DTO vencido ou a vencer. 🎉</p>
-                  : <div className="divide-y divide-gray-100">
-                      {fila.map((l, i) => (
-                        <div key={l.ativ.id} className="px-4 py-3 flex items-center gap-3">
-                          <span className="text-xs font-bold text-gray-300 w-5 text-right">{i + 1}</span>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{l.ativ.nome_atividade}</p>
-                            <p className="text-xs text-gray-400">{l.ativ.area} · {l.ativ.responsavel?.trim() || 'sem responsável'} · último DTO {fmtData(l.ultimoDTO)}</p>
-                          </div>
-                          <NivelBadge nivel={l.risco} />
-                          <StatusBadge status={l.status} dias={l.diasRestantes} />
-                        </div>
-                      ))}
-                    </div>}
-              </div>
+          {aba === 'fila' && (() => {
+            const areasNaFila = ['Todas', ...Array.from(new Set(fila.map(l => l.ativ.area)))]
+            const respsNaFila = ['Todos', ...Array.from(new Set(fila.map(l => l.ativ.responsavel?.trim() || 'Sem responsável')))]
+            const filaFiltrada = fila.filter(l =>
+              (filtroFilaArea === 'Todas' || l.ativ.area === filtroFilaArea) &&
+              (filtroFilaResp === 'Todos' || (l.ativ.responsavel?.trim() || 'Sem responsável') === filtroFilaResp)
+            )
+            const filaExport = selecionados.size > 0
+              ? filaFiltrada.filter(l => selecionados.has(l.ativ.id))
+              : filaFiltrada
+            const todosSelec = filaFiltrada.length > 0 && filaFiltrada.every(l => selecionados.has(l.ativ.id))
 
-              {/* Template oculto para exportação */}
-              <FilaExportTemplate ref={exportRef} fila={fila} filial={usuario.filial} motivoTexto={motivoTexto} />
-            </div>
-          )}
+            function toggleTodos() {
+              setSelecionados(prev => {
+                const next = new Set(prev)
+                if (todosSelec) filaFiltrada.forEach(l => next.delete(l.ativ.id))
+                else filaFiltrada.forEach(l => next.add(l.ativ.id))
+                return next
+              })
+            }
+            function toggleItem(id: string) {
+              setSelecionados(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
+            }
+
+            return (
+              <div className="space-y-3">
+                {/* Filtros */}
+                {fila.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex flex-wrap items-center gap-x-5 gap-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-gray-500">Área:</span>
+                      <div className="flex gap-1 flex-wrap">
+                        {areasNaFila.map(a => (
+                          <button key={a} onClick={() => setFiltroFilaArea(a)}
+                            className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${filtroFilaArea === a ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                            {a}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium text-gray-500">Responsável:</span>
+                      <select value={filtroFilaResp} onChange={e => setFiltroFilaResp(e.target.value)}
+                        className="text-xs border border-gray-200 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+                        {respsNaFila.map(r => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* Ações */}
+                {filaFiltrada.length > 0 && (
+                  <div className="flex items-center justify-between">
+                    <label className="flex items-center gap-2 text-xs text-gray-500 cursor-pointer select-none">
+                      <input type="checkbox" checked={todosSelec} onChange={toggleTodos} className="accent-brand-700" />
+                      {selecionados.size > 0 ? `${selecionados.size} selecionado(s)` : 'Selecionar todos'}
+                    </label>
+                    <button onClick={exportarImagem} disabled={exportandoImg || filaExport.length === 0}
+                      className="flex items-center gap-2 text-sm text-brand-700 border border-brand-200 px-3 py-1.5 rounded-lg hover:bg-brand-50 disabled:opacity-40">
+                      {exportandoImg ? <Loader2 size={14} className="animate-spin" /> : <Image size={14} />}
+                      Exportar {selecionados.size > 0 ? `(${filaExport.length})` : 'todos'} como imagem
+                    </button>
+                  </div>
+                )}
+
+                {/* Lista */}
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  {filaFiltrada.length === 0
+                    ? <p className="text-center py-12 text-gray-400">Nenhum DTO para os filtros selecionados.</p>
+                    : <div className="divide-y divide-gray-100">
+                        {filaFiltrada.map((l, i) => (
+                          <div key={l.ativ.id} className="px-4 py-3 flex items-center gap-3">
+                            <input type="checkbox" checked={selecionados.has(l.ativ.id)} onChange={() => toggleItem(l.ativ.id)} className="accent-brand-700 shrink-0" />
+                            <span className="text-xs font-bold text-gray-300 w-5 text-right shrink-0">{i + 1}</span>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 truncate">{l.ativ.nome_atividade}</p>
+                              <p className="text-xs text-gray-400">{l.ativ.area} · {l.ativ.responsavel?.trim() || 'sem responsável'} · último DTO {fmtData(l.ultimoDTO)}</p>
+                            </div>
+                            <NivelBadge nivel={l.risco} />
+                            <StatusBadge status={l.status} dias={l.diasRestantes} />
+                          </div>
+                        ))}
+                      </div>}
+                </div>
+
+                {/* Template oculto para exportação */}
+                <FilaExportTemplate ref={exportRef} fila={filaExport} filial={usuario.filial} motivoTexto={motivoTexto} />
+              </div>
+            )
+          })()}
 
           {/* ── Por Responsável ── */}
           {aba === 'responsavel' && (
@@ -721,90 +778,77 @@ const FilaExportTemplate = forwardRef<HTMLDivElement, {
   const { seg, dom } = semanaAtual()
   const semana = `${seg.toLocaleDateString('pt-BR')} a ${dom.toLocaleDateString('pt-BR')}`
 
+  // Agrupa em pares para layout 2 colunas
+  const pares: [LinhaCalc, LinhaCalc | null][] = []
+  for (let i = 0; i < fila.length; i += 2) pares.push([fila[i], fila[i + 1] ?? null])
+
+  function Card({ l, idx }: { l: LinhaCalc; idx: number }) {
+    const cor = RISCO_COLOR[l.risco] ?? '#6b7280'
+    const statusCor = l.status === 'Vencido' ? '#dc2626' : l.status === 'Nunca' ? '#7c3aed' : '#d97706'
+    const statusTxt = l.status === 'Vencido'
+      ? `Vencido há ${Math.abs(l.diasRestantes ?? 0)}d`
+      : l.status === 'Nunca' ? 'Nunca realizado'
+      : `Vence em ${l.diasRestantes}d`
+    return (
+      <div style={{ flex: 1, background: '#fff', borderRadius: '8px', border: '1px solid #e2e8f0', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        {/* Topo colorido */}
+        <div style={{ height: '4px', background: cor }} />
+        {/* Header */}
+        <div style={{ padding: '10px 12px 8px', borderBottom: '1px solid #f1f5f9', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '2px' }}>
+              <span style={{ fontSize: '10px', fontWeight: 700, color: '#94a3b8' }}>#{idx + 1}</span>
+              <span style={{ fontSize: '12px', fontWeight: 700, color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '220px' }}>{l.ativ.nome_atividade}</span>
+            </div>
+            <span style={{ fontSize: '10px', color: '#64748b' }}>{l.ativ.area}{l.ativ.responsavel ? ` · ${l.ativ.responsavel}` : ''}</span>
+          </div>
+          <span style={{ fontSize: '10px', fontWeight: 700, color: statusCor, background: `${statusCor}15`, padding: '2px 7px', borderRadius: '999px', border: `1px solid ${statusCor}35`, whiteSpace: 'nowrap', flexShrink: 0 }}>
+            {statusTxt}
+          </span>
+        </div>
+        {/* Corpo */}
+        <div style={{ padding: '8px 12px 10px', flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
+            <span style={{ fontSize: '13px', fontWeight: 800, color: cor }}>{l.risco}</span>
+            <span style={{ fontSize: '10px', color: '#94a3b8' }}>· a cada {l.periodicidade}d</span>
+          </div>
+          <p style={{ fontSize: '11px', color: '#374151', lineHeight: '1.45', margin: '0 0 6px 0' }}>
+            <strong style={{ color: '#1e3a5f' }}>Motivo: </strong>{motivoTexto(l)}
+          </p>
+          <div style={{ display: 'flex', gap: '12px', fontSize: '10px', color: '#94a3b8' }}>
+            <span>Último: <strong style={{ color: '#475569' }}>{fmtData(l.ultimoDTO)}</strong></span>
+            {l.vencimento && <span>Venc.: <strong style={{ color: statusCor }}>{fmtData(l.vencimento)}</strong></span>}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div
-      ref={ref}
-      style={{
-        position: 'absolute', left: '-9999px', top: 0,
-        width: '760px', fontFamily: 'Inter, system-ui, sans-serif',
-        background: '#f8fafc', padding: '32px',
-      }}
-    >
+    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '880px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
       {/* Cabeçalho */}
-      <div style={{ borderBottom: '2px solid #1e3a5f', paddingBottom: '16px', marginBottom: '24px' }}>
-        <p style={{ fontSize: '11px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', marginBottom: '4px' }}>
-          Gerenciador de DTOs
-        </p>
-        <h1 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a', margin: 0 }}>
-          Fila da Semana
-        </h1>
-        <p style={{ fontSize: '13px', color: '#475569', marginTop: '4px' }}>
-          {filial} &nbsp;·&nbsp; {semana}
-        </p>
+      <div style={{ borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
+        <div>
+          <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Gerenciador de DTOs</p>
+          <h1 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Fila da Semana</h1>
+        </div>
+        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0 }}>{filial}<br />{semana}</p>
       </div>
 
-      {/* Cards */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-        {fila.map((l, i) => {
-          const cor = RISCO_COLOR[l.risco] ?? '#6b7280'
-          const statusCor = l.status === 'Vencido' ? '#dc2626' : l.status === 'Nunca' ? '#7c3aed' : '#d97706'
-          const statusTxt = l.status === 'Vencido'
-            ? `Vencido há ${Math.abs(l.diasRestantes ?? 0)}d`
-            : l.status === 'Nunca' ? 'Nunca realizado'
-            : `Vence em ${l.diasRestantes}d`
-
-          return (
-            <div key={l.ativ.id} style={{ background: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
-              {/* Barra lateral colorida + header do card */}
-              <div style={{ display: 'flex', borderBottom: '1px solid #f1f5f9' }}>
-                <div style={{ width: '6px', background: cor, flexShrink: 0 }} />
-                <div style={{ flex: 1, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: 700, color: '#94a3b8', minWidth: '18px' }}>#{i + 1}</span>
-                      <span style={{ fontSize: '14px', fontWeight: 700, color: '#0f172a' }}>{l.ativ.nome_atividade}</span>
-                    </div>
-                    <span style={{ fontSize: '11px', color: '#64748b' }}>
-                      {l.ativ.area}{l.ativ.responsavel ? ` · ${l.ativ.responsavel}` : ''}
-                    </span>
-                  </div>
-                  <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '12px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: 700, color: statusCor, background: `${statusCor}18`, padding: '3px 8px', borderRadius: '999px', border: `1px solid ${statusCor}40` }}>
-                      {statusTxt}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Corpo do card */}
-              <div style={{ padding: '10px 16px 12px 22px', display: 'flex', gap: '16px', alignItems: 'flex-start' }}>
-                {/* Risco + periodicidade */}
-                <div style={{ flexShrink: 0, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '8px 14px', textAlign: 'center', minWidth: '110px' }}>
-                  <div style={{ fontSize: '10px', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '4px' }}>Risco Final</div>
-                  <div style={{ fontSize: '16px', fontWeight: 800, color: cor }}>{l.risco}</div>
-                  <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>a cada {l.periodicidade} dias</div>
-                </div>
-
-                {/* Motivo + datas */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontSize: '12px', color: '#374151', lineHeight: '1.5', margin: '0 0 8px 0' }}>
-                    <strong style={{ color: '#1e3a5f' }}>Motivo: </strong>{motivoTexto(l)}
-                  </p>
-                  <div style={{ display: 'flex', gap: '16px', fontSize: '11px', color: '#94a3b8' }}>
-                    <span>Último DTO: <strong style={{ color: '#475569' }}>{fmtData(l.ultimoDTO)}</strong></span>
-                    {l.vencimento && <span>Vencimento: <strong style={{ color: statusCor }}>{fmtData(l.vencimento)}</strong></span>}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )
-        })}
+      {/* Grid 2 colunas */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+        {pares.map(([a, b], pi) => (
+          <div key={pi} style={{ display: 'flex', gap: '12px' }}>
+            <Card l={a} idx={pi * 2} />
+            {b ? <Card l={b} idx={pi * 2 + 1} /> : <div style={{ flex: 1 }} />}
+          </div>
+        ))}
       </div>
 
       {/* Rodapé */}
-      <div style={{ marginTop: '24px', paddingTop: '12px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#94a3b8' }}>
+      <div style={{ marginTop: '20px', paddingTop: '10px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#94a3b8' }}>
         <span>Gerado em {HOJE.toLocaleDateString('pt-BR')}</span>
-        <span>Total: {fila.length} DTO(s) na fila</span>
+        <span>Total: {fila.length} DTO(s)</span>
       </div>
     </div>
   )
