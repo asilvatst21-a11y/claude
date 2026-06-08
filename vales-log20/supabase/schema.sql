@@ -68,7 +68,7 @@ CREATE TABLE vale_ajudantes (
 
 CREATE TABLE notificacoes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  vale_id UUID REFERENCES vales(id),
+  vale_id UUID REFERENCES vales(id) ON DELETE CASCADE,
   ajudante_id UUID REFERENCES ajudantes(id),
   tipo TEXT CHECK (tipo IN ('pendente', 'resolvido')),
   mensagem TEXT,
