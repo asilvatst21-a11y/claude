@@ -6,7 +6,7 @@ import {
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import type { DtoAtividade, DtoObservacao, Relato } from '../types'
+import type { DtoAtividade, DtoAvaliador, DtoObservacao, Relato } from '../types'
 
 // ── Seed: base de atividades (Calendarização Armazém + Oficina da planilha oficial) ──
 
@@ -215,6 +215,7 @@ export default function DtoGerenciador() {
   const [atividades, setAtividades] = useState<DtoAtividade[]>([])
   const [observacoes, setObservacoes] = useState<DtoObservacao[]>([])
   const [relatos, setRelatos] = useState<Relato[]>([])
+  const [avaliadores, setAvaliadores] = useState<DtoAvaliador[]>([])
   const [carregando, setCarregando] = useState(false)
   const [semeando, setSemeando] = useState(false)
   const [aba, setAba] = useState<'calendario' | 'fila' | 'responsavel' | 'cadastro'>('calendario')
@@ -225,13 +226,15 @@ export default function DtoGerenciador() {
   async function carregar() {
     if (!usuario) return
     setCarregando(true)
-    const [{ data: ativ }, { data: obs }, { data: rel }] = await Promise.all([
+    const [{ data: ativ }, { data: obs }, { data: rel }, { data: av }] = await Promise.all([
       supabase.from('dto_atividades').select('*').eq('filial', usuario.filial).order('area').order('nome_atividade'),
       supabase.from('dto_observacoes').select('*').eq('filial', usuario.filial),
       supabase.from('relatos').select('*').eq('filial', usuario.filial),
+      supabase.from('dto_avaliadores').select('*').eq('filial', usuario.filial).eq('ativo', true).order('nome'),
     ])
     setAtividades(ativ ?? [])
     setObservacoes(obs ?? [])
+    setAvaliadores(av ?? [])
     setRelatos(rel ?? [])
     setCarregando(false)
   }
@@ -613,9 +616,20 @@ export default function DtoGerenciador() {
                           </select>
                         </td>
                         <td className="px-3 py-2">
-                          <input type="text" defaultValue={a.responsavel ?? ''} placeholder="—"
-                            onBlur={e => { const v = e.target.value.trim(); if (v !== (a.responsavel ?? '')) atualizarAtiv(a.id, { responsavel: v || null }) }}
-                            className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                          {avaliadores.length > 0 ? (
+                            <select
+                              value={a.responsavel ?? ''}
+                              onChange={e => atualizarAtiv(a.id, { responsavel: e.target.value || null })}
+                              className="w-full text-xs border border-gray-200 rounded px-1.5 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                            >
+                              <option value="">— sem responsável —</option>
+                              {avaliadores.map(av => <option key={av.id} value={av.nome}>{av.nome}</option>)}
+                            </select>
+                          ) : (
+                            <input type="text" defaultValue={a.responsavel ?? ''} placeholder="—"
+                              onBlur={e => { const v = e.target.value.trim(); if (v !== (a.responsavel ?? '')) atualizarAtiv(a.id, { responsavel: v || null }) }}
+                              className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                          )}
                         </td>
                         <td className="px-3 py-2 text-center">
                           <input type="date" defaultValue={a.ultimo_dto_manual ?? ''}
