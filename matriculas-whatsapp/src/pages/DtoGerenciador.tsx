@@ -130,13 +130,6 @@ function periodicidadeDias(risco: string): number {
 function norm(s: string | null | undefined): string {
   return (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim()
 }
-function normArea(s: string | null | undefined): string {
-  const n = norm(s)
-  if (n.includes('ARMAZ')) return 'ARMAZÉM'
-  if (n.includes('OFICIN')) return 'OFICINA'
-  if (n.includes('DISTRIB') || n.includes('ENTREGA') || n.includes('ROTA')) return 'DISTRIBUIÇÃO'
-  return n
-}
 function parseData(s: string | null | undefined): Date | null {
   if (!s) return null
   const str = String(s).trim()
@@ -259,14 +252,15 @@ export default function DtoGerenciador() {
     setAtividades(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a))
   }
 
-  // ── Agregados de relato por ÁREA (v1: sinais agrupados por área) ──
-  const relatoPorArea = useMemo(() => {
+  // ── Agregados de relato por ATIVIDADE (campo ATIVIDADE do relato, ~90% preenchido) ──
+  const relatoPorAtividade = useMemo(() => {
     const m = new Map<string, { atos25: number; atos26: number; abordPos: number }>()
     for (const r of relatos) {
-      const area = normArea(r.area)
+      const key = norm(r.atividade)
+      if (!key) continue
       const ano = anoDe(r.data_ocorrencia)
-      if (!m.has(area)) m.set(area, { atos25: 0, atos26: 0, abordPos: 0 })
-      const acc = m.get(area)!
+      if (!m.has(key)) m.set(key, { atos25: 0, atos26: 0, abordPos: 0 })
+      const acc = m.get(key)!
       if (ehAtoInseguro(r.classificacao)) {
         if (ano === ANO_ANTERIOR) acc.atos25++
         else if (ano === ANO_ATUAL) acc.atos26++
@@ -299,7 +293,7 @@ export default function DtoGerenciador() {
   const linhas = useMemo<LinhaCalc[]>(() => {
     return atividades.filter(a => a.ativo).map(ativ => {
       const dto = dtoPorAtividade.get(norm(ativ.nome_atividade)) ?? { d25: 0, d26: 0, ultimo: null }
-      const rel = relatoPorArea.get(normArea(ativ.area)) ?? { atos25: 0, atos26: 0, abordPos: 0 }
+      const rel = relatoPorAtividade.get(norm(ativ.nome_atividade)) ?? { atos25: 0, atos26: 0, abordPos: 0 }
       const cInicial = criticidadeInicial(dto.d25, dto.d26, ativ.criticidade_base)
       const gatilho = calcGatilho(rel.atos25, rel.atos26)
       const risco = riscoFinal(cInicial, gatilho, rel.abordPos, rel.atos26)
@@ -315,7 +309,7 @@ export default function DtoGerenciador() {
       }
       return { ativ, d25: dto.d25, d26: dto.d26, atos25: rel.atos25, atos26: rel.atos26, abordPos: rel.abordPos, cInicial, gatilho, risco, periodicidade, ultimoDTO, vencimento, diasRestantes, status }
     })
-  }, [atividades, dtoPorAtividade, relatoPorArea])
+  }, [atividades, dtoPorAtividade, relatoPorAtividade])
 
   const areas = ['Todas', ...Array.from(new Set(atividades.map(a => a.area)))]
 
@@ -494,8 +488,8 @@ export default function DtoGerenciador() {
                               <td colSpan={7} className="bg-gray-50 border-b border-gray-200 px-6 py-4">
                                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                                   <MemoBox titulo={`Desvios DTO ${ANO_ANTERIOR} → ${ANO_ATUAL}`} val={`${l.d25} → ${l.d26}`} trend={l.d26 - l.d25} />
-                                  <MemoBox titulo={`Atos inseguros ${ANO_ANTERIOR} → ${ANO_ATUAL}`} sub="(por área)" val={`${l.atos25} → ${l.atos26}`} trend={l.atos26 - l.atos25} />
-                                  <MemoBox titulo="Abordagem positiva" sub="(por área, ano atual)" val={String(l.abordPos)} trend={-l.abordPos} />
+                                  <MemoBox titulo={`Atos inseguros ${ANO_ANTERIOR} → ${ANO_ATUAL}`} val={`${l.atos25} → ${l.atos26}`} trend={l.atos26 - l.atos25} />
+                                  <MemoBox titulo={`Abordagem positiva (${ANO_ATUAL})`} val={String(l.abordPos)} trend={-l.abordPos} />
                                   <MemoBox titulo="Vencimento previsto" val={fmtData(l.vencimento)} />
                                 </div>
                                 <div className="mt-3 text-xs text-gray-500 bg-white rounded-lg border border-gray-100 p-3 leading-relaxed">
