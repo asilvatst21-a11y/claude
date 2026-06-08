@@ -672,6 +672,7 @@ function ValesContent() {
                       : "Nenhum vale encontrado nesta categoria."}
                   </div>
                 ) : (
+                  <div className="overflow-x-auto">
                   <Table>
                     <TableHeader>
                       <TableRow>
@@ -687,7 +688,7 @@ function ValesContent() {
                         <TableHead>Ação Ambev</TableHead>
                         <TableHead>Justificativa</TableHead>
                         <TableHead>Notificado</TableHead>
-                        <TableHead className="text-right">Ações</TableHead>
+                        <TableHead className="sticky right-0 bg-background text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">Ações</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -762,7 +763,7 @@ function ValesContent() {
                               <Badge variant="gray">Não</Badge>
                             )}
                           </TableCell>
-                          <TableCell className="text-right">
+                          <TableCell className="sticky right-0 bg-background text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
                             <div className="flex items-center justify-end gap-1">
                               {vale.ajudantes.length === 0 && (
                                 <Button
@@ -804,6 +805,7 @@ function ValesContent() {
                       ))}
                     </TableBody>
                   </Table>
+                  </div>
                 )}
               </CardContent>
             </Card>
