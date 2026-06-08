@@ -50,20 +50,20 @@ async function sendTextRaw(
   phone: string,
   message: string
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
-  if (!ZAPI_INSTANCE_ID || !ZAPI_TOKEN || !ZAPI_CLIENT_TOKEN) {
+  if (!ZAPI_INSTANCE_ID || !ZAPI_TOKEN) {
     console.warn("Z-API credentials not configured. Skipping WhatsApp message.");
     return { success: false, error: "Z-API não configurado" };
   }
 
   const url = `${getZAPIBaseURL()}/send-text`;
 
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (ZAPI_CLIENT_TOKEN) headers["Client-Token"] = ZAPI_CLIENT_TOKEN;
+
   try {
     const response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Client-Token": ZAPI_CLIENT_TOKEN,
-      },
+      headers,
       body: JSON.stringify({
         phone,
         message,
