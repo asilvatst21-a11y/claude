@@ -135,6 +135,14 @@ export interface DtoObservacao {
   created_at: string
 }
 
+export interface DtoAvaliador {
+  id: string
+  filial: string
+  nome: string
+  ativo: boolean
+  created_at: string
+}
+
 export interface DtoAtividade {
   id: string
   filial: string
