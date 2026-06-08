@@ -188,11 +188,6 @@ function ValesContent() {
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
-  // Notification template (loaded from config)
-  const [notifTemplate, setNotifTemplate] = useState(
-    "Olá {nome}! Você possui {qtd} vale(s) pendente(s) no sistema LOG20 que precisam ser tratados. Vale(s): {vales}. Por favor, procure o financeiro para regularizar."
-  );
-
   function handleSort(field: SortField) {
     if (sortField === field) {
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -207,6 +202,7 @@ function ValesContent() {
 
   // WhatsApp preview
   const [previewVale, setPreviewVale] = useState<ValeRow | null>(null);
+  const [previewTemplate, setPreviewTemplate] = useState<string | null>(null);
 
   // Atribuir ajudante
   const [atribuirVale, setAtribuirVale] = useState<ValeRow | null>(null);
@@ -243,15 +239,24 @@ function ValesContent() {
   useEffect(() => {
     fetchVales();
     fetchAjudantes();
-    fetch("/api/configuracoes")
-      .then((r) => r.json())
-      .then((data) => {
-        if (data.notificacao_template_pendente) {
-          setNotifTemplate(data.notificacao_template_pendente);
-        }
-      })
-      .catch(() => {});
   }, [fetchVales, fetchAjudantes]);
+
+  const openPreview = useCallback(async (vale: ValeRow) => {
+    setPreviewTemplate(null);
+    setPreviewVale(vale);
+    try {
+      const res = await fetch("/api/configuracoes");
+      const data = await res.json();
+      setPreviewTemplate(
+        data.notificacao_template_pendente ||
+        "Olá {nome}! Você possui {qtd} vale(s) pendente(s) no sistema LOG20 que precisam ser tratados. Vale(s): {vales}. Por favor, procure o financeiro para regularizar."
+      );
+    } catch {
+      setPreviewTemplate(
+        "Olá {nome}! Você possui {qtd} vale(s) pendente(s) no sistema LOG20 que precisam ser tratados. Vale(s): {vales}. Por favor, procure o financeiro para regularizar."
+      );
+    }
+  }, []);
 
   const sendNotificacao = async (valeId: string, numeroVale: number) => {
     setNotifyingId(valeId);
@@ -398,7 +403,7 @@ function ValesContent() {
 
       {/* WhatsApp Preview Modal */}
       {previewVale && (
-        <Dialog open={!!previewVale} onOpenChange={(o) => !o && setPreviewVale(null)}>
+        <Dialog open={!!previewVale} onOpenChange={(o) => { if (!o) { setPreviewVale(null); setPreviewTemplate(null); } }}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -410,7 +415,12 @@ function ValesContent() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 py-2">
-              {ajudantesComTelefone.length > 0 ? (
+              {previewTemplate === null ? (
+                <div className="flex items-center justify-center py-6 gap-2 text-muted-foreground text-sm">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Carregando mensagem configurada...
+                </div>
+              ) : ajudantesComTelefone.length > 0 ? (
                 <div className="space-y-3">
                   {ajudantesComTelefone.map((aj) => (
                     <div key={aj.id} className="rounded-md border p-3 space-y-1.5">
@@ -420,7 +430,7 @@ function ValesContent() {
                       </p>
                       <div className="bg-green-50 border border-green-200 rounded p-2.5">
                         <p className="text-sm text-green-900 leading-snug whitespace-pre-wrap">
-                          {buildMensagem(notifTemplate, {
+                          {buildMensagem(previewTemplate, {
                             nome: aj.nome,
                             qtd: "1",
                             vales: `#${previewVale.numero_vale}`,
@@ -451,7 +461,7 @@ function ValesContent() {
               </Button>
               <Button
                 onClick={() => sendNotificacao(previewVale.id, previewVale.numero_vale)}
-                disabled={!!notifyingId || ajudantesComTelefone.length === 0}
+                disabled={!!notifyingId || ajudantesComTelefone.length === 0 || previewTemplate === null}
                 className="gap-2"
               >
                 {notifyingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -777,7 +787,7 @@ function ValesContent() {
                               <Button
                                 variant="outline"
                                 size="sm"
-                                onClick={() => setPreviewVale(vale)}
+                                onClick={() => openPreview(vale)}
                                 disabled={notifyingId === vale.id}
                                 title="Enviar notificação WhatsApp"
                               >
