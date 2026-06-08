@@ -22,13 +22,15 @@ import {
   FileSpreadsheet,
   Users,
   AlertCircle,
+  AlertTriangle,
   CheckCircle,
   XCircle,
   Clock,
   TrendingUp,
   DollarSign,
+  ArrowRight,
 } from "lucide-react";
-import { formatCurrency, formatDateBR } from "@/lib/utils";
+import { formatCurrency, formatDateBR, calcPrazo } from "@/lib/utils";
 import type { StatusVale } from "@/lib/types";
 import { DashboardCharts } from "@/components/dashboard-charts";
 import type { MonthlyData, DailyData } from "@/components/dashboard-charts";
@@ -240,6 +242,20 @@ async function getDashboardData() {
       };
     });
 
+    // Vales with deadline < 24h or overdue (sem ação + sem tratativa transportadora)
+    const valesUrgentes = allVales.filter((v) => {
+      if (v.status_vale !== "Sem Ação") return false;
+      const acao = (v as { acao_transportadora?: string | null }).acao_transportadora;
+      if (acao && acao !== "Sem ação") return false;
+      const prazo = calcPrazo((v as { data_emissao?: string | null }).data_emissao);
+      return prazo?.status === "urgente" || prazo?.status === "vencido";
+    });
+    const qtdVencidos = valesUrgentes.filter((v) => {
+      const prazo = calcPrazo((v as { data_emissao?: string | null }).data_emissao);
+      return prazo?.status === "vencido";
+    }).length;
+    const qtdUrgentes = valesUrgentes.length - qtdVencidos;
+
     // Top 10 ajudantes with pending vales
     const topPendentes = ajudanteStats
       .filter((a) => a.pendentes > 0)
@@ -268,6 +284,8 @@ async function getDashboardData() {
       ajudantesComVales,
       monthlyData,
       dailyData,
+      qtdVencidos,
+      qtdUrgentes,
     };
   } catch {
     return {
@@ -287,12 +305,14 @@ async function getDashboardData() {
       ajudantesComVales: [],
       monthlyData: [],
       dailyData: [],
+      qtdVencidos: 0,
+      qtdUrgentes: 0,
     };
   }
 }
 
 export default async function DashboardPage() {
-  const { stats, recentVales, topPendentes, ajudantesComVales, monthlyData, dailyData } = await getDashboardData();
+  const { stats, recentVales, topPendentes, ajudantesComVales, monthlyData, dailyData, qtdVencidos, qtdUrgentes } = await getDashboardData();
 
   const total = stats.total || 1; // avoid division by zero
   const pctAbonados = Math.round((stats.abonados / total) * 100);
@@ -355,6 +375,39 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {/* Alerta de prazo crítico */}
+      {(qtdVencidos > 0 || qtdUrgentes > 0) && (
+        <Link href="/vales" className="block group">
+          <div className={`flex items-center justify-between gap-4 rounded-lg border px-5 py-4 transition-colors ${
+            qtdVencidos > 0
+              ? "border-red-200 bg-red-50 hover:bg-red-100"
+              : "border-orange-200 bg-orange-50 hover:bg-orange-100"
+          }`}>
+            <div className="flex items-start gap-3">
+              <AlertTriangle className={`h-5 w-5 shrink-0 mt-0.5 ${qtdVencidos > 0 ? "text-red-600" : "text-orange-500"}`} />
+              <div>
+                <p className={`font-semibold text-sm ${qtdVencidos > 0 ? "text-red-800" : "text-orange-800"}`}>
+                  {qtdVencidos > 0 ? "Atenção: prazo vencido!" : "Prazo crítico — menos de 24h"}
+                </p>
+                <p className={`text-sm mt-0.5 ${qtdVencidos > 0 ? "text-red-700" : "text-orange-700"}`}>
+                  {qtdVencidos > 0 && (
+                    <span>{qtdVencidos} vale{qtdVencidos > 1 ? "s" : ""} com prazo <strong>vencido</strong>{qtdUrgentes > 0 ? " e " : "."} </span>
+                  )}
+                  {qtdUrgentes > 0 && (
+                    <span>{qtdUrgentes} vale{qtdUrgentes > 1 ? "s" : ""} vencem em <strong>menos de 24h</strong>.</span>
+                  )}
+                  {" "}Regularize no sistema Ambev imediatamente.
+                </p>
+              </div>
+            </div>
+            <div className={`flex items-center gap-1 text-sm font-medium shrink-0 ${qtdVencidos > 0 ? "text-red-700" : "text-orange-700"} group-hover:gap-2 transition-all`}>
+              Ver vales
+              <ArrowRight className="h-4 w-4" />
+            </div>
+          </div>
+        </Link>
+      )}
+
       {/* Page Header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Dashboard</h1>
