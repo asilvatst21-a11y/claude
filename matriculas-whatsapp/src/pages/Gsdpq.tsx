@@ -524,6 +524,7 @@ export default function Gsdpq() {
   const [filtroCategoria, setFiltroCategoria] = useState<Categoria | 'Todas'>('Todas')
   const [filtroFuncao, setFiltroFuncao] = useState('Todas')
   const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
+  const [mostrarTudo, setMostrarTudo] = useState(false)
 
   async function carregarDados() {
     if (!usuario) return
@@ -649,8 +650,18 @@ export default function Gsdpq() {
     return null
   }
 
-  // Filtro base: equipe + período (sem categoria/função — usado nos cards de categoria)
-  const avaliacoesBase = avaliacoes.filter(av => {
+  // Pré-filtro de período: últimos 6 meses por padrão, ou tudo
+  const seiseMesesAtras = new Date()
+  seiseMesesAtras.setMonth(seiseMesesAtras.getMonth() - 6)
+  const avaliacoesPeriodo = mostrarTudo
+    ? avaliacoes
+    : avaliacoes.filter(av => {
+        const d = parseAvDate(av.data_avaliacao)
+        return d && d >= seiseMesesAtras
+      })
+
+  // Filtro base: equipe + período manual (sem categoria/função — usado nos cards de categoria)
+  const avaliacoesBase = avaliacoesPeriodo.filter(av => {
     if (filtroEquipe !== 'Todas' && av.equipe !== filtroEquipe) return false
     if (filtroPeriodo.de || filtroPeriodo.ate) {
       const avDate = parseAvDate(av.data_avaliacao)
@@ -672,8 +683,8 @@ export default function Gsdpq() {
 
   const resumos = calcularResumos(avaliacoesFiltradas, questoesFiltradas)
   const rankingQuestoes = calcularRankingQuestoes(avaliacoesFiltradas)
-  const equipes = ['Todas', ...Array.from(new Set(avaliacoes.map(a => a.equipe).filter(Boolean) as string[]))]
-  const funcoes = ['Todas', ...Array.from(new Set(avaliacoes.map(a => a.funcao).filter(Boolean) as string[])).sort()]
+  const equipes = ['Todas', ...Array.from(new Set(avaliacoesPeriodo.map(a => a.equipe).filter(Boolean) as string[]))]
+  const funcoes = ['Todas', ...Array.from(new Set(avaliacoesPeriodo.map(a => a.funcao).filter(Boolean) as string[])).sort()]
 
   const totalNO = resumos.reduce((s, r) => s + r.totalNO, 0)
   const totalOK = resumos.reduce((s, r) => s + r.totalOK, 0)
@@ -870,7 +881,13 @@ export default function Gsdpq() {
               {equipes.map(e => (
                 <button key={e} onClick={() => setFiltroEquipe(e)} className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${filtroEquipe === e ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{e}</button>
               ))}
-              <div className="flex items-center gap-2 ml-auto">
+              <div className="flex items-center gap-2 ml-auto flex-wrap">
+                <button
+                  onClick={() => setMostrarTudo(v => !v)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${mostrarTudo ? 'bg-gray-700 text-white border-gray-700' : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'}`}
+                >
+                  {mostrarTudo ? 'Mostrando tudo' : 'Últimos 6 meses'}
+                </button>
                 <span className="text-xs text-gray-500 font-medium">Período:</span>
                 <input type="date" value={filtroPeriodo.de} max={filtroPeriodo.ate || undefined} onChange={e => setFiltroPeriodo(p => ({ ...p, de: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500" />
                 <span className="text-xs text-gray-400">até</span>
