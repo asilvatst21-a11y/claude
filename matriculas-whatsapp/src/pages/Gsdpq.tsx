@@ -523,6 +523,7 @@ export default function Gsdpq() {
   const [solicitados, setSolicitados] = useState<Set<string>>(new Set())
   const [filtroCategoria, setFiltroCategoria] = useState<Categoria | 'Todas'>('Todas')
   const [filtroFuncao, setFiltroFuncao] = useState('Todas')
+  const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
 
   async function carregarDados() {
     if (!usuario) return
@@ -550,43 +551,81 @@ export default function Gsdpq() {
   const onDropGsdpq = useCallback(async (files: File[]) => {
     if (!usuario || !files[0]) return
     setUploadando(true)
-    const buffer = await files[0].arrayBuffer()
-    const { rows, questoes: qs } = parseGsdpqExcel(buffer)
+    setImportResult(null)
+    try {
+      const buffer = await files[0].arrayBuffer()
+      const { rows, questoes: qs } = parseGsdpqExcel(buffer)
 
-    // Busca colaboradores pra vincular IDs
-    const { data: colab } = await supabase.from('gsdpq_colaboradores').select('id, nome').eq('filial', usuario.filial)
-    const colabMap = new Map((colab ?? []).map(c => [c.nome.toUpperCase(), c.id]))
+      if (rows.length === 0) {
+        setImportResult({ tipo: 'erro', mensagem: 'Nenhum registro encontrado na planilha. Verifique o formato do arquivo.' })
+        setUploadando(false)
+        return
+      }
 
-    const rowsComFilial = rows.map(r => ({
-      ...r,
-      filial: usuario.filial,
-      colaborador_id: colabMap.get(r.colaborador_nome.toUpperCase()) ?? null,
-    }))
+      const { data: colab } = await supabase.from('gsdpq_colaboradores').select('id, nome').eq('filial', usuario.filial)
+      const colabMap = new Map((colab ?? []).map(c => [c.nome.toUpperCase(), c.id]))
 
-    // Upsert em lotes de 50
-    for (let i = 0; i < rowsComFilial.length; i += 50) {
-      await supabase.from('gsdpq_avaliacoes')
-        .upsert(rowsComFilial.slice(i, i + 50), { onConflict: 'filial,colaborador_nome,data_avaliacao,questao' })
+      const rowsComFilial = rows.map(r => ({
+        ...r,
+        filial: usuario.filial,
+        colaborador_id: colabMap.get(r.colaborador_nome.toUpperCase()) ?? null,
+      }))
+
+      let erroEncontrado: string | null = null
+      for (let i = 0; i < rowsComFilial.length; i += 50) {
+        const { error } = await supabase.from('gsdpq_avaliacoes')
+          .upsert(rowsComFilial.slice(i, i + 50), { onConflict: 'filial,colaborador_nome,data_avaliacao,questao' })
+        if (error) { erroEncontrado = error.message; break }
+      }
+
+      if (erroEncontrado) {
+        setImportResult({ tipo: 'erro', mensagem: `Erro ao salvar: ${erroEncontrado}` })
+      } else {
+        setQuestoes(qs)
+        const colaboradoresUnicos = new Set(rows.map(r => r.colaborador_nome)).size
+        setImportResult({ tipo: 'sucesso', mensagem: `✅ ${rows.length} registros importados com sucesso (${colaboradoresUnicos} colaboradores).` })
+        await carregarDados()
+      }
+    } catch (e) {
+      setImportResult({ tipo: 'erro', mensagem: `Erro inesperado: ${String(e)}` })
+    } finally {
+      setUploadando(false)
     }
-
-    setQuestoes(qs)
-    setUploadando(false)
-    carregarDados()
   }, [usuario])
 
   // Upload Colaboradores
   const onDropColab = useCallback(async (files: File[]) => {
     if (!usuario || !files[0]) return
     setUploadando(true)
-    const buffer = await files[0].arrayBuffer()
-    const rows = parseColaboradoresExcel(buffer, usuario.filial)
+    setImportResult(null)
+    try {
+      const buffer = await files[0].arrayBuffer()
+      const rows = parseColaboradoresExcel(buffer, usuario.filial)
 
-    for (let i = 0; i < rows.length; i += 50) {
-      await supabase.from('gsdpq_colaboradores')
-        .upsert(rows.slice(i, i + 50), { onConflict: 'filial,nome' })
+      if (rows.length === 0) {
+        setImportResult({ tipo: 'erro', mensagem: 'Nenhum colaborador encontrado. Verifique se a planilha tem a coluna COLABORADOR.' })
+        setUploadando(false)
+        return
+      }
+
+      let erroEncontrado: string | null = null
+      for (let i = 0; i < rows.length; i += 50) {
+        const { error } = await supabase.from('gsdpq_colaboradores')
+          .upsert(rows.slice(i, i + 50), { onConflict: 'filial,nome' })
+        if (error) { erroEncontrado = error.message; break }
+      }
+
+      if (erroEncontrado) {
+        setImportResult({ tipo: 'erro', mensagem: `Erro ao salvar colaboradores: ${erroEncontrado}` })
+      } else {
+        setImportResult({ tipo: 'sucesso', mensagem: `✅ ${rows.length} colaboradores atualizados com sucesso.` })
+        await carregarDados()
+      }
+    } catch (e) {
+      setImportResult({ tipo: 'erro', mensagem: `Erro inesperado: ${String(e)}` })
+    } finally {
+      setUploadando(false)
     }
-    setUploadando(false)
-    alert(`${rows.length} colaboradores atualizados com sucesso.`)
   }, [usuario])
 
   const { getRootProps: getRootGsdpq, getInputProps: getInputGsdpq, isDragActive: isDragGsdpq } = useDropzone({
@@ -732,6 +771,18 @@ export default function Gsdpq() {
 
   return (
     <div className="p-8 max-w-6xl">
+      {/* Notificação de importação */}
+      {importResult && (
+        <div className={`mb-4 flex items-center justify-between px-4 py-3 rounded-lg border text-sm font-medium ${
+          importResult.tipo === 'sucesso'
+            ? 'bg-green-50 border-green-200 text-green-800'
+            : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          <span>{importResult.mensagem}</span>
+          <button onClick={() => setImportResult(null)} className="ml-4 text-current opacity-60 hover:opacity-100">✕</button>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
