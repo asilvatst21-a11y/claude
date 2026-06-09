@@ -37,3 +37,24 @@ ALTER TABLE fluxo_punitivo
 -- Formato Z-API: "120363019502650977-group" (use o botão "Buscar grupos" no Admin)
 ALTER TABLE filiais
   ADD COLUMN IF NOT EXISTS grupo_fluxo_whatsapp TEXT;
+
+-- ───────────────────────────────────────────────────────────────────────────
+-- Solicitação de fluxo pelo grupo WhatsApp (webhook Z-API, confirmação 2 passos)
+-- ───────────────────────────────────────────────────────────────────────────
+create table if not exists fluxo_confirmacoes (
+  id uuid primary key default gen_random_uuid(),
+  filial text not null,
+  grupo_id text not null,
+  colaborador_nome text not null,
+  motivo text not null,
+  solicitante_nome text,
+  solicitante_telefone text,
+  status text not null default 'aguardando',  -- 'aguardando' | 'confirmado' | 'cancelado'
+  fluxo_id uuid,                               -- id gerado em fluxo_punitivo após o SIM
+  created_at timestamptz not null default now()
+);
+
+alter table fluxo_confirmacoes enable row level security;
+create policy "Acesso total" on fluxo_confirmacoes for all using (true);
+
+create index if not exists idx_fconf_grupo on fluxo_confirmacoes(grupo_id, status);

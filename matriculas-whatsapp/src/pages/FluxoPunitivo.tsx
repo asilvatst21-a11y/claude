@@ -18,6 +18,7 @@ const ORIGEM_COLOR: Record<string, string> = {
   Relatos:    'bg-orange-50 text-orange-700 border-orange-200',
   Telemetria: 'bg-purple-50 text-purple-700 border-purple-200',
   DTO:        'bg-teal-50 text-teal-700 border-teal-200',
+  Grupo:      'bg-green-50 text-green-700 border-green-200',
   Manual:     'bg-gray-100 text-gray-600 border-gray-200',
 }
 
