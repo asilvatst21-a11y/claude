@@ -7,7 +7,7 @@ import {
 import {
   FileSpreadsheet, ChevronDown, ChevronUp, AlertTriangle, CheckCircle,
   XCircle, Users, ClipboardList, BarChart2, RefreshCw, Shield, Upload,
-  Download, Plus, Loader2, Building2, ShieldCheck, Star, Zap
+  Download, Loader2, Building2, ShieldCheck, Star, Zap, Send, Check
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -341,11 +341,12 @@ function ModalRegistrarAcao({ modal, acaoExistente, onClose, onSalvar }: {
   )
 }
 
-function ColaboradorRow({ r, avaliacoes, acoes, onRegistrarAcao }: {
+function ColaboradorRow({ r, avaliacoes, acoes, onSolicitarFluxo, solicitados }: {
   r: ResumoColaborador
   avaliacoes: GsdpqAvaliacao[]
   acoes: GsdpqAcao[]
-  onRegistrarAcao: (modal: ModalAcao) => void
+  onSolicitarFluxo: (colaboradorNome: string, questao: string, dataAvaliacao: string, avaliacaoId: string) => Promise<void>
+  solicitados: Set<string>
 }) {
   const [open, setOpen] = useState(false)
 
@@ -463,20 +464,19 @@ function ColaboradorRow({ r, avaliacoes, acoes, onRegistrarAcao }: {
                                         {acaoExistente.tipo_acao}
                                         {acaoExistente.dias_suspensao ? ` (${acaoExistente.dias_suspensao}d)` : ''}
                                       </span>
+                                    ) : solicitados.has(avaliacao?.id ?? '') ? (
+                                      <span className="flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded">
+                                        <Check size={10} /> Solicitado
+                                      </span>
                                     ) : (
                                       <button
                                         onClick={e => {
                                           e.stopPropagation()
-                                          if (avaliacao) onRegistrarAcao({
-                                            avaliacaoId: avaliacao.id,
-                                            colaboradorNome: r.nome,
-                                            questao,
-                                            dataAvaliacao: data,
-                                          })
+                                          if (avaliacao) onSolicitarFluxo(r.nome, questao, data, avaliacao.id)
                                         }}
-                                        className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-900 bg-white border border-brand-200 hover:border-brand-400 px-2 py-0.5 rounded transition-colors"
+                                        className="flex items-center gap-1 text-xs text-orange-700 hover:text-orange-900 bg-orange-50 border border-orange-200 hover:border-orange-400 px-2 py-0.5 rounded transition-colors"
                                       >
-                                        <Plus size={10} /> Ação
+                                        <Send size={10} /> Solicitar Fluxo
                                       </button>
                                     )}
                                   </div>
@@ -519,6 +519,7 @@ export default function Gsdpq() {
   const [uploadando, setUploadando] = useState(false)
   const [modalAcao, setModalAcao] = useState<ModalAcao | null>(null)
   const [abaUpload, setAbaUpload] = useState<'gsdpq' | 'colaboradores'>('gsdpq')
+  const [solicitados, setSolicitados] = useState<Set<string>>(new Set())
   const [filtroCategoria, setFiltroCategoria] = useState<Categoria | 'Todas'>('Todas')
   const [filtroFuncao, setFiltroFuncao] = useState('Todas')
 
@@ -674,6 +675,36 @@ export default function Gsdpq() {
     }, { onConflict: 'avaliacao_id' })
     setModalAcao(null)
     carregarDados()
+  }
+
+  // Solicitar Fluxo Punitivo
+  async function solicitarFluxo(colaboradorNome: string, questao: string, dataAvaliacao: string, avaliacaoId: string) {
+    if (!usuario) return
+    const { data: filialData } = await supabase.from('filiais').select('grupo_fluxo_whatsapp').eq('nome', usuario.filial).single()
+    const grupo = filialData?.grupo_fluxo_whatsapp ?? null
+
+    const motivo = questao.length > 120 ? questao.slice(0, 120) + '…' : questao
+    const registradoPor = usuario.nome ?? usuario.login
+
+    await supabase.from('fluxo_punitivo').insert({
+      filial: usuario.filial,
+      colaborador_nome: colaboradorNome,
+      origem: 'GSDPQ',
+      tipo_acao: null,
+      status: 'Solicitado',
+      motivo,
+      data_acao: dataAvaliacao || null,
+      observacao: null,
+      registrado_por: registradoPor,
+      source_id: avaliacaoId,
+    })
+
+    if (grupo) {
+      const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${colaboradorNome}\n📋 Origem: GSDPQ\n🗓️ Data da avaliação: ${dataAvaliacao}\n⚠️ Desvio: ${motivo}\n✍️ Solicitado por: ${registradoPor}`
+      await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: 'pendente' })
+    }
+
+    setSolicitados(prev => new Set([...prev, avaliacaoId]))
   }
 
   // Exportar Excel
@@ -933,7 +964,7 @@ export default function Gsdpq() {
                 <tbody>
                   {resumos.length === 0 && <tr><td colSpan={6} className="text-center py-10 text-gray-400">Nenhum dado</td></tr>}
                   {resumos.map(r => (
-                    <ColaboradorRow key={r.nome} r={r} avaliacoes={avaliacoesFiltradas} acoes={acoes} onRegistrarAcao={setModalAcao} />
+                    <ColaboradorRow key={r.nome} r={r} avaliacoes={avaliacoesFiltradas} acoes={acoes} onSolicitarFluxo={solicitarFluxo} solicitados={solicitados} />
                   ))}
                 </tbody>
               </table>

@@ -21,3 +21,18 @@ create policy "Acesso total" on fluxo_punitivo for all using (true);
 create index if not exists idx_fluxo_filial  on fluxo_punitivo(filial);
 create index if not exists idx_fluxo_colab   on fluxo_punitivo(filial, colaborador_nome);
 create index if not exists idx_fluxo_origem  on fluxo_punitivo(filial, origem);
+
+-- Redesign do Fluxo Punitivo: solicitações pendentes + histórico
+-- Execute estas linhas adicionais no Supabase SQL Editor
+
+ALTER TABLE fluxo_punitivo
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'Concluido',
+  ADD COLUMN IF NOT EXISTS motivo TEXT;
+
+-- Torna tipo_acao nullable para solicitações ainda sem ação definida
+ALTER TABLE fluxo_punitivo
+  ALTER COLUMN tipo_acao DROP NOT NULL;
+
+-- Número do grupo WhatsApp do fluxo punitivo por filial
+ALTER TABLE filiais
+  ADD COLUMN IF NOT EXISTS grupo_fluxo_whatsapp TEXT;

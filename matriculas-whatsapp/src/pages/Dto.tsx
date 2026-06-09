@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import {
   FileSpreadsheet, Upload, Loader2, Building2, RefreshCw, Download,
-  AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, ClipboardList
+  AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, ClipboardList, Send, Check
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -114,6 +114,7 @@ export default function Dto() {
   const [filtroPeriodo, setFiltroPeriodo] = useState({ de: '', ate: '' })
   const [filtroStatus, setFiltroStatus] = useState<StatusAcao | 'Todos'>('Todos')
   const [expandedAtividade, setExpandedAtividade] = useState<string | null>(null)
+  const [solicitados, setSolicitados] = useState<Set<string>>(new Set())
 
   async function carregarDados() {
     if (!usuario) return
@@ -244,6 +245,35 @@ export default function Dto() {
   async function atualizarStatus(id: string, status: StatusAcao) {
     await supabase.from('dto_observacoes').update({ status_acao: status }).eq('id', id)
     setObservacoes(prev => prev.map(o => o.id === id ? { ...o, status_acao: status } : o))
+  }
+
+  async function solicitarFluxo(o: DtoObservacao) {
+    if (!usuario) return
+    const { data: filialData } = await supabase.from('filiais').select('grupo_fluxo_whatsapp').eq('nome', usuario.filial).single()
+    const grupo = filialData?.grupo_fluxo_whatsapp ?? null
+
+    const registradoPor = usuario.nome ?? usuario.login
+    const motivo = [o.qual_desvio, o.tarefa_com_desvio].filter(Boolean).join(' — ') || 'Desvio de segurança'
+
+    await supabase.from('fluxo_punitivo').insert({
+      filial: usuario.filial,
+      colaborador_nome: o.colaborador,
+      origem: 'DTO',
+      tipo_acao: null,
+      status: 'Solicitado',
+      motivo,
+      data_acao: o.data_aplicacao ? o.data_aplicacao.slice(0, 10) : null,
+      observacao: null,
+      registrado_por: registradoPor,
+      source_id: o.id,
+    })
+
+    if (grupo) {
+      const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${o.colaborador}\n📋 Origem: DTO\n🗓️ Data: ${o.data_aplicacao ?? '—'}\n⚠️ Desvio: ${motivo}\n✍️ Solicitado por: ${registradoPor}`
+      await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: 'pendente' })
+    }
+
+    setSolicitados(prev => new Set([...prev, o.id]))
   }
 
   function exportarExcel() {
@@ -513,7 +543,19 @@ export default function Dto() {
                                       <div key={o.id} className="bg-red-50 rounded p-2.5 text-xs border border-red-100">
                                         <div className="flex justify-between mb-0.5">
                                           <span className="font-semibold text-red-800">{o.colaborador}</span>
-                                          <span className="text-gray-500">{o.data_aplicacao}</span>
+                                          <div className="flex items-center gap-2">
+                                            <span className="text-gray-500">{o.data_aplicacao}</span>
+                                            {solicitados.has(o.id) ? (
+                                              <span className="flex items-center gap-0.5 text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">
+                                                <Check size={10} /> Solicitado
+                                              </span>
+                                            ) : (
+                                              <button onClick={() => solicitarFluxo(o)}
+                                                className="flex items-center gap-0.5 text-xs text-orange-700 bg-white border border-orange-200 px-1.5 py-0.5 rounded hover:bg-orange-50">
+                                                <Send size={10} /> Solicitar Fluxo
+                                              </button>
+                                            )}
+                                          </div>
                                         </div>
                                         {o.tarefa_com_desvio && <p className="text-red-700 mb-0.5">Tarefa: {o.tarefa_com_desvio}</p>}
                                         {o.qual_desvio && <p className="text-red-700">Desvio: {o.qual_desvio}</p>}

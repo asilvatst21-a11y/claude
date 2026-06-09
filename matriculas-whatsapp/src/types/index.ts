@@ -11,6 +11,7 @@ export interface Usuario {
 export interface Filial {
   id: string
   nome: string
+  grupo_fluxo_whatsapp: string | null
   created_at: string
 }
 
@@ -206,13 +207,15 @@ export interface FluxoPunitivo {
   id: string
   filial: string
   colaborador_nome: string
-  origem: 'GSDPQ' | 'Relatos' | 'Telemetria' | 'Manual'
-  tipo_acao: string
+  origem: 'GSDPQ' | 'Relatos' | 'Telemetria' | 'DTO' | 'Manual'
+  tipo_acao: string | null
   dias_suspensao: number | null
   data_acao: string | null
   observacao: string | null
   registrado_por: string | null
   source_id: string | null
+  status: 'Solicitado' | 'Concluido'
+  motivo: string | null
   created_at: string
 }
 

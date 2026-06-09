@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import {
   Upload, Loader2, Building2, RefreshCw, ChevronDown, ChevronUp,
-  FileSearch, Search, Users, Plus, X, CheckCircle2,
+  FileSearch, Search, Users, X, CheckCircle2, Send, Check,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -246,8 +246,12 @@ function ModalAcaoRelato({ pessoaRelatada, tipoRelato, dataRelato, existente, on
 
 // ── Relatado Detail Panel ─────────────────────────────────────────────────────────────────
 
-function RelatadoDetail({ nome, relatos, acoes, onRegistrarAcao }: {
-  nome: string; relatos: Relato[]; acoes: RelatoAcao[]; onRegistrarAcao: (r: Relato) => void
+function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, solicitados }: {
+  nome: string
+  relatos: Relato[]
+  acoes: RelatoAcao[]
+  onSolicitarFluxo: (r: Relato) => void
+  solicitados: Set<string>
 }) {
   const meus = relatos
     .filter(r => r.pessoa_relatada === nome)
@@ -300,10 +304,14 @@ function RelatadoDetail({ nome, relatos, acoes, onRegistrarAcao }: {
                           ? <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded border font-medium ${COR_ACAO[acao.tipo_acao]}`}>
                               {acao.tipo_acao}{acao.dias_suspensao ? ` (${acao.dias_suspensao}d)` : ''}
                             </span>
-                          : <button onClick={() => onRegistrarAcao(r)}
-                              className="shrink-0 flex items-center gap-0.5 text-xs text-brand-700 border border-brand-200 bg-brand-50 px-1.5 py-0.5 rounded hover:bg-brand-100">
-                              <Plus size={10} /> Ação
-                            </button>
+                          : solicitados.has(r.id)
+                            ? <span className="shrink-0 flex items-center gap-0.5 text-xs text-green-700 border border-green-200 bg-green-50 px-1.5 py-0.5 rounded">
+                                <Check size={10} /> Solicitado
+                              </span>
+                            : <button onClick={() => onSolicitarFluxo(r)}
+                                className="shrink-0 flex items-center gap-0.5 text-xs text-orange-700 border border-orange-200 bg-orange-50 px-1.5 py-0.5 rounded hover:bg-orange-100">
+                                <Send size={10} /> Solicitar Fluxo
+                              </button>
                     )}
                   </div>
                   {r.relator && (
@@ -401,6 +409,7 @@ export default function Relatos() {
   const [expandedRelatadoId,  setExpandedRelatadoId]  = useState<string | null>(null)
   const [expandedRelatanteId, setExpandedRelatanteId] = useState<string | null>(null)
   const [modalAcao, setModalAcao] = useState<Relato | null>(null)
+  const [solicitados, setSolicitados] = useState<Set<string>>(new Set())
 
   async function carregar() {
     if (!usuario) return
@@ -434,6 +443,37 @@ export default function Relatos() {
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
     },
   })
+
+  async function solicitarFluxo(relato: Relato) {
+    if (!usuario) return
+    const { data: filialData } = await supabase.from('filiais').select('grupo_fluxo_whatsapp').eq('nome', usuario.filial).single()
+    const grupo = filialData?.grupo_fluxo_whatsapp ?? null
+
+    const pessoaRelatada = relato.pessoa_relatada ?? ''
+    const registradoPor = usuario.nome ?? usuario.login
+    const motivo = [relato.tipo_relato, relato.detalhamento].filter(Boolean).join(' — ')
+
+    await supabase.from('fluxo_punitivo').insert({
+      filial: usuario.filial,
+      colaborador_nome: pessoaRelatada,
+      origem: 'Relatos',
+      tipo_acao: null,
+      status: 'Solicitado',
+      motivo: motivo || null,
+      data_acao: relato.data_ocorrencia?.slice(0, 10) ?? null,
+      observacao: null,
+      registrado_por: registradoPor,
+      source_id: relato.id,
+    })
+
+    if (grupo) {
+      const motivoMsg = motivo.length > 200 ? motivo.slice(0, 200) + '…' : motivo
+      const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${pessoaRelatada}\n📋 Origem: Relatos\n🗓️ Data da ocorrência: ${relato.data_ocorrencia?.slice(0, 10) ?? '—'}${motivo ? `\n📝 Descrição: ${motivoMsg}` : ''}\n✍️ Solicitado por: ${registradoPor}`
+      await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: 'pendente' })
+    }
+
+    setSolicitados(prev => new Set([...prev, relato.id]))
+  }
 
   async function salvarAcao(tipo: string, dias: number | null, obs: string) {
     if (!modalAcao || !usuario) return
@@ -890,7 +930,7 @@ export default function Relatos() {
                               </tr>
                               {expandedRelatadoId === r.nome && (
                                 <tr><td colSpan={8} className="p-0">
-                                  <RelatadoDetail nome={r.nome} relatos={filtered} acoes={acoes} onRegistrarAcao={setModalAcao} />
+                                  <RelatadoDetail nome={r.nome} relatos={filtered} acoes={acoes} onSolicitarFluxo={solicitarFluxo} solicitados={solicitados} />
                                 </td></tr>
                               )}
                             </Fragment>

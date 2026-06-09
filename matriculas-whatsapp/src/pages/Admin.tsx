@@ -280,22 +280,24 @@ function AbaFiliais({ filiais, recarregar }: { filiais: Filial[]; recarregar: ()
   const [modal, setModal] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [nome, setNome] = useState('')
+  const [grupoWhatsapp, setGrupoWhatsapp] = useState('')
   const [loading, setLoading] = useState(false)
 
   function abrirNovo() {
-    setNome(''); setEditId(null); setModal(true)
+    setNome(''); setGrupoWhatsapp(''); setEditId(null); setModal(true)
   }
 
   function abrirEditar(f: Filial) {
-    setNome(f.nome); setEditId(f.id); setModal(true)
+    setNome(f.nome); setGrupoWhatsapp(f.grupo_fluxo_whatsapp ?? ''); setEditId(f.id); setModal(true)
   }
 
   async function salvar() {
     setLoading(true)
+    const payload = { nome, grupo_fluxo_whatsapp: grupoWhatsapp.trim() || null }
     if (editId) {
-      await supabase.from('filiais').update({ nome }).eq('id', editId)
+      await supabase.from('filiais').update(payload).eq('id', editId)
     } else {
-      await supabase.from('filiais').insert({ nome })
+      await supabase.from('filiais').insert(payload)
     }
     setLoading(false)
     setModal(false)
@@ -347,14 +349,26 @@ function AbaFiliais({ filiais, recarregar }: { filiais: Filial[]; recarregar: ()
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">{editId ? 'Editar Filial' : 'Nova Filial'}</h3>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Filial *</label>
-              <input
-                value={nome}
-                onChange={e => setNome(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                placeholder="Ex: CDD CAMPOS"
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Filial *</label>
+                <input
+                  value={nome}
+                  onChange={e => setNome(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="Ex: CDD CAMPOS"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Grupo WhatsApp — Fluxo Punitivo</label>
+                <input
+                  value={grupoWhatsapp}
+                  onChange={e => setGrupoWhatsapp(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="Ex: 5521999999999-1234567890@g.us"
+                />
+                <p className="text-xs text-gray-400 mt-1">JID do grupo. No Evolution API: GET /group/fetchAllGroups — copie o "id" do grupo desejado.</p>
+              </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
