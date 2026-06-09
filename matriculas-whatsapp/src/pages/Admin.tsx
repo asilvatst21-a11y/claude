@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { Usuario, Filial, DtoAvaliador } from '../types'
-import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck } from 'lucide-react'
+import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2 } from 'lucide-react'
+import { listarGrupos, type GrupoZApi } from '../lib/zapi'
 
 const AVALIADORES_PADRAO = [
   'ERIC DUNSHEE DE ABRANCHES MUSS',
@@ -282,13 +283,25 @@ function AbaFiliais({ filiais, recarregar }: { filiais: Filial[]; recarregar: ()
   const [nome, setNome] = useState('')
   const [grupoWhatsapp, setGrupoWhatsapp] = useState('')
   const [loading, setLoading] = useState(false)
+  const [grupos, setGrupos] = useState<GrupoZApi[]>([])
+  const [buscandoGrupos, setBuscandoGrupos] = useState(false)
+  const [filtroGrupo, setFiltroGrupo] = useState('')
 
   function abrirNovo() {
-    setNome(''); setGrupoWhatsapp(''); setEditId(null); setModal(true)
+    setNome(''); setGrupoWhatsapp(''); setGrupos([]); setFiltroGrupo(''); setEditId(null); setModal(true)
   }
 
   function abrirEditar(f: Filial) {
-    setNome(f.nome); setGrupoWhatsapp(f.grupo_fluxo_whatsapp ?? ''); setEditId(f.id); setModal(true)
+    setNome(f.nome); setGrupoWhatsapp(f.grupo_fluxo_whatsapp ?? ''); setGrupos([]); setFiltroGrupo(''); setEditId(f.id); setModal(true)
+  }
+
+  async function buscarGrupos() {
+    setBuscandoGrupos(true)
+    const { grupos: gs, erro } = await listarGrupos()
+    setBuscandoGrupos(false)
+    if (erro) { alert(`Não foi possível buscar os grupos no Z-API:\n${erro}`); return }
+    if (gs.length === 0) { alert('Nenhum grupo encontrado nesta instância Z-API.'); return }
+    setGrupos(gs.sort((a, b) => a.name.localeCompare(b.name)))
   }
 
   async function salvar() {
@@ -360,14 +373,54 @@ function AbaFiliais({ filiais, recarregar }: { filiais: Filial[]; recarregar: ()
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Grupo WhatsApp — Fluxo Punitivo</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Grupo WhatsApp — Fluxo Punitivo</label>
+                  <button
+                    type="button"
+                    onClick={buscarGrupos}
+                    disabled={buscandoGrupos}
+                    className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-900 border border-brand-200 px-2 py-1 rounded-lg hover:bg-brand-50 disabled:opacity-50"
+                  >
+                    {buscandoGrupos ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+                    {buscandoGrupos ? 'Buscando…' : 'Buscar grupos (Z-API)'}
+                  </button>
+                </div>
+
+                {grupos.length > 0 && (
+                  <div className="mb-2 border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="px-2 py-1.5 border-b border-gray-100 bg-gray-50">
+                      <input
+                        value={filtroGrupo}
+                        onChange={e => setFiltroGrupo(e.target.value)}
+                        placeholder="Filtrar grupos…"
+                        className="w-full text-xs px-2 py-1 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400"
+                      />
+                    </div>
+                    <div className="max-h-40 overflow-y-auto">
+                      {grupos
+                        .filter(g => !filtroGrupo || g.name.toLowerCase().includes(filtroGrupo.toLowerCase()))
+                        .map(g => (
+                          <button
+                            key={g.phone}
+                            type="button"
+                            onClick={() => setGrupoWhatsapp(g.phone)}
+                            className={`w-full text-left px-3 py-2 text-xs border-b border-gray-50 hover:bg-brand-50 ${grupoWhatsapp === g.phone ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-700'}`}
+                          >
+                            <span className="block truncate">{g.name}</span>
+                            <span className="block text-[10px] text-gray-400 font-mono truncate">{g.phone}</span>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
                 <input
                   value={grupoWhatsapp}
                   onChange={e => setGrupoWhatsapp(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                  placeholder="Ex: 5521999999999-1234567890@g.us"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="Ex: 120363019502650977-group"
                 />
-                <p className="text-xs text-gray-400 mt-1">JID do grupo. No Evolution API: GET /group/fetchAllGroups — copie o "id" do grupo desejado.</p>
+                <p className="text-xs text-gray-400 mt-1">Clique em "Buscar grupos" para listar os grupos da sua instância Z-API e selecionar — ou cole o ID do grupo manualmente.</p>
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">

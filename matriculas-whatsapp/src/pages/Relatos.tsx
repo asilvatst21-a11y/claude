@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { enviarMensagemGrupo } from '../lib/zapi'
 import type { Relato } from '../types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────────────────
@@ -469,7 +470,11 @@ export default function Relatos() {
     if (grupo) {
       const motivoMsg = motivo.length > 200 ? motivo.slice(0, 200) + '…' : motivo
       const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${pessoaRelatada}\n📋 Origem: Relatos\n🗓️ Data da ocorrência: ${relato.data_ocorrencia?.slice(0, 10) ?? '—'}${motivo ? `\n📝 Descrição: ${motivoMsg}` : ''}\n✍️ Solicitado por: ${registradoPor}`
-      await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: 'pendente' })
+      const { sucesso, erro } = await enviarMensagemGrupo(grupo, mensagem)
+      await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: sucesso ? 'enviado' : 'erro', erro: erro ?? null })
+      if (!sucesso) alert(`Solicitação registrada, mas a mensagem para o grupo falhou:\n${erro}`)
+    } else {
+      alert('Solicitação registrada. Configure o grupo de WhatsApp da filial em Admin → Filiais para enviar a notificação automaticamente.')
     }
 
     setSolicitados(prev => new Set([...prev, relato.id]))

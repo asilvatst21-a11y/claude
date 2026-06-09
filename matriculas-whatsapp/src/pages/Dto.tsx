@@ -8,6 +8,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { enviarMensagemGrupo } from '../lib/zapi'
 import type { DtoObservacao } from '../types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -270,7 +271,11 @@ export default function Dto() {
 
     if (grupo) {
       const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${o.colaborador}\n📋 Origem: DTO\n🗓️ Data: ${o.data_aplicacao ?? '—'}\n⚠️ Desvio: ${motivo}\n✍️ Solicitado por: ${registradoPor}`
-      await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: 'pendente' })
+      const { sucesso, erro } = await enviarMensagemGrupo(grupo, mensagem)
+      await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: sucesso ? 'enviado' : 'erro', erro: erro ?? null })
+      if (!sucesso) alert(`Solicitação registrada, mas a mensagem para o grupo falhou:\n${erro}`)
+    } else {
+      alert('Solicitação registrada. Configure o grupo de WhatsApp da filial em Admin → Filiais para enviar a notificação automaticamente.')
     }
 
     setSolicitados(prev => new Set([...prev, o.id]))

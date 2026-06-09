@@ -33,6 +33,7 @@ ALTER TABLE fluxo_punitivo
 ALTER TABLE fluxo_punitivo
   ALTER COLUMN tipo_acao DROP NOT NULL;
 
--- Número do grupo WhatsApp do fluxo punitivo por filial
+-- ID do grupo WhatsApp do fluxo punitivo por filial (Z-API)
+-- Formato Z-API: "120363019502650977-group" (use o botão "Buscar grupos" no Admin)
 ALTER TABLE filiais
   ADD COLUMN IF NOT EXISTS grupo_fluxo_whatsapp TEXT;
