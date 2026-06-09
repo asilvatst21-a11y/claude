@@ -128,6 +128,8 @@ export default async function handler(req: any, res: any) {
 
   const body = typeof req.body === 'string' ? safeJson(req.body) : (req.body ?? {})
 
+  console.log('WEBHOOK_BODY:', JSON.stringify(body))
+
   try {
     const fromMe: boolean = body.fromMe === true
     const grupoId: string = String(body.phone ?? '')
