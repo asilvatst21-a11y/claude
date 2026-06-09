@@ -466,21 +466,23 @@ function ColaboradorRow({ r, avaliacoes, acoes, onSolicitarFluxo, solicitados }:
                                         {acaoExistente.tipo_acao}
                                         {acaoExistente.dias_suspensao ? ` (${acaoExistente.dias_suspensao}d)` : ''}
                                       </span>
-                                    ) : solicitados.has(avaliacao?.id ?? '') ? (
-                                      <span className="flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded">
-                                        <Check size={10} /> Solicitado
-                                      </span>
-                                    ) : (
-                                      <button
-                                        onClick={e => {
-                                          e.stopPropagation()
-                                          if (avaliacao) onSolicitarFluxo(r.nome, questao, data, avaliacao.id)
-                                        }}
-                                        className="flex items-center gap-1 text-xs text-orange-700 hover:text-orange-900 bg-orange-50 border border-orange-200 hover:border-orange-400 px-2 py-0.5 rounded transition-colors"
-                                      >
-                                        <Send size={10} /> Solicitar Fluxo
-                                      </button>
-                                    )}
+                                    ) : getCategoriaQuestao(questao) === 'Segurança' ? (
+                                      solicitados.has(avaliacao?.id ?? '') ? (
+                                        <span className="flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-0.5 rounded">
+                                          <Check size={10} /> Solicitado
+                                        </span>
+                                      ) : (
+                                        <button
+                                          onClick={e => {
+                                            e.stopPropagation()
+                                            if (avaliacao) onSolicitarFluxo(r.nome, questao, data, avaliacao.id)
+                                          }}
+                                          className="flex items-center gap-1 text-xs text-orange-700 hover:text-orange-900 bg-orange-50 border border-orange-200 hover:border-orange-400 px-2 py-0.5 rounded transition-colors"
+                                        >
+                                          <Send size={10} /> Solicitar Fluxo
+                                        </button>
+                                      )
+                                    ) : null}
                                   </div>
                                 </div>
                               )
