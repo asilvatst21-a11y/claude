@@ -1093,22 +1093,37 @@ export default function Gsdpq() {
 
           {/* ── GSD Completo ── */}
           {abaAtiva === 'completo' && (() => {
-            // Meses disponíveis extraídos das datas (DD/MM/YYYY → MM/YYYY)
+            const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro']
+
+            // Ordena datas DD/MM/YYYY de forma correta (por ano→mês→dia)
+            const sortDatasDesc = (datas: string[]) => [...datas].sort((a, b) => {
+              const p = (d: string) => { const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})/); return m ? parseInt(`${m[3]}${m[2]}${m[1]}`) : 0 }
+              return p(b) - p(a)
+            })
+
             const todasDatas = Array.from(new Set(avaliacoes.map(a => a.data_avaliacao).filter((d): d is string => !!d)))
+
+            // Meses disponíveis: usa número do mês diretamente, sem Date() (evita bug de fuso)
             const mesesDisponiveis = Array.from(new Set(todasDatas.map(d => {
               const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
               return m ? `${m[2]}/${m[3]}` : null
-            }).filter((m): m is string => !!m))).sort().reverse()
+            }).filter((m): m is string => !!m))).sort((a, b) => {
+              const [ma, ya] = a.split('/').map(Number)
+              const [mb, yb] = b.split('/').map(Number)
+              return (yb * 12 + mb) - (ya * 12 + ma)
+            })
 
             const completoMes = completoMesState
             const setCompletoMes = (mes: string) => { setCompletoMesState(mes); setCompletoData(''); setCompletoColab('') }
 
-            const datasDoMes = completoMes
-              ? todasDatas.filter(d => {
-                  const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
-                  return m ? `${m[2]}/${m[3]}` === completoMes : false
-                }).sort().reverse()
-              : todasDatas.sort().reverse()
+            const datasDoMes = sortDatasDesc(
+              completoMes
+                ? todasDatas.filter(d => {
+                    const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+                    return m ? `${m[2]}/${m[3]}` === completoMes : false
+                  })
+                : todasDatas
+            )
 
             // Agrupa por sessão: data + realizado_por (identifica o GSD)
             const avsDaData = completoData ? avaliacoes.filter(a => a.data_avaliacao === completoData) : []
@@ -1150,8 +1165,8 @@ export default function Gsdpq() {
                       <option value="">Todos os meses</option>
                       {mesesDisponiveis.map(m => {
                         const [mm, yyyy] = m.split('/')
-                        const label = new Date(`${yyyy}-${mm}-01`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
-                        return <option key={m} value={m}>{label.charAt(0).toUpperCase() + label.slice(1)}</option>
+                        const label = `${MESES_PT[parseInt(mm) - 1]} ${yyyy}`
+                        return <option key={m} value={m}>{label}</option>
                       })}
                     </select>
                   </div>
