@@ -22,7 +22,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
 function norm(s: string): string {
-  return s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim()
 }
 
 async function enviarGrupo(grupoId: string, message: string): Promise<void> {
@@ -37,15 +37,40 @@ async function enviarGrupo(grupoId: string, message: string): Promise<void> {
   }
 }
 
-// Extrai colaborador + motivo de "Fluxo: NOME - MOTIVO"
-function parseComando(texto: string): { nome: string; motivo: string } | null {
-  const semPrefixo = texto.replace(/^[^:]*:/, '').trim() // remove "Fluxo:" (ou "#fluxo:")
-  const partes = semPrefixo.split(/\s+[-–—]\s+/)          // separa por " - ", " – ", " — "
-  if (partes.length < 2) return null
-  const nome = partes[0].trim()
-  const motivo = partes.slice(1).join(' - ').trim()
+// Extrai colaborador + motivo + data opcional do formato multi-linha:
+//   Fluxo: João da Silva
+//   Motivo - falta
+//   Data: 09/06
+function parseComando(texto: string): { nome: string; motivo: string; data?: string } | null {
+  const linhas = texto.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+
+  let nome = ''
+  let motivo = ''
+  let data: string | undefined
+
+  for (const linha of linhas) {
+    const n = norm(linha)
+
+    if (n.startsWith('fluxo:') || n.startsWith('#fluxo')) {
+      nome = linha.replace(/^[^:]*:/, '').trim()
+    } else if (n.startsWith('motivo')) {
+      // "Motivo - falta" ou "Motivo: falta"
+      motivo = linha.replace(/^[^\-:–—]*[\-:–—]/, '').trim()
+    } else if (n.startsWith('data')) {
+      // "Data: 09/06" ou "Data - 09/06"  →  YYYY-MM-DD
+      const raw = linha.replace(/^[^\-:–—]*[\-:–—]/, '').trim()
+      const m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})$/)
+      if (m) {
+        const ano = new Date().getFullYear()
+        const dd = m[1].padStart(2, '0')
+        const mm = m[2].padStart(2, '0')
+        data = `${ano}-${mm}-${dd}`
+      }
+    }
+  }
+
   if (!nome || !motivo) return null
-  return { nome, motivo }
+  return { nome, motivo, ...(data ? { data } : {}) }
 }
 
 // ── Handler ──────────────────────────────────────────────────────────────────────
@@ -88,12 +113,12 @@ export default async function handler(req: any, res: any) {
     const filial: string = filialRow.nome
     const n = norm(texto)
 
-    // ── 1) Novo comando: "Fluxo: NOME - MOTIVO" ──────────────────────────────────
+    // ── 1) Novo comando: inicia com "Fluxo:" ─────────────────────────────────────
     if (n.startsWith('fluxo:') || n.startsWith('#fluxo')) {
       const parsed = parseComando(texto)
       if (!parsed) {
         await enviarGrupo(grupoId,
-          '⚠️ Formato inválido.\nUse: *Fluxo: NOME DO COLABORADOR - MOTIVO*\nEx: Fluxo: João Silva - Falta')
+          '⚠️ Formato inválido.\nUse o padrão:\n\n*Fluxo: NOME DO COLABORADOR*\n*Motivo - MOTIVO*\n*Data: DD/MM* _(opcional)_\n\nEx:\nFluxo: João Silva\nMotivo - Falta\nData: 09/06')
         res.status(200).json({ ok: true, action: 'usage' })
         return
       }
@@ -101,12 +126,14 @@ export default async function handler(req: any, res: any) {
       const { data: conf } = await supabase.from('fluxo_confirmacoes').insert({
         filial, grupo_id: grupoId,
         colaborador_nome: parsed.nome, motivo: parsed.motivo,
+        data_acao: parsed.data ?? null,
         solicitante_nome: senderName || null, solicitante_telefone: participante || null,
         status: 'aguardando',
       }).select('id').single()
 
+      const dataInfo = parsed.data ? `\n📅 Data: ${parsed.data.split('-').reverse().join('/')}` : ''
       await enviarGrupo(grupoId,
-        `📋 *Confirmação de Fluxo*\n👤 Colaborador: ${parsed.nome}\n⚠️ Motivo: ${parsed.motivo}\n\nResponda *SIM* para confirmar ou *NÃO* para cancelar.`)
+        `📋 *Confirmação de Fluxo*\n👤 Colaborador: ${parsed.nome}\n⚠️ Motivo: ${parsed.motivo}${dataInfo}\n\nResponda *SIM* para confirmar ou *NÃO* para cancelar.`)
 
       res.status(200).json({ ok: true, action: 'aguardando', id: conf?.id })
       return
@@ -142,7 +169,7 @@ export default async function handler(req: any, res: any) {
       const { data: fluxo } = await supabase.from('fluxo_punitivo').insert({
         filial, colaborador_nome: pend.colaborador_nome,
         origem: 'Grupo', tipo_acao: null, status: 'Solicitado',
-        motivo: pend.motivo, data_acao: hoje, observacao: null,
+        motivo: pend.motivo, data_acao: pend.data_acao ?? hoje, observacao: null,
         registrado_por: pend.solicitante_nome ? `${pend.solicitante_nome} (via grupo)` : 'WhatsApp (grupo)',
         source_id: pend.id,
       }).select('id').single()
