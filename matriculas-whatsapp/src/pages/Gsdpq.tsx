@@ -529,7 +529,7 @@ export default function Gsdpq() {
     if (!usuario) return
     setCarregando(true)
     const [{ data: avs }, { data: acs }, { data: colab }] = await Promise.all([
-      supabase.from('gsdpq_avaliacoes').select('*').eq('filial', usuario.filial).order('data_avaliacao'),
+      supabase.from('gsdpq_avaliacoes').select('*').eq('filial', usuario.filial).order('data_avaliacao').limit(10000),
       supabase.from('gsdpq_acoes').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
       supabase.from('gsdpq_colaboradores').select('nome, funcao').eq('filial', usuario.filial),
     ])
