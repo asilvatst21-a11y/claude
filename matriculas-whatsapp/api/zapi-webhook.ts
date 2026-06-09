@@ -96,19 +96,19 @@ function parseComando(texto: string): { nome: string; motivo: string; data?: str
 
 // Extrai a resposta do usuário: texto livre OU clique em botão
 function extrairResposta(body: any): 'sim' | 'nao' | null {
-  // Clique em botão (send-button-list reply)
+  // Clique em botão — Z-API usa buttonsResponseMessage.buttonId
   const buttonId: string = norm(
-    body?.buttonReply?.selectedButtonId ??
+    body?.buttonsResponseMessage?.buttonId ??
     body?.listResponse?.singleSelectReply?.selectedRowId ??
     ''
   )
   if (buttonId === 'sim') return 'sim'
   if (buttonId === 'nao') return 'nao'
 
-  // Texto livre
+  // Texto livre (fallback)
   const texto = norm(String(body?.text?.message ?? '').trim())
   if (texto === 'sim') return 'sim'
-  if (texto === 'nao' || texto === 'nao' || texto === 'não') return 'nao'
+  if (texto === 'nao') return 'nao'
 
   return null
 }
@@ -128,14 +128,12 @@ export default async function handler(req: any, res: any) {
 
   const body = typeof req.body === 'string' ? safeJson(req.body) : (req.body ?? {})
 
-  console.log('WEBHOOK_BODY:', JSON.stringify(body))
-
   try {
     const fromMe: boolean = body.fromMe === true
     const grupoId: string = String(body.phone ?? '')
     const isGroup: boolean = body.isGroup === true || grupoId.endsWith('-group')
     const texto: string = String(body?.text?.message ?? '').trim()
-    const temConteudo = texto || body?.buttonReply || body?.listResponse
+    const temConteudo = texto || body?.buttonsResponseMessage || body?.listResponse
     const senderName: string = String(body.senderName ?? body.chatName ?? '')
     const participante: string = String(body.participantPhone ?? body.participant ?? '')
 
