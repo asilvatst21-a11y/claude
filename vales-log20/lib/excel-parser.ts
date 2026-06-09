@@ -31,11 +31,26 @@ function getNumber(row: unknown[], index: number): number | null {
 function getExcelDate(row: unknown[], index: number): string | null {
   const val = getCell(row, index);
   if (val === null || val === undefined || val === "") return null;
+
+  // xlsx may return a Date object when cellDates is active
+  if (val instanceof Date) {
+    const y = val.getUTCFullYear();
+    const m = String(val.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(val.getUTCDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
   const num = Number(val);
   if (isNaN(num) || num <= 0) return null;
+
+  // Use XLSX's own date parsing — handles the Excel 1900 leap-year bug correctly
+  // and returns {y, m, d} without any timezone conversion
   try {
-    const date = excelDateToJSDate(num);
-    return formatDateISO(date);
+    const parsed = XLSX.SSF.parse_date_code(num);
+    if (!parsed || !parsed.y) return null;
+    const month = String(parsed.m).padStart(2, "0");
+    const day = String(parsed.d).padStart(2, "0");
+    return `${parsed.y}-${month}-${day}`;
   } catch {
     return null;
   }
