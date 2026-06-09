@@ -56,8 +56,9 @@ const QUESTOES_CATEGORIAS: Record<string, Categoria> = {
   'Equipe guarda o carrinho corretamente após a utilização?': 'Segurança',
   'A equipe verifica o fechamento das baias/sider/portas antes de sair do PDV, utilizando o  trava baias?': 'Segurança',
   'Calço e cones foram retirados corretamente conforme orientação da FABET após a finalização da entrega?': 'Segurança',
-  ' O motorista faz o giro 360º antes de sair com o veículo, avaliando se existe algum obstáculo que dificulte a manobra ou algo embaixo do caminhão?': 'Segurança',
+  'O motorista faz o giro 360º antes de sair com o veículo, avaliando se existe algum obstáculo que dificulte a manobra ou algo embaixo do caminhão?': 'Segurança',
   'Caso seja necessária uma manobra de ré, o ajudante se posiciona em local correto e auxilia o motorista?': 'Segurança',
+  'A equipe realizou o bloqueio da chave conforme padrão local?': 'Segurança',
   // Produtividade — operacional/digital
   'A equipe deu início no Bees Deliver?': 'Produtividade',
   'A Equipe notificou o primeiro cliente dentro do CDD?': 'Produtividade',
@@ -513,7 +514,9 @@ export default function Gsdpq() {
   const [avaliacoes, setAvaliacoes] = useState<GsdpqAvaliacao[]>([])
   const [acoes, setAcoes] = useState<GsdpqAcao[]>([])
   const [questoes, setQuestoes] = useState<string[]>([])
-  const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'colaboradores' | 'questoes' | 'acoes'>('dashboard')
+  const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'colaboradores' | 'questoes' | 'acoes' | 'completo'>('dashboard')
+  const [completoData, setCompletoData] = useState('')
+  const [completoColab, setCompletoColab] = useState('')
   const [filtroEquipe, setFiltroEquipe] = useState('Todas')
   const [filtroPeriodo, setFiltroPeriodo] = useState({ de: '', ate: '' })
   const [carregando, setCarregando] = useState(false)
@@ -906,7 +909,7 @@ export default function Gsdpq() {
 
           {/* Abas */}
           <div className="flex gap-1 border-b border-gray-200">
-            {([['dashboard', 'Dashboard'], ['colaboradores', 'Por Colaborador'], ['questoes', 'Questões'], ['acoes', 'Ações Disciplinares']] as const).map(([id, label]) => (
+            {([['dashboard', 'Dashboard'], ['colaboradores', 'Por Colaborador'], ['questoes', 'Questões'], ['acoes', 'Ações Disciplinares'], ['completo', 'GSD Completo']] as const).map(([id, label]) => (
               <button key={id} onClick={() => setAbaAtiva(id)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${abaAtiva === id ? 'border-accent-500 text-accent-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{label}</button>
             ))}
           </div>
@@ -1086,6 +1089,108 @@ export default function Gsdpq() {
               }
             </div>
           )}
+
+          {/* ── GSD Completo ── */}
+          {abaAtiva === 'completo' && (() => {
+            const datasDisponiveis = Array.from(new Set(avaliacoes.map(a => a.data_avaliacao).filter((d): d is string => !!d))).sort().reverse()
+            const avsDaData = completoData ? avaliacoes.filter(a => a.data_avaliacao === completoData) : []
+            const colaboradoresDaData = Array.from(new Set(avsDaData.map(a => a.colaborador_nome))).sort()
+            const avsDoColab = completoColab ? avsDaData.filter(a => a.colaborador_nome === completoColab) : []
+            const realizadoPor = avsDoColab[0]?.realizado_por ?? ''
+            const observacoes = avsDoColab[0]?.observacoes ?? ''
+            const questoesDaAv = Array.from(new Set(avsDoColab.map(a => a.questao)))
+
+            const nos = avsDoColab.filter(a => a.resultado === 'NO').length
+            const oks = avsDoColab.filter(a => a.resultado === 'OK').length
+            const total = nos + oks
+            const conformidade = total > 0 ? Math.round((oks / total) * 100) : 0
+
+            return (
+              <div className="space-y-4">
+                {/* Seletores */}
+                <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-4 items-end">
+                  <div>
+                    <label className="block text-xs text-gray-500 font-medium mb-1">Data da avaliação</label>
+                    <select
+                      value={completoData}
+                      onChange={e => { setCompletoData(e.target.value); setCompletoColab('') }}
+                      className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    >
+                      <option value="">Selecione a data...</option>
+                      {datasDisponiveis.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
+                  {completoData && (
+                    <div>
+                      <label className="block text-xs text-gray-500 font-medium mb-1">Colaborador</label>
+                      <select
+                        value={completoColab}
+                        onChange={e => setCompletoColab(e.target.value)}
+                        className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                      >
+                        <option value="">Selecione o colaborador...</option>
+                        {colaboradoresDaData.map(c => <option key={c} value={c}>{c}</option>)}
+                      </select>
+                    </div>
+                  )}
+                  {completoColab && (
+                    <div className="flex gap-4 ml-auto text-center">
+                      <div><p className="text-xs text-gray-400">Conformidade</p><p className={`text-2xl font-bold ${conformidade >= 80 ? 'text-brand-700' : conformidade >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>{conformidade}%</p></div>
+                      <div><p className="text-xs text-gray-400">NOs</p><p className="text-2xl font-bold text-red-600">{nos}</p></div>
+                      <div><p className="text-xs text-gray-400">OKs</p><p className="text-2xl font-bold text-brand-700">{oks}</p></div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Cabeçalho da avaliação */}
+                {completoColab && avsDoColab.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 p-4">
+                    <div className="flex flex-wrap gap-4 text-sm mb-3">
+                      <span><span className="text-gray-400">Avaliador:</span> <strong>{realizadoPor || '—'}</strong></span>
+                      <span><span className="text-gray-400">Data:</span> <strong>{completoData}</strong></span>
+                    </div>
+                    {observacoes && <p className="text-xs text-gray-500 italic bg-gray-50 rounded px-3 py-2">"{observacoes}"</p>}
+
+                    {/* Questões por categoria */}
+                    {(['Segurança', 'Qualidade', 'Produtividade'] as Categoria[]).map(cat => {
+                      const questoesCat = questoesDaAv.filter(q => getCategoriaQuestao(q) === cat)
+                      if (questoesCat.length === 0) return null
+                      const cfgCat = {
+                        'Segurança': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
+                        'Qualidade': { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
+                        'Produtividade': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
+                      }[cat]
+                      return (
+                        <div key={cat} className="mt-4">
+                          <p className={`text-xs font-bold uppercase px-2 py-1 rounded ${cfgCat.bg} ${cfgCat.text} inline-block mb-2`}>{cat}</p>
+                          <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
+                            {questoesCat.map(q => {
+                              const av = avsDoColab.find(a => a.questao === q)
+                              const res = av?.resultado ?? '—'
+                              const isNo = res === 'NO'
+                              const isOk = res === 'OK'
+                              return (
+                                <div key={q} className={`flex items-start gap-3 px-3 py-2.5 ${isNo ? 'bg-red-50' : ''}`}>
+                                  <span className={`shrink-0 text-xs font-bold px-2 py-0.5 rounded border mt-0.5 ${isNo ? 'bg-red-100 text-red-700 border-red-200' : isOk ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
+                                    {res}
+                                  </span>
+                                  <span className="text-sm text-gray-700">{q.replace(/_\d+$/, '')}</span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+
+                {completoData && completoColab && avsDoColab.length === 0 && (
+                  <p className="text-center py-10 text-gray-400 text-sm">Nenhuma avaliação encontrada para essa combinação.</p>
+                )}
+              </div>
+            )
+          })()}
 
           {/* ── Ações Disciplinares ── */}
           {abaAtiva === 'acoes' && (
