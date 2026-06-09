@@ -325,9 +325,10 @@ function ValesContent() {
       if (busca) {
         const q = busca.toLowerCase();
         const matchVale = String(v.numero_vale).includes(q);
+        const matchMapa = v.mapa != null && String(v.mapa).includes(q);
         const matchAj = v.ajudantes.some((a) => a.nome.toLowerCase().includes(q));
         const matchMotorista = v.motorista?.toLowerCase().includes(q) ?? false;
-        if (!matchVale && !matchAj && !matchMotorista) return false;
+        if (!matchVale && !matchMapa && !matchAj && !matchMotorista) return false;
       }
       return true;
     });

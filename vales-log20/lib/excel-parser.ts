@@ -51,9 +51,9 @@ function getExcelDate(row: unknown[], index: number): string | null {
  * idx 12: Cód. Ajudante 2
  * idx 13: Ajudante 2
  * idx 14: Mapa
- * idx 15: Data (Excel serial)
+ * idx 15: Data Emissão (coluna P — usada como data_emissao)
  * idx 18: Vale (numero)
- * idx 19: Emissão Vale (Excel serial)
+ * idx 19: Data Rota (coluna T — usada como data_rota)
  * idx 20: Item Tipo
  * idx 22: Item (product name)
  * idx 28: Qtde Diferença
@@ -142,8 +142,8 @@ function groupByVale(rows: ExcelRow[]): ImportacaoSummary {
     if (!vale) {
       vale = {
         numeroVale: row.numeroVale,
-        dataEmissao: row.emissaoVale,
-        dataRota: row.data,
+        dataEmissao: row.data,
+        dataRota: row.emissaoVale,
         mapa: row.mapa,
         motorista: row.motorista,
         veiculo: row.veiculo,
