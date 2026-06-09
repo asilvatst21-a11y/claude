@@ -528,6 +528,7 @@ export default function Gsdpq() {
   const [filtroFuncao, setFiltroFuncao] = useState('Todas')
   const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
   const [mostrarTudo, setMostrarTudo] = useState(false)
+  const [completoMesState, setCompletoMesState] = useState('')
 
   async function carregarDados() {
     if (!usuario) return
@@ -1099,12 +1100,8 @@ export default function Gsdpq() {
               return m ? `${m[2]}/${m[3]}` : null
             }).filter((m): m is string => !!m))).sort().reverse()
 
-            const [completoMes, setCompletoMes] = [
-              (completoData.match(/^(\d{2})\/(\d{2})\/(\d{4})/) ?? [])[2] && (completoData.match(/^(\d{2})\/(\d{2})\/(\d{4})/) ?? [])[3]
-                ? `${(completoData.match(/^(\d{2})\/(\d{2})\/(\d{4})/) ?? [])[2]}/${(completoData.match(/^(\d{2})\/(\d{2})\/(\d{4})/) ?? [])[3]}`
-                : '',
-              (_mes: string) => { setCompletoData(''); setCompletoColab('') }
-            ]
+            const completoMes = completoMesState
+            const setCompletoMes = (mes: string) => { setCompletoMesState(mes); setCompletoData(''); setCompletoColab('') }
 
             const datasDoMes = completoMes
               ? todasDatas.filter(d => {
@@ -1147,7 +1144,7 @@ export default function Gsdpq() {
                     <label className="block text-xs text-gray-500 font-medium mb-1">Mês</label>
                     <select
                       value={completoMes}
-                      onChange={e => { setCompletoMes(e.target.value); setCompletoData(''); setCompletoColab('') }}
+                      onChange={e => setCompletoMes(e.target.value)}
                       className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                     >
                       <option value="">Todos os meses</option>
