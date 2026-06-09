@@ -1092,23 +1092,72 @@ export default function Gsdpq() {
 
           {/* ── GSD Completo ── */}
           {abaAtiva === 'completo' && (() => {
-            const datasDisponiveis = Array.from(new Set(avaliacoes.map(a => a.data_avaliacao).filter((d): d is string => !!d))).sort().reverse()
-            const avsDaData = completoData ? avaliacoes.filter(a => a.data_avaliacao === completoData) : []
-            const colaboradoresDaData = Array.from(new Set(avsDaData.map(a => a.colaborador_nome))).sort()
-            const avsDoColab = completoColab ? avsDaData.filter(a => a.colaborador_nome === completoColab) : []
-            const realizadoPor = avsDoColab[0]?.realizado_por ?? ''
-            const observacoes = avsDoColab[0]?.observacoes ?? ''
-            const questoesDaAv = Array.from(new Set(avsDoColab.map(a => a.questao)))
+            // Meses disponíveis extraídos das datas (DD/MM/YYYY → MM/YYYY)
+            const todasDatas = Array.from(new Set(avaliacoes.map(a => a.data_avaliacao).filter((d): d is string => !!d)))
+            const mesesDisponiveis = Array.from(new Set(todasDatas.map(d => {
+              const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+              return m ? `${m[2]}/${m[3]}` : null
+            }).filter((m): m is string => !!m))).sort().reverse()
 
-            const nos = avsDoColab.filter(a => a.resultado === 'NO').length
-            const oks = avsDoColab.filter(a => a.resultado === 'OK').length
-            const total = nos + oks
-            const conformidade = total > 0 ? Math.round((oks / total) * 100) : 0
+            const [completoMes, setCompletoMes] = [
+              (completoData.match(/^(\d{2})\/(\d{2})\/(\d{4})/) ?? [])[2] && (completoData.match(/^(\d{2})\/(\d{2})\/(\d{4})/) ?? [])[3]
+                ? `${(completoData.match(/^(\d{2})\/(\d{2})\/(\d{4})/) ?? [])[2]}/${(completoData.match(/^(\d{2})\/(\d{2})\/(\d{4})/) ?? [])[3]}`
+                : '',
+              (_mes: string) => { setCompletoData(''); setCompletoColab('') }
+            ]
+
+            const datasDoMes = completoMes
+              ? todasDatas.filter(d => {
+                  const m = d.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+                  return m ? `${m[2]}/${m[3]}` === completoMes : false
+                }).sort().reverse()
+              : todasDatas.sort().reverse()
+
+            // Agrupa por sessão: data + realizado_por (identifica o GSD)
+            const avsDaData = completoData ? avaliacoes.filter(a => a.data_avaliacao === completoData) : []
+
+            // Sessões = grupos únicos de (realizado_por) nessa data
+            const sessoes = Array.from(new Map(
+              avsDaData.map(a => [a.realizado_por ?? '', a.realizado_por ?? ''])
+            ).entries()).map(([avaliador]) => ({
+              avaliador,
+              colaboradores: Array.from(new Set(avsDaData.filter(a => (a.realizado_por ?? '') === avaliador).map(a => a.colaborador_nome))).sort(),
+            }))
+
+            // Sessão do colaborador selecionado
+            const sessaoAtiva = completoColab ? sessoes.find(s => s.colaboradores.includes(completoColab)) : null
+            const colabsDaSessao = sessaoAtiva?.colaboradores ?? []
+
+            // Questões únicas da sessão (union de todos os colaboradores)
+            const questoesDaSessao = Array.from(new Set(
+              avsDaData.filter(a => (a.realizado_por ?? '') === (sessaoAtiva?.avaliador ?? '')).map(a => a.questao)
+            ))
+
+            const cfgCat = {
+              'Segurança': { bg: 'bg-blue-50', text: 'text-blue-700' },
+              'Qualidade': { bg: 'bg-green-50', text: 'text-green-700' },
+              'Produtividade': { bg: 'bg-purple-50', text: 'text-purple-700' },
+            }
 
             return (
               <div className="space-y-4">
                 {/* Seletores */}
                 <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap gap-4 items-end">
+                  <div>
+                    <label className="block text-xs text-gray-500 font-medium mb-1">Mês</label>
+                    <select
+                      value={completoMes}
+                      onChange={e => { setCompletoMes(e.target.value); setCompletoData(''); setCompletoColab('') }}
+                      className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                    >
+                      <option value="">Todos os meses</option>
+                      {mesesDisponiveis.map(m => {
+                        const [mm, yyyy] = m.split('/')
+                        const label = new Date(`${yyyy}-${mm}-01`).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+                        return <option key={m} value={m}>{label.charAt(0).toUpperCase() + label.slice(1)}</option>
+                      })}
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-xs text-gray-500 font-medium mb-1">Data da avaliação</label>
                     <select
@@ -1117,76 +1166,118 @@ export default function Gsdpq() {
                       className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                     >
                       <option value="">Selecione a data...</option>
-                      {datasDisponiveis.map(d => <option key={d} value={d}>{d}</option>)}
+                      {datasDoMes.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                   </div>
                   {completoData && (
                     <div>
-                      <label className="block text-xs text-gray-500 font-medium mb-1">Colaborador</label>
+                      <label className="block text-xs text-gray-500 font-medium mb-1">Motorista / Colaborador</label>
                       <select
                         value={completoColab}
                         onChange={e => setCompletoColab(e.target.value)}
                         className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                       >
-                        <option value="">Selecione o colaborador...</option>
-                        {colaboradoresDaData.map(c => <option key={c} value={c}>{c}</option>)}
+                        <option value="">Selecione...</option>
+                        {sessoes.map(s => (
+                          <optgroup key={s.avaliador} label={`Avaliado por: ${s.avaliador || '—'}`}>
+                            {s.colaboradores.map(c => <option key={c} value={c}>{c}</option>)}
+                          </optgroup>
+                        ))}
                       </select>
-                    </div>
-                  )}
-                  {completoColab && (
-                    <div className="flex gap-4 ml-auto text-center">
-                      <div><p className="text-xs text-gray-400">Conformidade</p><p className={`text-2xl font-bold ${conformidade >= 80 ? 'text-brand-700' : conformidade >= 60 ? 'text-yellow-600' : 'text-red-600'}`}>{conformidade}%</p></div>
-                      <div><p className="text-xs text-gray-400">NOs</p><p className="text-2xl font-bold text-red-600">{nos}</p></div>
-                      <div><p className="text-xs text-gray-400">OKs</p><p className="text-2xl font-bold text-brand-700">{oks}</p></div>
                     </div>
                   )}
                 </div>
 
-                {/* Cabeçalho da avaliação */}
-                {completoColab && avsDoColab.length > 0 && (
-                  <div className="bg-white rounded-xl border border-gray-200 p-4">
-                    <div className="flex flex-wrap gap-4 text-sm mb-3">
-                      <span><span className="text-gray-400">Avaliador:</span> <strong>{realizadoPor || '—'}</strong></span>
-                      <span><span className="text-gray-400">Data:</span> <strong>{completoData}</strong></span>
+                {/* Tabela comparativa do GSD */}
+                {sessaoAtiva && colabsDaSessao.length > 0 && (
+                  <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    {/* Header da sessão */}
+                    <div className="bg-gray-50 border-b border-gray-200 px-4 py-3 flex flex-wrap gap-4 items-center">
+                      <div>
+                        <span className="text-xs text-gray-500">Avaliador: </span>
+                        <span className="text-sm font-semibold text-gray-800">{sessaoAtiva.avaliador || '—'}</span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-gray-500">Data: </span>
+                        <span className="text-sm font-semibold text-gray-800">{completoData}</span>
+                      </div>
+                      <div>
+                        <span className="text-xs text-gray-500">GSD: </span>
+                        <span className="text-sm font-semibold text-gray-800">{colabsDaSessao.length} pessoa{colabsDaSessao.length > 1 ? 's' : ''}</span>
+                      </div>
                     </div>
-                    {observacoes && <p className="text-xs text-gray-500 italic bg-gray-50 rounded px-3 py-2">"{observacoes}"</p>}
 
-                    {/* Questões por categoria */}
-                    {(['Segurança', 'Qualidade', 'Produtividade'] as Categoria[]).map(cat => {
-                      const questoesCat = questoesDaAv.filter(q => getCategoriaQuestao(q) === cat)
-                      if (questoesCat.length === 0) return null
-                      const cfgCat = {
-                        'Segurança': { bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
-                        'Qualidade': { bg: 'bg-green-50', text: 'text-green-700', border: 'border-green-200' },
-                        'Produtividade': { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200' },
-                      }[cat]
-                      return (
-                        <div key={cat} className="mt-4">
-                          <p className={`text-xs font-bold uppercase px-2 py-1 rounded ${cfgCat.bg} ${cfgCat.text} inline-block mb-2`}>{cat}</p>
-                          <div className="divide-y divide-gray-100 border border-gray-100 rounded-lg overflow-hidden">
-                            {questoesCat.map(q => {
-                              const av = avsDoColab.find(a => a.questao === q)
-                              const res = av?.resultado ?? '—'
-                              const isNo = res === 'NO'
-                              const isOk = res === 'OK'
+                    {/* Tabela questões × colaboradores */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-200">
+                            <th className="text-left px-4 py-2 text-xs text-gray-500 font-medium w-[55%]">Questão</th>
+                            {colabsDaSessao.map(c => (
+                              <th key={c} className={`px-3 py-2 text-xs font-semibold text-center min-w-[110px] ${c === completoColab ? 'bg-brand-50 text-brand-700' : 'text-gray-600'}`}>
+                                {c.split(' ').slice(0, 2).join(' ')}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(['Segurança', 'Qualidade', 'Produtividade'] as Categoria[]).map(cat => {
+                            const questoesCat = questoesDaSessao.filter(q => getCategoriaQuestao(q) === cat)
+                            if (questoesCat.length === 0) return null
+                            return (
+                              <>
+                                <tr key={`header-${cat}`} className={`${cfgCat[cat].bg}`}>
+                                  <td colSpan={colabsDaSessao.length + 1} className={`px-4 py-1.5 text-xs font-bold uppercase ${cfgCat[cat].text}`}>{cat}</td>
+                                </tr>
+                                {questoesCat.map(q => {
+                                  const respostas = colabsDaSessao.map(c => {
+                                    const av = avsDaData.find(a => a.colaborador_nome === c && a.questao === q && (a.realizado_por ?? '') === sessaoAtiva.avaliador)
+                                    return av?.resultado ?? '—'
+                                  })
+                                  const temNo = respostas.some(r => r === 'NO')
+                                  return (
+                                    <tr key={q} className={`border-b border-gray-100 ${temNo ? 'bg-red-50' : 'hover:bg-gray-50'}`}>
+                                      <td className="px-4 py-2 text-xs text-gray-700 leading-snug">{q.replace(/_\d+$/, '')}</td>
+                                      {respostas.map((res, i) => {
+                                        const isNo = res === 'NO'
+                                        const isOk = res === 'OK'
+                                        return (
+                                          <td key={i} className={`px-3 py-2 text-center ${colabsDaSessao[i] === completoColab ? 'bg-brand-50/50' : ''}`}>
+                                            <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded border ${isNo ? 'bg-red-100 text-red-700 border-red-200' : isOk ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-400 border-gray-200'}`}>
+                                              {res}
+                                            </span>
+                                          </td>
+                                        )
+                                      })}
+                                    </tr>
+                                  )
+                                })}
+                              </>
+                            )
+                          })}
+                          {/* Linha de totais */}
+                          <tr className="bg-gray-50 border-t-2 border-gray-200 font-semibold">
+                            <td className="px-4 py-2 text-xs text-gray-600">Conformidade</td>
+                            {colabsDaSessao.map(c => {
+                              const avsC = avsDaData.filter(a => a.colaborador_nome === c && (a.realizado_por ?? '') === sessaoAtiva.avaliador)
+                              const nos = avsC.filter(a => a.resultado === 'NO').length
+                              const oks = avsC.filter(a => a.resultado === 'OK').length
+                              const pct = nos + oks > 0 ? Math.round((oks / (nos + oks)) * 100) : 0
                               return (
-                                <div key={q} className={`flex items-start gap-3 px-3 py-2.5 ${isNo ? 'bg-red-50' : ''}`}>
-                                  <span className={`shrink-0 text-xs font-bold px-2 py-0.5 rounded border mt-0.5 ${isNo ? 'bg-red-100 text-red-700 border-red-200' : isOk ? 'bg-green-100 text-green-700 border-green-200' : 'bg-gray-100 text-gray-500 border-gray-200'}`}>
-                                    {res}
-                                  </span>
-                                  <span className="text-sm text-gray-700">{q.replace(/_\d+$/, '')}</span>
-                                </div>
+                                <td key={c} className={`px-3 py-2 text-center text-sm font-bold ${pct >= 80 ? 'text-brand-700' : pct >= 60 ? 'text-yellow-600' : 'text-red-600'} ${c === completoColab ? 'bg-brand-50/50' : ''}`}>
+                                  {pct}%
+                                </td>
                               )
                             })}
-                          </div>
-                        </div>
-                      )
-                    })}
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
 
-                {completoData && completoColab && avsDoColab.length === 0 && (
-                  <p className="text-center py-10 text-gray-400 text-sm">Nenhuma avaliação encontrada para essa combinação.</p>
+                {completoData && !completoColab && avsDaData.length > 0 && (
+                  <p className="text-center py-6 text-gray-400 text-sm">Selecione um colaborador para ver o GSD completo.</p>
                 )}
               </div>
             )
