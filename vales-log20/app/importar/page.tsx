@@ -43,7 +43,12 @@ export default function ImportarPage() {
   const [importResult, setImportResult] = useState<{
     success: boolean;
     message: string;
-    details?: ImportacaoSummary;
+    totalVales?: number;
+    valesNovos?: number;
+    ajudantesNotificados?: number;
+    dataMinima?: string | null;
+    dataMaxima?: string | null;
+    valesSemData?: number;
   } | null>(null);
 
   const handleFile = async (file: File) => {
@@ -120,12 +125,17 @@ export default function ImportarPage() {
       setImportResult({
         success: true,
         message: `Importação concluída com sucesso!`,
-        details: result,
+        totalVales: result.totalVales,
+        valesNovos: result.valesNovos,
+        ajudantesNotificados: result.ajudantesNotificados,
+        dataMinima: result.dataMinima,
+        dataMaxima: result.dataMaxima,
+        valesSemData: result.valesSemData,
       });
 
       toast({
         title: "Importação concluída",
-        description: `${result.totalVales} vales importados. ${result.ajudantesNotificados} ajudantes notificados via WhatsApp.`,
+        description: `${result.totalVales} vales importados.`,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro desconhecido";
@@ -139,6 +149,14 @@ export default function ImportarPage() {
       setIsImporting(false);
     }
   };
+
+  // Date range from preview data
+  const datasPreview = parsedData
+    ? parsedData.vales.map((v) => v.dataEmissao).filter((d): d is string => !!d).sort()
+    : [];
+  const dataMin = datasPreview[0] ?? null;
+  const dataMax = datasPreview[datasPreview.length - 1] ?? null;
+  const semData = parsedData ? parsedData.vales.filter((v) => !v.dataEmissao).length : 0;
 
   // Count ajudantes that will be notified (those with phone)
   const ajudantesParaNotificar = parsedData
@@ -261,10 +279,17 @@ export default function ImportarPage() {
             </Card>
             <Card>
               <CardContent className="pt-6">
-                <div className="text-2xl font-bold text-green-600">
-                  {ajudantesParaNotificar.length}
+                <div className="text-sm font-semibold tabular-nums">
+                  {dataMin && dataMax
+                    ? dataMin === dataMax
+                      ? dataMin
+                      : <>{dataMin}<br/>até {dataMax}</>
+                    : "—"}
                 </div>
-                <p className="text-sm text-muted-foreground">A notificar (WhatsApp)</p>
+                <p className="text-sm text-muted-foreground mt-0.5">Período de emissão</p>
+                {semData > 0 && (
+                  <p className="text-xs text-yellow-600 mt-1">{semData} sem data</p>
+                )}
               </CardContent>
             </Card>
           </div>
@@ -394,11 +419,15 @@ export default function ImportarPage() {
                 <p className="text-sm text-muted-foreground mt-1">
                   {importResult.message}
                 </p>
-                {importResult.success && importResult.details && (
+                {importResult.success && (
                   <ul className="text-sm mt-2 space-y-1">
-                    <li>• {importResult.details.totalVales} vales processados</li>
-                    <li>• {importResult.details.valesNovos} vales novos criados</li>
-                    <li>• {importResult.details.ajudantesNotificados} ajudantes notificados via WhatsApp</li>
+                    <li>• {importResult.totalVales} vales processados</li>
+                    {importResult.dataMinima && importResult.dataMaxima && (
+                      <li>• Período: {importResult.dataMinima} até {importResult.dataMaxima}</li>
+                    )}
+                    {!!importResult.valesSemData && (
+                      <li className="text-yellow-700">• {importResult.valesSemData} vales sem data de emissão</li>
+                    )}
                   </ul>
                 )}
               </div>

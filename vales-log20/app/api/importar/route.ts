@@ -156,6 +156,11 @@ export async function POST(request: NextRequest) {
       .update({ status: "concluido", total_ajudantes_notificados: 0 })
       .eq("id", importacao.id);
 
+    const datas = summary.vales
+      .map((v) => v.dataEmissao)
+      .filter((d): d is string => !!d)
+      .sort();
+
     return NextResponse.json({
       success: true,
       totalLinhas: summary.totalLinhas,
@@ -163,6 +168,9 @@ export async function POST(request: NextRequest) {
       valesNovos: summary.totalVales,
       ajudantesEncontrados: ajudantesRows.length,
       ajudantesNotificados: 0,
+      dataMinima: datas[0] ?? null,
+      dataMaxima: datas[datas.length - 1] ?? null,
+      valesSemData: summary.vales.filter((v) => !v.dataEmissao).length,
     });
   } catch (error) {
     console.error("Import error:", error);
