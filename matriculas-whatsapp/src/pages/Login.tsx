@@ -40,7 +40,7 @@ export default function Login() {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         <div className="bg-brand-700 px-8 py-6 flex flex-col items-center">
           <img src="/logo.png" alt="LOG20" className="h-20 mb-3 object-contain" />
-          <h1 className="text-white text-2xl font-bold tracking-tight">PDV Crítico</h1>
+          <h1 className="text-white text-2xl font-bold tracking-tight">Painel Analítico</h1>
           <p className="text-brand-200 text-sm mt-1">Sistema de Disparo de Mensagens</p>
         </div>
 
@@ -107,7 +107,7 @@ export default function Login() {
         </form>
 
         <div className="bg-gray-50 px-8 py-4 text-center border-t border-gray-100">
-          <p className="text-xs text-gray-500">© LOG20 Logística — PDV Crítico</p>
+          <p className="text-xs text-gray-500">© LOG20 Logística — Painel Analítico</p>
         </div>
       </div>
     </div>

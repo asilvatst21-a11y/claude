@@ -71,8 +71,8 @@ export default function Layout() {
           <div className="bg-white rounded-lg p-2 mb-3">
             <img src="/logo.png" alt="LOG20" className="h-10 w-full object-contain" />
           </div>
-          <h1 className="text-white text-lg font-bold tracking-tight">PDV Crítico</h1>
-          <p className="text-brand-200 text-xs">Sistema de Disparos</p>
+          <h1 className="text-white text-lg font-bold tracking-tight">Painel Analítico</h1>
+          <p className="text-brand-200 text-xs">LOG20 Logística</p>
         </div>
 
         <nav className="flex-1 p-3 overflow-y-auto space-y-0.5">
