@@ -27,7 +27,8 @@ create index if not exists idx_fluxo_origem  on fluxo_punitivo(filial, origem);
 -- Se a tabela já existia sem as novas colunas, adicione-as:
 ALTER TABLE fluxo_punitivo
   ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'Concluido',
-  ADD COLUMN IF NOT EXISTS motivo TEXT;
+  ADD COLUMN IF NOT EXISTS motivo TEXT,
+  ADD COLUMN IF NOT EXISTS data_infracao DATE;
 
 ALTER TABLE fluxo_punitivo
   ALTER COLUMN tipo_acao DROP NOT NULL;

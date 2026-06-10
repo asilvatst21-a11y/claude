@@ -109,14 +109,15 @@ interface ModalDefinirProps {
   historico: FluxoPunitivo[]
   motivosPadrao: string[]
   onClose: () => void
-  onSalvar: (id: string, tipo: TipoAcao, dias: number | null, data: string, obs: string, motivo: string) => Promise<void>
+  onSalvar: (id: string, tipo: TipoAcao, dias: number | null, data: string, dataInfracao: string, obs: string, motivo: string) => Promise<void>
 }
 
 function ModalDefinirAcao({ solicitacao, historico, motivosPadrao, onClose, onSalvar }: ModalDefinirProps) {
   const proxima = calcProxima(historico)
   const [tipo,   setTipo]   = useState<TipoAcao>(proxima.tipo)
   const [dias,   setDias]   = useState('')
-  const [data,   setData]   = useState(solicitacao.data_acao?.slice(0, 10) ?? new Date().toISOString().slice(0, 10))
+  const [data,   setData]   = useState(new Date().toISOString().slice(0, 10))
+  const [dataInfracao, setDataInfracao] = useState(solicitacao.data_infracao?.slice(0, 10) ?? solicitacao.data_acao?.slice(0, 10) ?? '')
   const [obs,    setObs]    = useState('')
   const [motivo, setMotivo] = useState(solicitacao.motivo ?? '')
   const [saving, setSaving] = useState(false)
@@ -127,7 +128,7 @@ function ModalDefinirAcao({ solicitacao, historico, motivosPadrao, onClose, onSa
 
   async function handleSave() {
     setSaving(true)
-    await onSalvar(solicitacao.id, tipo, tipo === 'Suspensão' ? (parseInt(dias) || null) : null, data, obs, motivo)
+    await onSalvar(solicitacao.id, tipo, tipo === 'Suspensão' ? (parseInt(dias) || null) : null, data, dataInfracao, obs, motivo)
     setSaving(false)
   }
 
@@ -229,10 +230,18 @@ function ModalDefinirAcao({ solicitacao, historico, motivosPadrao, onClose, onSa
             </div>
           )}
 
-          <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Data da Ação</label>
-            <input type="date" value={data} onChange={e => setData(e.target.value)}
-              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Data da infração</label>
+              <input type="date" value={dataInfracao} onChange={e => setDataInfracao(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+              <p className="text-[10px] text-gray-400 mt-1">Aparece no documento: "…no dia DD/MM/AAAA"</p>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Data da ação</label>
+              <input type="date" value={data} onChange={e => setData(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+            </div>
           </div>
 
           <div>
@@ -272,7 +281,9 @@ function ModalNovaAcao({ filial, colaboradores, registradoPor, onClose, onSalvar
   const [novoNome, setNovoNome] = useState('')
   const [tipo,     setTipo]     = useState<TipoAcao>('Advertência Verbal')
   const [data,     setData]     = useState(new Date().toISOString().slice(0, 10))
+  const [dataInfracao, setDataInfracao] = useState('')
   const [dias,     setDias]     = useState('')
+  const [motivo,   setMotivo]   = useState('')
   const [obs,      setObs]      = useState('')
   const [saving,   setSaving]   = useState(false)
 
@@ -284,9 +295,10 @@ function ModalNovaAcao({ filial, colaboradores, registradoPor, onClose, onSalvar
     await onSalvar({
       filial, colaborador_nome: nomeColab, origem: 'Manual',
       tipo_acao: tipo, dias_suspensao: tipo === 'Suspensão' ? (parseInt(dias) || null) : null,
-      data_acao: data || null, observacao: obs.trim() || null,
+      data_acao: data || null, data_infracao: dataInfracao || null,
+      observacao: obs.trim() || null,
       registrado_por: registradoPor, source_id: null,
-      status: 'Concluido', motivo: null,
+      status: 'Concluido', motivo: motivo.trim() || null,
     })
     setSaving(false)
   }
@@ -332,15 +344,28 @@ function ModalNovaAcao({ filial, colaboradores, registradoPor, onClose, onSalvar
             </div>
           )}
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Data</label>
-            <input type="date" value={data} onChange={e => setData(e.target.value)}
-              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+            <label className="text-xs font-medium text-gray-600 block mb-1">Motivo</label>
+            <input value={motivo} onChange={e => setMotivo(e.target.value)}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              placeholder="Ex: Falta injustificada" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Data da infração</label>
+              <input type="date" value={dataInfracao} onChange={e => setDataInfracao(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">Data da ação</label>
+              <input type="date" value={data} onChange={e => setData(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400" />
+            </div>
           </div>
           <div>
             <label className="text-xs font-medium text-gray-600 block mb-1">Observação</label>
             <textarea rows={2} value={obs} onChange={e => setObs(e.target.value)}
               className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none"
-              placeholder="Motivo, contexto, etc." />
+              placeholder="Contexto adicional, etc." />
           </div>
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex gap-3 justify-end">
@@ -413,7 +438,7 @@ function ColabRow({ nome, historico, filial }: { nome: string; historico: FluxoP
                     <button
                       onClick={() => imprimirDocumentoFluxo({
                         tipo: h.tipo_acao!, nome, motivo: h.motivo || h.observacao || '',
-                        data: h.data_acao, dias: h.dias_suspensao, filial,
+                        data: h.data_acao, dataInfracao: h.data_infracao, dias: h.dias_suspensao, filial,
                       })}
                       title="Imprimir documento"
                       className="shrink-0 text-gray-300 hover:text-brand-700 transition-colors">
@@ -472,7 +497,8 @@ export default function FluxoPunitivo() {
       id: 'gsdpq_' + a.id, filial: a.filial,
       colaborador_nome: a.colaborador_nome, origem: 'GSDPQ' as const,
       tipo_acao: a.tipo_acao, dias_suspensao: a.dias_suspensao ?? null,
-      data_acao: a.data_avaliacao ?? null, observacao: a.observacao ?? null,
+      data_acao: a.data_avaliacao ?? null, data_infracao: a.data_avaliacao ?? null,
+      observacao: a.observacao ?? null,
       registrado_por: a.registrado_por ?? null, source_id: a.id,
       status: 'Concluido' as const, motivo: a.questao ?? null,
       created_at: a.created_at,
@@ -483,6 +509,7 @@ export default function FluxoPunitivo() {
       colaborador_nome: a.pessoa_relatada ?? a.colaborador_nome ?? '',
       origem: 'Relatos' as const, tipo_acao: a.tipo_acao,
       dias_suspensao: a.dias_suspensao ?? null, data_acao: a.data_relato ?? null,
+      data_infracao: a.data_relato ?? null,
       observacao: a.observacao ?? null, registrado_por: a.registrado_por ?? null,
       source_id: a.id, status: 'Concluido' as const, motivo: a.tipo_relato ?? null,
       created_at: a.created_at,
@@ -492,7 +519,7 @@ export default function FluxoPunitivo() {
       id: 'tel_' + a.id, filial: a.filial,
       colaborador_nome: a.motorista ?? '',
       origem: 'Telemetria' as const, tipo_acao: a.tipo_acao,
-      dias_suspensao: a.dias_suspensao ?? null, data_acao: null,
+      dias_suspensao: a.dias_suspensao ?? null, data_acao: null, data_infracao: null,
       observacao: a.observacao ?? null, registrado_por: a.registrado_por ?? null,
       source_id: a.id, status: 'Concluido' as const, motivo: null,
       created_at: a.created_at,
@@ -553,17 +580,19 @@ export default function FluxoPunitivo() {
       imprimirDocumentoFluxo({
         tipo: entry.tipo_acao!, nome: entry.colaborador_nome,
         motivo: entry.motivo || entry.observacao || '',
-        data: entry.data_acao, dias: entry.dias_suspensao, filial: usuario!.filial,
+        data: entry.data_acao, dataInfracao: entry.data_infracao,
+        dias: entry.dias_suspensao, filial: usuario!.filial,
       })
     }
     carregar()
   }
 
-  async function handleDefinirAcao(id: string, tipo: TipoAcao, dias: number | null, data: string, obs: string, motivo: string) {
+  async function handleDefinirAcao(id: string, tipo: TipoAcao, dias: number | null, data: string, dataInfracao: string, obs: string, motivo: string) {
     await supabase.from('fluxo_punitivo').update({
       tipo_acao: tipo,
       dias_suspensao: dias,
       data_acao: data || null,
+      data_infracao: dataInfracao || null,
       observacao: obs.trim() || null,
       motivo: motivo.trim() || null,
       status: 'Concluido',
@@ -573,7 +602,7 @@ export default function FluxoPunitivo() {
       imprimirDocumentoFluxo({
         tipo, nome: modalDefinir?.colaborador_nome ?? '',
         motivo: motivo.trim() || obs.trim(),
-        data, dias, filial: usuario!.filial,
+        data, dataInfracao: dataInfracao || null, dias, filial: usuario!.filial,
       })
     }
     carregar()

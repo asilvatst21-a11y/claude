@@ -75,11 +75,32 @@ interface DadosDocumento {
   nome: string
   motivo: string
   data: string | null
+  dataInfracao?: string | null
   dias?: number | null
   filial: string
 }
 
-function docAdvertencia({ nome, motivo, data, filial }: DadosDocumento): string {
+function lowerFirst(s: string): string {
+  return s ? s.charAt(0).toLowerCase() + s.slice(1) : s
+}
+
+/** Compõe a frase da infração: "Por falta injustificada no dia 09/06/2026." */
+function fraseInfracao(motivo: string, dataInfracao: string | null): string {
+  let texto = (motivo || '').trim()
+  if (!texto) texto = '—'
+  // já contém uma data? não duplica
+  const jaTemData = /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(texto)
+  // prefixo "Por"
+  if (!/^por\b/i.test(texto) && texto !== '—') texto = 'Por ' + lowerFirst(texto)
+  // anexa a data da infração
+  if (dataInfracao && !jaTemData) {
+    texto = texto.replace(/\.\s*$/, '') + ` no dia ${dataCurta(dataInfracao)}`
+  }
+  if (!texto.endsWith('.')) texto += '.'
+  return texto
+}
+
+function docAdvertencia({ nome, motivo, data, dataInfracao, filial }: DadosDocumento): string {
   const cidade = cidadeDaFilial(filial)
   return `
     <div class="logo"><img src="${location.origin}/logo.png" alt="LOG20" /></div>
@@ -90,7 +111,7 @@ function docAdvertencia({ nome, motivo, data, filial }: DadosDocumento): string 
       Na conformidade da Consolidação das Leis do Trabalho, fica advertido pelas
       faltas a seguir discriminadas:
     </div>
-    <div class="motivo">${motivo || '—'}</div>
+    <div class="motivo">${fraseInfracao(motivo, dataInfracao ?? null)}</div>
     <div class="corpo">
       Não só esperamos que tome as necessárias providências a fim de que não se
       repitam as irregularidades acima discriminadas, como também aproveitamos para
@@ -115,7 +136,7 @@ function docAdvertencia({ nome, motivo, data, filial }: DadosDocumento): string 
   `
 }
 
-function docSuspensao({ nome, motivo, data, dias, filial }: DadosDocumento): string {
+function docSuspensao({ nome, motivo, data, dataInfracao, dias, filial }: DadosDocumento): string {
   const cidade = cidadeDaFilial(filial)
   const n = dias && dias > 0 ? dias : 1
   return `
@@ -123,7 +144,7 @@ function docSuspensao({ nome, motivo, data, dias, filial }: DadosDocumento): str
     <div class="titulo">Carta de Suspensão no Trabalho</div>
     <div class="corpo"><strong>De:</strong> LOG20 Logística S/A</div>
     <div class="corpo"><strong>Para:</strong> ${nome}</div>
-    <div class="motivo">${motivo || '—'}</div>
+    <div class="motivo">${fraseInfracao(motivo, dataInfracao ?? null)}</div>
     <div class="corpo">
       Em razão disso será suspenso de suas atividades pelo prazo de ${n}
       (${diasExtenso(n)}) dia${n > 1 ? 's' : ''} para que pense em suas atitudes e

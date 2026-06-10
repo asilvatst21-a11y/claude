@@ -211,6 +211,7 @@ export interface FluxoPunitivo {
   tipo_acao: string | null
   dias_suspensao: number | null
   data_acao: string | null
+  data_infracao: string | null
   observacao: string | null
   registrado_por: string | null
   source_id: string | null
