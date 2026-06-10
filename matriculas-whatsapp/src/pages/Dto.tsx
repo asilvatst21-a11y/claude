@@ -248,29 +248,38 @@ export default function Dto() {
     setObservacoes(prev => prev.map(o => o.id === id ? { ...o, status_acao: status } : o))
   }
 
-  async function solicitarFluxo(o: DtoObservacao) {
-    if (!usuario) return
+  // Consolida todos os desvios do mesmo colaborador no mesmo dia em um único fluxo
+  async function solicitarFluxo(obs: DtoObservacao[]) {
+    if (!usuario || obs.length === 0) return
     const { data: filialData } = await supabase.from('filiais').select('grupo_fluxo_whatsapp').eq('nome', usuario.filial).single()
     const grupo = filialData?.grupo_fluxo_whatsapp ?? null
 
+    const o0 = obs[0]
     const registradoPor = usuario.nome ?? usuario.login
-    const motivo = [o.qual_desvio, o.tarefa_com_desvio].filter(Boolean).join(' — ') || 'Desvio de segurança'
+    const dia = o0.data_aplicacao ? o0.data_aplicacao.slice(0, 10) : null
+
+    const itens = obs.map(o => [o.qual_desvio, o.tarefa_com_desvio].filter(Boolean).join(' — ') || 'Desvio de segurança')
+    const motivo = itens.length <= 1
+      ? itens[0]
+      : `${itens.length} desvio(s):\n` + itens.map((l, i) => `${i + 1}. ${l}`).join('\n')
 
     await supabase.from('fluxo_punitivo').insert({
       filial: usuario.filial,
-      colaborador_nome: o.colaborador,
+      colaborador_nome: o0.colaborador,
       origem: 'DTO',
       tipo_acao: null,
       status: 'Solicitado',
       motivo,
-      data_acao: o.data_aplicacao ? o.data_aplicacao.slice(0, 10) : null,
+      data_acao: dia,
+      data_infracao: dia,
       observacao: null,
       registrado_por: registradoPor,
-      source_id: o.id,
+      source_id: obs.map(o => o.id).join(','),
     })
 
     if (grupo) {
-      const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${o.colaborador}\n📋 Origem: DTO\n🗓️ Data: ${o.data_aplicacao ?? '—'}\n⚠️ Desvio: ${motivo}\n✍️ Solicitado por: ${registradoPor}`
+      const lista = itens.map((l, i) => `${i + 1}. ${l}`).join('\n')
+      const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${o0.colaborador}\n📋 Origem: DTO\n🗓️ Data: ${o0.data_aplicacao ?? '—'}\n⚠️ Desvios (${itens.length}):\n${lista}\n✍️ Solicitado por: ${registradoPor}`
       const { sucesso, erro } = await enviarMensagemGrupo(grupo, mensagem)
       await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: sucesso ? 'enviado' : 'erro', erro: erro ?? null })
       if (!sucesso) alert(`Solicitação registrada, mas a mensagem para o grupo falhou:\n${erro}`)
@@ -278,7 +287,7 @@ export default function Dto() {
       alert('Solicitação registrada. Configure o grupo de WhatsApp da filial em Admin → Filiais para enviar a notificação automaticamente.')
     }
 
-    setSolicitados(prev => new Set([...prev, o.id]))
+    setSolicitados(prev => new Set([...prev, ...obs.map(o => o.id)]))
   }
 
   function exportarExcel() {
@@ -540,36 +549,57 @@ export default function Dto() {
                                   }).filter(Boolean)}
                                 </div>
                               </div>
-                              {a.obs.filter(o => o.houve_desvio === 'SIM').length > 0 && (
-                                <div>
-                                  <p className="text-xs font-semibold text-red-700 uppercase mb-2">Desvios de Segurança</p>
-                                  <div className="space-y-1.5">
-                                    {a.obs.filter(o => o.houve_desvio === 'SIM').map(o => (
-                                      <div key={o.id} className="bg-red-50 rounded p-2.5 text-xs border border-red-100">
-                                        <div className="flex justify-between mb-0.5">
-                                          <span className="font-semibold text-red-800">{o.colaborador}</span>
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-gray-500">{o.data_aplicacao}</span>
-                                            {solicitados.has(o.id) ? (
-                                              <span className="flex items-center gap-0.5 text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">
-                                                <Check size={10} /> Solicitado
-                                              </span>
-                                            ) : (
-                                              <button onClick={() => solicitarFluxo(o)}
-                                                className="flex items-center gap-0.5 text-xs text-orange-700 bg-white border border-orange-200 px-1.5 py-0.5 rounded hover:bg-orange-50">
-                                                <Send size={10} /> Solicitar Fluxo
-                                              </button>
-                                            )}
+                              {a.obs.filter(o => o.houve_desvio === 'SIM').length > 0 && (() => {
+                                // Agrupa desvios por colaborador + dia (um único fluxo por dia)
+                                const desviosMap = new Map<string, DtoObservacao[]>()
+                                a.obs.filter(o => o.houve_desvio === 'SIM').forEach(o => {
+                                  const dia = (o.data_aplicacao ?? '').slice(0, 10)
+                                  const key = `${o.colaborador}__${dia}`
+                                  if (!desviosMap.has(key)) desviosMap.set(key, [])
+                                  desviosMap.get(key)!.push(o)
+                                })
+                                const gruposDesvio = [...desviosMap.values()]
+                                return (
+                                  <div>
+                                    <p className="text-xs font-semibold text-red-700 uppercase mb-2">Desvios de Segurança</p>
+                                    <div className="space-y-1.5">
+                                      {gruposDesvio.map(g => {
+                                        const o0 = g[0]
+                                        const ids = g.map(o => o.id)
+                                        const jaSolic = ids.every(id => solicitados.has(id))
+                                        return (
+                                          <div key={o0.id} className="bg-red-50 rounded p-2.5 text-xs border border-red-100">
+                                            <div className="flex justify-between items-center mb-1">
+                                              <span className="font-semibold text-red-800">{o0.colaborador}</span>
+                                              <div className="flex items-center gap-2">
+                                                <span className="text-gray-500">{o0.data_aplicacao}</span>
+                                                {g.length > 1 && <span className="text-orange-700 font-semibold">{g.length} desvios</span>}
+                                                {jaSolic ? (
+                                                  <span className="flex items-center gap-0.5 text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">
+                                                    <Check size={10} /> Solicitado
+                                                  </span>
+                                                ) : (
+                                                  <button onClick={() => solicitarFluxo(g)}
+                                                    className="flex items-center gap-0.5 text-xs text-orange-700 bg-white border border-orange-200 px-1.5 py-0.5 rounded hover:bg-orange-50">
+                                                    <Send size={10} /> Solicitar Fluxo{g.length > 1 ? ` (${g.length})` : ''}
+                                                  </button>
+                                                )}
+                                              </div>
+                                            </div>
+                                            {g.map(o => (
+                                              <div key={o.id} className="pl-2 border-l-2 border-red-200 mb-1 last:mb-0">
+                                                {o.tarefa_com_desvio && <p className="text-red-700">Tarefa: {o.tarefa_com_desvio}</p>}
+                                                {o.qual_desvio && <p className="text-red-700">Desvio: {o.qual_desvio}</p>}
+                                                {o.acao_gerada && <p className="text-gray-500 italic">Ação: {o.acao_gerada}</p>}
+                                              </div>
+                                            ))}
                                           </div>
-                                        </div>
-                                        {o.tarefa_com_desvio && <p className="text-red-700 mb-0.5">Tarefa: {o.tarefa_com_desvio}</p>}
-                                        {o.qual_desvio && <p className="text-red-700">Desvio: {o.qual_desvio}</p>}
-                                        {o.acao_gerada && <p className="text-gray-500 italic mt-1">Ação: {o.acao_gerada}</p>}
-                                      </div>
-                                    ))}
+                                        )
+                                      })}
+                                    </div>
                                   </div>
-                                </div>
-                              )}
+                                )
+                              })()}
                             </div>
                           </td>
                         </tr>

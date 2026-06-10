@@ -251,12 +251,28 @@ function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, solicitados }:
   nome: string
   relatos: Relato[]
   acoes: RelatoAcao[]
-  onSolicitarFluxo: (r: Relato) => void
+  onSolicitarFluxo: (relatos: Relato[]) => void
   solicitados: Set<string>
 }) {
   const meus = relatos
     .filter(r => r.pessoa_relatada === nome)
     .sort((a, b) => (b.data_ocorrencia ?? '').localeCompare(a.data_ocorrencia ?? ''))
+
+  // Atos inseguros pendentes (sem ação, não-GSDPQ, não solicitados) agrupados por dia
+  const pendentesAto = meus.filter(r =>
+    r.classificacao?.includes('ATO') &&
+    !r.origem?.toUpperCase().includes('GSDPQ') &&
+    !acoes.find(a => a.relato_id === r.id) &&
+    !solicitados.has(r.id))
+  const gruposPendentes = (() => {
+    const map = new Map<string, Relato[]>()
+    pendentesAto.forEach(r => {
+      const dia = (r.data_ocorrencia ?? '').slice(0, 10)
+      if (!map.has(dia)) map.set(dia, [])
+      map.get(dia)!.push(r)
+    })
+    return [...map.entries()].map(([dia, lista]) => ({ dia, lista }))
+  })()
 
   const breakdown = [
     { label: 'Ato Inseguro',       color: '#ef4444', match: 'ATO'      },
@@ -309,10 +325,7 @@ function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, solicitados }:
                             ? <span className="shrink-0 flex items-center gap-0.5 text-xs text-green-700 border border-green-200 bg-green-50 px-1.5 py-0.5 rounded">
                                 <Check size={10} /> Solicitado
                               </span>
-                            : <button onClick={() => onSolicitarFluxo(r)}
-                                className="shrink-0 flex items-center gap-0.5 text-xs text-orange-700 border border-orange-200 bg-orange-50 px-1.5 py-0.5 rounded hover:bg-orange-100">
-                                <Send size={10} /> Solicitar Fluxo
-                              </button>
+                            : <span className="shrink-0 text-xs text-orange-600">• a solicitar</span>
                     )}
                   </div>
                   {r.relator && (
@@ -327,6 +340,19 @@ function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, solicitados }:
               )
             })}
           </div>
+
+          {gruposPendentes.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase">Solicitar fluxo (agrupado por dia)</p>
+              {gruposPendentes.map(g => (
+                <button key={g.dia} onClick={() => onSolicitarFluxo(g.lista)}
+                  className="w-full flex items-center justify-between gap-2 text-xs text-orange-700 border border-orange-200 bg-orange-50 px-3 py-1.5 rounded hover:bg-orange-100 transition-colors">
+                  <span className="flex items-center gap-1.5"><Send size={11} /> {fmtDate(g.dia)}</span>
+                  <span className="font-semibold">{g.lista.length} ocorrência{g.lista.length > 1 ? 's' : ''}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -445,14 +471,20 @@ export default function Relatos() {
     },
   })
 
-  async function solicitarFluxo(relato: Relato) {
-    if (!usuario) return
+  // Consolida todos os relatos do mesmo colaborador no mesmo dia em um único fluxo
+  async function solicitarFluxo(relatos: Relato[]) {
+    if (!usuario || relatos.length === 0) return
     const { data: filialData } = await supabase.from('filiais').select('grupo_fluxo_whatsapp').eq('nome', usuario.filial).single()
     const grupo = filialData?.grupo_fluxo_whatsapp ?? null
 
-    const pessoaRelatada = relato.pessoa_relatada ?? ''
+    const pessoaRelatada = relatos[0].pessoa_relatada ?? ''
     const registradoPor = usuario.nome ?? usuario.login
-    const motivo = [relato.tipo_relato, relato.detalhamento].filter(Boolean).join(' — ')
+    const dia = relatos[0].data_ocorrencia?.slice(0, 10) ?? null
+
+    const itens = relatos.map(r => [r.tipo_relato, r.detalhamento].filter(Boolean).join(' — ')).filter(Boolean)
+    const motivo = itens.length <= 1
+      ? (itens[0] ?? '')
+      : `${itens.length} ocorrência(s):\n` + itens.map((l, i) => `${i + 1}. ${l}`).join('\n')
 
     await supabase.from('fluxo_punitivo').insert({
       filial: usuario.filial,
@@ -461,15 +493,16 @@ export default function Relatos() {
       tipo_acao: null,
       status: 'Solicitado',
       motivo: motivo || null,
-      data_acao: relato.data_ocorrencia?.slice(0, 10) ?? null,
+      data_acao: dia,
+      data_infracao: dia,
       observacao: null,
       registrado_por: registradoPor,
-      source_id: relato.id,
+      source_id: relatos.map(r => r.id).join(','),
     })
 
     if (grupo) {
-      const motivoMsg = motivo.length > 200 ? motivo.slice(0, 200) + '…' : motivo
-      const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${pessoaRelatada}\n📋 Origem: Relatos\n🗓️ Data da ocorrência: ${relato.data_ocorrencia?.slice(0, 10) ?? '—'}${motivo ? `\n📝 Descrição: ${motivoMsg}` : ''}\n✍️ Solicitado por: ${registradoPor}`
+      const lista = itens.map((l, i) => `${i + 1}. ${l}`).join('\n')
+      const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${pessoaRelatada}\n📋 Origem: Relatos\n🗓️ Data: ${dia ?? '—'}\n⚠️ Ocorrências (${itens.length}):\n${lista}\n✍️ Solicitado por: ${registradoPor}`
       const { sucesso, erro } = await enviarMensagemGrupo(grupo, mensagem)
       await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: sucesso ? 'enviado' : 'erro', erro: erro ?? null })
       if (!sucesso) alert(`Solicitação registrada, mas a mensagem para o grupo falhou:\n${erro}`)
@@ -477,7 +510,7 @@ export default function Relatos() {
       alert('Solicitação registrada. Configure o grupo de WhatsApp da filial em Admin → Filiais para enviar a notificação automaticamente.')
     }
 
-    setSolicitados(prev => new Set([...prev, relato.id]))
+    setSolicitados(prev => new Set([...prev, ...relatos.map(r => r.id)]))
   }
 
   async function salvarAcao(tipo: string, dias: number | null, obs: string) {
