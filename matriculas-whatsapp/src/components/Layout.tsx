@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import {
-  Users, CreditCard, Upload, MessageSquare, BarChart2, LogOut, Building2,
+  Users, CreditCard, MessageSquare, BarChart2, LogOut, Building2,
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
@@ -9,7 +9,6 @@ const segItems = [
   { to: '/',          label: 'Dashboard',          icon: BarChart2    },
   { to: '/matriculas',label: 'Matrículas',          icon: CreditCard   },
   { to: '/clientes',  label: 'Clientes',            icon: Users        },
-  { to: '/disparos',  label: 'Disparar Mensagens',  icon: Upload       },
   { to: '/historico', label: 'Histórico',           icon: MessageSquare},
   { to: '/gsdpq',     label: 'Análise GSDPQ',       icon: ClipboardList},
   { to: '/dto',       label: 'Análise DTO',          icon: Activity     },
@@ -67,12 +66,10 @@ export default function Layout() {
   return (
     <div className="min-h-screen flex bg-gray-50">
       <aside className="w-64 bg-brand-700 flex flex-col h-screen sticky top-0 shrink-0">
-        <div className="px-6 py-5 border-b border-brand-600">
-          <div className="bg-white rounded-lg p-2 mb-3">
-            <img src="/logo.png" alt="LOG20" className="h-10 w-full object-contain" />
-          </div>
-          <h1 className="text-white text-lg font-bold tracking-tight">Painel Analítico</h1>
-          <p className="text-brand-200 text-xs">LOG20 Logística</p>
+        <div className="px-6 py-5 border-b border-brand-600 bg-white">
+          <img src="/logo.png" alt="LOG20" className="h-12 w-full object-contain mb-3" />
+          <h1 className="text-brand-700 text-lg font-bold tracking-tight">Painel Analítico</h1>
+          <p className="text-brand-400 text-xs">LOG20 Logística</p>
         </div>
 
         <nav className="flex-1 p-3 overflow-y-auto space-y-0.5">
