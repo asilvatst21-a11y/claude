@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   GitBranch, Plus, X, Loader2, RefreshCw, Building2,
-  ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Clock, Check, Trash2, BookOpen,
+  ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Clock, Check, Trash2, BookOpen, Printer,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { imprimirDocumentoFluxo, geraDocumento } from '../lib/documentos'
 import type { FluxoPunitivo } from '../types'
 
 // ─── Sequência punitiva ──────────────────────────────────────────────────
@@ -358,7 +359,7 @@ function ModalNovaAcao({ filial, colaboradores, registradoPor, onClose, onSalvar
 
 // ─── Linha do colaborador (histórico) ─────────────────────────────────────────
 
-function ColabRow({ nome, historico }: { nome: string; historico: FluxoPunitivo[] }) {
+function ColabRow({ nome, historico, filial }: { nome: string; historico: FluxoPunitivo[]; filial: string }) {
   const [open, setOpen] = useState(false)
   const proxima = calcProxima(historico)
   const concluidos = historico.filter(h => h.status === 'Concluido' && h.tipo_acao)
@@ -408,6 +409,17 @@ function ColabRow({ nome, historico }: { nome: string; historico: FluxoPunitivo[
                     {h.observacao && <p className="text-gray-400 italic truncate">{h.observacao}</p>}
                   </div>
                   {h.registrado_por && <span className="text-gray-400 shrink-0 ml-auto">{h.registrado_por}</span>}
+                  {geraDocumento(h.tipo_acao) && (
+                    <button
+                      onClick={() => imprimirDocumentoFluxo({
+                        tipo: h.tipo_acao!, nome, motivo: h.motivo || h.observacao || '',
+                        data: h.data_acao, dias: h.dias_suspensao, filial,
+                      })}
+                      title="Imprimir documento"
+                      className="shrink-0 text-gray-300 hover:text-brand-700 transition-colors">
+                      <Printer size={14} />
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
@@ -537,6 +549,13 @@ export default function FluxoPunitivo() {
   async function handleSalvarManual(entry: Omit<FluxoPunitivo, 'id' | 'created_at'>) {
     await supabase.from('fluxo_punitivo').insert(entry)
     setModalNova(false)
+    if (geraDocumento(entry.tipo_acao)) {
+      imprimirDocumentoFluxo({
+        tipo: entry.tipo_acao!, nome: entry.colaborador_nome,
+        motivo: entry.motivo || entry.observacao || '',
+        data: entry.data_acao, dias: entry.dias_suspensao, filial: usuario!.filial,
+      })
+    }
     carregar()
   }
 
@@ -550,6 +569,13 @@ export default function FluxoPunitivo() {
       status: 'Concluido',
     }).eq('id', id)
     setModalDefinir(null)
+    if (geraDocumento(tipo)) {
+      imprimirDocumentoFluxo({
+        tipo, nome: modalDefinir?.colaborador_nome ?? '',
+        motivo: motivo.trim() || obs.trim(),
+        data, dias, filial: usuario!.filial,
+      })
+    }
     carregar()
   }
 
@@ -736,7 +762,7 @@ export default function FluxoPunitivo() {
                 </thead>
                 <tbody>
                   {historicoFiltrado.map(nome => (
-                    <ColabRow key={nome} nome={nome} historico={historico.get(nome) ?? []} />
+                    <ColabRow key={nome} nome={nome} historico={historico.get(nome) ?? []} filial={usuario!.filial} />
                   ))}
                 </tbody>
               </table>
