@@ -20,12 +20,12 @@ const segItems = [
 ]
 
 const genteItems = [
-  { to: '/jornada', label: 'Controle de Jornada', icon: Clock      },
-  { to: '/fluxo',   label: 'Fluxo Punitivo',      icon: GitBranch  },
+  { to: '/jornada', label: 'Controle de Jornada', icon: Clock },
 ]
 
 const adminItems = [
-  { to: '/admin', label: 'Administração', icon: Shield },
+  { to: '/fluxo',  label: 'Fluxo Punitivo',  icon: GitBranch },
+  { to: '/admin',  label: 'Administração',    icon: Shield    },
 ]
 
 function SectionLabel({ children }: { children: React.ReactNode }) {

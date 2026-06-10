@@ -24,6 +24,13 @@ function ProtectedRoutes() {
   return <Layout />
 }
 
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { usuario, loading } = useAuth()
+  if (loading) return null
+  if (!usuario?.admin) return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
 function PublicLogin() {
   const { usuario } = useAuth()
   if (usuario) return <Navigate to="/" replace />
@@ -42,7 +49,8 @@ export default function App() {
             <Route path="/clientes" element={<Clientes />} />
             <Route path="/disparos" element={<Disparos />} />
             <Route path="/historico" element={<Historico />} />
-            <Route path="/admin" element={<Admin />} />
+            <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+            <Route path="/fluxo" element={<AdminRoute><FluxoPunitivo /></AdminRoute>} />
             <Route path="/gsdpq" element={<Gsdpq />} />
             <Route path="/dto" element={<Dto />} />
             <Route path="/dto-gerenciador" element={<DtoGerenciador />} />
@@ -50,7 +58,6 @@ export default function App() {
             <Route path="/relatos" element={<Relatos />} />
             <Route path="/telemetria" element={<Telemetria />} />
             <Route path="/jornada" element={<Jornada />} />
-            <Route path="/fluxo"   element={<FluxoPunitivo />} />
           </Route>
         </Routes>
       </BrowserRouter>
