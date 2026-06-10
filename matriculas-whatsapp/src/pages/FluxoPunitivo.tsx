@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   GitBranch, Plus, X, Loader2, RefreshCw, Building2,
-  ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Clock, Check, Trash2, BookOpen, Printer,
+  ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Clock, Check, Trash2, BookOpen, Printer, RotateCcw,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -74,6 +74,11 @@ function posicaoBar(historico: FluxoPunitivo[]) {
 function fmtDate(s: string | null) {
   if (!s) return '—'
   return new Date(s + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+}
+
+/** Registros reais (em fluxo_punitivo) podem ser reabertos. Legacy (gsdpq_/relato_/tel_) não. */
+function registroEditavel(h: FluxoPunitivo): boolean {
+  return !/^(gsdpq_|relato_|tel_)/.test(h.id)
 }
 
 // ─── SequenciaBar ─────────────────────────────────────────────────────────────
@@ -384,7 +389,7 @@ function ModalNovaAcao({ filial, colaboradores, registradoPor, onClose, onSalvar
 
 // ─── Linha do colaborador (histórico) ─────────────────────────────────────────
 
-function ColabRow({ nome, historico, filial }: { nome: string; historico: FluxoPunitivo[]; filial: string }) {
+function ColabRow({ nome, historico, filial, onReabrir }: { nome: string; historico: FluxoPunitivo[]; filial: string; onReabrir: (h: FluxoPunitivo) => void }) {
   const [open, setOpen] = useState(false)
   const proxima = calcProxima(historico)
   const concluidos = historico.filter(h => h.status === 'Concluido' && h.tipo_acao)
@@ -443,6 +448,14 @@ function ColabRow({ nome, historico, filial }: { nome: string; historico: FluxoP
                       title="Imprimir documento"
                       className="shrink-0 text-gray-300 hover:text-brand-700 transition-colors">
                       <Printer size={14} />
+                    </button>
+                  )}
+                  {registroEditavel(h) && (
+                    <button
+                      onClick={() => onReabrir(h)}
+                      title="Reabrir (voltar para pendente e editar)"
+                      className="shrink-0 text-gray-300 hover:text-orange-500 transition-colors">
+                      <RotateCcw size={14} />
                     </button>
                   )}
                 </div>
@@ -605,6 +618,17 @@ export default function FluxoPunitivo() {
         data, dataInfracao: dataInfracao || null, dias, filial: usuario!.filial,
       })
     }
+    carregar()
+  }
+
+  async function handleReabrir(h: FluxoPunitivo) {
+    if (!window.confirm(`Reabrir a ação de ${h.colaborador_nome}? Ela volta para Pendentes para ser redefinida.`)) return
+    await supabase.from('fluxo_punitivo').update({
+      status: 'Solicitado',
+      tipo_acao: null,
+      dias_suspensao: null,
+    }).eq('id', h.id)
+    setAbaAtiva('pendentes')
     carregar()
   }
 
@@ -791,7 +815,7 @@ export default function FluxoPunitivo() {
                 </thead>
                 <tbody>
                   {historicoFiltrado.map(nome => (
-                    <ColabRow key={nome} nome={nome} historico={historico.get(nome) ?? []} filial={usuario!.filial} />
+                    <ColabRow key={nome} nome={nome} historico={historico.get(nome) ?? []} filial={usuario!.filial} onReabrir={handleReabrir} />
                   ))}
                 </tbody>
               </table>
