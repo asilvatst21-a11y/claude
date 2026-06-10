@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   GitBranch, Plus, X, Loader2, RefreshCw, Building2,
-  ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Clock, Check,
+  ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Clock, Check, Trash2, BookOpen,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -106,24 +106,27 @@ function SequenciaBar({ historico }: { historico: FluxoPunitivo[] }) {
 interface ModalDefinirProps {
   solicitacao: FluxoPunitivo
   historico: FluxoPunitivo[]
+  motivosPadrao: string[]
   onClose: () => void
-  onSalvar: (id: string, tipo: TipoAcao, dias: number | null, data: string, obs: string) => Promise<void>
+  onSalvar: (id: string, tipo: TipoAcao, dias: number | null, data: string, obs: string, motivo: string) => Promise<void>
 }
 
-function ModalDefinirAcao({ solicitacao, historico, onClose, onSalvar }: ModalDefinirProps) {
+function ModalDefinirAcao({ solicitacao, historico, motivosPadrao, onClose, onSalvar }: ModalDefinirProps) {
   const proxima = calcProxima(historico)
   const [tipo,   setTipo]   = useState<TipoAcao>(proxima.tipo)
   const [dias,   setDias]   = useState('')
   const [data,   setData]   = useState(solicitacao.data_acao?.slice(0, 10) ?? new Date().toISOString().slice(0, 10))
   const [obs,    setObs]    = useState('')
+  const [motivo, setMotivo] = useState(solicitacao.motivo ?? '')
   const [saving, setSaving] = useState(false)
+  const isGrupo = solicitacao.origem === 'Grupo'
 
   const sorted = [...historico].filter(h => h.status === 'Concluido' && h.tipo_acao)
     .sort((a, b) => (a.data_acao ?? a.created_at).localeCompare(b.data_acao ?? b.created_at))
 
   async function handleSave() {
     setSaving(true)
-    await onSalvar(solicitacao.id, tipo, tipo === 'Suspensão' ? (parseInt(dias) || null) : null, data, obs)
+    await onSalvar(solicitacao.id, tipo, tipo === 'Suspensão' ? (parseInt(dias) || null) : null, data, obs, motivo)
     setSaving(false)
   }
 
@@ -145,12 +148,37 @@ function ModalDefinirAcao({ solicitacao, historico, onClose, onSalvar }: ModalDe
               <span className={`px-2 py-0.5 rounded border font-medium ${ORIGEM_COLOR[solicitacao.origem] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}>{solicitacao.origem}</span>
               <span className="text-gray-500">{fmtDate(solicitacao.data_acao)}</span>
             </div>
-            {solicitacao.motivo && (
+            {!isGrupo && solicitacao.motivo && (
               <p className="text-gray-600 leading-relaxed">{solicitacao.motivo}</p>
             )}
             {solicitacao.registrado_por && (
               <p className="text-gray-400">Solicitado por: {solicitacao.registrado_por}</p>
             )}
+          </div>
+
+          {/* Motivo editável (sempre para Grupo, opcional para outros) */}
+          <div>
+            <label className="text-xs font-medium text-gray-600 block mb-1">
+              {isGrupo ? 'Motivo padronizado' : 'Motivo'}
+              {isGrupo && <span className="ml-1 text-orange-500 font-normal">(obrigatório — texto recebido do grupo)</span>}
+            </label>
+            {isGrupo && motivosPadrao.length > 0 && (
+              <select
+                value={motivosPadrao.includes(motivo) ? motivo : ''}
+                onChange={e => { if (e.target.value) setMotivo(e.target.value) }}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 mb-2 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              >
+                <option value="">Selecionar motivo padronizado…</option>
+                {motivosPadrao.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            )}
+            <textarea
+              rows={2}
+              value={motivo}
+              onChange={e => setMotivo(e.target.value)}
+              className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none"
+              placeholder={isGrupo ? 'Digite ou selecione um motivo padronizado…' : 'Motivo (opcional)'}
+            />
           </div>
 
           {/* Histórico */}
@@ -217,7 +245,7 @@ function ModalDefinirAcao({ solicitacao, historico, onClose, onSalvar }: ModalDe
         <div className="px-6 py-4 border-t border-gray-100 flex gap-3 justify-end sticky bottom-0 bg-white">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
           <button onClick={handleSave}
-            disabled={saving || !tipo || (tipo === 'Suspensão' && !dias)}
+            disabled={saving || !tipo || (tipo === 'Suspensão' && !dias) || (isGrupo && !motivo.trim())}
             className="px-4 py-2 text-sm bg-brand-700 text-white rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50 flex items-center gap-2">
             {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
             Confirmar Ação
@@ -375,7 +403,10 @@ function ColabRow({ nome, historico }: { nome: string; historico: FluxoPunitivo[
                     {h.tipo_acao}{h.dias_suspensao ? ` (${h.dias_suspensao}d)` : ''}
                   </span>
                   <span className={`px-1.5 py-0.5 rounded border text-[10px] shrink-0 ${ORIGEM_COLOR[h.origem] ?? 'bg-gray-100 text-gray-500 border-gray-200'}`}>{h.origem}</span>
-                  {h.observacao && <span className="text-gray-500 italic flex-1 truncate">{h.observacao}</span>}
+                  <div className="flex-1 min-w-0">
+                    {h.motivo && <p className="text-gray-700 font-medium truncate">{h.motivo}</p>}
+                    {h.observacao && <p className="text-gray-400 italic truncate">{h.observacao}</p>}
+                  </div>
                   {h.registrado_por && <span className="text-gray-400 shrink-0 ml-auto">{h.registrado_por}</span>}
                 </div>
               ))}
@@ -391,16 +422,27 @@ function ColabRow({ nome, historico }: { nome: string; historico: FluxoPunitivo[
 
 export default function FluxoPunitivo() {
   const { usuario } = useAuth()
-  const [registros,  setRegistros]  = useState<FluxoPunitivo[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [modalNova,  setModalNova]  = useState(false)
-  const [modalDefinir, setModalDefinir] = useState<FluxoPunitivo | null>(null)
-  const [busca,      setBusca]      = useState('')
-  const [abaAtiva,   setAbaAtiva]   = useState<'pendentes' | 'historico'>('pendentes')
+  const [registros,     setRegistros]     = useState<FluxoPunitivo[]>([])
+  const [loading,       setLoading]       = useState(true)
+  const [modalNova,     setModalNova]     = useState(false)
+  const [modalDefinir,  setModalDefinir]  = useState<FluxoPunitivo | null>(null)
+  const [busca,         setBusca]         = useState('')
+  const [abaAtiva,      setAbaAtiva]      = useState<'pendentes' | 'historico' | 'motivos'>('pendentes')
+  const [motivosPadrao, setMotivosPadrao] = useState<string[]>([])
+  const [novoMotivo,    setNovoMotivo]    = useState('')
+  const [savingMotivo,  setSavingMotivo]  = useState(false)
+
+  async function carregarMotivos() {
+    if (!usuario) return
+    const { data } = await supabase
+      .from('motivos_fluxo').select('descricao').eq('filial', usuario.filial).eq('ativo', true).order('descricao')
+    setMotivosPadrao((data ?? []).map((m: any) => m.descricao))
+  }
 
   async function carregar() {
     if (!usuario) return
     setLoading(true)
+    carregarMotivos()
 
     const { data: manual } = await supabase
       .from('fluxo_punitivo').select('*').eq('filial', usuario.filial)
@@ -430,7 +472,7 @@ export default function FluxoPunitivo() {
       origem: 'Relatos' as const, tipo_acao: a.tipo_acao,
       dias_suspensao: a.dias_suspensao ?? null, data_acao: a.data_relato ?? null,
       observacao: a.observacao ?? null, registrado_por: a.registrado_por ?? null,
-      source_id: a.id, status: 'Concluido' as const, motivo: null,
+      source_id: a.id, status: 'Concluido' as const, motivo: a.tipo_relato ?? null,
       created_at: a.created_at,
     })).filter((a: any) => a.colaborador_nome)
 
@@ -498,16 +540,33 @@ export default function FluxoPunitivo() {
     carregar()
   }
 
-  async function handleDefinirAcao(id: string, tipo: TipoAcao, dias: number | null, data: string, obs: string) {
+  async function handleDefinirAcao(id: string, tipo: TipoAcao, dias: number | null, data: string, obs: string, motivo: string) {
     await supabase.from('fluxo_punitivo').update({
       tipo_acao: tipo,
       dias_suspensao: dias,
       data_acao: data || null,
       observacao: obs.trim() || null,
+      motivo: motivo.trim() || null,
       status: 'Concluido',
     }).eq('id', id)
     setModalDefinir(null)
     carregar()
+  }
+
+  async function handleAdicionarMotivo() {
+    if (!novoMotivo.trim() || !usuario) return
+    setSavingMotivo(true)
+    await supabase.from('motivos_fluxo').insert({ filial: usuario.filial, descricao: novoMotivo.trim() })
+    setNovoMotivo('')
+    setSavingMotivo(false)
+    carregarMotivos()
+  }
+
+  async function handleRemoverMotivo(descricao: string) {
+    if (!usuario) return
+    await supabase.from('motivos_fluxo').update({ ativo: false })
+      .eq('filial', usuario.filial).eq('descricao', descricao)
+    carregarMotivos()
   }
 
   if (loading) return (
@@ -596,6 +655,10 @@ export default function FluxoPunitivo() {
             className={`px-3 py-1.5 text-xs rounded-lg border font-medium transition-colors ${abaAtiva === 'historico' ? 'bg-brand-700 text-white border-brand-700' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}>
             Histórico
           </button>
+          <button onClick={() => setAbaAtiva('motivos')}
+            className={`px-3 py-1.5 text-xs rounded-lg border font-medium transition-colors flex items-center gap-1.5 ${abaAtiva === 'motivos' ? 'bg-brand-700 text-white border-brand-700' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}>
+            <BookOpen size={12} /> Motivos
+          </button>
         </div>
       </div>
 
@@ -682,6 +745,46 @@ export default function FluxoPunitivo() {
         </div>
       )}
 
+      {/* ── Motivos Padronizados ── */}
+      {abaAtiva === 'motivos' && (
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 space-y-4">
+          <div>
+            <p className="text-sm font-semibold text-gray-800 mb-1">Motivos Padronizados</p>
+            <p className="text-xs text-gray-400">Usados para padronizar as solicitações que chegam via grupo WhatsApp.</p>
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={novoMotivo}
+              onChange={e => setNovoMotivo(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAdicionarMotivo()}
+              placeholder="Novo motivo…"
+              className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400"
+            />
+            <button
+              onClick={handleAdicionarMotivo}
+              disabled={savingMotivo || !novoMotivo.trim()}
+              className="flex items-center gap-1.5 text-sm bg-brand-700 text-white px-4 py-2 rounded-lg hover:bg-brand-600 disabled:opacity-50 font-medium"
+            >
+              {savingMotivo ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />} Adicionar
+            </button>
+          </div>
+          {motivosPadrao.length === 0 ? (
+            <p className="text-xs text-gray-400 text-center py-6">Nenhum motivo cadastrado. Adicione os motivos padrão da sua filial.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {motivosPadrao.map(m => (
+                <div key={m} className="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2.5 text-sm">
+                  <span className="text-gray-800">{m}</span>
+                  <button onClick={() => handleRemoverMotivo(m)} className="text-gray-300 hover:text-red-500 transition-colors shrink-0">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Legenda */}
       {abaAtiva === 'historico' && historicoFiltrado.length > 0 && (
         <div className="flex items-center gap-4 text-xs text-gray-500 pb-2">
@@ -707,6 +810,7 @@ export default function FluxoPunitivo() {
         <ModalDefinirAcao
           solicitacao={modalDefinir}
           historico={historico.get(modalDefinir.colaborador_nome) ?? []}
+          motivosPadrao={motivosPadrao}
           onClose={() => setModalDefinir(null)}
           onSalvar={handleDefinirAcao}
         />
