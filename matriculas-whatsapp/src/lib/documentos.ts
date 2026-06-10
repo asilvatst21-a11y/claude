@@ -57,7 +57,7 @@ const ESTILO = `
               letter-spacing: 2px; margin: 30px 0; text-transform: uppercase; }
     .destinatario { font-weight: bold; margin-bottom: 24px; }
     .corpo { text-align: justify; margin-bottom: 18px; }
-    .motivo { text-align: justify; font-weight: bold; margin: 18px 0; }
+    .motivo { text-align: left; font-weight: bold; margin: 18px 0; line-height: 1.7; }
     .assinaturas { margin-top: 70px; }
     .linha-assinatura { margin-top: 50px; text-align: center; }
     .linha-assinatura .traco { border-top: 1px solid #000; width: 360px;
@@ -84,20 +84,35 @@ function lowerFirst(s: string): string {
   return s ? s.charAt(0).toLowerCase() + s.slice(1) : s
 }
 
-/** Compõe a frase da infração: "Por falta injustificada no dia 09/06/2026." */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+/**
+ * Compõe a frase da infração para o documento.
+ * - Linha única: "Por falta injustificada no dia 09/06/2026."
+ * - Multilinha (várias ocorrências do GSD): cabeçalho com a data + lista.
+ */
 function fraseInfracao(motivo: string, dataInfracao: string | null): string {
-  let texto = (motivo || '').trim()
-  if (!texto) texto = '—'
-  // já contém uma data? não duplica
+  const texto = (motivo || '').trim()
+  if (!texto) return '—'
   const jaTemData = /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(texto)
-  // prefixo "Por"
-  if (!/^por\b/i.test(texto) && texto !== '—') texto = 'Por ' + lowerFirst(texto)
-  // anexa a data da infração
-  if (dataInfracao && !jaTemData) {
-    texto = texto.replace(/\.\s*$/, '') + ` no dia ${dataCurta(dataInfracao)}`
+  const dataStr = dataInfracao && !jaTemData ? ` no dia ${dataCurta(dataInfracao)}` : ''
+
+  // Motivo com várias linhas → mantém a lista de ocorrências
+  if (texto.includes('\n')) {
+    const linhas = texto.split('\n').map(l => l.trim()).filter(Boolean)
+    const [cabecalho, ...resto] = linhas
+    const head = escapeHtml(cabecalho.replace(/:\s*$/, '')) + dataStr + ':'
+    const corpo = resto.map(l => escapeHtml(l)).join('<br/>')
+    return `${head}<br/>${corpo}`
   }
-  if (!texto.endsWith('.')) texto += '.'
-  return texto
+
+  // Linha única → "Por {motivo} no dia DD/MM/AAAA."
+  let frase = /^por\b/i.test(texto) ? texto : 'Por ' + lowerFirst(texto)
+  frase = frase.replace(/[.\s]+$/, '') + dataStr
+  if (!frase.endsWith('.')) frase += '.'
+  return escapeHtml(frase)
 }
 
 function docAdvertencia({ nome, motivo, data, dataInfracao, filial }: DadosDocumento): string {
