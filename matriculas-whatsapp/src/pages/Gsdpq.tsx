@@ -7,7 +7,7 @@ import {
 import {
   FileSpreadsheet, ChevronDown, ChevronUp, AlertTriangle, CheckCircle,
   XCircle, Users, ClipboardList, BarChart2, RefreshCw, Shield, Upload,
-  Download, Loader2, Building2, ShieldCheck, Star, Zap, Send, Check
+  Download, Plus, Loader2, Building2, ShieldCheck, Star, Zap, GitBranch
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -74,6 +74,52 @@ const QUESTOES_CATEGORIAS: Record<string, Categoria> = {
   'A equipe utilizou o Bees Deliver durante todo o roteiro?': 'Produtividade',
   'A equipe realizou a pesquisa de satisfação do cliente?': 'Produtividade',
   'A equipe realizou todas as entregas dentro do prazo?': 'Produtividade',
+}
+
+const QUESTOES_FRASES: Record<string, string> = {
+  'A equipe utiliza o cinto de segurança durante todo o trajeto?': 'NÃO UTILIZAÇÃO DE CINTO DE SEGURANÇA',
+  'O motorista conduz o veículo em velocidade compatível com a via?': 'EXCESSO DE VELOCIDADE',
+  'O motorista cumpre todas as normas regidas pelo código de trânsito?': 'DESCUMPRIMENTO DO CÓDIGO DE TRÂNSITO',
+  'O motorista pratica direção segura e faz todas as sinalizações durante o trajeto?': 'DIREÇÃO INSEGURA / AUSÊNCIA DE SINALIZAÇÃO',
+  'O veículo é estacionado em local adequado (permitido por lei), e de forma segura?': 'ESTACIONAMENTO EM LOCAL INADEQUADO',
+  'O motorista utiliza câmera de ré durante a manobra de estacionamento?': 'NÃO UTILIZAÇÃO DE CÂMERA DE RÉ',
+  'O(s) ajudante(s) auxilia o motorista na manobra de estacionamento e se posiciona de forma segura, sem exposição a riscos?': 'POSICIONAMENTO INSEGURO DO AJUDANTE NA MANOBRA',
+  'Em caso de aclive/declive, o calço/trava rodas é posicionado corretamente conforme orientação da Fabet?': 'USO INCORRETO DE CALÇO / TRAVA RODAS',
+  'O freio de estacionamento foi acionado corretamente?': 'NÃO ACIONAMENTO DO FREIO DE ESTACIONAMENTO',
+  'A área do freio de estacionamento e dos pedais está livre de objetos que podem causar acionamento ou desacionamento involuntário (garrafas, mochilas, etc.)?': 'OBSTRUÇÃO DA ÁREA DO FREIO / PEDAIS',
+  'Em caso de docas, o caminhão é estacionado corretamente e a equipe permanece em local segregado das máquinas de descarga?': 'PROCEDIMENTO INCORRETO EM DOCA',
+  'O veículo permanece trancado e com a chave sob posse do motorista durante todo o processo de entrega?': 'CHAVE NA IGNIÇÃO',
+  'A equipe utiliza o cone de segurança conforme padrão de entrega?': 'NÃO UTILIZAÇÃO DE CONE DE SEGURANÇA',
+  'A equipe se movimenta em área segura, mantendo atenção ao fluxo de veículos?': 'MOVIMENTAÇÃO EM ÁREA DE RISCO',
+  'No deslocamento entre o veículo e o PDV, a equipe tem cuidado ao atravessar vias e/ou obstáculos no percurso?': 'TRAVESSIA INSEGURA DE VIA',
+  'A equipe utiliza todos os EPIs obrigatórios durante todo o processo de entrega?': 'NÃO UTILIZAÇÃO DE EPI',
+  'A equipe abre corretamente as baias/sider/porta da van?': 'ABERTURA INCORRETA DE BAIA / SIDER / PORTA',
+  'A equipe utiliza corretamente os 3 pontos de apoio ao subir e descer do veículo?': 'NÃO UTILIZAÇÃO DOS 3 PONTOS DE APOIO',
+  'A equipe manuseia o carrinho/paleteira/plataforma hidráulica corretamente?': 'MANUSEIO INCORRETO DE EQUIPAMENTO DE CARGA',
+  'O funcionário se posiciona corretamente na plataforma durante a movimentação dos produtos, mantendo-a livre de produtos empilhados?': 'POSICIONAMENTO INCORRETO NA PLATAFORMA',
+  'A equipe manuseia os produtos conforme padrão?': 'MANUSEIO DE PRODUTOS FORA DO PADRÃO',
+  'No PDV, se há escadas até o depósito, a equipe carrega  1 cx retornável por vez?': 'DESCUMPRIMENTO DO PADRÃO DE TRANSPORTE EM ESCADAS',
+  'Equipe avalia no BEES os risco do local de entrega?': 'NÃO AVALIAÇÃO DE RISCO NO BEES',
+  'Equipe guarda o carrinho corretamente após a utilização?': 'GUARDA INCORRETA DO CARRINHO',
+  'A equipe verifica o fechamento das baias/sider/portas antes de sair do PDV, utilizando o  trava baias?': 'NÃO VERIFICAÇÃO DO FECHAMENTO DE BAIAS / PORTAS',
+  'Calço e cones foram retirados corretamente conforme orientação da FABET após a finalização da entrega?': 'NÃO RETIRADA DE CALÇO / CONES APÓS ENTREGA',
+  ' O motorista faz o giro 360º antes de sair com o veículo, avaliando se existe algum obstáculo que dificulte a manobra ou algo embaixo do caminhão?': 'NÃO REALIZAÇÃO DO GIRO 360°',
+  'Caso seja necessária uma manobra de ré, o ajudante se posiciona em local correto e auxilia o motorista?': 'AUSÊNCIA DE APOIO DO AJUDANTE NA MANOBRA DE RÉ',
+  'A equipe realizou o check-list do veículo antes de sair?': 'NÃO REALIZAÇÃO DO CHECK-LIST DO VEÍCULO',
+  'A equipe realizou o bloqueio da chave conforme padrão local?': 'NÃO REALIZAÇÃO DO BLOQUEIO DA CHAVE',
+}
+
+function fraseGsd(questao: string): string {
+  const clean = questao.trim().replace(/_\d+$/, '')
+  return QUESTOES_FRASES[clean] ?? QUESTOES_FRASES[questao.trim()] ?? questao.trim().toUpperCase()
+}
+
+function diaKeyGsd(s: string | null): string {
+  if (!s) return ''
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10)
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`
+  return s
 }
 
 function getCategoriaQuestao(questao: string): Categoria {
@@ -343,14 +389,16 @@ function ModalRegistrarAcao({ modal, acaoExistente, onClose, onSalvar }: {
   )
 }
 
-function ColaboradorRow({ r, avaliacoes, acoes, onSolicitarFluxoDia, solicitados }: {
+function ColaboradorRow({ r, avaliacoes, acoes, fluxosSolicitados, onRegistrarAcao, onSolicitarFluxoDia }: {
   r: ResumoColaborador
   avaliacoes: GsdpqAvaliacao[]
   acoes: GsdpqAcao[]
-  onSolicitarFluxoDia: (colaboradorNome: string, dataAvaliacao: string, questoes: string[], avaliacaoIds: string[], observacoes: string) => Promise<void>
-  solicitados: Set<string>
+  fluxosSolicitados: Set<string>
+  onRegistrarAcao: (modal: ModalAcao) => void
+  onSolicitarFluxoDia: (colaboradorNome: string, dataAvaliacao: string, nosSeguranca: string[]) => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
+  const [solicitando, setSolicitando] = useState<string | null>(null)
 
   const datasOrdenadas = Object.keys(r.avaliacoesPorData).sort()
   const acoesColaborador = acoes.filter(a => a.colaborador_nome === r.nome)
@@ -444,24 +492,52 @@ function ColaboradorRow({ r, avaliacoes, acoes, onSolicitarFluxoDia, solicitados
                         </div>
 
                         {nosNaData.length > 0 && (() => {
-                          // Consolida todas as ocorrências de Segurança do dia em um único fluxo
-                          const segItems = nosNaData
-                            .filter(q => getCategoriaQuestao(q) === 'Segurança')
-                            .map(q => {
-                              const avaliacao = avaliacoes.find(av =>
-                                av.colaborador_nome === r.nome && av.data_avaliacao === data && av.questao === q)
-                              const acaoExistente = acoes.find(a => a.avaliacao_id === avaliacao?.id)
-                              return { questao: q, avaliacao, acaoExistente }
-                            })
-                          const pendentes = segItems.filter(s => !s.acaoExistente && s.avaliacao)
-                          const idsPendentes = pendentes.map(s => s.avaliacao!.id)
-                          const jaSolicitado = idsPendentes.length > 0 && idsPendentes.every(id => solicitados.has(id))
-
+                          const nosSeguranca = nosNaData.filter(q => getCategoriaQuestao(q) === 'Segurança')
+                          const nosOutros = nosNaData.filter(q => getCategoriaQuestao(q) !== 'Segurança')
+                          const fluxoKey = `${r.nome}__${diaKeyGsd(data)}`
+                          const jaFluxado = fluxosSolicitados.has(fluxoKey)
                           return (
-                            <div className="space-y-2 mt-2">
-                              {nosNaData.map(questao => {
+                            <div className="mt-2 space-y-2">
+                              {/* Segurança NOs — standardized phrases + consolidated button */}
+                              {nosSeguranca.length > 0 && (
+                                <div>
+                                  <div className="space-y-1 mb-1.5">
+                                    {nosSeguranca.map(questao => (
+                                      <div key={questao} className="flex items-center gap-1.5 bg-red-50 rounded px-2 py-1.5">
+                                        <XCircle size={12} className="text-red-500 shrink-0" />
+                                        <span className="text-xs text-red-700 font-medium">{fraseGsd(questao)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                  {jaFluxado ? (
+                                    <span className="inline-flex items-center gap-1 text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded border border-purple-200 font-medium">
+                                      <GitBranch size={11} /> Fluxo Solicitado
+                                    </span>
+                                  ) : (
+                                    <button
+                                      onClick={async e => {
+                                        e.stopPropagation()
+                                        setSolicitando(data)
+                                        await onSolicitarFluxoDia(r.nome, data, nosSeguranca)
+                                        setSolicitando(null)
+                                      }}
+                                      disabled={solicitando === data}
+                                      className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-900 bg-white border border-brand-200 hover:border-brand-400 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                                    >
+                                      {solicitando === data ? <Loader2 size={10} className="animate-spin" /> : <GitBranch size={10} />}
+                                      Solicitar Fluxo{nosSeguranca.length > 1 ? ` (${nosSeguranca.length} ocorrências)` : ''}
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Outros NOs (Qualidade/Produtividade) — per-question action button */}
+                              {nosOutros.map(questao => {
                                 const avaliacao = avaliacoes.find(av =>
-                                  av.colaborador_nome === r.nome && av.data_avaliacao === data && av.questao === questao)
+                                  av.colaborador_nome === r.nome &&
+                                  av.data_avaliacao === data &&
+                                  av.questao === questao
+                                )
                                 const acaoExistente = acoes.find(a => a.avaliacao_id === avaliacao?.id)
                                 return (
                                   <div key={questao} className="flex items-start justify-between gap-2 bg-red-50 rounded p-2">
@@ -469,36 +545,32 @@ function ColaboradorRow({ r, avaliacoes, acoes, onSolicitarFluxoDia, solicitados
                                       <XCircle size={12} className="text-red-500 mt-0.5 shrink-0" />
                                       <span className="text-xs text-red-700">{questao}</span>
                                     </div>
-                                    {acaoExistente && (
-                                      <span className={`shrink-0 text-xs px-2 py-0.5 rounded border font-medium ${COR_ACAO[acaoExistente.tipo_acao]}`}>
-                                        {acaoExistente.tipo_acao}
-                                        {acaoExistente.dias_suspensao ? ` (${acaoExistente.dias_suspensao}d)` : ''}
-                                      </span>
-                                    )}
+                                    <div className="shrink-0">
+                                      {acaoExistente ? (
+                                        <span className={`text-xs px-2 py-0.5 rounded border font-medium ${COR_ACAO[acaoExistente.tipo_acao]}`}>
+                                          {acaoExistente.tipo_acao}
+                                          {acaoExistente.dias_suspensao ? ` (${acaoExistente.dias_suspensao}d)` : ''}
+                                        </span>
+                                      ) : (
+                                        <button
+                                          onClick={e => {
+                                            e.stopPropagation()
+                                            if (avaliacao) onRegistrarAcao({
+                                              avaliacaoId: avaliacao.id,
+                                              colaboradorNome: r.nome,
+                                              questao,
+                                              dataAvaliacao: data,
+                                            })
+                                          }}
+                                          className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-900 bg-white border border-brand-200 hover:border-brand-400 px-2 py-0.5 rounded transition-colors"
+                                        >
+                                          <Plus size={10} /> Ação
+                                        </button>
+                                      )}
+                                    </div>
                                   </div>
                                 )
                               })}
-
-                              {/* Botão único de fluxo para todas as ocorrências de Segurança do dia */}
-                              {pendentes.length > 0 && (
-                                <div className="flex justify-end pt-1">
-                                  {jaSolicitado ? (
-                                    <span className="flex items-center gap-1 text-xs text-green-700 bg-green-50 border border-green-200 px-2 py-1 rounded">
-                                      <Check size={11} /> Fluxo solicitado ({pendentes.length} ocorrência{pendentes.length > 1 ? 's' : ''})
-                                    </span>
-                                  ) : (
-                                    <button
-                                      onClick={e => {
-                                        e.stopPropagation()
-                                        onSolicitarFluxoDia(r.nome, data, pendentes.map(p => p.questao), idsPendentes, info.observacoes)
-                                      }}
-                                      className="flex items-center gap-1.5 text-xs text-orange-700 hover:text-orange-900 bg-orange-50 border border-orange-200 hover:border-orange-400 px-3 py-1 rounded font-medium transition-colors"
-                                    >
-                                      <Send size={11} /> Solicitar Fluxo ({pendentes.length} ocorrência{pendentes.length > 1 ? 's' : ''})
-                                    </button>
-                                  )}
-                                </div>
-                              )}
                             </div>
                           )
                         })()}
@@ -538,20 +610,21 @@ export default function Gsdpq() {
   const [uploadando, setUploadando] = useState(false)
   const [modalAcao, setModalAcao] = useState<ModalAcao | null>(null)
   const [abaUpload, setAbaUpload] = useState<'gsdpq' | 'colaboradores'>('gsdpq')
-  const [solicitados, setSolicitados] = useState<Set<string>>(new Set())
   const [filtroCategoria, setFiltroCategoria] = useState<Categoria | 'Todas'>('Todas')
   const [filtroFuncao, setFiltroFuncao] = useState('Todas')
   const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
   const [mostrarTudo, setMostrarTudo] = useState(false)
   const [completoMesState, setCompletoMesState] = useState('')
+  const [fluxosSolicitados, setFluxosSolicitados] = useState<Set<string>>(new Set())
 
   async function carregarDados() {
     if (!usuario) return
     setCarregando(true)
-    const [{ data: avs }, { data: acs }, { data: colab }] = await Promise.all([
+    const [{ data: avs }, { data: acs }, { data: colab }, { data: fluxos }] = await Promise.all([
       supabase.from('gsdpq_avaliacoes').select('*').eq('filial', usuario.filial).order('data_avaliacao').limit(10000),
       supabase.from('gsdpq_acoes').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
       supabase.from('gsdpq_colaboradores').select('nome, funcao').eq('filial', usuario.filial),
+      supabase.from('fluxo_punitivo').select('colaborador_nome, data_infracao').eq('filial', usuario.filial).eq('origem', 'gsdpq'),
     ])
     const colabFuncaoMap = new Map((colab ?? []).map(c => [c.nome.toUpperCase(), c.funcao as string | null]))
     const todasAvs = (avs ?? []).map(av => ({
@@ -562,7 +635,40 @@ export default function Gsdpq() {
     setAcoes(acs ?? [])
     const qs = Array.from(new Set(todasAvs.map(a => a.questao)))
     setQuestoes(qs)
+    const keys = new Set((fluxos ?? []).map(f => `${f.colaborador_nome}__${f.data_infracao}`))
+    setFluxosSolicitados(keys)
     setCarregando(false)
+  }
+
+  async function solicitarFluxoDia(colaboradorNome: string, dataAvaliacao: string, nosSeguranca: string[]) {
+    if (!usuario || nosSeguranca.length === 0) return
+    const frases = nosSeguranca.map(fraseGsd)
+    const motivo = frases.length === 1
+      ? frases[0]
+      : `${frases.length} ocorrências de segurança:\n${frases.map((f, i) => `${i + 1}. ${f}`).join('\n')}`
+    const registradoPor = usuario.nome ?? usuario.login
+    await supabase.from('fluxo_punitivo').insert({
+      filial: usuario.filial,
+      colaborador_nome: colaboradorNome,
+      origem: 'GSDPQ',
+      tipo_acao: null,
+      status: 'Solicitado',
+      motivo,
+      data_infracao: diaKeyGsd(dataAvaliacao) || null,
+      observacao: null,
+      registrado_por: registradoPor,
+    })
+    const { data: filialData } = await supabase.from('filiais').select('grupo_fluxo_whatsapp').eq('nome', usuario.filial).single()
+    const grupo = filialData?.grupo_fluxo_whatsapp ?? null
+    if (grupo) {
+      const lista = frases.map((f, i) => `${i + 1}. ${f}`).join('\n')
+      const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${colaboradorNome}\n📋 Origem: GSDPQ\n🗓️ Data: ${dataAvaliacao}\n⚠️ Desvios (${frases.length}):\n${lista}\n✍️ Solicitado por: ${registradoPor}`
+      const { sucesso, erro } = await enviarMensagemGrupo(grupo, mensagem)
+      await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: sucesso ? 'enviado' : 'erro', erro: erro ?? null })
+      if (!sucesso) alert(`Solicitação registrada, mas a mensagem para o grupo falhou:\n${erro}`)
+    }
+    const key = `${colaboradorNome}__${diaKeyGsd(dataAvaliacao)}`
+    setFluxosSolicitados(prev => new Set([...prev, key]))
   }
 
   useEffect(() => { carregarDados() }, [usuario?.filial])
@@ -745,43 +851,6 @@ export default function Gsdpq() {
     }, { onConflict: 'avaliacao_id' })
     setModalAcao(null)
     carregarDados()
-  }
-
-  // Solicitar Fluxo Punitivo — consolida todas as ocorrências de Segurança do dia em um único fluxo
-  async function solicitarFluxoDia(colaboradorNome: string, dataAvaliacao: string, questoes: string[], avaliacaoIds: string[], observacoes: string) {
-    if (!usuario || questoes.length === 0) return
-    const { data: filialData } = await supabase.from('filiais').select('grupo_fluxo_whatsapp').eq('nome', usuario.filial).single()
-    const grupo = filialData?.grupo_fluxo_whatsapp ?? null
-    const registradoPor = usuario.nome ?? usuario.login
-
-    const lista = questoes.map((q, i) => `${i + 1}. ${q}`).join('\n')
-    const obs = (observacoes ?? '').trim()
-    const motivo = `${questoes.length} ocorrência(s) de segurança no GSD:\n${lista}${obs ? `\nObs: ${obs}` : ''}`
-
-    await supabase.from('fluxo_punitivo').insert({
-      filial: usuario.filial,
-      colaborador_nome: colaboradorNome,
-      origem: 'GSDPQ',
-      tipo_acao: null,
-      status: 'Solicitado',
-      motivo,
-      data_acao: dataAvaliacao || null,
-      data_infracao: dataAvaliacao || null,
-      observacao: null,
-      registrado_por: registradoPor,
-      source_id: avaliacaoIds.join(','),
-    })
-
-    if (grupo) {
-      const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${colaboradorNome}\n📋 Origem: GSDPQ\n🗓️ Data: ${dataAvaliacao}\n⚠️ Desvios (${questoes.length}):\n${lista}${obs ? `\n📝 Obs: ${obs}` : ''}\n✍️ Solicitado por: ${registradoPor}`
-      const { sucesso, erro } = await enviarMensagemGrupo(grupo, mensagem)
-      await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: sucesso ? 'enviado' : 'erro', erro: erro ?? null })
-      if (!sucesso) alert(`Solicitação registrada, mas a mensagem para o grupo falhou:\n${erro}`)
-    } else {
-      alert('Solicitação registrada. Configure o grupo de WhatsApp da filial em Admin → Filiais para enviar a notificação automaticamente.')
-    }
-
-    setSolicitados(prev => new Set([...prev, ...avaliacaoIds]))
   }
 
   // Exportar Excel
@@ -1059,7 +1128,7 @@ export default function Gsdpq() {
                 <tbody>
                   {resumos.length === 0 && <tr><td colSpan={6} className="text-center py-10 text-gray-400">Nenhum dado</td></tr>}
                   {resumos.map(r => (
-                    <ColaboradorRow key={r.nome} r={r} avaliacoes={avaliacoesFiltradas} acoes={acoes} onSolicitarFluxoDia={solicitarFluxoDia} solicitados={solicitados} />
+                    <ColaboradorRow key={r.nome} r={r} avaliacoes={avaliacoesFiltradas} acoes={acoes} fluxosSolicitados={fluxosSolicitados} onRegistrarAcao={setModalAcao} onSolicitarFluxoDia={solicitarFluxoDia} />
                   ))}
                 </tbody>
               </table>
