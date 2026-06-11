@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
-import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, AlertTriangle, Clock, ChevronUp, ChevronDown, ChevronsUpDown } from "lucide-react";
+import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, AlertTriangle, Clock, ChevronUp, ChevronDown, ChevronsUpDown, Download } from "lucide-react";
 import { ValeDetalhesModal, type ValeDetalhes } from "@/components/vale-detalhes-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -393,6 +393,47 @@ function ValesContent() {
       : []),
   ];
 
+  function exportCSV() {
+    const rows = sortVales(filterByTab(valesFiltered, activeTab), sortField, sortDir);
+    const headers = [
+      "Mapa", "Vale #", "Data Emissão", "Ajudante(s)",
+      "Qtd Itens", "Valor Total", "Status",
+      "Ação Transp.", "Ação Ambev", "Justificativa",
+      "Notificado", "Motorista", "Veículo",
+    ];
+    const escape = (v: string | number | null | undefined) => {
+      const s = v == null ? "" : String(v);
+      return s.includes(",") || s.includes('"') || s.includes("\n")
+        ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const lines = [
+      headers.join(","),
+      ...rows.map((v) => [
+        escape(v.mapa),
+        escape(v.numero_vale),
+        escape(v.data_emissao),
+        escape(v.ajudantes.map((a) => a.nome).join(" / ")),
+        escape(v.itens.length),
+        escape((v.valor_total ?? 0).toFixed(2).replace(".", ",")),
+        escape(v.status_vale ?? "Sem Ação"),
+        escape(v.acao_transportadora ?? ""),
+        escape(v.acao_primeiro_nivel ?? ""),
+        escape(v.justificativa_primeiro_nivel ?? ""),
+        escape(v.notificacao_pendente_enviada ? "Sim" : "Não"),
+        escape(v.motorista ?? ""),
+        escape(v.veiculo ?? ""),
+      ].join(",")),
+    ];
+    const bom = "﻿"; // UTF-8 BOM so Excel opens correctly
+    const blob = new Blob([bom + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `vales-${activeTab}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div className="space-y-6">
       <ValeDetalhesModal
@@ -533,10 +574,16 @@ function ValesContent() {
           <h1 className="text-2xl font-bold tracking-tight">Vales</h1>
           <p className="text-muted-foreground">Gerencie todos os vales do sistema</p>
         </div>
-        <Button variant="outline" onClick={fetchVales} disabled={isLoading}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
-          Atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={exportCSV} disabled={filteredVales.length === 0}>
+            <Download className="h-4 w-4 mr-2" />
+            Exportar CSV
+          </Button>
+          <Button variant="outline" onClick={fetchVales} disabled={isLoading}>
+            <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
+            Atualizar
+          </Button>
+        </div>
       </div>
 
       {/* Filters */}
