@@ -484,7 +484,8 @@ function ColabRow({ nome, historico, filial, onReabrir }: { nome: string; histor
                     <button
                       onClick={() => imprimirDocumentoFluxo({
                         tipo: h.tipo_acao!, nome, motivo: h.motivo || h.observacao || '',
-                        data: h.data_acao, dataInfracao: h.data_infracao, dias: h.dias_suspensao, filial,
+                        data: h.data_acao, dataInfracao: h.data_infracao, dias: h.dias_suspensao,
+                        filial, origem: h.origem ?? undefined,
                       })}
                       title="Imprimir documento"
                       className="shrink-0 text-gray-300 hover:text-brand-700 transition-colors">
@@ -647,6 +648,7 @@ export default function FluxoPunitivo() {
         motivo: entry.motivo || entry.observacao || '',
         data: entry.data_acao, dataInfracao: entry.data_infracao,
         dias: entry.dias_suspensao, filial: usuario!.filial,
+        origem: entry.origem ?? undefined,
       })
     }
     carregar()
@@ -680,6 +682,7 @@ export default function FluxoPunitivo() {
         tipo, nome: master.colaborador_nome,
         motivo: motivo.trim() || obs.trim(),
         data, dataInfracao: dataInfracao || null, dias, filial: usuario!.filial,
+        origem: master.origem ?? undefined,
       })
     }
     carregar()

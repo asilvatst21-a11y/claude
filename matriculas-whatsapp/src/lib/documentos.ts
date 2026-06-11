@@ -48,25 +48,30 @@ function diasExtenso(n: number): string {
 const ESTILO = `
   <style>
     * { box-sizing: border-box; }
-    body { font-family: 'Times New Roman', serif; font-size: 13pt; color: #000;
-           line-height: 1.6; margin: 0; padding: 60px 70px; }
-    .logo { text-align: center; margin-bottom: 30px; }
-    .logo img { height: 70px; }
-    .data { text-align: right; margin-bottom: 36px; }
-    .titulo { text-align: center; font-weight: bold; font-size: 15pt;
-              letter-spacing: 2px; margin: 30px 0; text-transform: uppercase; }
-    .destinatario { font-weight: bold; margin-bottom: 24px; }
-    .corpo { text-align: justify; margin-bottom: 18px; }
-    .motivo { text-align: left; font-weight: bold; margin: 18px 0; line-height: 1.7; }
-    .assinaturas { margin-top: 70px; }
-    .linha-assinatura { margin-top: 50px; text-align: center; }
-    .linha-assinatura .traco { border-top: 1px solid #000; width: 360px;
+    body { font-family: 'Times New Roman', serif; font-size: 11pt; color: #000;
+           line-height: 1.45; margin: 0; padding: 28px 44px; }
+    .logo { text-align: center; margin-bottom: 14px; }
+    .logo img { height: 52px; }
+    .data { text-align: right; margin-bottom: 18px; font-size: 10.5pt; }
+    .titulo { text-align: center; font-weight: bold; font-size: 13pt;
+              letter-spacing: 2px; margin: 16px 0; text-transform: uppercase; }
+    .destinatario { font-weight: bold; margin-bottom: 12px; }
+    .corpo { text-align: justify; margin-bottom: 10px; }
+    .motivo { text-align: left; font-weight: bold; margin: 12px 0; line-height: 1.5; }
+    .assinaturas { margin-top: 36px; }
+    .linha-assinatura { margin-top: 28px; text-align: center; }
+    .linha-assinatura .traco { border-top: 1px solid #000; width: 340px;
               margin: 0 auto 4px; }
     .testemunhas { display: flex; justify-content: space-between;
-              margin-top: 60px; gap: 40px; }
+              margin-top: 28px; gap: 40px; }
     .testemunhas .col { flex: 1; text-align: center; }
     .testemunhas .traco { border-top: 1px solid #000; margin-bottom: 4px; }
-    @media print { body { padding: 40px 60px; } @page { margin: 0; } }
+    @page { size: A4 portrait; margin: 0; }
+    @media print {
+      body { padding: 18px 36px; font-size: 10.5pt; }
+      .assinaturas { margin-top: 24px; }
+      .testemunhas { margin-top: 20px; }
+    }
   </style>
 `
 
@@ -78,6 +83,12 @@ interface DadosDocumento {
   dataInfracao?: string | null
   dias?: number | null
   filial: string
+  origem?: string    // ← novo
+}
+
+function sentenceCase(s: string): string {
+  if (!s) return s
+  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase()
 }
 
 function lowerFirst(s: string): string {
@@ -92,30 +103,56 @@ function escapeHtml(s: string): string {
  * Compõe a frase da infração para o documento.
  * - Linha única: "Por falta injustificada no dia 09/06/2026."
  * - Multilinha (várias ocorrências do GSD): cabeçalho com a data + lista.
+ * Aplica sentence case em cada item e usa frase diferente por origem.
  */
-function fraseInfracao(motivo: string, dataInfracao: string | null): string {
+function fraseInfracao(motivo: string, dataInfracao: string | null, origem?: string): string {
   const texto = (motivo || '').trim()
   if (!texto) return '—'
-  const jaTemData = /\d{1,2}\/\d{1,2}\/\d{2,4}/.test(texto)
-  const dataStr = dataInfracao && !jaTemData ? ` no dia ${dataCurta(dataInfracao)}` : ''
+  const dataStr = dataCurta(dataInfracao)
 
-  // Motivo com várias linhas → mantém a lista de ocorrências
+  // Extrai itens: pula linha de cabeçalho "N ocorrência(s)..." e remove numeração
+  let items: string[]
   if (texto.includes('\n')) {
     const linhas = texto.split('\n').map(l => l.trim()).filter(Boolean)
-    const [cabecalho, ...resto] = linhas
-    const head = escapeHtml(cabecalho.replace(/:\s*$/, '')) + dataStr + ':'
-    const corpo = resto.map(l => escapeHtml(l)).join('<br/>')
-    return `${head}<br/>${corpo}`
+    items = linhas
+      .filter(l => !/^\d+\s+ocorrência/i.test(l))
+      .map(l => l.replace(/^\d+\.\s*/, '').trim())
+      .filter(Boolean)
+  } else {
+    items = [texto]
+  }
+  if (items.length === 0) return '—'
+
+  const itemsFmt = items.map(sentenceCase)
+  const n = items.length
+  const orig = (origem ?? '').toUpperCase()
+
+  let cabecalho: string
+  if (orig === 'GSDPQ') {
+    const plural = n === 1 ? 'encontrada' : 'encontradas'
+    const s = n === 1 ? 'ocorrência' : 'ocorrências'
+    cabecalho = `${n} ${s} de segurança ${plural} em GSDPQ${dataStr ? ` no dia ${dataStr}` : ''}:`
+  } else if (orig === 'RELATOS') {
+    const s = n === 1 ? 'ocorrência' : 'ocorrências'
+    cabecalho = `Por ter sido relatado ${n} ${s} de segurança${dataStr ? ` no dia ${dataStr}` : ''}:`
+  } else {
+    // Formato legado (outras origens ou sem origem)
+    if (n === 1) {
+      let frase = /^por\b/i.test(itemsFmt[0]) ? itemsFmt[0] : 'Por ' + lowerFirst(itemsFmt[0])
+      frase = frase.replace(/[.\s]+$/, '') + (dataStr ? ` no dia ${dataStr}` : '')
+      if (!frase.endsWith('.')) frase += '.'
+      return escapeHtml(frase)
+    }
+    cabecalho = `${n} ocorrências${dataStr ? ` no dia ${dataStr}` : ''}:`
   }
 
-  // Linha única → "Por {motivo} no dia DD/MM/AAAA."
-  let frase = /^por\b/i.test(texto) ? texto : 'Por ' + lowerFirst(texto)
-  frase = frase.replace(/[.\s]+$/, '') + dataStr
-  if (!frase.endsWith('.')) frase += '.'
-  return escapeHtml(frase)
+  const corpo = itemsFmt.length === 1
+    ? escapeHtml(itemsFmt[0])
+    : itemsFmt.map((l, i) => escapeHtml(`${i + 1}. ${l}`)).join('<br/>')
+  return escapeHtml(cabecalho) + '<br/>' + corpo
 }
 
-function docAdvertencia({ nome, motivo, data, dataInfracao, filial }: DadosDocumento): string {
+function docAdvertencia({ nome, motivo, data, dataInfracao, filial, origem }: DadosDocumento): string {
   const cidade = cidadeDaFilial(filial)
   return `
     <div class="logo"><img src="${location.origin}/logo.png" alt="LOG20" /></div>
@@ -126,7 +163,7 @@ function docAdvertencia({ nome, motivo, data, dataInfracao, filial }: DadosDocum
       Na conformidade da Consolidação das Leis do Trabalho, fica advertido pelas
       faltas a seguir discriminadas:
     </div>
-    <div class="motivo">${fraseInfracao(motivo, dataInfracao ?? null)}</div>
+    <div class="motivo">${fraseInfracao(motivo, dataInfracao ?? null, origem)}</div>
     <div class="corpo">
       Não só esperamos que tome as necessárias providências a fim de que não se
       repitam as irregularidades acima discriminadas, como também aproveitamos para
@@ -151,7 +188,7 @@ function docAdvertencia({ nome, motivo, data, dataInfracao, filial }: DadosDocum
   `
 }
 
-function docSuspensao({ nome, motivo, data, dataInfracao, dias, filial }: DadosDocumento): string {
+function docSuspensao({ nome, motivo, data, dataInfracao, dias, filial, origem }: DadosDocumento): string {
   const cidade = cidadeDaFilial(filial)
   const n = dias && dias > 0 ? dias : 1
   return `
@@ -159,7 +196,7 @@ function docSuspensao({ nome, motivo, data, dataInfracao, dias, filial }: DadosD
     <div class="titulo">Carta de Suspensão no Trabalho</div>
     <div class="corpo"><strong>De:</strong> LOG20 Logística S/A</div>
     <div class="corpo"><strong>Para:</strong> ${nome}</div>
-    <div class="motivo">${fraseInfracao(motivo, dataInfracao ?? null)}</div>
+    <div class="motivo">${fraseInfracao(motivo, dataInfracao ?? null, origem)}</div>
     <div class="corpo">
       Em razão disso será suspenso de suas atividades pelo prazo de ${n}
       (${diasExtenso(n)}) dia${n > 1 ? 's' : ''} para que pense em suas atitudes e

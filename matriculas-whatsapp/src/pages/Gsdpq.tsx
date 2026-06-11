@@ -156,22 +156,6 @@ const COR_ACAO: Record<string, string> = {
   'Suspensão': 'bg-red-50 text-red-700 border-red-200',
 }
 
-// Tipos de fluxo que o solicitante pode escolher ao enviar do GSD.
-// `registra: false` → apenas orientação verbal, não gera registro no histórico do colaborador.
-const TIPOS_FLUXO: { value: string; registra: boolean; desc: string }[] = [
-  { value: 'Orientação Verbal',   registra: false, desc: 'Apenas orientação — não registra no histórico do colaborador' },
-  { value: 'Advertência Verbal',  registra: true,  desc: 'Registra no histórico e conta na sequência punitiva' },
-  { value: 'Advertência Escrita', registra: true,  desc: 'Registra no histórico e conta na sequência punitiva' },
-  { value: 'Suspensão',           registra: true,  desc: 'Registra no histórico e conta na sequência punitiva' },
-]
-
-const COR_TIPO_FLUXO: Record<string, string> = {
-  'Orientação Verbal':    'bg-gray-50 text-gray-700 border-gray-200',
-  'Advertência Verbal':   'bg-yellow-50 text-yellow-700 border-yellow-200',
-  'Advertência Escrita':  'bg-orange-50 text-orange-700 border-orange-200',
-  'Suspensão':            'bg-red-50 text-red-700 border-red-200',
-}
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ResumoColaborador {
@@ -195,10 +179,9 @@ interface ModalAcao {
   dataAvaliacao: string
 }
 
-interface ModalFluxo {
-  colaboradorNome: string
-  dataAvaliacao: string
-  nosSeguranca: string[]
+interface SelectedItem {
+  questao: string
+  avaliacaoId: string
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -411,97 +394,35 @@ function ModalRegistrarAcao({ modal, acaoExistente, onClose, onSalvar }: {
   )
 }
 
-function ModalSolicitarFluxo({ modal, onClose, onConfirmar }: {
-  modal: ModalFluxo
-  onClose: () => void
-  onConfirmar: (tipo: string, registra: boolean) => Promise<void>
-}) {
-  const [tipo, setTipo] = useState('')
-  const [loading, setLoading] = useState(false)
-  const frases = modal.nosSeguranca.map(fraseGsd)
-  const selecionado = TIPOS_FLUXO.find(t => t.value === tipo)
-
-  async function confirmar() {
-    if (!selecionado) return
-    setLoading(true)
-    await onConfirmar(selecionado.value, selecionado.registra)
-    setLoading(false)
-  }
-
-  return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
-        <h3 className="text-lg font-bold text-gray-900 mb-1">Solicitar Fluxo Punitivo</h3>
-        <p className="text-xs text-gray-500 mb-3">
-          <strong>{modal.colaboradorNome}</strong> · {modal.dataAvaliacao}
-        </p>
-
-        <div className="bg-red-50 border border-red-100 rounded-lg p-3 mb-4">
-          <p className="text-xs font-semibold text-red-700 uppercase mb-1.5">
-            {frases.length === 1 ? 'Motivo' : `${frases.length} motivos`}
-          </p>
-          <ul className="space-y-1">
-            {frases.map((f, i) => (
-              <li key={i} className="text-xs text-red-700 font-medium flex gap-1.5">
-                <span className="text-red-400">{frases.length > 1 ? `${i + 1}.` : '•'}</span> {f}
-              </li>
-            ))}
-          </ul>
-        </div>
-
-        <label className="block text-sm font-medium text-gray-700 mb-2">Tipo de Fluxo *</label>
-        <div className="space-y-2">
-          {TIPOS_FLUXO.map(t => (
-            <button
-              key={t.value}
-              onClick={() => setTipo(t.value)}
-              className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
-                tipo === t.value ? COR_TIPO_FLUXO[t.value] + ' ring-1 ring-offset-1 ring-brand-300' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span className="font-medium">{t.value}</span>
-                {!t.registra && <span className="text-[10px] uppercase font-bold text-gray-400">não registra</span>}
-              </div>
-              <p className="text-[11px] text-gray-500 mt-0.5">{t.desc}</p>
-            </button>
-          ))}
-        </div>
-
-        {selecionado && !selecionado.registra && (
-          <p className="text-xs text-gray-500 italic mt-3 flex items-start gap-1.5">
-            <AlertTriangle size={13} className="text-gray-400 shrink-0 mt-0.5" />
-            A orientação será enviada ao grupo de WhatsApp, mas não criará registro no histórico do colaborador.
-          </p>
-        )}
-
-        <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
-          <button
-            onClick={confirmar}
-            disabled={loading || !tipo}
-            className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-lg font-medium flex items-center gap-2"
-          >
-            {loading ? <><Loader2 size={14} className="animate-spin" /> Enviando...</> : 'Enviar Fluxo'}
-          </button>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ColaboradorRow({ r, avaliacoes, acoes, fluxosSolicitados, onRegistrarAcao, onSolicitarFluxoDia }: {
+function ColaboradorRow({
+  r,
+  avaliacoes,
+  acoes,
+  onRegistrarAcao,
+  onEnviarFluxo,
+  onOrientacaoVerbal,
+}: {
   r: ResumoColaborador
   avaliacoes: GsdpqAvaliacao[]
   acoes: GsdpqAcao[]
-  fluxosSolicitados: Set<string>
   onRegistrarAcao: (modal: ModalAcao) => void
-  onSolicitarFluxoDia: (colaboradorNome: string, dataAvaliacao: string, nosSeguranca: string[]) => void
+  onEnviarFluxo: (colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[]) => Promise<void>
+  onOrientacaoVerbal: (colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[]) => Promise<void>
 }) {
   const [open, setOpen] = useState(false)
+  const [selectedNOs, setSelectedNOs] = useState<Record<string, Set<string>>>({})
+  const [submitting, setSubmitting] = useState<string | null>(null)
 
   const datasOrdenadas = Object.keys(r.avaliacoesPorData).sort()
   const acoesColaborador = acoes.filter(a => a.colaborador_nome === r.nome)
+
+  function toggleNO(data: string, questao: string) {
+    setSelectedNOs(prev => {
+      const s = new Set(prev[data] ?? [])
+      if (s.has(questao)) s.delete(questao); else s.add(questao)
+      return { ...prev, [data]: s }
+    })
+  }
 
   return (
     <>
@@ -541,7 +462,6 @@ function ColaboradorRow({ r, avaliacoes, acoes, fluxosSolicitados, onRegistrarAc
           <td colSpan={6} className="bg-gray-50 border-b border-gray-200 px-6 py-5">
             <div className="space-y-5">
 
-              {/* Evolução temporal */}
               {r.evolucao.length > 1 && (
                 <div>
                   <p className="text-xs font-semibold text-gray-600 uppercase mb-2">Evolução de Conformidade</p>
@@ -556,7 +476,6 @@ function ColaboradorRow({ r, avaliacoes, acoes, fluxosSolicitados, onRegistrarAc
                 </div>
               )}
 
-              {/* Reincidências */}
               {r.reincidencias.length > 0 && (
                 <div>
                   <p className="text-xs font-semibold text-orange-700 uppercase mb-2 flex items-center gap-1">
@@ -572,13 +491,17 @@ function ColaboradorRow({ r, avaliacoes, acoes, fluxosSolicitados, onRegistrarAc
                 </div>
               )}
 
-              {/* Histórico de avaliações com ações */}
               <div>
                 <p className="text-xs font-semibold text-gray-600 uppercase mb-2">Histórico de Avaliações</p>
                 <div className="space-y-3">
                   {datasOrdenadas.map(data => {
                     const info = r.avaliacoesPorData[data]
                     const nosNaData = info.nos
+                    const nosSeguranca = nosNaData.filter(q => getCategoriaQuestao(q) === 'Segurança')
+                    const nosOutros = nosNaData.filter(q => getCategoriaQuestao(q) !== 'Segurança')
+                    const daySelected = selectedNOs[data] ?? new Set<string>()
+                    const isSubmitting = submitting === data
+
                     return (
                       <div key={data} className="bg-white rounded-lg border border-gray-200 p-3">
                         <div className="flex items-start justify-between mb-2">
@@ -591,86 +514,118 @@ function ColaboradorRow({ r, avaliacoes, acoes, fluxosSolicitados, onRegistrarAc
                           </span>
                         </div>
 
-                        {nosNaData.length > 0 && (() => {
-                          const nosSeguranca = nosNaData.filter(q => getCategoriaQuestao(q) === 'Segurança')
-                          const nosOutros = nosNaData.filter(q => getCategoriaQuestao(q) !== 'Segurança')
-                          const fluxoKey = `${r.nome}__${diaKeyGsd(data)}`
-                          const jaFluxado = fluxosSolicitados.has(fluxoKey)
-                          return (
-                            <div className="mt-2 space-y-2">
-                              {/* Segurança NOs — standardized phrases + consolidated button */}
-                              {nosSeguranca.length > 0 && (
-                                <div>
-                                  <div className="space-y-1 mb-1.5">
-                                    {nosSeguranca.map(questao => (
-                                      <div key={questao} className="flex items-center gap-1.5 bg-red-50 rounded px-2 py-1.5">
-                                        <XCircle size={12} className="text-red-500 shrink-0" />
-                                        <span className="text-xs text-red-700">{questao}</span>
+                        {nosNaData.length > 0 && (
+                          <div className="mt-2 space-y-2">
+                            {/* Segurança NOs — checkbox por item + 2 botões */}
+                            {nosSeguranca.length > 0 && (
+                              <div>
+                                <p className="text-[10px] font-semibold text-blue-600 uppercase mb-1">Segurança</p>
+                                <div className="space-y-1 mb-2">
+                                  {nosSeguranca.map(questao => {
+                                    const avaliacao = avaliacoes.find(av =>
+                                      av.colaborador_nome === r.nome && av.data_avaliacao === data && av.questao === questao)
+                                    const acaoExistente = acoes.find(a => a.avaliacao_id === avaliacao?.id)
+                                    const jaHandled = !!acaoExistente
+                                    return (
+                                      <div key={questao} className={`flex items-start gap-2 rounded px-2 py-1.5 ${jaHandled ? 'bg-gray-50' : 'bg-red-50'}`}>
+                                        {!jaHandled ? (
+                                          <input
+                                            type="checkbox"
+                                            checked={daySelected.has(questao)}
+                                            onChange={() => toggleNO(data, questao)}
+                                            className="mt-0.5 accent-brand-600 shrink-0"
+                                          />
+                                        ) : (
+                                          <span className="w-4 shrink-0" />
+                                        )}
+                                        <span className={`text-xs flex-1 ${jaHandled ? 'text-gray-400 line-through' : 'text-red-700'}`}>{questao}</span>
+                                        {acaoExistente && (
+                                          <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium shrink-0 ${COR_ACAO[acaoExistente.tipo_acao] ?? 'bg-gray-50 text-gray-500 border-gray-200'}`}>
+                                            {acaoExistente.tipo_acao}
+                                          </span>
+                                        )}
                                       </div>
-                                    ))}
-                                  </div>
-                                  {jaFluxado ? (
-                                    <span className="inline-flex items-center gap-1 text-xs bg-purple-50 text-purple-700 px-2 py-1 rounded border border-purple-200 font-medium">
-                                      <GitBranch size={11} /> Fluxo Solicitado
-                                    </span>
-                                  ) : (
-                                    <button
-                                      onClick={e => {
-                                        e.stopPropagation()
-                                        onSolicitarFluxoDia(r.nome, data, nosSeguranca)
-                                      }}
-                                      className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-900 bg-white border border-brand-200 hover:border-brand-400 px-2 py-1 rounded transition-colors"
-                                    >
-                                      <GitBranch size={10} />
-                                      Solicitar Fluxo{nosSeguranca.length > 1 ? ` (${nosSeguranca.length} ocorrências)` : ''}
-                                    </button>
-                                  )}
+                                    )
+                                  })}
                                 </div>
-                              )}
-
-                              {/* Outros NOs (Qualidade/Produtividade) — per-question action button */}
-                              {nosOutros.map(questao => {
-                                const avaliacao = avaliacoes.find(av =>
-                                  av.colaborador_nome === r.nome &&
-                                  av.data_avaliacao === data &&
-                                  av.questao === questao
-                                )
-                                const acaoExistente = acoes.find(a => a.avaliacao_id === avaliacao?.id)
-                                return (
-                                  <div key={questao} className="flex items-start justify-between gap-2 bg-red-50 rounded p-2">
-                                    <div className="flex items-start gap-1.5 flex-1">
-                                      <XCircle size={12} className="text-red-500 mt-0.5 shrink-0" />
-                                      <span className="text-xs text-red-700">{questao}</span>
-                                    </div>
-                                    <div className="shrink-0">
-                                      {acaoExistente ? (
-                                        <span className={`text-xs px-2 py-0.5 rounded border font-medium ${COR_ACAO[acaoExistente.tipo_acao]}`}>
-                                          {acaoExistente.tipo_acao}
-                                          {acaoExistente.dias_suspensao ? ` (${acaoExistente.dias_suspensao}d)` : ''}
-                                        </span>
-                                      ) : (
-                                        <button
-                                          onClick={e => {
-                                            e.stopPropagation()
-                                            if (avaliacao) onRegistrarAcao({
-                                              avaliacaoId: avaliacao.id,
-                                              colaboradorNome: r.nome,
-                                              questao,
-                                              dataAvaliacao: data,
-                                            })
-                                          }}
-                                          className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-900 bg-white border border-brand-200 hover:border-brand-400 px-2 py-0.5 rounded transition-colors"
-                                        >
-                                          <Plus size={10} /> Ação
-                                        </button>
-                                      )}
-                                    </div>
+                                {daySelected.size > 0 && (
+                                  <div className="flex gap-2 mt-1">
+                                    <button
+                                      disabled={isSubmitting}
+                                      onClick={async e => {
+                                        e.stopPropagation()
+                                        const items = Array.from(daySelected).map(q => {
+                                          const av = avaliacoes.find(a => a.colaborador_nome === r.nome && a.data_avaliacao === data && a.questao === q)
+                                          return { questao: q, avaliacaoId: av?.id ?? '' }
+                                        }).filter(x => x.avaliacaoId)
+                                        if (!items.length) return
+                                        setSubmitting(data)
+                                        await onEnviarFluxo(r.nome, data, items)
+                                        setSelectedNOs(prev => ({ ...prev, [data]: new Set() }))
+                                        setSubmitting(null)
+                                      }}
+                                      className="flex items-center gap-1 text-xs text-brand-700 bg-white border border-brand-200 hover:border-brand-400 hover:bg-brand-50 px-2 py-1 rounded disabled:opacity-50 font-medium"
+                                    >
+                                      {isSubmitting ? <Loader2 size={10} className="animate-spin" /> : <GitBranch size={10} />}
+                                      Enviar Fluxo ({daySelected.size})
+                                    </button>
+                                    <button
+                                      disabled={isSubmitting}
+                                      onClick={async e => {
+                                        e.stopPropagation()
+                                        const items = Array.from(daySelected).map(q => {
+                                          const av = avaliacoes.find(a => a.colaborador_nome === r.nome && a.data_avaliacao === data && a.questao === q)
+                                          return { questao: q, avaliacaoId: av?.id ?? '' }
+                                        }).filter(x => x.avaliacaoId)
+                                        if (!items.length) return
+                                        setSubmitting(data)
+                                        await onOrientacaoVerbal(r.nome, data, items)
+                                        setSelectedNOs(prev => ({ ...prev, [data]: new Set() }))
+                                        setSubmitting(null)
+                                      }}
+                                      className="flex items-center gap-1 text-xs text-gray-600 bg-white border border-gray-200 hover:border-gray-400 hover:bg-gray-50 px-2 py-1 rounded disabled:opacity-50"
+                                    >
+                                      {isSubmitting ? <Loader2 size={10} className="animate-spin" /> : null}
+                                      Orientação Verbal ({daySelected.size})
+                                    </button>
                                   </div>
-                                )
-                              })}
-                            </div>
-                          )
-                        })()}
+                                )}
+                              </div>
+                            )}
+
+                            {/* Outros NOs */}
+                            {nosOutros.map(questao => {
+                              const avaliacao = avaliacoes.find(av =>
+                                av.colaborador_nome === r.nome && av.data_avaliacao === data && av.questao === questao)
+                              const acaoExistente = acoes.find(a => a.avaliacao_id === avaliacao?.id)
+                              return (
+                                <div key={questao} className="flex items-start justify-between gap-2 bg-red-50 rounded p-2">
+                                  <div className="flex items-start gap-1.5 flex-1">
+                                    <XCircle size={12} className="text-red-500 mt-0.5 shrink-0" />
+                                    <span className="text-xs text-red-700">{questao}</span>
+                                  </div>
+                                  <div className="shrink-0">
+                                    {acaoExistente ? (
+                                      <span className={`text-xs px-2 py-0.5 rounded border font-medium ${COR_ACAO[acaoExistente.tipo_acao]}`}>
+                                        {acaoExistente.tipo_acao}{acaoExistente.dias_suspensao ? ` (${acaoExistente.dias_suspensao}d)` : ''}
+                                      </span>
+                                    ) : (
+                                      <button
+                                        onClick={e => {
+                                          e.stopPropagation()
+                                          if (avaliacao) onRegistrarAcao({ avaliacaoId: avaliacao.id, colaboradorNome: r.nome, questao, dataAvaliacao: data })
+                                        }}
+                                        className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-900 bg-white border border-brand-200 hover:border-brand-400 px-2 py-0.5 rounded transition-colors"
+                                      >
+                                        <Plus size={10} /> Ação
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        )}
 
                         {info.observacoes && (
                           <p className="text-xs text-gray-500 italic border-t border-gray-100 pt-2 mt-2">
@@ -682,7 +637,6 @@ function ColaboradorRow({ r, avaliacoes, acoes, fluxosSolicitados, onRegistrarAc
                   })}
                 </div>
               </div>
-
             </div>
           </td>
         </tr>
@@ -706,23 +660,20 @@ export default function Gsdpq() {
   const [carregando, setCarregando] = useState(false)
   const [uploadando, setUploadando] = useState(false)
   const [modalAcao, setModalAcao] = useState<ModalAcao | null>(null)
-  const [modalFluxo, setModalFluxo] = useState<ModalFluxo | null>(null)
   const [abaUpload, setAbaUpload] = useState<'gsdpq' | 'colaboradores'>('gsdpq')
   const [filtroCategoria, setFiltroCategoria] = useState<Categoria | 'Todas'>('Todas')
   const [filtroFuncao, setFiltroFuncao] = useState('Todas')
   const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
   const [mostrarTudo, setMostrarTudo] = useState(false)
   const [completoMesState, setCompletoMesState] = useState('')
-  const [fluxosSolicitados, setFluxosSolicitados] = useState<Set<string>>(new Set())
 
   async function carregarDados() {
     if (!usuario) return
     setCarregando(true)
-    const [{ data: avs }, { data: acs }, { data: colab }, { data: fluxos }] = await Promise.all([
+    const [{ data: avs }, { data: acs }, { data: colab }] = await Promise.all([
       supabase.from('gsdpq_avaliacoes').select('*').eq('filial', usuario.filial).order('data_avaliacao').limit(10000),
       supabase.from('gsdpq_acoes').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
       supabase.from('gsdpq_colaboradores').select('nome, funcao').eq('filial', usuario.filial),
-      supabase.from('fluxo_punitivo').select('colaborador_nome, data_infracao').eq('filial', usuario.filial).eq('origem', 'gsdpq'),
     ])
     const colabFuncaoMap = new Map((colab ?? []).map(c => [c.nome.toUpperCase(), c.funcao as string | null]))
     const todasAvs = (avs ?? []).map(av => ({
@@ -733,58 +684,58 @@ export default function Gsdpq() {
     setAcoes(acs ?? [])
     const qs = Array.from(new Set(todasAvs.map(a => a.questao)))
     setQuestoes(qs)
-    const keys = new Set((fluxos ?? []).map(f => `${f.colaborador_nome}__${f.data_infracao}`))
-    setFluxosSolicitados(keys)
     setCarregando(false)
   }
 
-  // Abre o modal de seleção de tipo de fluxo
-  function solicitarFluxoDia(colaboradorNome: string, dataAvaliacao: string, nosSeguranca: string[]) {
-    if (nosSeguranca.length === 0) return
-    setModalFluxo({ colaboradorNome, dataAvaliacao, nosSeguranca })
-  }
-
-  // Executa o envio depois que o usuário escolhe o tipo no modal
-  async function confirmarFluxoDia(tipo: string, registra: boolean) {
-    if (!usuario || !modalFluxo) return
-    const { colaboradorNome, dataAvaliacao, nosSeguranca } = modalFluxo
-    const frases = nosSeguranca.map(fraseGsd)
+  async function enviarFluxoDia(colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[]) {
+    if (!usuario || items.length === 0) return
+    const frases = items.map(it => fraseGsd(it.questao))
     const motivo = frases.length === 1
       ? frases[0]
       : `${frases.length} ocorrências de segurança:\n${frases.map((f, i) => `${i + 1}. ${f}`).join('\n')}`
     const registradoPor = usuario.nome ?? usuario.login
 
-    // Orientação verbal não gera registro no histórico — apenas notifica o grupo
-    if (registra) {
-      await supabase.from('fluxo_punitivo').insert({
-        filial: usuario.filial,
-        colaborador_nome: colaboradorNome,
-        origem: 'GSDPQ',
-        tipo_acao: tipo,
-        status: 'Solicitado',
-        motivo,
-        data_infracao: diaKeyGsd(dataAvaliacao) || null,
-        observacao: null,
-        registrado_por: registradoPor,
-      })
+    await supabase.from('fluxo_punitivo').insert({
+      filial: usuario.filial, colaborador_nome: colaboradorNome,
+      origem: 'GSDPQ', tipo_acao: null, status: 'Solicitado',
+      motivo, data_infracao: diaKeyGsd(dataAvaliacao) || null,
+      observacao: null, registrado_por: registradoPor,
+    })
+
+    // Registra em gsdpq_acoes para aparecer na análise
+    for (const it of items) {
+      await supabase.from('gsdpq_acoes').upsert({
+        filial: usuario.filial, colaborador_nome: colaboradorNome,
+        avaliacao_id: it.avaliacaoId, questao: it.questao,
+        data_avaliacao: dataAvaliacao, tipo_acao: 'Fluxo Punitivo',
+        dias_suspensao: null, observacao: null, registrado_por: registradoPor,
+      }, { onConflict: 'avaliacao_id' })
     }
 
     const { data: filialData } = await supabase.from('filiais').select('grupo_fluxo_whatsapp').eq('nome', usuario.filial).single()
     const grupo = filialData?.grupo_fluxo_whatsapp ?? null
     if (grupo) {
       const lista = frases.map((f, i) => `${i + 1}. ${f}`).join('\n')
-      const titulo = registra ? '🔔 *Solicitação de Fluxo Punitivo*' : '📢 *Orientação Verbal*'
-      const mensagem = `${titulo}\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${colaboradorNome}\n📋 Origem: GSDPQ\n🏷️ Tipo: ${tipo}\n🗓️ Data: ${dataAvaliacao}\n⚠️ Desvios (${frases.length}):\n${lista}\n✍️ Solicitado por: ${registradoPor}`
+      const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${colaboradorNome}\n📋 Origem: GSDPQ\n🗓️ Data: ${dataAvaliacao}\n⚠️ Desvios (${frases.length}):\n${lista}\n✍️ Solicitado por: ${registradoPor}`
       const { sucesso, erro } = await enviarMensagemGrupo(grupo, mensagem)
       await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: sucesso ? 'enviado' : 'erro', erro: erro ?? null })
-      if (!sucesso) alert(`${registra ? 'Solicitação registrada' : 'Orientação registrada'}, mas a mensagem para o grupo falhou:\n${erro}`)
+      if (!sucesso) alert(`Solicitação registrada, mas a mensagem para o grupo falhou:\n${erro}`)
     }
+    carregarDados()
+  }
 
-    if (registra) {
-      const key = `${colaboradorNome}__${diaKeyGsd(dataAvaliacao)}`
-      setFluxosSolicitados(prev => new Set([...prev, key]))
+  async function orientacaoVerbalDia(colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[]) {
+    if (!usuario || items.length === 0) return
+    const registradoPor = usuario.nome ?? usuario.login
+    for (const it of items) {
+      await supabase.from('gsdpq_acoes').upsert({
+        filial: usuario.filial, colaborador_nome: colaboradorNome,
+        avaliacao_id: it.avaliacaoId, questao: it.questao,
+        data_avaliacao: dataAvaliacao, tipo_acao: 'Orientação Verbal',
+        dias_suspensao: null, observacao: null, registrado_por: registradoPor,
+      }, { onConflict: 'avaliacao_id' })
     }
-    setModalFluxo(null)
+    carregarDados()
   }
 
   useEffect(() => { carregarDados() }, [usuario?.filial])
@@ -1244,7 +1195,7 @@ export default function Gsdpq() {
                 <tbody>
                   {resumos.length === 0 && <tr><td colSpan={6} className="text-center py-10 text-gray-400">Nenhum dado</td></tr>}
                   {resumos.map(r => (
-                    <ColaboradorRow key={r.nome} r={r} avaliacoes={avaliacoesFiltradas} acoes={acoes} fluxosSolicitados={fluxosSolicitados} onRegistrarAcao={setModalAcao} onSolicitarFluxoDia={solicitarFluxoDia} />
+                    <ColaboradorRow key={r.nome} r={r} avaliacoes={avaliacoesFiltradas} acoes={acoes} onRegistrarAcao={setModalAcao} onEnviarFluxo={enviarFluxoDia} onOrientacaoVerbal={orientacaoVerbalDia} />
                   ))}
                 </tbody>
               </table>
@@ -1541,14 +1492,6 @@ export default function Gsdpq() {
         />
       )}
 
-      {/* Modal Solicitar Fluxo */}
-      {modalFluxo && (
-        <ModalSolicitarFluxo
-          modal={modalFluxo}
-          onClose={() => setModalFluxo(null)}
-          onConfirmar={confirmarFluxoDia}
-        />
-      )}
     </div>
   )
 }

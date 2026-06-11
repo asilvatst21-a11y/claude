@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import {
   Upload, Loader2, Building2, RefreshCw, ChevronDown, ChevronUp,
-  FileSearch, Search, Users, X, CheckCircle2, Send, Check,
+  FileSearch, Search, Users, X, CheckCircle2, Send, Check, GitBranch,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -247,12 +247,13 @@ function ModalAcaoRelato({ pessoaRelatada, tipoRelato, dataRelato, existente, on
 
 // ── Relatado Detail Panel ─────────────────────────────────────────────────────────────────
 
-function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, solicitados }: {
+function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, solicitados, fluxosGsdpq }: {
   nome: string
   relatos: Relato[]
   acoes: RelatoAcao[]
   onSolicitarFluxo: (relatos: Relato[]) => void
   solicitados: Set<string>
+  fluxosGsdpq: Set<string>
 }) {
   const meus = relatos
     .filter(r => r.pessoa_relatada === nome)
@@ -271,7 +272,18 @@ function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, solicitados }:
       if (!map.has(dia)) map.set(dia, [])
       map.get(dia)!.push(r)
     })
-    return [...map.entries()].map(([dia, lista]) => ({ dia, lista }))
+    return Array.from(map.entries())
+      .map(([dia, lista]) => ({ dia, lista }))
+      .filter(g => !fluxosGsdpq.has(`${nome}__${g.dia}`))  // ← filtro GSD
+  })()
+
+  const diasBloqueadosGsd = (() => {
+    const dias = new Set<string>()
+    pendentesAto.forEach(r => {
+      const dia = (r.data_ocorrencia ?? '').slice(0, 10)
+      if (fluxosGsdpq.has(`${nome}__${dia}`)) dias.add(dia)
+    })
+    return Array.from(dias)
   })()
 
   const breakdown = [
@@ -341,7 +353,7 @@ function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, solicitados }:
             })}
           </div>
 
-          {gruposPendentes.length > 0 && (
+          {(gruposPendentes.length > 0 || diasBloqueadosGsd.length > 0) && (
             <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
               <p className="text-[11px] font-semibold text-gray-500 uppercase">Solicitar fluxo (agrupado por dia)</p>
               {gruposPendentes.map(g => (
@@ -350,6 +362,11 @@ function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, solicitados }:
                   <span className="flex items-center gap-1.5"><Send size={11} /> {fmtDate(g.dia)}</span>
                   <span className="font-semibold">{g.lista.length} ocorrência{g.lista.length > 1 ? 's' : ''}</span>
                 </button>
+              ))}
+              {diasBloqueadosGsd.map(dia => (
+                <div key={dia} className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 border border-blue-100 px-3 py-1.5 rounded">
+                  <GitBranch size={11} /> {fmtDate(dia)} — Fluxo já solicitado via GSDPQ
+                </div>
               ))}
             </div>
           )}
@@ -437,16 +454,19 @@ export default function Relatos() {
   const [expandedRelatanteId, setExpandedRelatanteId] = useState<string | null>(null)
   const [modalAcao, setModalAcao] = useState<Relato | null>(null)
   const [solicitados, setSolicitados] = useState<Set<string>>(new Set())
+  const [fluxosGsdpq, setFluxosGsdpq] = useState<Set<string>>(new Set())
 
   async function carregar() {
     if (!usuario) return
     setLoading(true)
-    const [{ data: rows }, { data: acoesRows }] = await Promise.all([
+    const [{ data: rows }, { data: acoesRows }, { data: fluxosGsd }] = await Promise.all([
       supabase.from('relatos').select('*').eq('filial', usuario.filial).order('data_ocorrencia', { ascending: false }),
       supabase.from('relatos_acoes').select('*').eq('filial', usuario.filial),
+      supabase.from('fluxo_punitivo').select('colaborador_nome, data_infracao').eq('filial', usuario.filial).eq('origem', 'GSDPQ'),
     ])
     setData(rows ?? [])
     setAcoes(acoesRows ?? [])
+    setFluxosGsdpq(new Set((fluxosGsd ?? []).map(f => `${f.colaborador_nome}__${f.data_infracao}`)))
     setLoading(false)
   }
 
@@ -968,7 +988,7 @@ export default function Relatos() {
                               </tr>
                               {expandedRelatadoId === r.nome && (
                                 <tr><td colSpan={8} className="p-0">
-                                  <RelatadoDetail nome={r.nome} relatos={filtered} acoes={acoes} onSolicitarFluxo={solicitarFluxo} solicitados={solicitados} />
+                                  <RelatadoDetail nome={r.nome} relatos={filtered} acoes={acoes} onSolicitarFluxo={solicitarFluxo} solicitados={solicitados} fluxosGsdpq={fluxosGsdpq} />
                                 </td></tr>
                               )}
                             </Fragment>
