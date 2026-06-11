@@ -430,7 +430,7 @@ function ModalNovaAcao({ filial, colaboradores, registradoPor, onClose, onSalvar
 
 // ─── Linha do colaborador (histórico) ─────────────────────────────────────────
 
-function ColabRow({ nome, historico, filial, onReabrir }: { nome: string; historico: FluxoPunitivo[]; filial: string; onReabrir: (h: FluxoPunitivo) => void }) {
+function ColabRow({ nome, historico, filial, onReabrir, onExcluir }: { nome: string; historico: FluxoPunitivo[]; filial: string; onReabrir: (h: FluxoPunitivo) => void; onExcluir: (h: FluxoPunitivo) => void }) {
   const [open, setOpen] = useState(false)
   const proxima = calcProxima(historico)
   const concluidos = historico.filter(h => h.status === 'Concluido' && h.tipo_acao)
@@ -498,6 +498,14 @@ function ColabRow({ nome, historico, filial, onReabrir }: { nome: string; histor
                       title="Reabrir (voltar para pendente e editar)"
                       className="shrink-0 text-gray-300 hover:text-orange-500 transition-colors">
                       <RotateCcw size={14} />
+                    </button>
+                  )}
+                  {(h.origem ?? '').toLowerCase().includes('relato') && (
+                    <button
+                      onClick={() => onExcluir(h)}
+                      title="Excluir fluxo"
+                      className="shrink-0 text-gray-300 hover:text-red-500 transition-colors">
+                      <Trash2 size={14} />
                     </button>
                   )}
                 </div>
@@ -697,6 +705,12 @@ export default function FluxoPunitivo() {
     if (!window.confirm(msg)) return
     const ids = grupo.map(g => g.id)
     await supabase.from('fluxo_punitivo').delete().in('id', ids)
+    carregar()
+  }
+
+  async function handleExcluirRegistro(h: FluxoPunitivo) {
+    if (!window.confirm(`Excluir este fluxo de ${h.colaborador_nome}? Esta ação não pode ser desfeita.`)) return
+    await supabase.from('fluxo_punitivo').delete().eq('id', h.id)
     carregar()
   }
 
@@ -911,7 +925,7 @@ export default function FluxoPunitivo() {
                 </thead>
                 <tbody>
                   {historicoFiltrado.map(nome => (
-                    <ColabRow key={nome} nome={nome} historico={historico.get(nome) ?? []} filial={usuario!.filial} onReabrir={handleReabrir} />
+                    <ColabRow key={nome} nome={nome} historico={historico.get(nome) ?? []} filial={usuario!.filial} onReabrir={handleReabrir} onExcluir={handleExcluirRegistro} />
                   ))}
                 </tbody>
               </table>
