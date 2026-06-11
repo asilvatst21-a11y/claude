@@ -97,6 +97,7 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
   const [loadingNotas, setLoadingNotas] = useState(false);
   const [novoTexto, setNovoTexto] = useState("");
   const [salvandoNota, setSalvandoNota] = useState(false);
+  const [erroNota, setErroNota] = useState<string | null>(null);
 
   const fetchNotas = useCallback(async () => {
     if (!vale) return;
@@ -121,6 +122,7 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
   const handleAdicionarNota = async () => {
     if (!vale || !novoTexto.trim()) return;
     setSalvandoNota(true);
+    setErroNota(null);
     try {
       const res = await fetch(`/api/vales/${vale.id}/notas`, {
         method: "POST",
@@ -130,7 +132,12 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
       if (res.ok) {
         setNovoTexto("");
         await fetchNotas();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setErroNota(data.error ?? "Erro ao salvar anotação");
       }
+    } catch {
+      setErroNota("Erro de conexão ao salvar anotação");
     } finally {
       setSalvandoNota(false);
     }
@@ -271,6 +278,12 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
             ) : (
               <p className="text-sm text-muted-foreground italic mb-4">
                 Nenhuma anotação registrada.
+              </p>
+            )}
+
+            {erroNota && (
+              <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2 mb-2">
+                {erroNota}
               </p>
             )}
 
