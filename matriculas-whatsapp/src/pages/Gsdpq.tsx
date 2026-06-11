@@ -154,6 +154,8 @@ const COR_ACAO: Record<string, string> = {
   'Advertência Verbal': 'bg-yellow-50 text-yellow-700 border-yellow-200',
   'Advertência Escrita': 'bg-orange-50 text-orange-700 border-orange-200',
   'Suspensão': 'bg-red-50 text-red-700 border-red-200',
+  'Fluxo Punitivo': 'bg-purple-50 text-purple-700 border-purple-200',
+  'Orientação Verbal': 'bg-slate-50 text-slate-600 border-slate-200',
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -177,6 +179,18 @@ interface ModalAcao {
   colaboradorNome: string
   questao: string
   dataAvaliacao: string
+}
+
+interface AcaoInsert {
+  filial: string
+  colaborador_nome: string
+  avaliacao_id: string
+  questao: string
+  data_avaliacao: string
+  tipo_acao: string
+  dias_suspensao: number | null
+  observacao: string | null
+  registrado_por: string
 }
 
 interface SelectedItem {
@@ -687,6 +701,22 @@ export default function Gsdpq() {
     setCarregando(false)
   }
 
+  // gsdpq_acoes não possui unique(avaliacao_id), então upsert com onConflict
+  // falha silenciosamente (sem ON CONFLICT compatível). Registramos via
+  // delete + insert: idempotente (substitui ação anterior da mesma avaliação)
+  // e propaga erros para a UI em vez de falhar em silêncio.
+  async function registrarAcoesGsd(rows: AcaoInsert[]): Promise<boolean> {
+    if (rows.length === 0) return true
+    const ids = rows.map(r => r.avaliacao_id).filter(Boolean)
+    if (ids.length) {
+      const { error: delErr } = await supabase.from('gsdpq_acoes').delete().in('avaliacao_id', ids)
+      if (delErr) { alert('Erro ao registrar ação no GSDPQ:\n' + delErr.message); return false }
+    }
+    const { error: insErr } = await supabase.from('gsdpq_acoes').insert(rows)
+    if (insErr) { alert('Erro ao registrar ação no GSDPQ:\n' + insErr.message); return false }
+    return true
+  }
+
   async function enviarFluxoDia(colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[]) {
     if (!usuario || items.length === 0) return
     const frases = items.map(it => fraseGsd(it.questao))
@@ -702,15 +732,13 @@ export default function Gsdpq() {
       observacao: null, registrado_por: registradoPor,
     })
 
-    // Registra em gsdpq_acoes para aparecer na análise
-    for (const it of items) {
-      await supabase.from('gsdpq_acoes').upsert({
-        filial: usuario.filial, colaborador_nome: colaboradorNome,
-        avaliacao_id: it.avaliacaoId, questao: it.questao,
-        data_avaliacao: dataAvaliacao, tipo_acao: 'Fluxo Punitivo',
-        dias_suspensao: null, observacao: null, registrado_por: registradoPor,
-      }, { onConflict: 'avaliacao_id' })
-    }
+    // Registra em gsdpq_acoes para aparecer na análise e travar os NOs
+    await registrarAcoesGsd(items.map(it => ({
+      filial: usuario.filial, colaborador_nome: colaboradorNome,
+      avaliacao_id: it.avaliacaoId, questao: it.questao,
+      data_avaliacao: dataAvaliacao, tipo_acao: 'Fluxo Punitivo',
+      dias_suspensao: null, observacao: null, registrado_por: registradoPor,
+    })))
 
     const { data: filialData } = await supabase.from('filiais').select('grupo_fluxo_whatsapp').eq('nome', usuario.filial).single()
     const grupo = filialData?.grupo_fluxo_whatsapp ?? null
@@ -727,14 +755,12 @@ export default function Gsdpq() {
   async function orientacaoVerbalDia(colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[]) {
     if (!usuario || items.length === 0) return
     const registradoPor = usuario.nome ?? usuario.login
-    for (const it of items) {
-      await supabase.from('gsdpq_acoes').upsert({
-        filial: usuario.filial, colaborador_nome: colaboradorNome,
-        avaliacao_id: it.avaliacaoId, questao: it.questao,
-        data_avaliacao: dataAvaliacao, tipo_acao: 'Orientação Verbal',
-        dias_suspensao: null, observacao: null, registrado_por: registradoPor,
-      }, { onConflict: 'avaliacao_id' })
-    }
+    await registrarAcoesGsd(items.map(it => ({
+      filial: usuario.filial, colaborador_nome: colaboradorNome,
+      avaliacao_id: it.avaliacaoId, questao: it.questao,
+      data_avaliacao: dataAvaliacao, tipo_acao: 'Orientação Verbal',
+      dias_suspensao: null, observacao: null, registrado_por: registradoPor,
+    })))
     await carregarDados()
   }
 
@@ -905,7 +931,7 @@ export default function Gsdpq() {
   // Registrar ação
   async function salvarAcao(tipo: string, dias: number | null, obs: string) {
     if (!modalAcao || !usuario) return
-    await supabase.from('gsdpq_acoes').upsert({
+    const ok = await registrarAcoesGsd([{
       filial: usuario.filial,
       colaborador_nome: modalAcao.colaboradorNome,
       avaliacao_id: modalAcao.avaliacaoId,
@@ -915,9 +941,10 @@ export default function Gsdpq() {
       dias_suspensao: dias,
       observacao: obs || null,
       registrado_por: usuario.nome ?? usuario.login,
-    }, { onConflict: 'avaliacao_id' })
+    }])
+    if (!ok) return
     setModalAcao(null)
-    carregarDados()
+    await carregarDados()
   }
 
   // Exportar Excel

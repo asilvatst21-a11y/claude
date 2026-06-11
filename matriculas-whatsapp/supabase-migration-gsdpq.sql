@@ -57,3 +57,13 @@ alter table gsdpq_acoes enable row level security;
 create policy "Acesso total" on gsdpq_acoes for all using (true);
 create index if not exists idx_gsdpq_acoes_filial on gsdpq_acoes(filial);
 create index if not exists idx_gsdpq_acoes_colaborador on gsdpq_acoes(colaborador_nome);
+
+-- 3b. Garante no máximo 1 ação por avaliação (uma avaliação só pode ter um
+-- desfecho: ação disciplinar, fluxo punitivo ou orientação verbal).
+-- Remove duplicatas antigas (mantém a mais recente) antes de criar o índice.
+delete from gsdpq_acoes a using gsdpq_acoes b
+  where a.avaliacao_id = b.avaliacao_id
+    and a.avaliacao_id is not null
+    and a.created_at < b.created_at;
+create unique index if not exists uniq_gsdpq_acoes_avaliacao
+  on gsdpq_acoes(avaliacao_id) where avaliacao_id is not null;
