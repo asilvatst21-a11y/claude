@@ -500,7 +500,7 @@ function ColabRow({ nome, historico, filial, onReabrir, onExcluir }: { nome: str
                       <RotateCcw size={14} />
                     </button>
                   )}
-                  {registroEditavel(h) && (h.origem ?? '').toLowerCase().includes('relato') && (
+                  {(h.origem ?? '').toLowerCase().includes('relato') && (
                     <button
                       onClick={() => onExcluir(h)}
                       title="Excluir fluxo"
@@ -714,12 +714,20 @@ export default function FluxoPunitivo() {
   }
 
   async function handleExcluirRegistro(h: FluxoPunitivo) {
-    if (!registroEditavel(h)) {
-      alert('Este registro vem da tela de origem (Relatos/GSDPQ/Telemetria) e deve ser removido lá.')
+    // Registros do histórico podem ser reais (fluxo_punitivo) ou projeções de
+    // ações de outras telas. Roteia a exclusão para a tabela de origem correta.
+    let tabela: string
+    let realId: string
+    if (h.id.startsWith('relato_')) {
+      tabela = 'relatos_acoes'; realId = h.id.slice('relato_'.length)
+    } else if (registroEditavel(h)) {
+      tabela = 'fluxo_punitivo'; realId = h.id
+    } else {
+      alert('Este registro vem de GSDPQ/Telemetria e deve ser removido na tela de origem.')
       return
     }
     if (!window.confirm(`Excluir este fluxo de ${h.colaborador_nome}? Esta ação não pode ser desfeita.`)) return
-    const { error } = await supabase.from('fluxo_punitivo').delete().eq('id', h.id)
+    const { error } = await supabase.from(tabela).delete().eq('id', realId)
     if (error) { alert('Erro ao excluir o fluxo:\n' + error.message); return }
     carregar()
   }
