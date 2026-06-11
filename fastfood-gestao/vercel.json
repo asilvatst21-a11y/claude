@@ -1,4 +1,4 @@
 {
-  "ignoreCommand": "git fetch --deepen 1 && git diff HEAD^ HEAD --quiet -- fastfood-gestao/",
+  "ignoreCommand": "git log -1 --format=%H -- fastfood-gestao/ | grep -qF $VERCEL_GIT_COMMIT_SHA && exit 1 || exit 0",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
