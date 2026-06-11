@@ -1,4 +1,4 @@
 {
-  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- fastfood-gestao/",
+  "ignoreCommand": "git fetch --deepen 1 && git diff HEAD^ HEAD --quiet -- fastfood-gestao/",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
