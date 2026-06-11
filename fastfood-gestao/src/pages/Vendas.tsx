@@ -638,7 +638,7 @@ export default function Vendas() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Abas */}
+      {/* Abas — PDV | Histórico | Fila */}
       <div className="flex border-b border-gray-200 bg-white px-4 pt-4 gap-1 shrink-0 items-end">
         <button onClick={() => setView('pdv')}
           className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'pdv' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:text-gray-700'}`}>
