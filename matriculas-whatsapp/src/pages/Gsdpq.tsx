@@ -721,7 +721,7 @@ export default function Gsdpq() {
       await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: sucesso ? 'enviado' : 'erro', erro: erro ?? null })
       if (!sucesso) alert(`Solicitação registrada, mas a mensagem para o grupo falhou:\n${erro}`)
     }
-    carregarDados()
+    await carregarDados()
   }
 
   async function orientacaoVerbalDia(colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[]) {
@@ -735,7 +735,7 @@ export default function Gsdpq() {
         dias_suspensao: null, observacao: null, registrado_por: registradoPor,
       }, { onConflict: 'avaliacao_id' })
     }
-    carregarDados()
+    await carregarDados()
   }
 
   useEffect(() => { carregarDados() }, [usuario?.filial])
