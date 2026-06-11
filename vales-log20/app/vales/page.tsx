@@ -113,7 +113,10 @@ function SortableHead({
   );
 }
 
-const PRAZO_ORDER: Record<string, number> = { vencido: 0, urgente: 1, alerta: 2, ok: 3 };
+function deadlineMs(dataEmissao: string | null | undefined): number {
+  if (!dataEmissao) return Number.MAX_SAFE_INTEGER;
+  return new Date(dataEmissao + "T00:00:00").getTime() + 3 * 24 * 60 * 60 * 1000;
+}
 
 function sortVales(list: ValeRow[], field: SortField | null, dir: SortDir): ValeRow[] {
   if (!field) return list;
@@ -138,14 +141,9 @@ function sortVales(list: ValeRow[], field: SortField | null, dir: SortDir): Vale
       case "status_vale":
         cmp = (a.status_vale ?? "").localeCompare(b.status_vale ?? "", "pt-BR");
         break;
-      case "prazo": {
-        const pa = calcPrazo(a.data_emissao);
-        const pb = calcPrazo(b.data_emissao);
-        const oa = pa ? PRAZO_ORDER[pa.status] ?? 9 : 9;
-        const ob = pb ? PRAZO_ORDER[pb.status] ?? 9 : 9;
-        cmp = oa - ob;
+      case "prazo":
+        cmp = deadlineMs(a.data_emissao) - deadlineMs(b.data_emissao);
         break;
-      }
     }
     return dir === "asc" ? cmp : -cmp;
   });
@@ -393,45 +391,34 @@ function ValesContent() {
       : []),
   ];
 
-  function exportCSV() {
+  function exportExcel() {
+    const XLSX = require("xlsx");
     const rows = sortVales(filterByTab(valesFiltered, activeTab), sortField, sortDir);
-    const headers = [
-      "Mapa", "Vale #", "Data Emissão", "Ajudante(s)",
-      "Qtd Itens", "Valor Total", "Status",
-      "Ação Transp.", "Ação Ambev", "Justificativa",
-      "Notificado", "Motorista", "Veículo",
+    const data = rows.map((v) => ({
+      "Mapa": v.mapa ?? "",
+      "Vale #": v.numero_vale,
+      "Data Emissão": v.data_emissao ?? "",
+      "Ajudante(s)": v.ajudantes.map((a) => a.nome).join(" / "),
+      "Qtd Itens": v.itens.length,
+      "Valor Total": v.valor_total ?? 0,
+      "Status": v.status_vale ?? "Sem Ação",
+      "Ação Transp.": v.acao_transportadora ?? "",
+      "Ação Ambev": v.acao_primeiro_nivel ?? "",
+      "Justificativa": v.justificativa_primeiro_nivel ?? "",
+      "Notificado": v.notificacao_pendente_enviada ? "Sim" : "Não",
+      "Motorista": v.motorista ?? "",
+      "Veículo": v.veiculo ?? "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    // Column widths
+    ws["!cols"] = [
+      { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 30 },
+      { wch: 8 }, { wch: 14 }, { wch: 12 }, { wch: 14 },
+      { wch: 14 }, { wch: 40 }, { wch: 10 }, { wch: 24 }, { wch: 12 },
     ];
-    const escape = (v: string | number | null | undefined) => {
-      const s = v == null ? "" : String(v);
-      return s.includes(",") || s.includes('"') || s.includes("\n")
-        ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const lines = [
-      headers.join(","),
-      ...rows.map((v) => [
-        escape(v.mapa),
-        escape(v.numero_vale),
-        escape(v.data_emissao),
-        escape(v.ajudantes.map((a) => a.nome).join(" / ")),
-        escape(v.itens.length),
-        escape((v.valor_total ?? 0).toFixed(2).replace(".", ",")),
-        escape(v.status_vale ?? "Sem Ação"),
-        escape(v.acao_transportadora ?? ""),
-        escape(v.acao_primeiro_nivel ?? ""),
-        escape(v.justificativa_primeiro_nivel ?? ""),
-        escape(v.notificacao_pendente_enviada ? "Sim" : "Não"),
-        escape(v.motorista ?? ""),
-        escape(v.veiculo ?? ""),
-      ].join(",")),
-    ];
-    const bom = "﻿"; // UTF-8 BOM so Excel opens correctly
-    const blob = new Blob([bom + lines.join("\n")], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `vales-${activeTab}-${new Date().toISOString().slice(0, 10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Vales");
+    XLSX.writeFile(wb, `vales-${activeTab}-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
   return (
@@ -575,9 +562,9 @@ function ValesContent() {
           <p className="text-muted-foreground">Gerencie todos os vales do sistema</p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={exportCSV} disabled={filteredVales.length === 0}>
+          <Button variant="outline" onClick={exportExcel} disabled={filteredVales.length === 0}>
             <Download className="h-4 w-4 mr-2" />
-            Exportar CSV
+            Exportar Excel
           </Button>
           <Button variant="outline" onClick={fetchVales} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
