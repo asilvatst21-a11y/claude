@@ -1,4 +1,4 @@
 {
-  "ignoreCommand": "git log -1 --format=%H -- fastfood-gestao/ | grep -qF $VERCEL_GIT_COMMIT_SHA && exit 1 || exit 0",
+  "ignoreCommand": "[ -z \"$(git log -1 --format=%H -- fastfood-gestao/)\" ]",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
