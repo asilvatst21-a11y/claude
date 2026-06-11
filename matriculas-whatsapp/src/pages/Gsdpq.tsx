@@ -156,6 +156,22 @@ const COR_ACAO: Record<string, string> = {
   'Suspensão': 'bg-red-50 text-red-700 border-red-200',
 }
 
+// Tipos de fluxo que o solicitante pode escolher ao enviar do GSD.
+// `registra: false` → apenas orientação verbal, não gera registro no histórico do colaborador.
+const TIPOS_FLUXO: { value: string; registra: boolean; desc: string }[] = [
+  { value: 'Orientação Verbal',   registra: false, desc: 'Apenas orientação — não registra no histórico do colaborador' },
+  { value: 'Advertência Verbal',  registra: true,  desc: 'Registra no histórico e conta na sequência punitiva' },
+  { value: 'Advertência Escrita', registra: true,  desc: 'Registra no histórico e conta na sequência punitiva' },
+  { value: 'Suspensão',           registra: true,  desc: 'Registra no histórico e conta na sequência punitiva' },
+]
+
+const COR_TIPO_FLUXO: Record<string, string> = {
+  'Orientação Verbal':    'bg-gray-50 text-gray-700 border-gray-200',
+  'Advertência Verbal':   'bg-yellow-50 text-yellow-700 border-yellow-200',
+  'Advertência Escrita':  'bg-orange-50 text-orange-700 border-orange-200',
+  'Suspensão':            'bg-red-50 text-red-700 border-red-200',
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ResumoColaborador {
@@ -177,6 +193,12 @@ interface ModalAcao {
   colaboradorNome: string
   questao: string
   dataAvaliacao: string
+}
+
+interface ModalFluxo {
+  colaboradorNome: string
+  dataAvaliacao: string
+  nosSeguranca: string[]
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -389,16 +411,94 @@ function ModalRegistrarAcao({ modal, acaoExistente, onClose, onSalvar }: {
   )
 }
 
+function ModalSolicitarFluxo({ modal, onClose, onConfirmar }: {
+  modal: ModalFluxo
+  onClose: () => void
+  onConfirmar: (tipo: string, registra: boolean) => Promise<void>
+}) {
+  const [tipo, setTipo] = useState('')
+  const [loading, setLoading] = useState(false)
+  const frases = modal.nosSeguranca.map(fraseGsd)
+  const selecionado = TIPOS_FLUXO.find(t => t.value === tipo)
+
+  async function confirmar() {
+    if (!selecionado) return
+    setLoading(true)
+    await onConfirmar(selecionado.value, selecionado.registra)
+    setLoading(false)
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+        <h3 className="text-lg font-bold text-gray-900 mb-1">Solicitar Fluxo Punitivo</h3>
+        <p className="text-xs text-gray-500 mb-3">
+          <strong>{modal.colaboradorNome}</strong> · {modal.dataAvaliacao}
+        </p>
+
+        <div className="bg-red-50 border border-red-100 rounded-lg p-3 mb-4">
+          <p className="text-xs font-semibold text-red-700 uppercase mb-1.5">
+            {frases.length === 1 ? 'Motivo' : `${frases.length} motivos`}
+          </p>
+          <ul className="space-y-1">
+            {frases.map((f, i) => (
+              <li key={i} className="text-xs text-red-700 font-medium flex gap-1.5">
+                <span className="text-red-400">{frases.length > 1 ? `${i + 1}.` : '•'}</span> {f}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <label className="block text-sm font-medium text-gray-700 mb-2">Tipo de Fluxo *</label>
+        <div className="space-y-2">
+          {TIPOS_FLUXO.map(t => (
+            <button
+              key={t.value}
+              onClick={() => setTipo(t.value)}
+              className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
+                tipo === t.value ? COR_TIPO_FLUXO[t.value] + ' ring-1 ring-offset-1 ring-brand-300' : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-medium">{t.value}</span>
+                {!t.registra && <span className="text-[10px] uppercase font-bold text-gray-400">não registra</span>}
+              </div>
+              <p className="text-[11px] text-gray-500 mt-0.5">{t.desc}</p>
+            </button>
+          ))}
+        </div>
+
+        {selecionado && !selecionado.registra && (
+          <p className="text-xs text-gray-500 italic mt-3 flex items-start gap-1.5">
+            <AlertTriangle size={13} className="text-gray-400 shrink-0 mt-0.5" />
+            A orientação será enviada ao grupo de WhatsApp, mas não criará registro no histórico do colaborador.
+          </p>
+        )}
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+          <button
+            onClick={confirmar}
+            disabled={loading || !tipo}
+            className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-lg font-medium flex items-center gap-2"
+          >
+            {loading ? <><Loader2 size={14} className="animate-spin" /> Enviando...</> : 'Enviar Fluxo'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ColaboradorRow({ r, avaliacoes, acoes, fluxosSolicitados, onRegistrarAcao, onSolicitarFluxoDia }: {
   r: ResumoColaborador
   avaliacoes: GsdpqAvaliacao[]
   acoes: GsdpqAcao[]
   fluxosSolicitados: Set<string>
   onRegistrarAcao: (modal: ModalAcao) => void
-  onSolicitarFluxoDia: (colaboradorNome: string, dataAvaliacao: string, nosSeguranca: string[]) => Promise<void>
+  onSolicitarFluxoDia: (colaboradorNome: string, dataAvaliacao: string, nosSeguranca: string[]) => void
 }) {
   const [open, setOpen] = useState(false)
-  const [solicitando, setSolicitando] = useState<string | null>(null)
 
   const datasOrdenadas = Object.keys(r.avaliacoesPorData).sort()
   const acoesColaborador = acoes.filter(a => a.colaborador_nome === r.nome)
@@ -505,7 +605,7 @@ function ColaboradorRow({ r, avaliacoes, acoes, fluxosSolicitados, onRegistrarAc
                                     {nosSeguranca.map(questao => (
                                       <div key={questao} className="flex items-center gap-1.5 bg-red-50 rounded px-2 py-1.5">
                                         <XCircle size={12} className="text-red-500 shrink-0" />
-                                        <span className="text-xs text-red-700 font-medium">{fraseGsd(questao)}</span>
+                                        <span className="text-xs text-red-700">{questao}</span>
                                       </div>
                                     ))}
                                   </div>
@@ -515,16 +615,13 @@ function ColaboradorRow({ r, avaliacoes, acoes, fluxosSolicitados, onRegistrarAc
                                     </span>
                                   ) : (
                                     <button
-                                      onClick={async e => {
+                                      onClick={e => {
                                         e.stopPropagation()
-                                        setSolicitando(data)
-                                        await onSolicitarFluxoDia(r.nome, data, nosSeguranca)
-                                        setSolicitando(null)
+                                        onSolicitarFluxoDia(r.nome, data, nosSeguranca)
                                       }}
-                                      disabled={solicitando === data}
-                                      className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-900 bg-white border border-brand-200 hover:border-brand-400 px-2 py-1 rounded transition-colors disabled:opacity-50"
+                                      className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-900 bg-white border border-brand-200 hover:border-brand-400 px-2 py-1 rounded transition-colors"
                                     >
-                                      {solicitando === data ? <Loader2 size={10} className="animate-spin" /> : <GitBranch size={10} />}
+                                      <GitBranch size={10} />
                                       Solicitar Fluxo{nosSeguranca.length > 1 ? ` (${nosSeguranca.length} ocorrências)` : ''}
                                     </button>
                                   )}
@@ -609,6 +706,7 @@ export default function Gsdpq() {
   const [carregando, setCarregando] = useState(false)
   const [uploadando, setUploadando] = useState(false)
   const [modalAcao, setModalAcao] = useState<ModalAcao | null>(null)
+  const [modalFluxo, setModalFluxo] = useState<ModalFluxo | null>(null)
   const [abaUpload, setAbaUpload] = useState<'gsdpq' | 'colaboradores'>('gsdpq')
   const [filtroCategoria, setFiltroCategoria] = useState<Categoria | 'Todas'>('Todas')
   const [filtroFuncao, setFiltroFuncao] = useState('Todas')
@@ -640,35 +738,53 @@ export default function Gsdpq() {
     setCarregando(false)
   }
 
-  async function solicitarFluxoDia(colaboradorNome: string, dataAvaliacao: string, nosSeguranca: string[]) {
-    if (!usuario || nosSeguranca.length === 0) return
+  // Abre o modal de seleção de tipo de fluxo
+  function solicitarFluxoDia(colaboradorNome: string, dataAvaliacao: string, nosSeguranca: string[]) {
+    if (nosSeguranca.length === 0) return
+    setModalFluxo({ colaboradorNome, dataAvaliacao, nosSeguranca })
+  }
+
+  // Executa o envio depois que o usuário escolhe o tipo no modal
+  async function confirmarFluxoDia(tipo: string, registra: boolean) {
+    if (!usuario || !modalFluxo) return
+    const { colaboradorNome, dataAvaliacao, nosSeguranca } = modalFluxo
     const frases = nosSeguranca.map(fraseGsd)
     const motivo = frases.length === 1
       ? frases[0]
       : `${frases.length} ocorrências de segurança:\n${frases.map((f, i) => `${i + 1}. ${f}`).join('\n')}`
     const registradoPor = usuario.nome ?? usuario.login
-    await supabase.from('fluxo_punitivo').insert({
-      filial: usuario.filial,
-      colaborador_nome: colaboradorNome,
-      origem: 'GSDPQ',
-      tipo_acao: null,
-      status: 'Solicitado',
-      motivo,
-      data_infracao: diaKeyGsd(dataAvaliacao) || null,
-      observacao: null,
-      registrado_por: registradoPor,
-    })
+
+    // Orientação verbal não gera registro no histórico — apenas notifica o grupo
+    if (registra) {
+      await supabase.from('fluxo_punitivo').insert({
+        filial: usuario.filial,
+        colaborador_nome: colaboradorNome,
+        origem: 'GSDPQ',
+        tipo_acao: tipo,
+        status: 'Solicitado',
+        motivo,
+        data_infracao: diaKeyGsd(dataAvaliacao) || null,
+        observacao: null,
+        registrado_por: registradoPor,
+      })
+    }
+
     const { data: filialData } = await supabase.from('filiais').select('grupo_fluxo_whatsapp').eq('nome', usuario.filial).single()
     const grupo = filialData?.grupo_fluxo_whatsapp ?? null
     if (grupo) {
       const lista = frases.map((f, i) => `${i + 1}. ${f}`).join('\n')
-      const mensagem = `🔔 *Solicitação de Fluxo Punitivo*\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${colaboradorNome}\n📋 Origem: GSDPQ\n🗓️ Data: ${dataAvaliacao}\n⚠️ Desvios (${frases.length}):\n${lista}\n✍️ Solicitado por: ${registradoPor}`
+      const titulo = registra ? '🔔 *Solicitação de Fluxo Punitivo*' : '📢 *Orientação Verbal*'
+      const mensagem = `${titulo}\n📍 Filial: ${usuario.filial}\n👤 Colaborador: ${colaboradorNome}\n📋 Origem: GSDPQ\n🏷️ Tipo: ${tipo}\n🗓️ Data: ${dataAvaliacao}\n⚠️ Desvios (${frases.length}):\n${lista}\n✍️ Solicitado por: ${registradoPor}`
       const { sucesso, erro } = await enviarMensagemGrupo(grupo, mensagem)
       await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem, status: sucesso ? 'enviado' : 'erro', erro: erro ?? null })
-      if (!sucesso) alert(`Solicitação registrada, mas a mensagem para o grupo falhou:\n${erro}`)
+      if (!sucesso) alert(`${registra ? 'Solicitação registrada' : 'Orientação registrada'}, mas a mensagem para o grupo falhou:\n${erro}`)
     }
-    const key = `${colaboradorNome}__${diaKeyGsd(dataAvaliacao)}`
-    setFluxosSolicitados(prev => new Set([...prev, key]))
+
+    if (registra) {
+      const key = `${colaboradorNome}__${diaKeyGsd(dataAvaliacao)}`
+      setFluxosSolicitados(prev => new Set([...prev, key]))
+    }
+    setModalFluxo(null)
   }
 
   useEffect(() => { carregarDados() }, [usuario?.filial])
@@ -1422,6 +1538,15 @@ export default function Gsdpq() {
           acaoExistente={acoes.find(a => a.avaliacao_id === modalAcao.avaliacaoId)}
           onClose={() => setModalAcao(null)}
           onSalvar={salvarAcao}
+        />
+      )}
+
+      {/* Modal Solicitar Fluxo */}
+      {modalFluxo && (
+        <ModalSolicitarFluxo
+          modal={modalFluxo}
+          onClose={() => setModalFluxo(null)}
+          onConfirmar={confirmarFluxoDia}
         />
       )}
     </div>
