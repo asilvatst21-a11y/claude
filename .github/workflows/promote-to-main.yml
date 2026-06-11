@@ -5,6 +5,9 @@ on:
     branches:
       - claude/start-new-project-znnaq
 
+permissions:
+  contents: write
+
 jobs:
   promote:
     runs-on: ubuntu-latest
