@@ -552,7 +552,7 @@ function ColaboradorRow({
                                         ) : (
                                           <span className="w-4 shrink-0" />
                                         )}
-                                        <span className={`text-xs flex-1 ${jaHandled ? 'text-gray-400 line-through' : 'text-red-700'}`}>{questao}</span>
+                                        <span className={`text-xs flex-1 ${jaHandled ? 'text-gray-500' : 'text-red-700'}`}>{questao}</span>
                                         {acaoExistente && (
                                           <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium shrink-0 ${COR_ACAO[acaoExistente.tipo_acao] ?? 'bg-gray-50 text-gray-500 border-gray-200'}`}>
                                             {acaoExistente.tipo_acao}

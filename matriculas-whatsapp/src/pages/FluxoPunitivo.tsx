@@ -688,6 +688,18 @@ export default function FluxoPunitivo() {
     carregar()
   }
 
+  async function handleExcluirFluxo(grupo: FluxoPunitivo[]) {
+    const nome = grupo[0].colaborador_nome
+    const n = grupo.length
+    const msg = n > 1
+      ? `Excluir ${n} registros de fluxo de ${nome}? Esta ação não pode ser desfeita.`
+      : `Excluir o fluxo pendente de ${nome}? Esta ação não pode ser desfeita.`
+    if (!window.confirm(msg)) return
+    const ids = grupo.map(g => g.id)
+    await supabase.from('fluxo_punitivo').delete().in('id', ids)
+    carregar()
+  }
+
   async function handleReabrir(h: FluxoPunitivo) {
     if (!window.confirm(`Reabrir a ação de ${h.colaborador_nome}? Ela volta para Pendentes para ser redefinida.`)) return
     await supabase.from('fluxo_punitivo').update({
@@ -856,11 +868,18 @@ export default function FluxoPunitivo() {
                           )}
                         </div>
                       </div>
-                      <button
-                        onClick={() => setModalDefinir(grupo)}
-                        className="shrink-0 flex items-center gap-1.5 text-sm bg-brand-700 text-white px-3 py-2 rounded-lg hover:bg-brand-600 font-medium">
-                        <CheckCircle2 size={14} /> Definir ação
-                      </button>
+                      <div className="flex flex-col gap-2 shrink-0">
+                        <button
+                          onClick={() => setModalDefinir(grupo)}
+                          className="flex items-center gap-1.5 text-sm bg-brand-700 text-white px-3 py-2 rounded-lg hover:bg-brand-600 font-medium">
+                          <CheckCircle2 size={14} /> Definir ação
+                        </button>
+                        <button
+                          onClick={() => handleExcluirFluxo(grupo)}
+                          className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-red-500 px-3 py-1.5 rounded-lg border border-gray-200 hover:border-red-200 hover:bg-red-50 transition-colors">
+                          <Trash2 size={12} /> Excluir
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )
