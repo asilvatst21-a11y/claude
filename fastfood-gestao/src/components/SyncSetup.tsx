@@ -52,7 +52,7 @@ export default function SyncSetup({ session }: Props) {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-24 right-4 md:bottom-6 md:right-6 z-30 bg-orange-500 hover:bg-orange-600 text-white rounded-full p-3 shadow-lg"
+        className="fixed bottom-24 right-4 md:bottom-6 md:right-6 z-30 bg-[#F5C542] hover:bg-[#d4a72c] text-[#0F0F0F] rounded-full p-3 shadow-lg"
         title="Sincronização entre dispositivos"
       >
         <Cloud size={20} />
@@ -63,7 +63,7 @@ export default function SyncSetup({ session }: Props) {
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
             <div className="flex items-center justify-between p-5 border-b border-gray-100">
               <div className="flex items-center gap-2">
-                <Cloud size={18} className="text-orange-500" />
+                <Cloud size={18} className="text-[#F5C542]" />
                 <h2 className="font-bold text-gray-800">Sincronização</h2>
               </div>
               <button onClick={() => setOpen(false)}><X size={20} className="text-gray-400" /></button>
@@ -74,7 +74,7 @@ export default function SyncSetup({ session }: Props) {
                 <>
                   {/* Logged-in view */}
                   <div className="bg-green-50 rounded-xl p-4 flex items-center gap-3">
-                    <div className="w-10 h-10 bg-orange-500 rounded-full flex items-center justify-center shrink-0">
+                    <div className="w-10 h-10 bg-yellow-500 rounded-full flex items-center justify-center shrink-0">
                       {session.user.user_metadata?.avatar_url ? (
                         <img
                           src={session.user.user_metadata.avatar_url}
@@ -99,7 +99,7 @@ export default function SyncSetup({ session }: Props) {
 
                   {/* Send local data */}
                   <button onClick={handlePushAll}
-                    className="w-full flex items-center justify-center gap-2 border border-orange-200 text-orange-600 py-2 rounded-lg hover:bg-orange-50 text-sm font-medium">
+                    className="w-full flex items-center justify-center gap-2 border border-[#F5C542]/30 text-[#c49a20] py-2 rounded-lg hover:bg-yellow-50 text-sm font-medium">
                     <RefreshCw size={15} /> Enviar dados locais para a nuvem
                   </button>
 
@@ -118,7 +118,7 @@ export default function SyncSetup({ session }: Props) {
                       <input readOnly value={bid}
                         className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono bg-gray-50 text-gray-500" />
                       <button onClick={handleCopy}
-                        className="bg-orange-500 text-white px-3 py-2 rounded-lg hover:bg-orange-600">
+                        className="bg-[#F5C542] text-[#0F0F0F] px-3 py-2 rounded-lg hover:bg-[#d4a72c]">
                         {copied ? <Check size={16} /> : <Copy size={16} />}
                       </button>
                     </div>
@@ -132,7 +132,7 @@ export default function SyncSetup({ session }: Props) {
                         value={input}
                         onChange={e => setInput(e.target.value)}
                         placeholder="Cole o código aqui..."
-                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-orange-400"
+                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:border-[#F5C542]"
                       />
                       <button onClick={handleLink} disabled={!input.trim()}
                         className="bg-blue-600 text-white px-3 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-40 text-sm font-medium">
@@ -142,7 +142,7 @@ export default function SyncSetup({ session }: Props) {
                   </div>
 
                   <button onClick={handlePushAll}
-                    className="w-full flex items-center justify-center gap-2 border border-orange-200 text-orange-600 py-2 rounded-lg hover:bg-orange-50 text-sm font-medium">
+                    className="w-full flex items-center justify-center gap-2 border border-[#F5C542]/30 text-[#c49a20] py-2 rounded-lg hover:bg-yellow-50 text-sm font-medium">
                     <RefreshCw size={15} /> Enviar dados locais para a nuvem
                   </button>
                 </>

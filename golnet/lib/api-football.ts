@@ -1,0 +1,184 @@
+import type { MatchStatus, MatchStage } from "@prisma/client";
+
+const BASE_URL = "https://v3.football.api-sports.io";
+const API_KEY = process.env.API_FOOTBALL_KEY ?? "";
+
+export type GoalEvent = {
+  minute: number;
+  extra: number | null;
+  team: "home" | "away";
+  player: string;
+  type: "goal" | "owngoal" | "penalty";
+};
+
+export type ApiFixture = {
+  fixture: {
+    id: number;
+    date: string;
+    status: { short: string };
+    venue: { name: string };
+  };
+  teams: {
+    home: { id: number; name: string; logo: string; winner?: boolean | null };
+    away: { id: number; name: string; logo: string; winner?: boolean | null };
+  };
+  goals: { home: number | null; away: number | null };
+  league: { id: number; name: string; season: number; round: string };
+  events?: Array<{
+    time: { elapsed: number; extra: number | null };
+    team: { id: number; name: string };
+    player: { id: number; name: string };
+    type: string;
+    detail: string;
+  }>;
+};
+
+export function extractGoals(fixture: ApiFixture): GoalEvent[] {
+  if (!fixture.events) return [];
+  return fixture.events
+    .filter((e) => e.type === "Goal" && e.detail !== "Missed Penalty")
+    .map((e) => ({
+      minute: e.time.elapsed,
+      extra: e.time.extra,
+      team: e.team.name === fixture.teams.home.name ? "home" : "away",
+      player: e.player.name,
+      type: e.detail === "Own Goal" ? "owngoal" : e.detail === "Penalty" ? "penalty" : "goal",
+    }));
+}
+
+type ApiLeagueResult = {
+  league: { id: number; name: string; logo: string };
+  country: { name: string };
+};
+
+async function apiFetch<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    headers: { "x-rapidapi-key": API_KEY, "x-apisports-key": API_KEY },
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`API-Football error: ${res.status}`);
+  const json = await res.json();
+  return json.response as T;
+}
+
+export async function fetchLiveMatches(leagueId = 1, season = 2026): Promise<ApiFixture[]> {
+  return apiFetch<ApiFixture[]>(`/fixtures?league=${leagueId}&season=${season}&live=all`);
+}
+
+export async function fetchFinishedMatches(
+  leagueId = 1,
+  season = 2026
+): Promise<ApiFixture[]> {
+  return apiFetch<ApiFixture[]>(
+    `/fixtures?league=${leagueId}&season=${season}&status=FT`
+  );
+}
+
+export async function fetchFixtureById(fixtureId: number): Promise<ApiFixture[]> {
+  return apiFetch<ApiFixture[]>(`/fixtures?id=${fixtureId}`);
+}
+
+export async function searchLeagues(query: string): Promise<ApiLeagueResult[]> {
+  return apiFetch<ApiLeagueResult[]>(`/leagues?search=${encodeURIComponent(query)}`);
+}
+
+export async function fetchLeagueFixtures(
+  leagueId: number,
+  season: number
+): Promise<ApiFixture[]> {
+  return apiFetch<ApiFixture[]>(`/fixtures?league=${leagueId}&season=${season}`);
+}
+
+export async function fetchFixturesByDate(date: string): Promise<ApiFixture[]> {
+  return apiFetch<ApiFixture[]>(`/fixtures?date=${date}`);
+}
+
+// Fetch specific fixtures by their IDs (hyphen-separated, max 20 per call)
+export async function fetchFixturesByIds(ids: number[]): Promise<ApiFixture[]> {
+  if (ids.length === 0) return [];
+  return apiFetch<ApiFixture[]>(`/fixtures?ids=${ids.join("-")}`);
+}
+
+export function mapApiStatus(short: string): MatchStatus {
+  switch (short) {
+    case "NS":
+      return "SCHEDULED";
+    case "1H":
+    case "HT":
+    case "2H":
+    case "ET":
+    case "P":
+      return "LIVE";
+    case "FT":
+    case "AET":
+    case "PEN":
+      return "FINISHED";
+    case "PST":
+      return "POSTPONED";
+    case "CANC":
+      return "CANCELLED";
+    default:
+      return "SCHEDULED";
+  }
+}
+
+export function mapApiStage(round: string): MatchStage {
+  if (round.includes("Group Stage")) return "GROUP";
+  if (round.includes("Round of 32") || round.includes("1/16-finals")) return "ROUND_OF_32";
+  if (round.includes("Round of 16") || round.includes("1/8-finals")) return "ROUND_OF_16";
+  if (round.includes("Quarter-finals")) return "QUARTER_FINAL";
+  if (round.includes("Semi-finals")) return "SEMI_FINAL";
+  if (round.includes("3rd Place Final")) return "THIRD_PLACE";
+  if (round.includes("Final")) return "FINAL";
+  return "GROUP";
+}
+
+export type ApiStanding = {
+  rank: number;
+  team: { id: number; name: string; logo: string };
+  points: number;
+  goalsDiff: number;
+  group: string;
+  all: { played: number; win: number; draw: number; lose: number; goals: { for: number; against: number } };
+  home: { played: number; win: number; draw: number; lose: number };
+  away: { played: number; win: number; draw: number; lose: number };
+  form: string;
+};
+
+export async function fetchStandings(leagueId: number, season: number): Promise<ApiStanding[][]> {
+  const data = await apiFetch<{ league: { standings: ApiStanding[][] } }[]>(
+    `/standings?league=${leagueId}&season=${season}`
+  );
+  return data[0]?.league?.standings ?? [];
+}
+
+export async function fetchHeadToHead(homeId: number, awayId: number, last = 5): Promise<ApiFixture[]> {
+  return apiFetch<ApiFixture[]>(`/fixtures/headtohead?h2h=${homeId}-${awayId}&last=${last}`);
+}
+
+export async function fetchTeamLastMatches(teamId: number, last = 5): Promise<ApiFixture[]> {
+  return apiFetch<ApiFixture[]>(`/fixtures?team=${teamId}&last=${last}`);
+}
+
+export type ApiSquadPlayer = {
+  id: number;
+  name: string;
+  number: number | null;
+  pos: string; // "G" | "D" | "M" | "F"
+};
+
+export async function fetchSquad(teamId: number): Promise<ApiSquadPlayer[]> {
+  try {
+    const data = await apiFetch<{ team: { id: number }; players: ApiSquadPlayer[] }[]>(
+      `/players/squads?team=${teamId}`
+    );
+    return data[0]?.players ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export function extractGroup(round: string): string | null {
+  const match = round.match(/Group\s+([A-Z])/i);
+  return match ? match[1].toUpperCase() : null;
+}

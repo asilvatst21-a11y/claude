@@ -56,17 +56,17 @@ export default function Precificacao() {
       {/* Parâmetros */}
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
         <h2 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-          <TrendingUp size={18} className="text-orange-500" /> Parâmetros de Precificação
+          <TrendingUp size={18} className="text-[#F5C542]" /> Parâmetros de Precificação
         </h2>
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div>
             <div className="flex justify-between mb-1">
               <label className="text-sm font-medium text-gray-600">Margem de lucro desejada</label>
-              <span className="text-sm font-bold text-orange-600">{pct(margin)}</span>
+              <span className="text-sm font-bold text-[#c49a20]">{pct(margin)}</span>
             </div>
             <input
               type="range" min={10} max={90} value={margin} onChange={e => setMargin(Number(e.target.value))}
-              className="w-full accent-orange-500"
+              className="w-full accent-[#F5C542]"
             />
             <div className="flex justify-between text-xs text-gray-400 mt-1">
               <span>10%</span><span>90%</span>
@@ -146,7 +146,7 @@ export default function Precificacao() {
                     <td className="p-4 text-gray-500">{hasPriceData ? fmt(costWithOverhead) : '—'}</td>
                     <td className="p-4">
                       {hasPriceData ? (
-                        <span className="font-semibold text-orange-600">{fmt(suggested)}</span>
+                        <span className="font-semibold text-[#c49a20]">{fmt(suggested)}</span>
                       ) : '—'}
                     </td>
                     <td className="p-4">

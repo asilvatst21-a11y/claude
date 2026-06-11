@@ -108,7 +108,7 @@ export default function Relatorios() {
         <select
           value={selectedYear}
           onChange={e => setSelectedYear(Number(e.target.value))}
-          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
+          className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]"
         >
           {[now.getFullYear() - 1, now.getFullYear()].map(y => <option key={y} value={y}>{y}</option>)}
         </select>
@@ -193,11 +193,11 @@ export default function Relatorios() {
               </h2>
               <div className="flex items-center gap-2 flex-wrap">
                 <select value={rankMonth} onChange={e => setRankMonth(Number(e.target.value))}
-                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-orange-400">
+                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#F5C542]">
                   {MONTHS.map((m, i) => <option key={i} value={i}>{m}</option>)}
                 </select>
                 <select value={rankYear} onChange={e => setRankYear(Number(e.target.value))}
-                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-orange-400">
+                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:border-[#F5C542]">
                   {[now.getFullYear() - 1, now.getFullYear()].map(y => <option key={y} value={y}>{y}</option>)}
                 </select>
                 <button
@@ -234,7 +234,7 @@ export default function Relatorios() {
                         <td className="py-2.5 text-right hidden sm:table-cell">
                           <div className="flex items-center justify-end gap-2">
                             <div className="w-16 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-orange-400 rounded-full" style={{ width: `${p.pct}%` }} />
+                              <div className="h-full bg-[#F5C542] rounded-full" style={{ width: `${p.pct}%` }} />
                             </div>
                             <span className="text-xs text-gray-500 w-10 text-right">{p.pct.toFixed(1)}%</span>
                           </div>
@@ -293,17 +293,17 @@ export default function Relatorios() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                   {/* Cards de resumo */}
                   <div className="space-y-3">
-                    <div className="flex items-center gap-3 p-4 rounded-xl bg-orange-50 border border-orange-100">
-                      <div className="w-10 h-10 rounded-xl bg-orange-100 flex items-center justify-center shrink-0">
-                        <UtensilsCrossed size={18} className="text-orange-600" />
+                    <div className="flex items-center gap-3 p-4 rounded-xl bg-yellow-50 border border-yellow-100">
+                      <div className="w-10 h-10 rounded-xl bg-yellow-100 flex items-center justify-center shrink-0">
+                        <UtensilsCrossed size={18} className="text-[#c49a20]" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-xs text-orange-500 font-medium uppercase tracking-wide">Balcão</p>
+                        <p className="text-xs text-[#F5C542] font-medium uppercase tracking-wide">Balcão</p>
                         <p className="text-lg font-bold text-gray-800">{balcaoSales.length} pedidos</p>
-                        <p className="text-sm text-orange-600 font-semibold">{fmt(balcaoRevenue)}</p>
+                        <p className="text-sm text-[#c49a20] font-semibold">{fmt(balcaoRevenue)}</p>
                       </div>
                       {yearSales.length > 0 && (
-                        <span className="text-2xl font-bold text-orange-300">
+                        <span className="text-2xl font-bold text-yellow-300">
                           {Math.round((balcaoSales.length / yearSales.length) * 100)}%
                         </span>
                       )}

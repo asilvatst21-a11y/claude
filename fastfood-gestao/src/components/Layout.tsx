@@ -1,9 +1,14 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, Package, TrendingUp,
-  FileText, BarChart2, Settings, UtensilsCrossed, MoreHorizontal, Users, DollarSign, BookOpen
+  FileText, BarChart2, Settings, UtensilsCrossed, MoreHorizontal, Users, DollarSign, BookOpen,
+  ChevronLeft, ChevronRight, LogOut, CreditCard,
 } from 'lucide-react'
 import { useState } from 'react'
+import { supabase, signOut } from '../store/supabase'
+import TrialBanner from './TrialBanner'
+import { useProfile } from '../store/ProfileContext'
+import { PLAN_LABELS } from '../store/permissions'
 
 const navMain = [
   { to: '/',         icon: LayoutDashboard, label: 'Dashboard' },
@@ -13,61 +18,151 @@ const navMain = [
 ]
 
 const navMore = [
-  { to: '/clientes',     icon: Users,      label: 'Clientes' },
-  { to: '/cadastros',    icon: Settings,   label: 'Cadastros' },
-  { to: '/precificacao', icon: TrendingUp, label: 'Precificação' },
-  { to: '/dre',          icon: FileText,   label: 'DRE' },
-  { to: '/relatorios',   icon: BarChart2,  label: 'Relatórios' },
-  { to: '/ajuda',        icon: BookOpen,   label: 'Ajuda' },
+  { to: '/clientes',     icon: Users,       label: 'Clientes' },
+  { to: '/cadastros',    icon: Settings,    label: 'Cadastros' },
+  { to: '/precificacao', icon: TrendingUp,  label: 'Precificação' },
+  { to: '/dre',          icon: FileText,    label: 'DRE' },
+  { to: '/relatorios',   icon: BarChart2,   label: 'Relatórios' },
+  { to: '/planos',       icon: CreditCard,  label: 'Planos' },
+  { to: '/ajuda',        icon: BookOpen,    label: 'Ajuda' },
 ]
 
 const navAll = [...navMain, ...navMore]
 
 export default function Layout() {
+  const profile = useProfile()
   const [showMore, setShowMore] = useState(false)
+  const [collapsed, setCollapsed] = useState(
+    () => localStorage.getItem('ff_sidebar_collapsed') === '1'
+  )
+
+  function toggleSidebar() {
+    const next = !collapsed
+    setCollapsed(next)
+    localStorage.setItem('ff_sidebar_collapsed', next ? '1' : '0')
+  }
 
   return (
     <div className="flex h-screen bg-gray-50">
 
-      {/* Sidebar — visível só em desktop */}
-      <aside className="hidden md:flex w-60 bg-orange-600 text-white flex-col shadow-lg">
-        <div className="p-5 border-b border-orange-500">
-          <div className="flex items-center gap-2">
-            <UtensilsCrossed size={24} />
+      {/* Sidebar — desktop */}
+      <aside
+        className={`hidden md:flex flex-col text-white shadow-lg transition-all duration-200 ${collapsed ? 'w-16' : 'w-60'}`}
+        style={{ background: '#0F0F0F' }}
+      >
+        {/* Logo */}
+        <div className={`flex items-center ${collapsed ? 'justify-center p-4' : 'p-5 gap-2'}`} style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <UtensilsCrossed size={22} className="shrink-0" style={{ color: '#F5C542' }} />
+          {!collapsed && (
             <div>
-              <p className="font-bold text-lg leading-tight">FastFood</p>
-              <p className="text-orange-200 text-xs">Sistema de Gestão</p>
+              <p className="font-bold text-lg leading-tight text-white">FastFood</p>
+              <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>Sistema de Gestão</p>
             </div>
-          </div>
+          )}
         </div>
-        <nav className="flex-1 p-3 space-y-1">
-          {navAll.map(({ to, icon: Icon, label }) => (
+
+        {/* Nav */}
+        <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+          {navAll.map(({ to, icon: Icon, label }) =>
+            to === '/planos' ? (
+              <a
+                key={to}
+                href="/planos"
+                target="_blank"
+                rel="noopener noreferrer"
+                title={collapsed ? label : undefined}
+                className={`flex items-center rounded-lg text-sm font-medium transition-colors ${
+                  collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'
+                }`}
+                style={{ color: 'rgba(255,255,255,0.5)' }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+              >
+                <Icon size={18} className="shrink-0" />
+                {!collapsed && label}
+              </a>
+            ) : (
             <NavLink
               key={to}
               to={to}
               end={to === '/'}
+              title={collapsed ? label : undefined}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-white text-orange-600' : 'text-orange-100 hover:bg-orange-500'
-                }`
+                `flex items-center rounded-lg text-sm font-medium transition-colors ${
+                  collapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3 py-2.5'
+                } ${isActive ? '' : ''}`
               }
+              style={({ isActive }) => isActive
+                ? { background: '#F5C542', color: '#0F0F0F' }
+                : { color: 'rgba(255,255,255,0.65)' }
+              }
+              onMouseEnter={e => {
+                if (!(e.currentTarget as HTMLElement).style.background.includes('#F5C542'))
+                  (e.currentTarget as HTMLElement).style.background = 'rgba(255,255,255,0.06)'
+              }}
+              onMouseLeave={e => {
+                if (!(e.currentTarget as HTMLElement).style.background.includes('#F5C542'))
+                  (e.currentTarget as HTMLElement).style.background = 'transparent'
+              }}
             >
-              <Icon size={18} />
-              {label}
+              <Icon size={18} className="shrink-0" />
+              {!collapsed && label}
             </NavLink>
-          ))}
+            )
+          )}
         </nav>
-        <div className="p-4 border-t border-orange-500 text-orange-200 text-xs text-center">
-          v1.0.0 · FastFood Gestão
+
+        {/* Rodapé: plano + logout + toggle */}
+        {profile && !collapsed && (
+          <div className="px-3 pb-1">
+            <span className="inline-block text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: '#F5C542', color: '#0F0F0F' }}>
+              {PLAN_LABELS[profile.plan]}
+            </span>
+          </div>
+        )}
+        <div className={`${collapsed ? 'flex flex-col items-center py-3 gap-2' : 'p-3 flex items-center justify-between gap-2'}`} style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          {supabase && (
+            <button
+              onClick={() => {
+                signOut()
+                const drePassword = localStorage.getItem('ff_dre_password')
+                const sidebarCollapsed = localStorage.getItem('ff_sidebar_collapsed')
+                localStorage.clear()
+                if (drePassword) localStorage.setItem('ff_dre_password', drePassword)
+                if (sidebarCollapsed) localStorage.setItem('ff_sidebar_collapsed', sidebarCollapsed)
+                window.location.href = '/'
+              }}
+              title="Sair"
+              className={`flex items-center gap-2 rounded-lg p-1.5 transition-colors text-xs font-medium ${collapsed ? '' : 'flex-1'}`}
+              style={{ color: 'rgba(255,255,255,0.4)' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = 'white' }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
+            >
+              <LogOut size={15} className="shrink-0" />
+              {!collapsed && 'Sair'}
+            </button>
+          )}
+          <button
+            onClick={toggleSidebar}
+            title={collapsed ? 'Expandir menu' : 'Recolher menu'}
+            className="p-1.5 rounded-lg transition-colors shrink-0"
+            style={{ color: 'rgba(255,255,255,0.4)' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.06)'; e.currentTarget.style.color = 'white' }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'rgba(255,255,255,0.4)' }}
+          >
+            {collapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
         </div>
       </aside>
 
       {/* Content */}
-      <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+
+        <TrialBanner />
 
         {/* Header mobile */}
-        <header className="md:hidden bg-orange-600 text-white px-4 py-3 flex items-center gap-2 shadow">
-          <UtensilsCrossed size={20} />
+        <header className="md:hidden text-white px-4 py-3 flex items-center gap-2 shadow" style={{ background: '#0F0F0F' }}>
+          <UtensilsCrossed size={20} style={{ color: '#F5C542' }} />
           <p className="font-bold text-base">FastFood Gestão</p>
         </header>
 
@@ -75,7 +170,7 @@ export default function Layout() {
           <Outlet />
         </main>
 
-        {/* Bottom nav — só mobile */}
+        {/* Bottom nav — mobile */}
         <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 flex z-40"
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
           {navMain.map(({ to, icon: Icon, label }) => (
@@ -86,7 +181,7 @@ export default function Layout() {
               onClick={() => setShowMore(false)}
               className={({ isActive }) =>
                 `flex-1 flex flex-col items-center py-2 text-xs font-medium transition-colors ${
-                  isActive ? 'text-orange-600' : 'text-gray-400'
+                  isActive ? 'text-[#c49a20]' : 'text-gray-400'
                 }`
               }
             >
@@ -99,7 +194,6 @@ export default function Layout() {
             </NavLink>
           ))}
 
-          {/* Botão "Mais" */}
           <button
             onClick={() => setShowMore(v => !v)}
             className={`flex-1 flex flex-col items-center py-2 text-xs font-medium transition-colors ${
@@ -111,7 +205,7 @@ export default function Layout() {
           </button>
         </nav>
 
-        {/* Drawer "Mais" */}
+        {/* Drawer "Mais" mobile */}
         {showMore && (
           <>
             <div className="md:hidden fixed inset-0 z-30" onClick={() => setShowMore(false)} />
@@ -124,7 +218,7 @@ export default function Layout() {
                   onClick={() => setShowMore(false)}
                   className={({ isActive }) =>
                     `flex-1 flex flex-col items-center py-2 px-1 rounded-xl text-xs font-medium transition-colors ${
-                      isActive ? 'bg-orange-50 text-orange-600' : 'text-gray-500 hover:bg-gray-50'
+                      isActive ? 'bg-yellow-50 text-[#c49a20]' : 'text-gray-500 hover:bg-gray-50'
                     }`
                   }
                 >

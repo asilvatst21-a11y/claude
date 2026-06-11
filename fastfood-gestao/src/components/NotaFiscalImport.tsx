@@ -299,12 +299,12 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Estabelecimento</label>
                   <input value={editStoreName} onChange={e => setEditStoreName(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Data da compra</label>
                   <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" />
                 </div>
               </div>
 
@@ -319,7 +319,7 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
                       <div className="grid grid-cols-4 gap-2 mb-2">
                         <div className="col-span-2">
                           <input value={item.name} onChange={e => updateItem(idx, 'name', e.target.value)}
-                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-orange-400" />
+                            className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-[#F5C542]" />
                         </div>
                         <input type="number" min={0} step="0.001" value={item.quantity}
                           onChange={e => updateItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
@@ -359,14 +359,14 @@ export default function NotaFiscalImport({ onClose, onImported }: Props) {
 
               <div className="flex items-center justify-between border-t pt-3">
                 <p className="text-sm font-semibold text-gray-700">
-                  Total: <span className="text-orange-600">{fmt(editItems.reduce((s, i) => s + i.totalPrice, 0))}</span>
+                  Total: <span className="text-[#c49a20]">{fmt(editItems.reduce((s, i) => s + i.totalPrice, 0))}</span>
                 </p>
                 <div className="flex gap-2">
                   <button onClick={() => setStep('capture')} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
                     Voltar
                   </button>
                   <button onClick={saveImport} disabled={editItems.length === 0}
-                    className="flex items-center gap-2 bg-orange-500 text-white px-5 py-2 rounded-lg hover:bg-orange-600 text-sm font-medium disabled:opacity-40">
+                    className="flex items-center gap-2 bg-[#F5C542] text-[#0F0F0F] px-5 py-2 rounded-lg hover:bg-[#d4a72c] text-sm font-medium disabled:opacity-40">
                     <Check size={16} /> Salvar compra
                   </button>
                 </div>

@@ -1,0 +1,438 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── NextAuth Models ──────────────────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ─── User ─────────────────────────────────────────────────────────────────────
+
+enum UserPlan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+model User {
+  id                   String    @id @default(cuid())
+  name                 String?
+  username             String?   @unique
+  email                String    @unique
+  emailVerified        DateTime?
+  image                String?
+  password             String?
+  country              String?
+  state                String?
+  city                 String?
+  bio                  String?
+  locale               String    @default("pt")
+  profilePublic        Boolean   @default(true)
+  plan                 UserPlan  @default(FREE)
+  stripeCustomerId     String?   @unique
+  stripeSubscriptionId String?   @unique
+  planExpiresAt        DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  accounts        Account[]
+  sessions        Session[]
+  leagueMembers   LeagueMember[]
+  leagueJoinRequests LeagueJoinRequest[]
+  predictions     Prediction[]
+  achievements    UserAchievement[]
+  supportTickets  SupportTicket[]
+  duelsCreated         Duel[]               @relation("DuelCreator")
+  duelsOpposed         Duel[]               @relation("DuelOpponent")
+  duelsWon             Duel[]               @relation("DuelWinner")
+  duelPredictions      DuelPrediction[]
+  pushSubscriptions    PushSubscription[]
+  mpPayments           MercadoPagoPayment[]
+  championPredictions  ChampionPrediction[]
+}
+
+// ─── Push Subscriptions ───────────────────────────────────────────────────────
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── League ───────────────────────────────────────────────────────────────────
+
+enum LeagueVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+model League {
+  id          String           @id @default(cuid())
+  name        String
+  description String?
+  visibility  LeagueVisibility @default(PUBLIC)
+  inviteCode  String           @unique @default(cuid())
+  logoUrl     String?
+  season      String           @default("2026")
+  // Custom scoring (PRO only — defaults match the standard rules)
+  ptsExactScore     Int @default(10)
+  ptsCorrectDiff    Int @default(7)
+  ptsCorrectWinner  Int @default(5)
+  ptsCorrectDraw    Int @default(4)
+  ptsKnockoutBonus  Int @default(3)
+  // Competition & team filter
+  competitionName             String?
+  teamFilter                  String[]
+  // Champion prediction
+  championPredictionEnabled Boolean  @default(false)
+  championPredictionPoints  Int      @default(20)
+  actualChampion            String?
+  // Goal scorer prediction
+  goalScorerEnabled         Boolean  @default(false)
+  goalScorerPoints          Int      @default(5)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  members             LeagueMember[]
+  joinRequests        LeagueJoinRequest[]
+  championPredictions ChampionPrediction[]
+}
+
+enum LeagueRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+model LeagueMember {
+  id          String     @id @default(cuid())
+  userId      String
+  leagueId    String
+  role        LeagueRole @default(MEMBER)
+  totalPoints Int        @default(0)
+  joinedAt    DateTime   @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, leagueId])
+}
+
+model LeagueJoinRequest {
+  id        String   @id @default(cuid())
+  userId    String
+  leagueId  String
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now())
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, leagueId])
+}
+
+// ─── Match ────────────────────────────────────────────────────────────────────
+
+enum MatchStatus {
+  SCHEDULED
+  LIVE
+  FINISHED
+  POSTPONED
+  CANCELLED
+}
+
+enum MatchStage {
+  GROUP
+  ROUND_OF_32
+  ROUND_OF_16
+  QUARTER_FINAL
+  SEMI_FINAL
+  THIRD_PLACE
+  FINAL
+}
+
+model Match {
+  id           String      @id @default(cuid())
+  externalId   String?     @unique
+  leagueId     Int?
+  leagueName   String?
+  leagueSeason Int?
+  homeTeam     String
+  awayTeam     String
+  homeTeamId   Int?
+  awayTeamId   Int?
+  homeTeamFlag String?
+  awayTeamFlag String?
+  homeScore    Int?
+  awayScore    Int?
+  goals        Json?
+  startsAt     DateTime
+  status       MatchStatus @default(SCHEDULED)
+  stage        MatchStage  @default(GROUP)
+  group        String?
+  round        String?
+  venue        String?
+  lastSyncedAt DateTime?
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  predictions     Prediction[]
+  duelMatches     DuelMatch[]
+  duelPredictions DuelPrediction[]
+}
+
+// ─── Prediction ───────────────────────────────────────────────────────────────
+
+enum PredictionResult {
+  EXACT_SCORE
+  CORRECT_RESULT_AND_DIFF
+  CORRECT_WINNER
+  CORRECT_DRAW
+  WRONG
+}
+
+model Prediction {
+  id          String            @id @default(cuid())
+  userId      String
+  matchId     String
+  homeScore   Int
+  awayScore   Int
+  points      Int               @default(0)
+  bonusPoints Int               @default(0)
+  result      PredictionResult?
+  goalScorerPrediction String?
+  goalScorerCorrect    Boolean?
+  lockedAt    DateTime?
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, matchId])
+}
+
+// ─── Achievements ─────────────────────────────────────────────────────────────
+
+enum AchievementType {
+  EXACT_SCORE_3X
+  LEAGUE_CHAMPION
+  PERFECT_ROUND
+  FIRST_PREDICTION
+  SHARP_SHOOTER
+}
+
+model Achievement {
+  id          String          @id @default(cuid())
+  type        AchievementType @unique
+  name        String
+  description String
+  icon        String
+
+  users UserAchievement[]
+}
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  userId        String
+  achievementId String
+  unlockedAt    DateTime @default(now())
+
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+}
+
+// ─── Support ──────────────────────────────────────────────────────────────────
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  CLOSED
+}
+
+model SupportTicket {
+  id        String       @id @default(cuid())
+  userId    String
+  subject   String
+  message   String       @db.Text
+  status    TicketStatus @default(OPEN)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Password Reset ───────────────────────────────────────────────────────────
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  email     String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// ─── X1 Duelo ─────────────────────────────────────────────────────────────────
+
+enum DuelStatus {
+  PENDING
+  ACTIVE
+  FINISHED
+  DECLINED
+  EXPIRED
+}
+
+model Duel {
+  id          String     @id @default(cuid())
+  creatorId   String
+  opponentId  String?
+  status      DuelStatus @default(PENDING)
+  winnerId    String?
+  goalScorerEnabled Boolean    @default(false)
+  goalScorerPoints  Int        @default(5)
+  inviteToken String     @unique @default(cuid())
+  expiresAt   DateTime
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  creator     User             @relation("DuelCreator", fields: [creatorId], references: [id])
+  opponent    User?            @relation("DuelOpponent", fields: [opponentId], references: [id])
+  winner      User?            @relation("DuelWinner", fields: [winnerId], references: [id])
+  matches     DuelMatch[]
+  predictions DuelPrediction[]
+}
+
+model DuelMatch {
+  id      String @id @default(cuid())
+  duelId  String
+  matchId String
+
+  duel  Duel  @relation(fields: [duelId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id])
+
+  @@unique([duelId, matchId])
+}
+
+model DuelPrediction {
+  id          String            @id @default(cuid())
+  duelId      String
+  matchId     String
+  userId      String
+  homeScore   Int
+  awayScore   Int
+  points      Int               @default(0)
+  bonusPoints Int               @default(0)
+  result      PredictionResult?
+  goalScorerPrediction String?
+  goalScorerCorrect    Boolean?
+  createdAt   DateTime          @default(now())
+
+  duel  Duel  @relation(fields: [duelId], references: [id], onDelete: Cascade)
+  match Match @relation(fields: [matchId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+
+  @@unique([duelId, matchId, userId])
+}
+
+// ─── Champion Prediction ──────────────────────────────────────────────────────
+
+model ChampionPrediction {
+  id        String   @id @default(cuid())
+  userId    String
+  leagueId  String
+  team      String
+  points    Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  league League @relation(fields: [leagueId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, leagueId])
+}
+
+// ─── Round Ranking ────────────────────────────────────────────────────────────
+
+model RoundRanking {
+  id       String   @id @default(cuid())
+  leagueId String
+  userId   String
+  round    String
+  points   Int
+  createdAt DateTime @default(now())
+
+  @@unique([leagueId, userId, round])
+}
+
+// ─── Cron Log ─────────────────────────────────────────────────────────────────
+
+model CronLog {
+  id         String   @id @default(cuid())
+  trigger    String   @default("auto")
+  synced     Int
+  durationMs Int
+  error      String?
+  createdAt  DateTime @default(now())
+}
+
+// ─── MercadoPago Payments ─────────────────────────────────────────────────────
+
+model MercadoPagoPayment {
+  id            String    @id @default(cuid())
+  userId        String
+  mpPaymentId   String    @unique
+  plan          String
+  amount        Float
+  status        String    @default("pending")
+  qrCode        String?   @db.Text
+  qrCodeBase64  String?   @db.Text
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

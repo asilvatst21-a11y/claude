@@ -191,7 +191,7 @@ export default function Dashboard() {
           <select
             value={filterProduct}
             onChange={e => setFilterProduct(e.target.value)}
-            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 bg-white"
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-[#F5C542] bg-white"
           >
             <option value="">Todos os produtos</option>
             {allProducts.map(p => (
@@ -204,7 +204,7 @@ export default function Dashboard() {
               <button
                 key={opt.v}
                 onClick={() => setFilterPeriod(opt.v)}
-                className={`px-3 py-1.5 ${filterPeriod === opt.v ? 'bg-orange-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
+                className={`px-3 py-1.5 ${filterPeriod === opt.v ? 'bg-[#F5C542] text-[#0F0F0F]' : 'bg-white text-gray-600 hover:bg-gray-50'}`}
               >
                 {opt.l}
               </button>
@@ -212,7 +212,7 @@ export default function Dashboard() {
           </div>
 
           {isFiltered && (
-            <button onClick={() => setFilterProduct('')} className="text-xs text-orange-500 hover:underline">
+            <button onClick={() => setFilterProduct('')} className="text-xs text-[#F5C542] hover:underline">
               Limpar filtro
             </button>
           )}
@@ -221,7 +221,7 @@ export default function Dashboard() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <Card icon={<ShoppingCart className="text-orange-500" size={22} />} label="Vendas Hoje" value={String(todaySales.length)} sub="pedidos hoje" bg="bg-orange-50" />
+        <Card icon={<ShoppingCart className="text-[#F5C542]" size={22} />} label="Vendas Hoje" value={String(todaySales.length)} sub="pedidos hoje" bg="bg-yellow-50" />
         <Card icon={<DollarSign className="text-green-500" size={22} />} label="Receita Hoje" value={fmt(todayRevenue)} sub="dia atual" bg="bg-green-50" />
         <Card icon={<TrendingUp className="text-blue-500" size={22} />} label={isFiltered ? 'Receita Filtrada' : 'Receita do Período'} value={fmt(filteredRevenue)} sub={`${filteredOrders} pedidos`} bg="bg-blue-50" />
         <Card
@@ -237,11 +237,11 @@ export default function Dashboard() {
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-gray-700 flex items-center gap-2">
-            <Target size={16} className="text-orange-500" />
+            <Target size={16} className="text-[#F5C542]" />
             Metas — {now.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
           </h2>
           {!editTarget ? (
-            <button onClick={openEdit} className="flex items-center gap-1 text-xs text-gray-400 hover:text-orange-500">
+            <button onClick={openEdit} className="flex items-center gap-1 text-xs text-gray-400 hover:text-[#F5C542]">
               <Pencil size={13} /> {target ? 'Editar metas' : 'Definir metas'}
             </button>
           ) : (
@@ -263,14 +263,14 @@ export default function Dashboard() {
               <input type="number" min={0} step={100} value={editRevenue}
                 onChange={e => setEditRevenue(e.target.value)}
                 placeholder="Ex: 30000"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" />
             </div>
             <div>
               <label className="text-xs font-medium text-gray-500 block mb-1">Meta de EBITDA (%)</label>
               <input type="number" min={0} max={60} step={1} value={editEbitda}
                 onChange={e => setEditEbitda(e.target.value)}
                 placeholder="Ex: 20"
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" />
             </div>
           </div>
         ) : target ? (
@@ -293,7 +293,7 @@ export default function Dashboard() {
         ) : (
           <p className="text-sm text-gray-400 text-center py-4">
             Nenhuma meta definida para este mês.{' '}
-            <button onClick={openEdit} className="text-orange-500 hover:underline font-medium">Definir agora</button>
+            <button onClick={openEdit} className="text-[#F5C542] hover:underline font-medium">Definir agora</button>
           </p>
         )}
       </div>
@@ -335,7 +335,7 @@ export default function Dashboard() {
 
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
           <h2 className="font-semibold text-gray-700 mb-4 flex items-center gap-2">
-            <ShoppingCart size={16} className="text-orange-500" /> Vendas por Dia da Semana
+            <ShoppingCart size={16} className="text-[#F5C542]" /> Vendas por Dia da Semana
           </h2>
           {hasData ? (
             <ResponsiveContainer width="100%" height={180}>
@@ -484,7 +484,7 @@ function ProgressBar({ label, current, goal, formatValue, color }: {
 }) {
   const pct = goal > 0 ? Math.min((current / goal) * 100, 100) : 0
   const over = goal > 0 && current > goal
-  const colorMap = { orange: 'bg-orange-500', green: 'bg-emerald-500', red: 'bg-red-500' }
+  const colorMap = { orange: 'bg-yellow-500', green: 'bg-emerald-500', red: 'bg-red-500' }
   return (
     <div>
       <div className="flex justify-between items-baseline mb-1.5">

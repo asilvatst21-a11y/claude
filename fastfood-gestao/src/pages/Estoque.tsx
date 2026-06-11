@@ -215,7 +215,7 @@ export default function Estoque() {
         {(['compras', 'desvio', 'ingredientes', 'fornecedores', 'comparativo'] as const).map(t => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-3 py-2 rounded-md text-sm font-medium whitespace-nowrap transition-colors ${
-              tab === t ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              tab === t ? 'bg-white text-[#c49a20] shadow-sm' : 'text-gray-500 hover:text-gray-700'
             }`}>
             {tabLabels[t]}
           </button>
@@ -231,7 +231,7 @@ export default function Estoque() {
               <ScanLine size={16} /> Importar NF
             </button>
             <button onClick={() => setShowPurchaseForm(true)}
-              className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 font-medium text-sm">
+              className="flex items-center gap-2 bg-[#F5C542] text-[#0F0F0F] px-4 py-2 rounded-lg hover:bg-[#d4a72c] font-medium text-sm">
               <Plus size={16} /> Registrar Compra
             </button>
           </div>
@@ -246,7 +246,7 @@ export default function Estoque() {
                 <div className="lg:col-span-2">
                   <label className="text-xs text-gray-600 mb-1 block">Fornecedor</label>
                   <select value={purchaseSupplier} onChange={e => setPurchaseSupplier(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400">
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]">
                     <option value="">Selecione...</option>
                     {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                   </select>
@@ -254,12 +254,12 @@ export default function Estoque() {
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Data</label>
                   <input type="date" value={purchaseDate} onChange={e => setPurchaseDate(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Duração est. (dias)</label>
                   <input type="number" placeholder="Ex: 7" value={purchaseDuration} onChange={e => setPurchaseDuration(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" />
                 </div>
               </div>
 
@@ -268,7 +268,7 @@ export default function Estoque() {
                 <div key={idx} className="grid grid-cols-6 gap-2 mb-2 items-end">
                   <div className="col-span-2">
                     <select value={item.ingredientId} onChange={e => updatePurchaseItem(idx, 'ingredientId', e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-orange-400">
+                      className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-[#F5C542]">
                       <option value="">Ingrediente...</option>
                       {ingredients.map(i => <option key={i.id} value={i.id}>{i.name} ({i.unit})</option>)}
                     </select>
@@ -276,17 +276,17 @@ export default function Estoque() {
                   <div>
                     <input type="number" placeholder="Qtd" value={item.quantity || ''} min={0} step="0.01"
                       onChange={e => updatePurchaseItem(idx, 'quantity', parseFloat(e.target.value) || 0)}
-                      className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                      className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-[#F5C542]" />
                   </div>
                   <div>
                     <input type="number" placeholder="R$ unit" value={item.unitPrice || ''} min={0} step="0.01"
                       onChange={e => updatePurchaseItem(idx, 'unitPrice', parseFloat(e.target.value) || 0)}
-                      className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                      className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-[#F5C542]" />
                   </div>
                   <div>
                     <input type="date" placeholder="Validade" value={item.expiryDate || ''}
                       onChange={e => updatePurchaseItem(idx, 'expiryDate', e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-2 py-2 text-xs focus:outline-none focus:border-orange-400" />
+                      className="w-full border border-gray-200 rounded-lg px-2 py-2 text-xs focus:outline-none focus:border-[#F5C542]" />
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="text-sm font-semibold text-green-600 flex-1">{fmt(item.totalPrice)}</span>
@@ -294,17 +294,17 @@ export default function Estoque() {
                   </div>
                 </div>
               ))}
-              <button onClick={addPurchaseItem} className="text-orange-500 text-sm flex items-center gap-1 mb-4 hover:text-orange-700">
+              <button onClick={addPurchaseItem} className="text-[#F5C542] text-sm flex items-center gap-1 mb-4 hover:text-orange-700">
                 <Plus size={14} /> Adicionar item
               </button>
               <textarea placeholder="Observações..." value={purchaseNotes} onChange={e => setPurchaseNotes(e.target.value)} rows={2}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:border-orange-400 resize-none" />
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:border-[#F5C542] resize-none" />
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-gray-700">
-                  Total: <span className="text-orange-600">{fmt(purchaseItems.reduce((s, i) => s + i.totalPrice, 0))}</span>
+                  Total: <span className="text-[#c49a20]">{fmt(purchaseItems.reduce((s, i) => s + i.totalPrice, 0))}</span>
                 </span>
                 <button onClick={submitPurchase}
-                  className="bg-orange-500 text-white px-5 py-2 rounded-lg hover:bg-orange-600 font-medium text-sm">
+                  className="bg-[#F5C542] text-[#0F0F0F] px-5 py-2 rounded-lg hover:bg-[#d4a72c] font-medium text-sm">
                   Salvar Compra
                 </button>
               </div>
@@ -371,7 +371,7 @@ export default function Estoque() {
                                 <td>{fmt(item.unitPrice)}</td>
                                 <td>
                                   {item.expiryDate ? (
-                                    <span className={`text-xs font-medium ${days !== null && days < 0 ? 'text-red-600' : days !== null && days <= 3 ? 'text-orange-600' : days !== null && days <= 7 ? 'text-yellow-600' : 'text-gray-400'}`}>
+                                    <span className={`text-xs font-medium ${days !== null && days < 0 ? 'text-red-600' : days !== null && days <= 3 ? 'text-[#c49a20]' : days !== null && days <= 7 ? 'text-yellow-600' : 'text-gray-400'}`}>
                                       {new Date(item.expiryDate + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
                                       {days !== null && days < 0 ? ' 🚫' : days !== null && days <= 3 ? ' ⚠️' : ''}
                                     </span>
@@ -409,17 +409,17 @@ export default function Estoque() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {expiryAlerts.map((a, i) => (
                   <div key={i} className={`rounded-xl p-4 border flex items-center justify-between ${
-                    a.days < 0 ? 'bg-red-50 border-red-200' : a.days <= 3 ? 'bg-orange-50 border-orange-200' : 'bg-yellow-50 border-yellow-200'
+                    a.days < 0 ? 'bg-red-50 border-red-200' : a.days <= 3 ? 'bg-yellow-50 border-[#F5C542]/30' : 'bg-yellow-50 border-yellow-200'
                   }`}>
                     <div className="flex items-center gap-3">
-                      <AlertTriangle size={18} className={a.days < 0 ? 'text-red-500' : a.days <= 3 ? 'text-orange-500' : 'text-yellow-500'} />
+                      <AlertTriangle size={18} className={a.days < 0 ? 'text-red-500' : a.days <= 3 ? 'text-[#F5C542]' : 'text-yellow-500'} />
                       <div>
                         <p className="font-medium text-gray-800 text-sm">{a.ingName}</p>
                         <p className="text-xs text-gray-500">Compra de {a.purchaseDate}</p>
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className={`font-bold text-sm ${a.days < 0 ? 'text-red-600' : a.days <= 3 ? 'text-orange-600' : 'text-yellow-700'}`}>
+                      <p className={`font-bold text-sm ${a.days < 0 ? 'text-red-600' : a.days <= 3 ? 'text-[#c49a20]' : 'text-yellow-700'}`}>
                         {a.days < 0 ? `Venceu há ${Math.abs(a.days)}d` : a.days === 0 ? 'Vence hoje!' : `${a.days}d restantes`}
                       </p>
                       <p className="text-xs text-gray-400">{new Date(a.expiryDate + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
@@ -552,7 +552,7 @@ export default function Estoque() {
                             ) : row.deviation > 0 && (pct ?? 0) > 10 ? (
                               <span className="text-xs text-red-700 bg-red-50 px-2 py-1 rounded-full">⚠ Possível perda</span>
                             ) : row.deviation > 0 ? (
-                              <span className="text-xs text-orange-700 bg-orange-50 px-2 py-1 rounded-full">↑ Acima do esperado</span>
+                              <span className="text-xs text-orange-700 bg-yellow-50 px-2 py-1 rounded-full">↑ Acima do esperado</span>
                             ) : (
                               <span className="text-xs text-blue-700 bg-blue-50 px-2 py-1 rounded-full">↓ Abaixo do esperado</span>
                             )}
@@ -573,7 +573,7 @@ export default function Estoque() {
         <div>
           <div className="flex justify-end mb-4">
             <button onClick={() => setEditIngredient(emptyIngredient())}
-              className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 font-medium text-sm">
+              className="flex items-center gap-2 bg-[#F5C542] text-[#0F0F0F] px-4 py-2 rounded-lg hover:bg-[#d4a72c] font-medium text-sm">
               <Plus size={16} /> Novo Ingrediente
             </button>
           </div>
@@ -587,12 +587,12 @@ export default function Estoque() {
                 <div className="col-span-2">
                   <label className="text-xs text-gray-600 mb-1 block">Nome</label>
                   <input value={editIngredient.name} onChange={e => setEditIngredient({ ...editIngredient, name: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" placeholder="Ex: Macarrão" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" placeholder="Ex: Macarrão" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Unidade</label>
                   <select value={editIngredient.unit} onChange={e => setEditIngredient({ ...editIngredient, unit: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400">
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]">
                     {['kg', 'g', 'L', 'ml', 'un', 'pct', 'cx'].map(u => <option key={u}>{u}</option>)}
                   </select>
                 </div>
@@ -600,17 +600,17 @@ export default function Estoque() {
                   <label className="text-xs text-gray-600 mb-1 block">Estoque atual</label>
                   <input type="number" value={editIngredient.currentStock} min={0} step="0.01"
                     onChange={e => setEditIngredient({ ...editIngredient, currentStock: parseFloat(e.target.value) || 0 })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Estoque mínimo</label>
                   <input type="number" value={editIngredient.minStock} min={0} step="0.01"
                     onChange={e => setEditIngredient({ ...editIngredient, minStock: parseFloat(e.target.value) || 0 })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" />
                 </div>
               </div>
               <button onClick={() => { saveIngredient(editIngredient); reload(); setEditIngredient(null) }}
-                className="bg-orange-500 text-white px-5 py-2 rounded-lg hover:bg-orange-600 text-sm font-medium">
+                className="bg-[#F5C542] text-[#0F0F0F] px-5 py-2 rounded-lg hover:bg-[#d4a72c] text-sm font-medium">
                 Salvar
               </button>
             </div>
@@ -662,7 +662,7 @@ export default function Estoque() {
         <div>
           <div className="flex justify-end mb-4">
             <button onClick={() => setEditSupplier(emptySupplier())}
-              className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 font-medium text-sm">
+              className="flex items-center gap-2 bg-[#F5C542] text-[#0F0F0F] px-4 py-2 rounded-lg hover:bg-[#d4a72c] font-medium text-sm">
               <Plus size={16} /> Novo Fornecedor
             </button>
           </div>
@@ -676,21 +676,21 @@ export default function Estoque() {
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Nome</label>
                   <input value={editSupplier.name} onChange={e => setEditSupplier({ ...editSupplier, name: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" placeholder="Nome do fornecedor" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" placeholder="Nome do fornecedor" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Contato</label>
                   <input value={editSupplier.contact} onChange={e => setEditSupplier({ ...editSupplier, contact: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" placeholder="WhatsApp, telefone..." />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" placeholder="WhatsApp, telefone..." />
                 </div>
                 <div>
                   <label className="text-xs text-gray-600 mb-1 block">Observações</label>
                   <input value={editSupplier.notes} onChange={e => setEditSupplier({ ...editSupplier, notes: e.target.value })}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400" placeholder="Ex: entrega às terças" />
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]" placeholder="Ex: entrega às terças" />
                 </div>
               </div>
               <button onClick={() => { saveSupplier(editSupplier); reload(); setEditSupplier(null) }}
-                className="bg-orange-500 text-white px-5 py-2 rounded-lg hover:bg-orange-600 text-sm font-medium">
+                className="bg-[#F5C542] text-[#0F0F0F] px-5 py-2 rounded-lg hover:bg-[#d4a72c] text-sm font-medium">
                 Salvar
               </button>
             </div>
@@ -739,7 +739,7 @@ export default function Estoque() {
                 return (
                   <div key={ingName} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                     <h3 className="font-semibold text-gray-700 mb-3 flex items-center gap-2">
-                      <Package size={16} className="text-orange-500" /> {ingName}
+                      <Package size={16} className="text-[#F5C542]" /> {ingName}
                     </h3>
                     <div className="space-y-2">
                       {[...entries].sort((a, b) => a.avgPrice - b.avgPrice).map(entry => (

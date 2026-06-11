@@ -19,12 +19,75 @@ export function setBusinessId(bid: string) {
   localStorage.setItem('ff_business_id', bid)
 }
 
+export async function signInWithEmail(email: string, password: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  return { error: error?.message || null }
+}
+
+export async function signUpWithEmail(email: string, password: string, businessName: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { data: { business_name: businessName } },
+  })
+  return { error: error?.message || null }
+}
+
 export async function signInWithGoogle() {
   if (!supabase) return
   await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: { redirectTo: window.location.origin },
   })
+}
+
+export async function sendDreResetCode() {
+  if (!supabase) return { error: 'Supabase não configurado', email: null }
+  const { data } = await supabase.auth.getUser()
+  const email = data.user?.email
+  if (!email) return { error: 'Usuário não autenticado', email: null }
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { shouldCreateUser: false },
+  })
+  return { error: error?.message || null, email }
+}
+
+export async function verifyDreResetCode(email: string, token: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' })
+  return { error: error?.message || null }
+}
+
+export async function verifyAccountPassword(password: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { data } = await supabase.auth.getUser()
+  const email = data.user?.email
+  if (!email) return { error: 'Usuário não autenticado' }
+  const { error } = await supabase.auth.signInWithPassword({ email, password })
+  return { error: error?.message || null }
+}
+
+export async function sendPasswordReset(email: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: window.location.origin,
+  })
+  return { error: error?.message || null }
+}
+
+export async function updatePassword(newPassword: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  return { error: error?.message || null }
+}
+
+export async function resendConfirmation(email: string) {
+  if (!supabase) return { error: 'Supabase não configurado' }
+  const { error } = await supabase.auth.resend({ type: 'signup', email })
+  return { error: error?.message || null }
 }
 
 export async function signOut() {
@@ -48,6 +111,7 @@ export const ENTITY_KEYS: Record<string, string> = {
   sales:       'ff_sales',
   fixed_costs: 'ff_fixed_costs',
   dre:         'ff_dre',
-  customers:     'ff_customers',
-  cash_sessions: 'ff_cash_sessions',
+  customers:      'ff_customers',
+  cash_sessions:  'ff_cash_sessions',
+  variable_costs: 'ff_variable_costs',
 }

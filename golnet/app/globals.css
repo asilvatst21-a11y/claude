@@ -1,0 +1,37 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #09090b;
+  --foreground: #ffffff;
+}
+
+.light {
+  --background: #f4f4f5;
+  --foreground: #09090b;
+}
+
+body {
+  color: var(--foreground);
+  background: var(--background);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Light mode overrides for key surfaces */
+.light body,
+.light .bg-zinc-950 { background-color: #f4f4f5 !important; }
+.light .bg-zinc-900 { background-color: #ffffff !important; }
+.light .bg-zinc-800 { background-color: #e4e4e7 !important; }
+.light .border-zinc-800 { border-color: #d4d4d8 !important; }
+.light .border-zinc-700 { border-color: #a1a1aa !important; }
+.light .text-white { color: #09090b !important; }
+.light .text-zinc-400 { color: #52525b !important; }
+.light .text-zinc-500 { color: #71717a !important; }
+.light .text-zinc-600 { color: #52525b !important; }
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}

@@ -3,7 +3,7 @@ import QRCode from 'qrcode'
 import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer, getCashbackConfig, getPixConfig, savePixConfig, getIngredients, id } from '../store/storage'
 import type { PixConfig } from '../store/storage'
 import type { Sale, SaleItem, Customer } from '../types'
-import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed } from 'lucide-react'
+import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed, Maximize2, Minimize2 } from 'lucide-react'
 import { supabase, getBusinessId } from '../store/supabase'
 
 // PIX BRCode (EMV Merchant Presented Mode) com CRC16-CCITT
@@ -85,9 +85,9 @@ function CustomerPicker({
       <button
         type="button"
         onClick={() => setOpen(v => !v)}
-        className={`w-full flex items-center gap-2 border rounded-xl px-3 py-2.5 text-sm transition-colors ${selected ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
+        className={`w-full flex items-center gap-2 border rounded-xl px-3 py-2.5 text-sm transition-colors ${selected ? 'border-[#F5C542] bg-yellow-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}
       >
-        <User size={15} className={selected ? 'text-orange-500' : 'text-gray-400'} />
+        <User size={15} className={selected ? 'text-[#F5C542]' : 'text-gray-400'} />
         <span className={`flex-1 text-left truncate ${selected ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
           {selected ? selected.name : 'Cliente (opcional)'}
         </span>
@@ -114,10 +114,10 @@ function CustomerPicker({
                 <button
                   key={c.id} type="button"
                   onClick={() => { onSelect(c); setOpen(false); setQ('') }}
-                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-orange-50 text-left"
+                  className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-yellow-50 text-left"
                 >
-                  <div className="w-7 h-7 rounded-full bg-orange-100 flex items-center justify-center shrink-0">
-                    <span className="text-orange-600 font-bold text-xs">{c.name.slice(0, 2).toUpperCase()}</span>
+                  <div className="w-7 h-7 rounded-full bg-yellow-100 flex items-center justify-center shrink-0">
+                    <span className="text-[#c49a20] font-bold text-xs">{c.name.slice(0, 2).toUpperCase()}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-800 truncate">{c.name}</p>
@@ -163,6 +163,18 @@ export default function Vendas() {
   const [filterDateFrom, setFilterDateFrom] = useState(today())
   const [filterDateTo, setFilterDateTo] = useState(today())
   const [filterProduct, setFilterProduct] = useState('')
+
+  // Tela cheia
+  const [isFullscreen, setIsFullscreen] = useState(false)
+  useEffect(() => {
+    function onFsChange() { setIsFullscreen(!!document.fullscreenElement) }
+    document.addEventListener('fullscreenchange', onFsChange)
+    return () => document.removeEventListener('fullscreenchange', onFsChange)
+  }, [])
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {})
+    else document.exitFullscreen().catch(() => {})
+  }
 
   // Troco
   const [receivedAmount, setReceivedAmount] = useState('')
@@ -369,7 +381,7 @@ export default function Vendas() {
         {/* Canal de venda */}
         <div className="grid grid-cols-2 gap-2">
           <button type="button" onClick={() => { setOrderType('balcao'); setDeliveryFee('') }}
-            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors ${orderType === 'balcao' ? 'border-orange-400 bg-orange-50 text-orange-700' : 'border-gray-200 text-gray-400 hover:border-gray-300'}`}>
+            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 text-sm font-semibold transition-colors ${orderType === 'balcao' ? 'border-[#F5C542] bg-yellow-50 text-orange-700' : 'border-gray-200 text-gray-400 hover:border-gray-300'}`}>
             <UtensilsCrossed size={15} /> Balcão
           </button>
           <button type="button" onClick={() => setOrderType('delivery')}
@@ -425,7 +437,7 @@ export default function Vendas() {
           )}
           <div className="flex justify-between font-bold text-gray-800">
             <span>Total</span>
-            <span className="text-orange-500 text-lg">{fmt(saleTotal)}</span>
+            <span className="text-[#F5C542] text-lg">{fmt(saleTotal)}</span>
           </div>
           {cashbackEarned > 0 && selectedCustomer && (
             <p className="text-xs text-green-600 text-right flex items-center justify-end gap-1">
@@ -514,10 +526,10 @@ export default function Vendas() {
         )}
 
         <textarea placeholder="Obs..." value={notes} onChange={e => setNotes(e.target.value)} rows={mobile ? 2 : 1}
-          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-orange-400 resize-none" />
+          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#F5C542] resize-none" />
 
         <button type="button" onClick={submitSale} disabled={payment === 'dinheiro' && received > 0 && trocoBadge}
-          className="w-full py-3 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+          className="w-full py-3 bg-yellow-500 hover:bg-[#d4a72c] disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2">
           <Check size={16} /> Confirmar · {fmt(saleTotal)}
         </button>
         <button type="button" onClick={() => { setCart([]); setUseCashback(false); setSelectedCustomer(null) }}
@@ -529,14 +541,21 @@ export default function Vendas() {
   return (
     <div className="flex flex-col h-full">
       {/* Abas */}
-      <div className="flex border-b border-gray-200 bg-white px-4 pt-4 gap-1 shrink-0">
+      <div className="flex border-b border-gray-200 bg-white px-4 pt-4 gap-1 shrink-0 items-end">
         <button onClick={() => setView('pdv')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'pdv' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+          className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'pdv' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:text-gray-700'}`}>
           <ShoppingCart size={15} /> PDV
         </button>
         <button onClick={() => setView('historico')}
-          className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'historico' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:text-gray-700'}`}>
+          className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'historico' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:text-gray-700'}`}>
           <ClipboardList size={15} /> Histórico
+        </button>
+        <button
+          onClick={toggleFullscreen}
+          title={isFullscreen ? 'Sair da tela cheia' : 'Tela cheia'}
+          className="ml-auto mb-1 p-2 rounded-lg text-gray-400 hover:text-[#F5C542] hover:bg-yellow-50 transition-colors"
+        >
+          {isFullscreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}
         </button>
       </div>
 
@@ -548,7 +567,7 @@ export default function Vendas() {
             <div className="flex gap-2 px-4 py-3 overflow-x-auto shrink-0 bg-white border-b border-gray-100">
               {categories.map(cat => (
                 <button key={cat} onClick={() => setActiveCategory(cat)}
-                  className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${activeCategory === cat ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                  className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${activeCategory === cat ? 'bg-[#F5C542] text-[#0F0F0F]' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
                   {cat === 'all' ? 'Todos' : CATEGORY_LABELS[cat] || cat}
                 </button>
               ))}
@@ -566,14 +585,14 @@ export default function Vendas() {
                     const cartQty = cart.filter(x => x.productId === p.id).reduce((s, x) => s + x.quantity, 0)
                     return (
                       <button key={p.id} onClick={() => handleProductTap(p.id)}
-                        className={`relative flex flex-col items-start p-4 rounded-xl border-2 text-left transition-all active:scale-95 ${cartQty > 0 ? 'border-orange-400 bg-orange-50' : 'border-gray-200 bg-white hover:border-orange-300 hover:bg-orange-50'}`}>
+                        className={`relative flex flex-col items-start p-4 rounded-xl border-2 text-left transition-all active:scale-95 ${cartQty > 0 ? 'border-[#F5C542] bg-yellow-50' : 'border-gray-200 bg-white hover:border-[#F5C542]/50 hover:bg-yellow-50'}`}>
                         {cartQty > 0 && (
-                          <span className="absolute top-2 right-2 w-6 h-6 bg-orange-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                          <span className="absolute top-2 right-2 w-6 h-6 bg-[#F5C542] text-[#0F0F0F] text-xs font-bold rounded-full flex items-center justify-center">
                             {cartQty}
                           </span>
                         )}
                         <span className="text-sm font-semibold text-gray-800 leading-tight mb-1 pr-6">{p.name}</span>
-                        <span className="text-base font-bold text-orange-500">{fmt(p.salePrice)}</span>
+                        <span className="text-base font-bold text-[#F5C542]">{fmt(p.salePrice)}</span>
                         <span className="text-xs text-gray-400 mt-0.5">{CATEGORY_LABELS[p.category]}</span>
                       </button>
                     )
@@ -611,7 +630,7 @@ export default function Vendas() {
                             <span className="text-xs text-red-400">sem {item.removedIngredients.map(r => r.name).join(', sem ')}</span>
                           )}
                         </div>
-                        <span className="text-sm font-semibold text-orange-600 mt-0.5">{fmt(item.total)}</span>
+                        <span className="text-sm font-semibold text-[#c49a20] mt-0.5">{fmt(item.total)}</span>
                       </div>
                     )
                   })}
@@ -625,8 +644,8 @@ export default function Vendas() {
           {cart.length > 0 && (
             <div className="md:hidden shrink-0 bg-white border-t border-gray-200 p-3">
               <button onClick={() => setShowCheckout(true)}
-                className="w-full bg-orange-500 text-white py-3 rounded-xl font-bold flex items-center justify-between px-5">
-                <span className="bg-white text-orange-500 rounded-full w-6 h-6 text-xs font-bold flex items-center justify-center">{cartCount}</span>
+                className="w-full bg-[#F5C542] text-[#0F0F0F] py-3 rounded-xl font-bold flex items-center justify-between px-5">
+                <span className="bg-white text-[#F5C542] rounded-full w-6 h-6 text-xs font-bold flex items-center justify-center">{cartCount}</span>
                 <span>Ver pedido{selectedCustomer ? ` · ${selectedCustomer.name.split(' ')[0]}` : ''}</span>
                 <span>{fmt(saleTotal)}</span>
               </button>
@@ -657,7 +676,7 @@ export default function Vendas() {
                             <span className="text-xs text-red-400">sem {item.removedIngredients.map(r => r.name).join(', sem ')}</span>
                           )}
                         </div>
-                        <span className="font-semibold text-orange-600 mt-0.5">{fmt(item.total)}</span>
+                        <span className="font-semibold text-[#c49a20] mt-0.5">{fmt(item.total)}</span>
                       </div>
                     )
                   })}
@@ -690,7 +709,7 @@ export default function Vendas() {
                 <p className="text-xs text-gray-400 mt-3 truncate">Chave: {pixConfig.key}</p>
               )}
               <button onClick={() => { setShowPixQR(false); submitSale() }}
-                className="mt-4 w-full bg-orange-500 hover:bg-orange-600 text-white py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
+                className="mt-4 w-full bg-[#F5C542] hover:bg-[#d4a72c] text-[#0F0F0F] py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2">
                 <Check size={16} /> Confirmar pagamento recebido
               </button>
             </div>
@@ -705,7 +724,7 @@ export default function Vendas() {
             <div className="flex items-center justify-between p-4 border-b border-gray-100 shrink-0">
               <div>
                 <h2 className="font-bold text-gray-800">{pendingProduct.name}</h2>
-                <p className="text-sm text-orange-500 font-semibold">{fmt(pendingProduct.salePrice)}</p>
+                <p className="text-sm text-[#F5C542] font-semibold">{fmt(pendingProduct.salePrice)}</p>
               </div>
               <button onClick={() => setPendingProduct(null)}><X size={20} className="text-gray-400" /></button>
             </div>
@@ -737,10 +756,10 @@ export default function Vendas() {
             <div className="p-4 border-t border-gray-100 shrink-0">
               <button
                 onClick={confirmAddToCart}
-                className="w-full py-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2"
+                className="w-full py-3 bg-[#F5C542] hover:bg-[#d4a72c] text-[#0F0F0F] rounded-xl font-bold text-sm flex items-center justify-center gap-2"
               >
                 <Plus size={15} /> Adicionar ao pedido
-                {pendingRemovals.size > 0 && <span className="text-orange-200 font-normal text-xs">· sem {pendingRemovals.size} ingrediente{pendingRemovals.size > 1 ? 's' : ''}</span>}
+                {pendingRemovals.size > 0 && <span className="text-yellow-200 font-normal text-xs">· sem {pendingRemovals.size} ingrediente{pendingRemovals.size > 1 ? 's' : ''}</span>}
               </button>
             </div>
           </div>
@@ -763,36 +782,36 @@ export default function Vendas() {
               <div className="flex rounded-lg border border-gray-200 overflow-hidden text-sm shrink-0">
                 <button
                   onClick={() => setFilterMode('day')}
-                  className={`px-3 py-1.5 font-medium transition-colors ${filterMode === 'day' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
+                  className={`px-3 py-1.5 font-medium transition-colors ${filterMode === 'day' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:bg-gray-50'}`}
                 >Dia</button>
                 <button
                   onClick={() => setFilterMode('range')}
-                  className={`px-3 py-1.5 font-medium transition-colors ${filterMode === 'range' ? 'bg-orange-500 text-white' : 'text-gray-500 hover:bg-gray-50'}`}
+                  className={`px-3 py-1.5 font-medium transition-colors ${filterMode === 'range' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:bg-gray-50'}`}
                 >Período</button>
               </div>
 
               {filterMode === 'day' ? (
                 <input type="date" value={filterDate} onChange={e => setFilterDate(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400" />
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-[#F5C542]" />
               ) : (
                 <div className="flex items-center gap-1.5">
                   <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)}
-                    className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-orange-400" />
+                    className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#F5C542]" />
                   <span className="text-gray-400 text-xs shrink-0">até</span>
                   <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)}
-                    className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-orange-400" />
+                    className="border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-[#F5C542]" />
                 </div>
               )}
 
               <select value={filterProduct} onChange={e => setFilterProduct(e.target.value)}
-                className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-orange-400 flex-1 min-w-0">
+                className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-[#F5C542] flex-1 min-w-0">
                 <option value="">Todos os produtos</option>
                 {[...new Map(sales.flatMap(s => s.items).map(i => [i.productId, i])).values()].map(i => (
                   <option key={i.productId} value={i.productId}>{i.productName}</option>
                 ))}
               </select>
               {(filterProduct || dateFilterActive) && (
-                <button onClick={clearDateFilter} className="text-xs text-gray-400 hover:text-orange-500 underline">Limpar</button>
+                <button onClick={clearDateFilter} className="text-xs text-gray-400 hover:text-[#F5C542] underline">Limpar</button>
               )}
             </div>
             <div className="flex justify-between items-center text-sm mb-3">
@@ -833,7 +852,7 @@ export default function Vendas() {
                       <p className="text-xs text-gray-400 mt-0.5">
                         {sale.time} · {PAYMENT_LABEL[sale.paymentMethod]}
                         {sale.deliveryFee ? ` · entrega ${fmt(sale.deliveryFee)}` : ''}
-                        {sale.customerName && <span className="text-orange-500"> · {sale.customerName}</span>}
+                        {sale.customerName && <span className="text-[#F5C542]"> · {sale.customerName}</span>}
                         {sale.cashbackUsed ? ` · cashback −${fmt(sale.cashbackUsed)}` : ''}
                         {sale.notes && ` · ${sale.notes}`}
                       </p>

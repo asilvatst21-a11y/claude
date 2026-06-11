@@ -24,9 +24,9 @@ const SECTIONS: Section[] = [
     id: 'dashboard',
     label: 'Dashboard',
     icon: <LayoutDashboard size={22} />,
-    color: 'text-orange-600',
-    bg: 'bg-orange-50',
-    border: 'border-orange-200',
+    color: 'text-[#c49a20]',
+    bg: 'bg-yellow-50',
+    border: 'border-[#F5C542]/30',
     desc: 'Visão geral do negócio em tempo real — vendas, receita, estoque crítico e metas do mês.',
     steps: [
       { text: 'Ao abrir o sistema você já cai no Dashboard com os números de hoje.' },
@@ -236,7 +236,7 @@ export default function Ajuda() {
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-2 mb-1">
-          <BookOpen size={24} className="text-orange-500" />
+          <BookOpen size={24} className="text-[#F5C542]" />
           <h1 className="text-2xl font-bold text-gray-800">Manual do Sistema</h1>
         </div>
         <p className="text-gray-500 text-sm">Guia de uso de cada módulo do FastFood Gestão</p>
@@ -249,7 +249,7 @@ export default function Ajuda() {
           value={search}
           onChange={e => setSearch(e.target.value)}
           placeholder="Buscar módulo ou função..."
-          className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-orange-400 bg-white"
+          className="w-full pl-9 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#F5C542] bg-white"
         />
       </div>
 

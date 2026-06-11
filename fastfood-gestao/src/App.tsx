@@ -13,75 +13,93 @@ import Clientes from './pages/Clientes'
 import Caixa from './pages/Caixa'
 import Ajuda from './pages/Ajuda'
 import CadastroPublico from './pages/CadastroPublico'
+import Planos from './pages/Planos'
 import Login from './pages/Login'
+import ResetPassword from './pages/ResetPassword'
+import ExpiredScreen from './components/ExpiredScreen'
+import FeatureGate from './components/FeatureGate'
 import SyncSetup from './components/SyncSetup'
 import { pullFromCloud, hasNewData } from './store/sync'
 import { supabase, setBusinessId } from './store/supabase'
+import { ProfileContext, isPlanActive } from './store/ProfileContext'
+import type { Profile } from './store/ProfileContext'
 
 type AppState = 'loading' | 'ready'
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>('loading')
   const [session, setSession] = useState<Session | null>(null)
+  const [isRecovery, setIsRecovery] = useState(false)
+  const [profile, setProfile] = useState<Profile | null>(null)
 
-  // Public registration page never needs auth
-  const isPublicRoute = window.location.pathname === '/cadastro'
+  const isPublicRoute = ['/cadastro', '/planos', '/login'].includes(window.location.pathname)
 
+  async function fetchProfile(userId: string) {
+    if (!supabase) return
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('plan, trial_ends_at, plan_expires_at')
+      .eq('id', userId)
+      .single()
+    if (error) {
+      console.error('Error fetching profile:', error)
+      return
+    }
+    if (data) setProfile(data as Profile)
+  }
+
+  // Always listen to auth state changes, regardless of route
   useEffect(() => {
-    if (isPublicRoute) { setAppState('ready'); return }
+    if (!supabase) return
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setSession(s)
+        setIsRecovery(true)
+        setAppState('ready')
+        return
+      }
+      setSession(s)
+      if (s) {
+        setBusinessId(s.user.id)
+        fetchProfile(s.user.id)
+        pullFromCloud().finally(() => setAppState('ready'))
+      }
+    })
+    return () => subscription.unsubscribe()
+  }, [])
 
-    if (!supabase) {
-      // No Supabase configured: run fully offline
+  // Initial session load for protected routes
+  useEffect(() => {
+    if (isPublicRoute || !supabase) {
       setAppState('ready')
       return
     }
-
-    // Get initial session
     supabase.auth.getSession().then(({ data }) => {
       const s = data.session
       setSession(s)
-
       if (s) {
-        // Use the auth user's ID as the business_id for consistent cross-device data
         setBusinessId(s.user.id)
+        fetchProfile(s.user.id)
         pullFromCloud().finally(() => setAppState('ready'))
       } else {
         setAppState('ready')
       }
     })
-
-    // Listen for auth state changes (login / logout / token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
-      setSession(s)
-      if (s) {
-        setBusinessId(s.user.id)
-        pullFromCloud()
-      }
-    })
-
-    return () => subscription.unsubscribe()
   }, [isPublicRoute])
 
-  // Realtime subscription — only when logged in
   useEffect(() => {
     if (!supabase || !session) return
-
     const businessId = session.user.id
     const channel = supabase
       .channel('ff_sync_changes')
-      .on(
-        'postgres_changes',
+      .on('postgres_changes',
         { event: '*', schema: 'public', table: 'ff_sync', filter: `business_id=eq.${businessId}` },
-        () => {
-          pullFromCloud().then(ok => { if (ok) window.location.reload() })
-        }
+        () => { pullFromCloud().then(ok => { if (ok) window.location.reload() }) }
       )
       .subscribe()
-
     return () => { supabase!.removeChannel(channel) }
   }, [session])
 
-  // Fallback: sync when tab becomes visible (covers non-realtime cases)
   useEffect(() => {
     if (!supabase || !session) return
     function onVisible() {
@@ -96,42 +114,49 @@ export default function App() {
 
   if (appState === 'loading') {
     return (
-      <div className="h-screen flex items-center justify-center bg-orange-50">
+      <div className="h-screen flex items-center justify-center bg-yellow-50">
         <div className="text-center">
-          <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+          <div className="w-10 h-10 border-4 border-[#F5C542] border-t-transparent rounded-full animate-spin mx-auto mb-3" />
           <p className="text-gray-600 text-sm">Carregando...</p>
         </div>
       </div>
     )
   }
 
+  if (isRecovery) return <ResetPassword onDone={() => setIsRecovery(false)} />
+
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/cadastro" element={<CadastroPublico />} />
+        <Route path="/planos" element={<Planos />} />
+        <Route path="/login" element={<Login />} />
         <Route
           path="/*"
           element={
-            supabase && !session ? (
-              <Login />
+            session && profile && !isPlanActive(profile) && !isPublicRoute ? (
+              <ExpiredScreen />
+            ) : supabase && !session ? (
+              <Planos />
             ) : (
-              <>
+              <ProfileContext.Provider value={profile}>
                 <SyncSetup session={session} />
                 <Routes>
                   <Route path="/" element={<Layout />}>
                     <Route index element={<Dashboard />} />
                     <Route path="vendas" element={<Vendas />} />
                     <Route path="estoque" element={<Estoque />} />
-                    <Route path="precificacao" element={<Precificacao />} />
-                    <Route path="dre" element={<DRE />} />
-                    <Route path="relatorios" element={<Relatorios />} />
+                    <Route path="precificacao" element={<FeatureGate feature="precificacao"><Precificacao /></FeatureGate>} />
+                    <Route path="dre" element={<FeatureGate feature="dre"><DRE /></FeatureGate>} />
+                    <Route path="relatorios" element={<FeatureGate feature="relatorios"><Relatorios /></FeatureGate>} />
                     <Route path="cadastros" element={<Cadastros />} />
-                    <Route path="clientes" element={<Clientes />} />
-                    <Route path="caixa" element={<Caixa />} />
+                    <Route path="clientes" element={<FeatureGate feature="clientes"><Clientes /></FeatureGate>} />
+                    <Route path="caixa" element={<FeatureGate feature="caixa"><Caixa /></FeatureGate>} />
                     <Route path="ajuda" element={<Ajuda />} />
+                    <Route path="planos" element={<Planos />} />
                   </Route>
                 </Routes>
-              </>
+              </ProfileContext.Provider>
             )
           }
         />

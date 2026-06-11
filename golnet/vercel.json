@@ -1,0 +1,10 @@
+{
+  "framework": "nextjs",
+  "ignoreCommand": "[ \"$VERCEL_GIT_COMMIT_REF\" != \"main\" ]",
+  "crons": [
+    {
+      "path": "/api/cron/sync-matches",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}

@@ -158,7 +158,7 @@ export default function Cadastros() {
           </button>
           <button
             onClick={() => setEditProduct(emptyProduct())}
-            className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-lg hover:bg-orange-600 font-medium text-sm"
+            className="flex items-center gap-2 bg-[#F5C542] text-[#0F0F0F] px-4 py-2 rounded-lg hover:bg-[#d4a72c] font-medium text-sm"
           >
             <Plus size={16} /> Novo Produto
           </button>
@@ -266,7 +266,7 @@ export default function Cadastros() {
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 mb-6">
           <div className="flex justify-between items-center mb-4">
             <h2 className="font-semibold text-gray-700 flex items-center gap-2">
-              <Settings size={18} className="text-orange-500" />
+              <Settings size={18} className="text-[#F5C542]" />
               {products.find(p => p.id === editProduct.id) ? 'Editar Produto' : 'Novo Produto'}
             </h2>
             <button onClick={() => setEditProduct(null)}><X size={20} className="text-gray-400" /></button>
@@ -279,7 +279,7 @@ export default function Cadastros() {
                 value={editProduct.name}
                 onChange={e => setEditProduct({ ...editProduct, name: e.target.value })}
                 placeholder="Ex: X-Burguer, Macarrão Bolonhesa..."
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]"
               />
             </div>
             <div>
@@ -287,7 +287,7 @@ export default function Cadastros() {
               <select
                 value={editProduct.category}
                 onChange={e => setEditProduct({ ...editProduct, category: e.target.value as Product['category'] })}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]"
               >
                 {categories.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
               </select>
@@ -298,7 +298,7 @@ export default function Cadastros() {
                 type="number" min={0} step="0.01"
                 value={editProduct.salePrice || ''}
                 onChange={e => setEditProduct({ ...editProduct, salePrice: parseFloat(e.target.value) || 0 })}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-400"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]"
               />
             </div>
           </div>
@@ -306,7 +306,7 @@ export default function Cadastros() {
           <div className="mb-4">
             <div className="flex items-center justify-between mb-2">
               <label className="text-xs font-medium text-gray-600">Ingredientes (para precificação)</label>
-              <button onClick={addIngredientLine} className="text-orange-500 text-xs flex items-center gap-1 hover:text-orange-700">
+              <button onClick={addIngredientLine} className="text-[#F5C542] text-xs flex items-center gap-1 hover:text-orange-700">
                 <Plus size={12} /> Adicionar ingrediente
               </button>
             </div>
@@ -320,7 +320,7 @@ export default function Cadastros() {
                       <select
                         value={ing.ingredientId}
                         onChange={e => updateIngLine(idx, 'ingredientId', e.target.value)}
-                        className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-orange-400"
+                        className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-[#F5C542]"
                       >
                         <option value="">Selecione...</option>
                         {ingredients.map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
@@ -331,7 +331,7 @@ export default function Cadastros() {
                         type="number" placeholder="Qtd" min={0} step="0.001"
                         value={ing.quantity || ''}
                         onChange={e => updateIngLine(idx, 'quantity', parseFloat(e.target.value) || 0)}
-                        className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-orange-400"
+                        className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:border-[#F5C542]"
                       />
                     </div>
                     <div className="flex items-center gap-1">
@@ -349,7 +349,7 @@ export default function Cadastros() {
               <input
                 type="checkbox" checked={editProduct.active}
                 onChange={e => setEditProduct({ ...editProduct, active: e.target.checked })}
-                className="accent-orange-500"
+                className="accent-[#F5C542]"
               />
               Produto ativo no cardápio
             </label>
@@ -360,7 +360,7 @@ export default function Cadastros() {
               <button
                 onClick={() => saveAndClose(editProduct)}
                 disabled={!editProduct.name}
-                className="bg-orange-500 text-white px-5 py-2 rounded-lg hover:bg-orange-600 text-sm font-medium disabled:opacity-40"
+                className="bg-[#F5C542] text-[#0F0F0F] px-5 py-2 rounded-lg hover:bg-[#d4a72c] text-sm font-medium disabled:opacity-40"
               >
                 Salvar Produto
               </button>
@@ -384,7 +384,7 @@ export default function Cadastros() {
             return (
               <div key={cat.value} className="bg-white rounded-xl shadow-sm border border-gray-100">
                 <div className="px-5 py-3 border-b border-gray-50">
-                  <h3 className="font-semibold text-orange-600 text-sm uppercase tracking-wide">{cat.label}</h3>
+                  <h3 className="font-semibold text-[#c49a20] text-sm uppercase tracking-wide">{cat.label}</h3>
                 </div>
                 <div className="divide-y divide-gray-50">
                   {prods.map(p => (
@@ -399,7 +399,7 @@ export default function Cadastros() {
                         </div>
                       </div>
                       <div className="flex items-center gap-4">
-                        <span className="font-semibold text-orange-600">{fmt(p.salePrice)}</span>
+                        <span className="font-semibold text-[#c49a20]">{fmt(p.salePrice)}</span>
                         <button onClick={() => setEditProduct({ ...p })} className="text-blue-400 hover:text-blue-600">
                           <Edit2 size={15} />
                         </button>
