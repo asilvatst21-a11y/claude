@@ -500,7 +500,7 @@ function ColabRow({ nome, historico, filial, onReabrir, onExcluir }: { nome: str
                       <RotateCcw size={14} />
                     </button>
                   )}
-                  {(h.origem ?? '').toLowerCase().includes('relato') && (
+                  {registroEditavel(h) && (h.origem ?? '').toLowerCase().includes('relato') && (
                     <button
                       onClick={() => onExcluir(h)}
                       title="Excluir fluxo"
@@ -703,14 +703,24 @@ export default function FluxoPunitivo() {
       ? `Excluir ${n} registros de fluxo de ${nome}? Esta ação não pode ser desfeita.`
       : `Excluir o fluxo pendente de ${nome}? Esta ação não pode ser desfeita.`
     if (!window.confirm(msg)) return
-    const ids = grupo.map(g => g.id)
-    await supabase.from('fluxo_punitivo').delete().in('id', ids)
+    const ids = grupo.map(g => g.id).filter(id => registroEditavel({ id } as FluxoPunitivo))
+    if (ids.length === 0) {
+      alert('Estes registros vêm da tela de origem e não podem ser excluídos aqui.')
+      return
+    }
+    const { error } = await supabase.from('fluxo_punitivo').delete().in('id', ids)
+    if (error) { alert('Erro ao excluir o fluxo:\n' + error.message); return }
     carregar()
   }
 
   async function handleExcluirRegistro(h: FluxoPunitivo) {
+    if (!registroEditavel(h)) {
+      alert('Este registro vem da tela de origem (Relatos/GSDPQ/Telemetria) e deve ser removido lá.')
+      return
+    }
     if (!window.confirm(`Excluir este fluxo de ${h.colaborador_nome}? Esta ação não pode ser desfeita.`)) return
-    await supabase.from('fluxo_punitivo').delete().eq('id', h.id)
+    const { error } = await supabase.from('fluxo_punitivo').delete().eq('id', h.id)
+    if (error) { alert('Erro ao excluir o fluxo:\n' + error.message); return }
     carregar()
   }
 
