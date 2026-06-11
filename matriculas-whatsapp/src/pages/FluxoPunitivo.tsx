@@ -500,7 +500,7 @@ function ColabRow({ nome, historico, filial, onReabrir, onExcluir }: { nome: str
                       <RotateCcw size={14} />
                     </button>
                   )}
-                  {(h.origem ?? '').toLowerCase().includes('relato') && (
+                  {!h.id.startsWith('tel_') && (
                     <button
                       onClick={() => onExcluir(h)}
                       title="Excluir fluxo"
@@ -714,21 +714,30 @@ export default function FluxoPunitivo() {
   }
 
   async function handleExcluirRegistro(h: FluxoPunitivo) {
-    // Registros do histórico podem ser reais (fluxo_punitivo) ou projeções de
-    // ações de outras telas. Roteia a exclusão para a tabela de origem correta.
     let tabela: string
     let realId: string
-    if (h.id.startsWith('relato_')) {
+    if (h.id.startsWith('gsdpq_')) {
+      tabela = 'gsdpq_acoes'; realId = h.id.slice('gsdpq_'.length)
+    } else if (h.id.startsWith('relato_')) {
       tabela = 'relatos_acoes'; realId = h.id.slice('relato_'.length)
     } else if (registroEditavel(h)) {
       tabela = 'fluxo_punitivo'; realId = h.id
     } else {
-      alert('Este registro vem de GSDPQ/Telemetria e deve ser removido na tela de origem.')
+      alert('Este registro vem de Telemetria e deve ser removido na tela de origem.')
       return
     }
     if (!window.confirm(`Excluir este fluxo de ${h.colaborador_nome}? Esta ação não pode ser desfeita.`)) return
     const { error } = await supabase.from(tabela).delete().eq('id', realId)
     if (error) { alert('Erro ao excluir o fluxo:\n' + error.message); return }
+    // When deleting a real fluxo_punitivo row, also remove any matching entry
+    // in the source table so it doesn't reappear as a legacy projection.
+    if (tabela === 'fluxo_punitivo' && h.source_id) {
+      if ((h.origem ?? '').toLowerCase().includes('relato')) {
+        await supabase.from('relatos_acoes').delete().eq('id', h.source_id)
+      } else if ((h.origem ?? '').toUpperCase() === 'GSDPQ') {
+        await supabase.from('gsdpq_acoes').delete().eq('id', h.source_id)
+      }
+    }
     carregar()
   }
 
