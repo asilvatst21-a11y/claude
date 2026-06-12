@@ -24,3 +24,7 @@ jobs:
           git checkout main
           git merge --ff-only origin/claude/start-new-project-znnaq
           git push origin main
+
+      - name: Trigger Vercel deploy
+        if: ${{ secrets.VERCEL_DEPLOY_HOOK != '' }}
+        run: curl -X POST "${{ secrets.VERCEL_DEPLOY_HOOK }}"
