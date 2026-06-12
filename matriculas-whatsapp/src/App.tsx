@@ -9,6 +9,12 @@ import Disparos from './pages/Disparos'
 import Historico from './pages/Historico'
 import Admin from './pages/Admin'
 import Gsdpq from './pages/Gsdpq'
+import ValesPage from './pages/vales/Vales'
+import AjudantesPage from './pages/vales/Ajudantes'
+import ImportarPage from './pages/vales/Importar'
+import ImportacoesPage from './pages/vales/Importacoes'
+import ReposicoesPage from './pages/vales/Reposicoes'
+import ValesConfiguracoesPage from './pages/vales/Configuracoes'
 
 function ProtectedRoutes() {
   const { usuario, loading } = useAuth()
@@ -37,6 +43,13 @@ export default function App() {
             <Route path="/historico" element={<Historico />} />
             <Route path="/admin" element={<Admin />} />
             <Route path="/gsdpq" element={<Gsdpq />} />
+            {/* Vales LOG20 */}
+            <Route path="/vales" element={<ValesPage />} />
+            <Route path="/vales/ajudantes" element={<AjudantesPage />} />
+            <Route path="/vales/importar" element={<ImportarPage />} />
+            <Route path="/vales/importacoes" element={<ImportacoesPage />} />
+            <Route path="/vales/reposicoes" element={<ReposicoesPage />} />
+            <Route path="/vales/configuracoes" element={<ValesConfiguracoesPage />} />
           </Route>
         </Routes>
       </BrowserRouter>

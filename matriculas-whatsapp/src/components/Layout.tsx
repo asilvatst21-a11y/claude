@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Users, CreditCard, Upload, MessageSquare, BarChart2, LogOut, Building2, Shield, ClipboardList } from 'lucide-react'
+import { Users, CreditCard, Upload, MessageSquare, BarChart2, LogOut, Building2, Shield, ClipboardList, FileText, UserCheck, FileSpreadsheet, Package, Settings } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
 const navItems = [
@@ -10,6 +10,16 @@ const navItems = [
   { to: '/historico', label: 'Histórico', icon: MessageSquare },
   { to: '/gsdpq', label: 'Análise GSDPQ', icon: ClipboardList },
 ]
+
+const valesItems = [
+  { to: '/vales', label: 'Vales', icon: FileText },
+  { to: '/vales/ajudantes', label: 'Ajudantes', icon: UserCheck },
+  { to: '/vales/importar', label: 'Importar Planilha', icon: Upload },
+  { to: '/vales/importacoes', label: 'Importações', icon: FileSpreadsheet },
+  { to: '/vales/reposicoes', label: 'Reposições', icon: Package },
+  { to: '/vales/configuracoes', label: 'Config. Vales', icon: Settings },
+]
+
 const adminItems = [
   { to: '/admin', label: 'Administração', icon: Shield },
 ]
@@ -34,7 +44,7 @@ export default function Layout() {
           <p className="text-brand-200 text-xs">Sistema de Disparos</p>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1">
+        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
           {navItems.map(({ to, label, icon: Icon }) => (
             <NavLink
               key={to}
@@ -42,9 +52,7 @@ export default function Layout() {
               end={to === '/'}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-accent-500 text-white'
-                    : 'text-brand-100 hover:bg-brand-600 hover:text-white'
+                  isActive ? 'bg-accent-500 text-white' : 'text-brand-100 hover:bg-brand-600 hover:text-white'
                 }`
               }
             >
@@ -52,6 +60,24 @@ export default function Layout() {
               {label}
             </NavLink>
           ))}
+
+          <div className="pt-3 pb-1 px-3 text-xs uppercase tracking-wider text-brand-300">Vales LOG20</div>
+          {valesItems.map(({ to, label, icon: Icon }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/vales'}
+              className={({ isActive }) =>
+                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                  isActive ? 'bg-accent-500 text-white' : 'text-brand-100 hover:bg-brand-600 hover:text-white'
+                }`
+              }
+            >
+              <Icon size={18} />
+              {label}
+            </NavLink>
+          ))}
+
           {usuario?.admin && (
             <>
               <div className="pt-3 pb-1 px-3 text-xs uppercase tracking-wider text-brand-300">Admin</div>
@@ -61,9 +87,7 @@ export default function Layout() {
                   to={to}
                   className={({ isActive }) =>
                     `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                      isActive
-                        ? 'bg-accent-500 text-white'
-                        : 'text-brand-100 hover:bg-brand-600 hover:text-white'
+                      isActive ? 'bg-accent-500 text-white' : 'text-brand-100 hover:bg-brand-600 hover:text-white'
                     }`
                   }
                 >
