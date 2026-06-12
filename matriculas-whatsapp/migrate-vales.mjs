@@ -10,6 +10,7 @@
  */
 
 import { createClient } from '@supabase/supabase-js'
+import { WebSocket } from 'ws'
 
 const ORIGEM_URL = process.env.ORIGEM_URL
 const ORIGEM_KEY = process.env.ORIGEM_KEY
@@ -27,8 +28,9 @@ Variáveis de ambiente ausentes. Defina:
   process.exit(1)
 }
 
-const origem  = createClient(ORIGEM_URL,  ORIGEM_KEY,  { auth: { persistSession: false } })
-const destino = createClient(DESTINO_URL, DESTINO_KEY, { auth: { persistSession: false } })
+const wsOpts = { realtime: { transport: WebSocket } }
+const origem  = createClient(ORIGEM_URL,  ORIGEM_KEY,  { auth: { persistSession: false }, ...wsOpts })
+const destino = createClient(DESTINO_URL, DESTINO_KEY, { auth: { persistSession: false }, ...wsOpts })
 
 // Ordem respeitando chaves estrangeiras
 const TABELAS = [
