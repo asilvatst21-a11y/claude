@@ -1,6 +1,9 @@
 import { createClient } from "@supabase/supabase-js";
 
-const valesUrl = import.meta.env.VITE_VALES_SUPABASE_URL as string;
-const valesKey = import.meta.env.VITE_VALES_SUPABASE_SERVICE_KEY as string;
+// Uses the same Supabase project as the main app.
+// VITE_SUPABASE_SERVICE_KEY must be the service_role key (not the anon key)
+// so batch imports and writes bypass RLS.
+const url = import.meta.env.VITE_SUPABASE_URL as string;
+const key = import.meta.env.VITE_SUPABASE_SERVICE_KEY as string;
 
-export const valesSupabase = createClient(valesUrl, valesKey);
+export const valesSupabase = createClient(url, key);
