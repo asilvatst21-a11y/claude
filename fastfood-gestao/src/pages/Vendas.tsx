@@ -1,3 +1,4 @@
+// v2 — fila de pedidos
 import { useState, useEffect, useRef } from 'react'
 import QRCode from 'qrcode'
 import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer, getCashbackConfig, getPixConfig, savePixConfig, getIngredients, id } from '../store/storage'
