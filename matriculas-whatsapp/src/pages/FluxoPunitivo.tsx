@@ -138,34 +138,49 @@ function SequenciaBar({ historico }: { historico: FluxoPunitivo[] }) {
 
 // ─── Modal Definir Ação ───────────────────────────────────────────────────────
 
+interface ColaboradorBase { nome: string; funcao: string | null }
+
 interface ModalDefinirProps {
   grupo: FluxoPunitivo[]
   historico: FluxoPunitivo[]
   motivosPadrao: string[]
+  colabList: ColaboradorBase[]
   onClose: () => void
-  onSalvar: (grupo: FluxoPunitivo[], tipo: TipoAcao, dias: number | null, data: string, dataInfracao: string, obs: string, motivo: string) => Promise<void>
+  onSalvar: (grupo: FluxoPunitivo[], tipo: TipoAcao, dias: number | null, data: string, dataInfracao: string, obs: string, motivo: string, nomeCorreto: string) => Promise<void>
 }
 
-function ModalDefinirAcao({ grupo, historico, motivosPadrao, onClose, onSalvar }: ModalDefinirProps) {
+function ModalDefinirAcao({ grupo, historico, motivosPadrao, colabList, onClose, onSalvar }: ModalDefinirProps) {
   const solicitacao = grupo[0]
   const proxima = calcProxima(historico)
   const origens = [...new Set(grupo.map(g => g.origem))]
   const isGrupo = grupo.some(g => g.origem === 'Grupo')
   const motivoInicial = grupo.length > 1 ? combinarMotivos(grupo) : (solicitacao.motivo ?? '')
-  const [tipo,   setTipo]   = useState<TipoAcao>(proxima.tipo)
-  const [dias,   setDias]   = useState('')
-  const [data,   setData]   = useState(new Date().toISOString().slice(0, 10))
+  const [tipo,        setTipo]        = useState<TipoAcao>(proxima.tipo)
+  const [dias,        setDias]        = useState('')
+  const [data,        setData]        = useState(new Date().toISOString().slice(0, 10))
   const [dataInfracao, setDataInfracao] = useState(solicitacao.data_infracao?.slice(0, 10) ?? diaKey(solicitacao.data_acao) ?? '')
-  const [obs,    setObs]    = useState('')
-  const [motivo, setMotivo] = useState(motivoInicial)
-  const [saving, setSaving] = useState(false)
+  const [obs,         setObs]         = useState('')
+  const [motivo,      setMotivo]      = useState(motivoInicial)
+  const [nomeCorreto, setNomeCorreto] = useState(solicitacao.colaborador_nome)
+  const [saving,      setSaving]      = useState(false)
+
+  // Colaboradores agrupados por função para o select
+  const colabPorFuncao = useMemo(() => {
+    const map = new Map<string, string[]>()
+    colabList.forEach(c => {
+      const f = c.funcao || 'Sem função'
+      if (!map.has(f)) map.set(f, [])
+      map.get(f)!.push(c.nome)
+    })
+    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
+  }, [colabList])
 
   const sorted = [...historico].filter(h => h.status === 'Concluido' && h.tipo_acao)
     .sort((a, b) => (a.data_acao ?? a.created_at).localeCompare(b.data_acao ?? b.created_at))
 
   async function handleSave() {
     setSaving(true)
-    await onSalvar(grupo, tipo, tipo === 'Suspensão' ? (parseInt(dias) || null) : null, data, dataInfracao, obs, motivo)
+    await onSalvar(grupo, tipo, tipo === 'Suspensão' ? (parseInt(dias) || null) : null, data, dataInfracao, obs, motivo, nomeCorreto || solicitacao.colaborador_nome)
     setSaving(false)
   }
 
@@ -203,6 +218,40 @@ function ModalDefinirAcao({ grupo, historico, motivosPadrao, onClose, onSalvar }
               <p className="text-gray-400">Solicitado por: {solicitacao.registrado_por}</p>
             )}
           </div>
+
+          {/* Colaborador — permite corrigir nome digitado no grupo */}
+          {colabList.length > 0 && (
+            <div>
+              <label className="text-xs font-medium text-gray-600 block mb-1">
+                Colaborador
+                {nomeCorreto !== solicitacao.colaborador_nome && (
+                  <span className="ml-2 text-orange-500 font-normal">nome corrigido</span>
+                )}
+              </label>
+              <select
+                value={nomeCorreto}
+                onChange={e => setNomeCorreto(e.target.value)}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-400"
+              >
+                {/* Mantém o nome original caso não esteja na lista */}
+                {!colabList.some(c => c.nome === solicitacao.colaborador_nome) && (
+                  <option value={solicitacao.colaborador_nome}>
+                    {solicitacao.colaborador_nome} (recebido do grupo)
+                  </option>
+                )}
+                {colabPorFuncao.map(([funcao, nomes]) => (
+                  <optgroup key={funcao} label={funcao}>
+                    {nomes.map(n => <option key={n} value={n}>{n}</option>)}
+                  </optgroup>
+                ))}
+              </select>
+              {nomeCorreto !== solicitacao.colaborador_nome && (
+                <p className="text-[10px] text-gray-400 mt-1">
+                  Recebido: <em>{solicitacao.colaborador_nome}</em>
+                </p>
+              )}
+            </div>
+          )}
 
           {/* Motivo editável (sempre para Grupo, opcional para outros) */}
           <div>
@@ -529,6 +578,7 @@ export default function FluxoPunitivo() {
   const [busca,         setBusca]         = useState('')
   const [abaAtiva,      setAbaAtiva]      = useState<'pendentes' | 'historico' | 'motivos'>('pendentes')
   const [motivosPadrao, setMotivosPadrao] = useState<string[]>([])
+  const [colabList,     setColabList]     = useState<ColaboradorBase[]>([])
   const [novoMotivo,    setNovoMotivo]    = useState('')
   const [savingMotivo,  setSavingMotivo]  = useState(false)
 
@@ -543,6 +593,10 @@ export default function FluxoPunitivo() {
     if (!usuario) return
     setLoading(true)
     carregarMotivos()
+
+    // Lista de colaboradores cadastrados (para corrigir nomes vindos do grupo)
+    supabase.from('colaboradores').select('nome, funcao').eq('filial', usuario.filial).order('nome')
+      .then(({ data }) => setColabList((data ?? []) as ColaboradorBase[]))
 
     const { data: manual } = await supabase
       .from('fluxo_punitivo').select('*').eq('filial', usuario.filial)
@@ -662,10 +716,11 @@ export default function FluxoPunitivo() {
     carregar()
   }
 
-  async function handleDefinirAcao(grupo: FluxoPunitivo[], tipo: TipoAcao, dias: number | null, data: string, dataInfracao: string, obs: string, motivo: string) {
+  async function handleDefinirAcao(grupo: FluxoPunitivo[], tipo: TipoAcao, dias: number | null, data: string, dataInfracao: string, obs: string, motivo: string, nomeCorreto: string) {
     const [master, ...resto] = grupo
-    // O registro "master" carrega a ação única e o motivo combinado
+    const nomeDefinitivo = nomeCorreto.trim() || master.colaborador_nome
     await supabase.from('fluxo_punitivo').update({
+      colaborador_nome: nomeDefinitivo,
       tipo_acao: tipo,
       dias_suspensao: dias,
       data_acao: data || null,
@@ -678,16 +733,17 @@ export default function FluxoPunitivo() {
     // Demais solicitações do mesmo dia são absorvidas (não contam na sequência)
     for (const r of resto) {
       await supabase.from('fluxo_punitivo').update({
+        colaborador_nome: nomeDefinitivo,
         status: 'Concluido',
         tipo_acao: null,
-        observacao: `Incluído no fluxo único de ${master.colaborador_nome} em ${dataInfracao || diaKey(data)}`,
+        observacao: `Incluído no fluxo único de ${nomeDefinitivo} em ${dataInfracao || diaKey(data)}`,
       }).eq('id', r.id)
     }
 
     setModalDefinir(null)
     if (geraDocumento(tipo)) {
       imprimirDocumentoFluxo({
-        tipo, nome: master.colaborador_nome,
+        tipo, nome: nomeDefinitivo,
         motivo: motivo.trim() || obs.trim(),
         data, dataInfracao: dataInfracao || null, dias, filial: usuario!.filial,
         origem: master.origem ?? undefined,
@@ -1027,6 +1083,7 @@ export default function FluxoPunitivo() {
           grupo={modalDefinir}
           historico={historico.get(modalDefinir[0].colaborador_nome) ?? []}
           motivosPadrao={motivosPadrao}
+          colabList={colabList}
           onClose={() => setModalDefinir(null)}
           onSalvar={handleDefinirAcao}
         />
