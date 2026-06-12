@@ -1,10 +1,25 @@
+// v2 — fila de pedidos
 import { useState, useEffect, useRef } from 'react'
 import QRCode from 'qrcode'
 import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer, getCashbackConfig, getPixConfig, savePixConfig, getIngredients, id } from '../store/storage'
 import type { PixConfig } from '../store/storage'
 import type { Sale, SaleItem, Customer } from '../types'
-import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed, Maximize2, Minimize2 } from 'lucide-react'
+import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed, Maximize2, Minimize2, Clock, Play } from 'lucide-react'
 import { supabase, getBusinessId } from '../store/supabase'
+
+type QueuedOrder = {
+  qid: string
+  label: string
+  items: SaleItem[]
+  customer: Customer | null
+  payment: Sale['paymentMethod']
+  notes: string
+  orderType: 'balcao' | 'delivery'
+  deliveryFee: string
+  useCashback: boolean
+  total: number
+  time: string
+}
 
 // PIX BRCode (EMV Merchant Presented Mode) com CRC16-CCITT
 function crc16(str: string): string {
@@ -145,7 +160,7 @@ function cartItemKey(productId: string, removed?: Array<{ id: string; name: stri
 }
 
 export default function Vendas() {
-  const [view, setView] = useState<'pdv' | 'historico'>('pdv')
+  const [view, setView] = useState<'pdv' | 'historico' | 'fila'>('pdv')
   const [products] = useState(getProducts)
   const [ingredients] = useState(getIngredients)
   const [customers, setCustomers] = useState<Customer[]>(getCustomers)
@@ -196,6 +211,11 @@ export default function Vendas() {
   // Modal de personalização de ingredientes
   const [pendingProduct, setPendingProduct] = useState<(typeof products)[0] | null>(null)
   const [pendingRemovals, setPendingRemovals] = useState<Set<string>>(new Set())
+
+  // Fila de pedidos
+  const [queue, setQueue] = useState<QueuedOrder[]>([])
+  const [queueLabel, setQueueLabel] = useState('')
+  const [showQueueLabel, setShowQueueLabel] = useState(false)
 
   useEffect(() => { setSales(getSales()); setCustomers(getCustomers()) }, [view])
 
@@ -316,6 +336,52 @@ export default function Vendas() {
     setReceivedAmount('')
     setSuccess(true)
     setShowCheckout(false)
+    setTimeout(() => setSuccess(false), 2500)
+  }
+
+  function saveToQueue() {
+    if (cart.length === 0) return
+    const label = queueLabel.trim() || `Pedido ${queue.length + 1}`
+    const order: QueuedOrder = {
+      qid: id(), label, items: [...cart], customer: selectedCustomer,
+      payment, notes, orderType, deliveryFee, useCashback, total: saleTotal, time: nowTime(),
+    }
+    setQueue(prev => [...prev, order])
+    setCart([]); setNotes(''); setPayment('pix'); setOrderType('balcao')
+    setDeliveryFee(''); setSelectedCustomer(null); setUseCashback(false)
+    setReceivedAmount(''); setQueueLabel(''); setShowQueueLabel(false); setShowCheckout(false)
+  }
+
+  function resumeFromQueue(order: QueuedOrder) {
+    setCart(order.items); setSelectedCustomer(order.customer)
+    setPayment(order.payment); setNotes(order.notes)
+    setOrderType(order.orderType); setDeliveryFee(order.deliveryFee)
+    setUseCashback(order.useCashback)
+    setQueue(prev => prev.filter(o => o.qid !== order.qid))
+    setView('pdv')
+  }
+
+  function finalizeFromQueue(order: QueuedOrder) {
+    const subtotal = order.items.reduce((s, x) => s + x.total, 0)
+    const cbDiscount = order.useCashback && order.customer ? Math.min(order.customer.cashbackBalance, subtotal) : 0
+    const dFee = order.orderType === 'delivery' ? (parseFloat(order.deliveryFee) || 0) : 0
+    const total = Math.max(0, subtotal - cbDiscount) + dFee
+    const cbEarned = cashbackConfig.enabled && !order.useCashback ? subtotal * (cashbackConfig.percentage / 100) : 0
+    const sale: Sale = {
+      id: id(), date: today(), time: nowTime(), items: order.items,
+      total, paymentMethod: order.payment, notes: order.notes,
+      orderType: order.orderType, deliveryFee: dFee || undefined,
+      customerId: order.customer?.id, customerName: order.customer?.name,
+      cashbackUsed: cbDiscount || undefined, cashbackEarned: cbEarned || undefined,
+    }
+    saveSale(sale)
+    if (order.customer) {
+      saveCustomer({ ...order.customer, totalSpent: order.customer.totalSpent + total, cashbackBalance: Math.max(0, order.customer.cashbackBalance - cbDiscount) + cbEarned })
+      setCustomers(getCustomers())
+    }
+    setSales(getSales())
+    setQueue(prev => prev.filter(o => o.qid !== order.qid))
+    setSuccess(true)
     setTimeout(() => setSuccess(false), 2500)
   }
 
@@ -532,6 +598,39 @@ export default function Vendas() {
           className="w-full py-3 bg-yellow-500 hover:bg-[#d4a72c] disabled:opacity-50 text-white rounded-xl font-bold text-sm flex items-center justify-center gap-2">
           <Check size={16} /> Confirmar · {fmt(saleTotal)}
         </button>
+
+        {/* Guardar na fila */}
+        {!showQueueLabel ? (
+          <button type="button" onClick={() => setShowQueueLabel(true)}
+            className="w-full py-2.5 border-2 border-dashed border-gray-200 hover:border-[#F5C542] text-gray-400 hover:text-[#c49a20] rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-colors">
+            <Clock size={14} /> Guardar na fila
+          </button>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                type="text" value={queueLabel} onChange={e => setQueueLabel(e.target.value)}
+                placeholder="Ex: Mesa 3, João, Balcão 1..."
+                className="flex-1 border border-[#F5C542] rounded-xl px-3 py-2 text-sm focus:outline-none"
+                onKeyDown={e => { if (e.key === 'Enter') saveToQueue() }}
+              />
+              <button type="button" onClick={saveToQueue}
+                className="px-3 py-2 bg-[#F5C542] hover:bg-[#d4a72c] text-[#0F0F0F] rounded-xl font-bold text-sm">
+                <Clock size={15} />
+              </button>
+              <button type="button" onClick={() => { setShowQueueLabel(false); setQueueLabel('') }}
+                className="px-2 text-gray-400 hover:text-gray-600">
+                <X size={15} />
+              </button>
+            </div>
+            <button type="button" onClick={saveToQueue}
+              className="w-full text-xs text-[#c49a20] hover:underline">
+              Guardar sem nome ({`Pedido ${queue.length + 1}`})
+            </button>
+          </div>
+        )}
+
         <button type="button" onClick={() => { setCart([]); setUseCashback(false); setSelectedCustomer(null) }}
           className="w-full text-xs text-gray-400 hover:text-red-400">Limpar carrinho</button>
       </div>
@@ -540,7 +639,7 @@ export default function Vendas() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Abas */}
+      {/* Abas — PDV | Histórico | Fila */}
       <div className="flex border-b border-gray-200 bg-white px-4 pt-4 gap-1 shrink-0 items-end">
         <button onClick={() => setView('pdv')}
           className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'pdv' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -549,6 +648,13 @@ export default function Vendas() {
         <button onClick={() => setView('historico')}
           className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'historico' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:text-gray-700'}`}>
           <ClipboardList size={15} /> Histórico
+        </button>
+        <button onClick={() => setView('fila')}
+          className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'fila' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:text-gray-700'}`}>
+          <Clock size={15} /> Fila
+          {queue.length > 0 && (
+            <span className={`w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center ${view === 'fila' ? 'bg-[#0F0F0F] text-[#F5C542]' : 'bg-[#F5C542] text-[#0F0F0F]'}`}>{queue.length}</span>
+          )}
         </button>
         <button
           onClick={toggleFullscreen}
@@ -683,6 +789,69 @@ export default function Vendas() {
                 </div>
                 {CheckoutPanel({ mobile: true })}
               </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Fila de pedidos */}
+      {view === 'fila' && (
+        <div className="flex-1 overflow-y-auto p-4">
+          {queue.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-gray-400 py-16">
+              <Clock size={40} className="mb-3 opacity-30" />
+              <p className="text-sm font-medium">Nenhum pedido na fila</p>
+              <p className="text-xs mt-1 text-center max-w-xs">Use "Guardar na fila" no PDV para atender vários clientes ao mesmo tempo</p>
+            </div>
+          ) : (
+            <div className="space-y-3 max-w-xl mx-auto">
+              <p className="text-sm text-gray-500 font-medium">{queue.length} pedido{queue.length !== 1 ? 's' : ''} aguardando</p>
+              {queue.map((order, idx) => (
+                <div key={order.qid} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                    <div className="flex items-center gap-2">
+                      <span className="w-6 h-6 rounded-full bg-[#F5C542] text-[#0F0F0F] text-xs font-bold flex items-center justify-center shrink-0">{idx + 1}</span>
+                      <span className="font-semibold text-gray-800">{order.label}</span>
+                      {order.orderType === 'delivery' && (
+                        <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+                          <Bike size={9} /> Delivery
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 flex items-center gap-1"><Clock size={11} />{order.time}</span>
+                      <span className="font-bold text-[#F5C542]">{fmt(order.total)}</span>
+                    </div>
+                  </div>
+                  <div className="px-4 py-3">
+                    <p className="text-sm text-gray-600 leading-relaxed">
+                      {order.items.map(i => {
+                        const sem = i.removedIngredients?.length ? ` (sem ${i.removedIngredients.map(r => r.name).join(', ')})` : ''
+                        return `${i.quantity}× ${i.productName}${sem}`
+                      }).join(' · ')}
+                    </p>
+                    {order.customer && (
+                      <p className="text-xs text-[#F5C542] mt-1 flex items-center gap-1"><User size={11} />{order.customer.name}</p>
+                    )}
+                    {order.notes && (
+                      <p className="text-xs text-gray-400 mt-1">Obs: {order.notes}</p>
+                    )}
+                    <p className="text-xs text-gray-400 mt-1">{PAYMENT_LABEL[order.payment]}</p>
+                  </div>
+                  <div className="grid grid-cols-2 border-t border-gray-100">
+                    <button
+                      onClick={() => resumeFromQueue(order)}
+                      className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors border-r border-gray-100">
+                      <Play size={14} /> Retomar
+                    </button>
+                    <button
+                      onClick={() => finalizeFromQueue(order)}
+                      className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-green-600 hover:bg-green-50 transition-colors">
+                      <Check size={14} /> Finalizar
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>

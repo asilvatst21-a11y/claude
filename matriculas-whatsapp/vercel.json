@@ -1,6 +1,13 @@
 {
-  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- matriculas-whatsapp/",
+  "framework": "vite",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "git": {
+    "deploymentEnabled": {
+      "claude/start-new-project-znnaq": false
+    }
+  },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }

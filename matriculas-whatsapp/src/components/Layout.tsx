@@ -1,28 +1,68 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
-import { Users, CreditCard, Upload, MessageSquare, BarChart2, LogOut, Building2, Shield, ClipboardList, FileText, UserCheck, FileSpreadsheet, Package, Settings } from 'lucide-react'
+import {
+  Users, CreditCard, MessageSquare, BarChart2, LogOut, Building2,
+  Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
+  UserCheck, Upload, FileSpreadsheet, Package, Settings,
+} from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
-const navItems = [
-  { to: '/', label: 'Dashboard', icon: BarChart2 },
-  { to: '/matriculas', label: 'Matrículas', icon: CreditCard },
-  { to: '/clientes', label: 'Clientes', icon: Users },
-  { to: '/disparos', label: 'Disparar Mensagens', icon: Upload },
-  { to: '/historico', label: 'Histórico', icon: MessageSquare },
-  { to: '/gsdpq', label: 'Análise GSDPQ', icon: ClipboardList },
+const segItems = [
+  { to: '/',          label: 'Dashboard',          icon: BarChart2    },
+  { to: '/matriculas',label: 'Matrículas',          icon: CreditCard   },
+  { to: '/clientes',  label: 'Clientes',            icon: Users        },
+  { to: '/historico', label: 'Histórico',           icon: MessageSquare},
+  { to: '/gsdpq',     label: 'Análise GSDPQ',       icon: ClipboardList},
+  { to: '/dto',       label: 'Análise DTO',          icon: Activity     },
+  { to: '/dto-gerenciador', label: 'Gerenciador DTO', icon: CalendarClock },
+  { to: '/prontuario',label: 'Prontuário',           icon: FileText     },
+  { to: '/relatos',   label: 'Relatos',              icon: Flag         },
+  { to: '/telemetria',label: 'Telemetria',           icon: Gauge        },
+]
+
+const genteItems = [
+  { to: '/jornada', label: 'Controle de Jornada', icon: Clock },
 ]
 
 const valesItems = [
-  { to: '/vales', label: 'Vales', icon: FileText },
-  { to: '/vales/ajudantes', label: 'Ajudantes', icon: UserCheck },
-  { to: '/vales/importar', label: 'Importar Planilha', icon: Upload },
-  { to: '/vales/importacoes', label: 'Importações', icon: FileSpreadsheet },
-  { to: '/vales/reposicoes', label: 'Reposições', icon: Package },
-  { to: '/vales/configuracoes', label: 'Config. Vales', icon: Settings },
+  { to: '/vales',              label: 'Vales',             icon: FileText      },
+  { to: '/vales/ajudantes',    label: 'Ajudantes',         icon: UserCheck     },
+  { to: '/vales/importar',     label: 'Importar Planilha', icon: Upload        },
+  { to: '/vales/importacoes',  label: 'Importações',       icon: FileSpreadsheet },
+  { to: '/vales/reposicoes',   label: 'Reposições',        icon: Package       },
+  { to: '/vales/configuracoes',label: 'Config. Vales',     icon: Settings      },
 ]
 
 const adminItems = [
-  { to: '/admin', label: 'Administração', icon: Shield },
+  { to: '/fluxo',  label: 'Fluxo Punitivo',  icon: GitBranch },
+  { to: '/admin',  label: 'Administração',    icon: Shield    },
 ]
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="pt-4 pb-1 px-3 text-[10px] uppercase tracking-widest font-bold text-brand-300">
+      {children}
+    </div>
+  )
+}
+
+function NavItem({ to, label, icon: Icon, end }: { to: string; label: string; icon: React.ElementType; end?: boolean }) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) =>
+        `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+          isActive
+            ? 'bg-accent-500 text-white'
+            : 'text-brand-100 hover:bg-brand-600 hover:text-white'
+        }`
+      }
+    >
+      <Icon size={18} />
+      {label}
+    </NavLink>
+  )
+}
 
 export default function Layout() {
   const { usuario, sair } = useAuth()
@@ -35,65 +75,34 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen flex bg-gray-50">
-      <aside className="w-64 bg-brand-700 flex flex-col">
-        <div className="px-6 py-5 border-b border-brand-600">
-          <div className="bg-white rounded-lg p-2 mb-3">
-            <img src="/logo.png" alt="LOG20" className="h-10 w-full object-contain" />
-          </div>
-          <h1 className="text-white text-lg font-bold tracking-tight">PDV Crítico</h1>
-          <p className="text-brand-200 text-xs">Sistema de Disparos</p>
+      <aside className="w-64 bg-brand-700 flex flex-col h-screen sticky top-0 shrink-0">
+        <div className="px-6 py-5 border-b border-brand-600 bg-white">
+          <img src="/logo.png" alt="LOG20" className="h-12 w-full object-contain mb-3" />
+          <h1 className="text-brand-700 text-lg font-bold tracking-tight">Painel Analítico</h1>
+          <p className="text-brand-400 text-xs">LOG20 Logística</p>
         </div>
 
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          {navItems.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/'}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-accent-500 text-white' : 'text-brand-100 hover:bg-brand-600 hover:text-white'
-                }`
-              }
-            >
-              <Icon size={18} />
-              {label}
-            </NavLink>
+        <nav className="flex-1 p-3 overflow-y-auto space-y-0.5">
+          <SectionLabel>Segurança</SectionLabel>
+          {segItems.map(({ to, label, icon }) => (
+            <NavItem key={to} to={to} label={label} icon={icon} end={to === '/'} />
           ))}
 
-          <div className="pt-3 pb-1 px-3 text-xs uppercase tracking-wider text-brand-300">Vales LOG20</div>
-          {valesItems.map(({ to, label, icon: Icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === '/vales'}
-              className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  isActive ? 'bg-accent-500 text-white' : 'text-brand-100 hover:bg-brand-600 hover:text-white'
-                }`
-              }
-            >
-              <Icon size={18} />
-              {label}
-            </NavLink>
+          <SectionLabel>Gente</SectionLabel>
+          {genteItems.map(({ to, label, icon }) => (
+            <NavItem key={to} to={to} label={label} icon={icon} />
+          ))}
+
+          <SectionLabel>Vales LOG20</SectionLabel>
+          {valesItems.map(({ to, label, icon }) => (
+            <NavItem key={to} to={to} label={label} icon={icon} end={to === '/vales'} />
           ))}
 
           {usuario?.admin && (
             <>
-              <div className="pt-3 pb-1 px-3 text-xs uppercase tracking-wider text-brand-300">Admin</div>
-              {adminItems.map(({ to, label, icon: Icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={({ isActive }) =>
-                    `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                      isActive ? 'bg-accent-500 text-white' : 'text-brand-100 hover:bg-brand-600 hover:text-white'
-                    }`
-                  }
-                >
-                  <Icon size={18} />
-                  {label}
-                </NavLink>
+              <SectionLabel>Admin</SectionLabel>
+              {adminItems.map(({ to, label, icon }) => (
+                <NavItem key={to} to={to} label={label} icon={icon} />
               ))}
             </>
           )}

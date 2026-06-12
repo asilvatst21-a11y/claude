@@ -1,26 +1,40 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import type { Usuario, Filial } from '../types'
-import { Plus, Pencil, Trash2, Shield, KeyRound, Building2 } from 'lucide-react'
+import type { Usuario, Filial, DtoAvaliador } from '../types'
+import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2 } from 'lucide-react'
+import { listarGrupos, type GrupoZApi } from '../lib/zapi'
+
+const AVALIADORES_PADRAO = [
+  'ERIC DUNSHEE DE ABRANCHES MUSS',
+  'RAFAEL MERCALDO RAPOZO',
+  'EMERSON DE SOUZA VALENTIM',
+  'ANDERSON ASSIS SILVA',
+  'ROBERTA SOARES',
+  'ARTHUR FERREIRA',
+  'ISABELA KIMEL',
+]
 
 const SENHA_PADRAO = 'LOG20123'
 
-type AbaTipo = 'filiais' | 'usuarios'
+type AbaTipo = 'filiais' | 'usuarios' | 'avaliadores'
 
 export default function Admin() {
   const { usuario } = useAuth()
   const [aba, setAba] = useState<AbaTipo>('usuarios')
   const [filiais, setFiliais] = useState<Filial[]>([])
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
+  const [avaliadores, setAvaliadores] = useState<DtoAvaliador[]>([])
 
   async function carregar() {
-    const [{ data: f }, { data: u }] = await Promise.all([
+    const [{ data: f }, { data: u }, { data: av }] = await Promise.all([
       supabase.from('filiais').select('*').order('nome'),
       supabase.from('usuarios').select('*').order('filial').order('login'),
+      supabase.from('dto_avaliadores').select('*').order('filial').order('nome'),
     ])
     setFiliais(f ?? [])
     setUsuarios(u ?? [])
+    setAvaliadores(av ?? [])
   }
 
   useEffect(() => { carregar() }, [])
@@ -56,10 +70,19 @@ export default function Admin() {
         >
           Filiais
         </button>
+        <button
+          onClick={() => setAba('avaliadores')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            aba === 'avaliadores' ? 'border-accent-500 text-accent-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Avaliadores DTO
+        </button>
       </div>
 
-      {aba === 'usuarios' && <AbaUsuarios usuarios={usuarios} filiais={filiais} recarregar={carregar} usuarioAtual={usuario} />}
-      {aba === 'filiais'  && <AbaFiliais  filiais={filiais} recarregar={carregar} />}
+      {aba === 'usuarios'    && <AbaUsuarios    usuarios={usuarios} filiais={filiais} recarregar={carregar} usuarioAtual={usuario} />}
+      {aba === 'filiais'     && <AbaFiliais     filiais={filiais} recarregar={carregar} />}
+      {aba === 'avaliadores' && <AbaAvaliadores avaliadores={avaliadores} filiais={filiais} filialAtual={usuario.filial} recarregar={carregar} />}
     </div>
   )
 }
@@ -258,22 +281,36 @@ function AbaFiliais({ filiais, recarregar }: { filiais: Filial[]; recarregar: ()
   const [modal, setModal] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [nome, setNome] = useState('')
+  const [grupoWhatsapp, setGrupoWhatsapp] = useState('')
   const [loading, setLoading] = useState(false)
+  const [grupos, setGrupos] = useState<GrupoZApi[]>([])
+  const [buscandoGrupos, setBuscandoGrupos] = useState(false)
+  const [filtroGrupo, setFiltroGrupo] = useState('')
 
   function abrirNovo() {
-    setNome(''); setEditId(null); setModal(true)
+    setNome(''); setGrupoWhatsapp(''); setGrupos([]); setFiltroGrupo(''); setEditId(null); setModal(true)
   }
 
   function abrirEditar(f: Filial) {
-    setNome(f.nome); setEditId(f.id); setModal(true)
+    setNome(f.nome); setGrupoWhatsapp(f.grupo_fluxo_whatsapp ?? ''); setGrupos([]); setFiltroGrupo(''); setEditId(f.id); setModal(true)
+  }
+
+  async function buscarGrupos() {
+    setBuscandoGrupos(true)
+    const { grupos: gs, erro } = await listarGrupos()
+    setBuscandoGrupos(false)
+    if (erro) { alert(`Não foi possível buscar os grupos no Z-API:\n${erro}`); return }
+    if (gs.length === 0) { alert('Nenhum grupo encontrado nesta instância Z-API.'); return }
+    setGrupos(gs.sort((a, b) => a.name.localeCompare(b.name)))
   }
 
   async function salvar() {
     setLoading(true)
+    const payload = { nome, grupo_fluxo_whatsapp: grupoWhatsapp.trim() || null }
     if (editId) {
-      await supabase.from('filiais').update({ nome }).eq('id', editId)
+      await supabase.from('filiais').update(payload).eq('id', editId)
     } else {
-      await supabase.from('filiais').insert({ nome })
+      await supabase.from('filiais').insert(payload)
     }
     setLoading(false)
     setModal(false)
@@ -325,20 +362,238 @@ function AbaFiliais({ filiais, recarregar }: { filiais: Filial[]; recarregar: ()
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
             <h3 className="text-lg font-bold text-gray-900 mb-4">{editId ? 'Editar Filial' : 'Nova Filial'}</h3>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Filial *</label>
-              <input
-                value={nome}
-                onChange={e => setNome(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                placeholder="Ex: CDD CAMPOS"
-              />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Nome da Filial *</label>
+                <input
+                  value={nome}
+                  onChange={e => setNome(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="Ex: CDD CAMPOS"
+                />
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-sm font-medium text-gray-700">Grupo WhatsApp — Fluxo Punitivo</label>
+                  <button
+                    type="button"
+                    onClick={buscarGrupos}
+                    disabled={buscandoGrupos}
+                    className="flex items-center gap-1 text-xs text-brand-700 hover:text-brand-900 border border-brand-200 px-2 py-1 rounded-lg hover:bg-brand-50 disabled:opacity-50"
+                  >
+                    {buscandoGrupos ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+                    {buscandoGrupos ? 'Buscando…' : 'Buscar grupos (Z-API)'}
+                  </button>
+                </div>
+
+                {grupos.length > 0 && (
+                  <div className="mb-2 border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="px-2 py-1.5 border-b border-gray-100 bg-gray-50">
+                      <input
+                        value={filtroGrupo}
+                        onChange={e => setFiltroGrupo(e.target.value)}
+                        placeholder="Filtrar grupos…"
+                        className="w-full text-xs px-2 py-1 border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-brand-400"
+                      />
+                    </div>
+                    <div className="max-h-40 overflow-y-auto">
+                      {grupos
+                        .filter(g => !filtroGrupo || g.name.toLowerCase().includes(filtroGrupo.toLowerCase()))
+                        .map(g => (
+                          <button
+                            key={g.phone}
+                            type="button"
+                            onClick={() => setGrupoWhatsapp(g.phone)}
+                            className={`w-full text-left px-3 py-2 text-xs border-b border-gray-50 hover:bg-brand-50 ${grupoWhatsapp === g.phone ? 'bg-brand-50 text-brand-700 font-medium' : 'text-gray-700'}`}
+                          >
+                            <span className="block truncate">{g.name}</span>
+                            <span className="block text-[10px] text-gray-400 font-mono truncate">{g.phone}</span>
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                <input
+                  value={grupoWhatsapp}
+                  onChange={e => setGrupoWhatsapp(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  placeholder="Ex: 120363019502650977-group"
+                />
+                <p className="text-xs text-gray-400 mt-1">Clique em "Buscar grupos" para listar os grupos da sua instância Z-API e selecionar — ou cole o ID do grupo manualmente.</p>
+              </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
               <button
                 onClick={salvar}
                 disabled={loading || !nome}
+                className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-lg font-medium"
+              >
+                {loading ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+function AbaAvaliadores({
+  avaliadores, filiais, filialAtual, recarregar,
+}: {
+  avaliadores: DtoAvaliador[]
+  filiais: Filial[]
+  filialAtual: string
+  recarregar: () => void
+}) {
+  const [filialFiltro, setFilialFiltro] = useState(filialAtual)
+  const [modal, setModal] = useState(false)
+  const [editId, setEditId] = useState<string | null>(null)
+  const [nome, setNome] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [semeando, setSemeando] = useState(false)
+
+  const lista = avaliadores.filter(a => a.filial === filialFiltro).sort((a, b) => a.nome.localeCompare(b.nome))
+  const nomesCadastrados = new Set(lista.map(a => a.nome.toUpperCase()))
+  const faltamPadrao = AVALIADORES_PADRAO.filter(n => !nomesCadastrados.has(n.toUpperCase()))
+
+  function abrirNovo() { setNome(''); setEditId(null); setModal(true) }
+  function abrirEditar(av: DtoAvaliador) { setNome(av.nome); setEditId(av.id); setModal(true) }
+
+  async function salvar() {
+    if (!nome.trim()) return
+    setLoading(true)
+    if (editId) {
+      await supabase.from('dto_avaliadores').update({ nome: nome.trim() }).eq('id', editId)
+    } else {
+      await supabase.from('dto_avaliadores').insert({ filial: filialFiltro, nome: nome.trim() })
+    }
+    setLoading(false); setModal(false); recarregar()
+  }
+
+  async function toggleAtivo(av: DtoAvaliador) {
+    await supabase.from('dto_avaliadores').update({ ativo: !av.ativo }).eq('id', av.id)
+    recarregar()
+  }
+
+  async function excluir(av: DtoAvaliador) {
+    if (!confirm(`Excluir o avaliador "${av.nome}"?`)) return
+    await supabase.from('dto_avaliadores').delete().eq('id', av.id)
+    recarregar()
+  }
+
+  async function semearPadrao() {
+    if (faltamPadrao.length === 0) return
+    setSemeando(true)
+    await supabase.from('dto_avaliadores').upsert(
+      faltamPadrao.map(n => ({ filial: filialFiltro, nome: n })),
+      { onConflict: 'filial,nome', ignoreDuplicates: true }
+    )
+    setSemeando(false); recarregar()
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-500 font-medium">Filial:</label>
+          <select
+            value={filialFiltro}
+            onChange={e => setFilialFiltro(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            {filiais.map(f => <option key={f.id} value={f.nome}>{f.nome}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          {faltamPadrao.length > 0 && (
+            <button
+              onClick={semearPadrao}
+              disabled={semeando}
+              className="flex items-center gap-1.5 text-sm text-brand-700 border border-brand-200 px-3 py-1.5 rounded-lg hover:bg-brand-50 disabled:opacity-60"
+            >
+              <UserCheck size={15} />
+              {semeando ? 'Importando...' : `Importar padrão (${faltamPadrao.length})`}
+            </button>
+          )}
+          <button
+            onClick={abrirNovo}
+            className="flex items-center gap-2 bg-accent-500 hover:bg-accent-600 text-white px-4 py-2 rounded-lg text-sm font-medium"
+          >
+            <Plus size={16} /> Novo Avaliador
+          </button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-gray-50 border-b border-gray-200">
+            <tr>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Nome</th>
+              <th className="text-center px-4 py-3 font-medium text-gray-600">Status</th>
+              <th className="text-right px-4 py-3 font-medium text-gray-600">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {lista.length === 0 && (
+              <tr><td colSpan={3} className="text-center py-10 text-gray-400">
+                Nenhum avaliador cadastrado para esta filial.{' '}
+                <button onClick={semearPadrao} className="text-brand-600 hover:underline">Importar padrão</button>
+              </td></tr>
+            )}
+            {lista.map(av => (
+              <tr key={av.id} className={`border-b border-gray-100 hover:bg-gray-50 ${!av.ativo ? 'opacity-50' : ''}`}>
+                <td className="px-4 py-3 font-medium text-gray-800">{av.nome}</td>
+                <td className="px-4 py-3 text-center">
+                  <button
+                    onClick={() => toggleAtivo(av)}
+                    className={`text-xs px-2.5 py-0.5 rounded-full font-medium border ${
+                      av.ativo
+                        ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                        : 'bg-gray-100 text-gray-500 border-gray-200 hover:bg-gray-200'
+                    }`}
+                  >
+                    {av.ativo ? 'Ativo' : 'Inativo'}
+                  </button>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex justify-end gap-1">
+                    <button onClick={() => abrirEditar(av)} title="Editar" className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded">
+                      <Pencil size={15} />
+                    </button>
+                    <button onClick={() => excluir(av)} title="Excluir" className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {modal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-4">{editId ? 'Editar Avaliador' : 'Novo Avaliador'}</h3>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Nome completo *</label>
+              <input
+                value={nome}
+                onChange={e => setNome(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && salvar()}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                placeholder="Ex: NOME SOBRENOME"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+              <button
+                onClick={salvar}
+                disabled={loading || !nome.trim()}
                 className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-lg font-medium"
               >
                 {loading ? 'Salvando...' : 'Salvar'}

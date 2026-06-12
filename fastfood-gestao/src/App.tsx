@@ -18,7 +18,6 @@ import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
 import ExpiredScreen from './components/ExpiredScreen'
 import FeatureGate from './components/FeatureGate'
-import SyncSetup from './components/SyncSetup'
 import { pullFromCloud, hasNewData } from './store/sync'
 import { supabase, setBusinessId } from './store/supabase'
 import { ProfileContext, isPlanActive } from './store/ProfileContext'
@@ -140,7 +139,6 @@ export default function App() {
               <Planos />
             ) : (
               <ProfileContext.Provider value={profile}>
-                <SyncSetup session={session} />
                 <Routes>
                   <Route path="/" element={<Layout />}>
                     <Route index element={<Dashboard />} />
