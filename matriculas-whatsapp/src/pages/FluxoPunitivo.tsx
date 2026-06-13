@@ -92,6 +92,35 @@ function diaKey(s: string | null): string {
   return s
 }
 
+// ─── Fuzzy name matching ──────────────────────────────────────────────────────
+
+function normalizar(s: string): string {
+  return s.toLowerCase()
+    .normalize('NFD').replace(/\p{Mn}/gu, '')
+    .replace(/[^a-z0-9 ]/g, '')
+    .replace(/\s+/g, ' ').trim()
+}
+
+function similaridadeNome(a: string, b: string): number {
+  const tA = new Set(normalizar(a).split(' ').filter(Boolean))
+  const tB = new Set(normalizar(b).split(' ').filter(Boolean))
+  if (tA.size === 0 || tB.size === 0) return 0
+  const inter = [...tA].filter(t => tB.has(t)).length
+  const union = new Set([...tA, ...tB]).size
+  return inter / union
+}
+
+function sugerirColaborador(nome: string, lista: ColaboradorBase[]): string | null {
+  if (!nome || lista.length === 0) return null
+  let melhor = ''
+  let melhorScore = 0
+  for (const c of lista) {
+    const s = similaridadeNome(nome, c.nome)
+    if (s > melhorScore) { melhorScore = s; melhor = c.nome }
+  }
+  return melhorScore >= 0.5 ? melhor : null
+}
+
 /** Extrai os itens de infração de um motivo (ignora cabeçalho "N ocorrência(s)…" e numeração) */
 function extrairItens(motivo: string): string[] {
   return (motivo || '').split('\n').map(l => l.trim()).filter(Boolean)
@@ -162,7 +191,8 @@ function ModalDefinirAcao({ grupo, historico, motivosPadrao, colabList, onClose,
   const [dataInfracao, setDataInfracao] = useState(solicitacao.data_infracao?.slice(0, 10) ?? diaKey(solicitacao.data_acao) ?? '')
   const [obs,         setObs]         = useState('')
   const [motivo,      setMotivo]      = useState(motivoInicial)
-  const [nomeCorreto, setNomeCorreto] = useState(solicitacao.colaborador_nome)
+  const sugestaoAuto = useMemo(() => sugerirColaborador(solicitacao.colaborador_nome, colabList), [solicitacao.colaborador_nome, colabList])
+  const [nomeCorreto, setNomeCorreto] = useState(sugestaoAuto ?? solicitacao.colaborador_nome)
   const [saving,      setSaving]      = useState(false)
 
   // Colaboradores agrupados por função para o select
@@ -220,12 +250,15 @@ function ModalDefinirAcao({ grupo, historico, motivosPadrao, colabList, onClose,
             )}
           </div>
 
-          {/* Colaborador — permite corrigir nome digitado no grupo */}
+          {/* Colaborador — sugestão automática por similaridade + ajuste manual */}
           {colabList.length > 0 && (
             <div>
               <label className="text-xs font-medium text-gray-600 block mb-1">
                 Colaborador
-                {nomeCorreto !== solicitacao.colaborador_nome && (
+                {sugestaoAuto && sugestaoAuto !== solicitacao.colaborador_nome && nomeCorreto === sugestaoAuto && (
+                  <span className="ml-2 text-blue-500 font-normal">✦ sugerido automaticamente</span>
+                )}
+                {nomeCorreto !== solicitacao.colaborador_nome && nomeCorreto !== sugestaoAuto && (
                   <span className="ml-2 text-orange-500 font-normal">nome corrigido</span>
                 )}
               </label>
@@ -237,7 +270,7 @@ function ModalDefinirAcao({ grupo, historico, motivosPadrao, colabList, onClose,
                 {/* Mantém o nome original caso não esteja na lista */}
                 {!colabList.some(c => c.nome === solicitacao.colaborador_nome) && (
                   <option value={solicitacao.colaborador_nome}>
-                    {solicitacao.colaborador_nome} (recebido do grupo)
+                    {solicitacao.colaborador_nome} (recebido)
                   </option>
                 )}
                 {colabPorFuncao.map(([funcao, nomes]) => (
@@ -935,12 +968,21 @@ export default function FluxoPunitivo() {
                 const proxima = calcProxima(hist)
                 const origens = [...new Set(grupo.map(g => g.origem))]
                 const motivoExibido = grupo.length > 1 ? combinarMotivos(grupo) : (sol.motivo ?? '')
+                const sugestao = sugerirColaborador(sol.colaborador_nome, colabList)
+                const nomeSugerido = sugestao && sugestao !== sol.colaborador_nome ? sugestao : null
                 return (
                   <div key={sol.id} className="bg-white rounded-xl border border-orange-100 shadow-sm p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                          <span className="text-sm font-semibold text-gray-900">{sol.colaborador_nome}</span>
+                          <span className="text-sm font-semibold text-gray-900">
+                            {nomeSugerido ? nomeSugerido : sol.colaborador_nome}
+                          </span>
+                          {nomeSugerido && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 border border-blue-100 font-medium">
+                              ✦ sugerido · recebido: {sol.colaborador_nome}
+                            </span>
+                          )}
                           {origens.map(o => (
                             <span key={o} className={`text-xs px-2 py-0.5 rounded border font-medium ${ORIGEM_COLOR[o] ?? 'bg-gray-100 text-gray-600 border-gray-200'}`}>
                               {o}
