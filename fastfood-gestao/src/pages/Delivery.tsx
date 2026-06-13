@@ -90,15 +90,16 @@ export default function Delivery() {
   }
 
   function addZone() {
-    const fee = parseFloat(newZone.fee.replace(',', '.'))
-    if (!newZone.neighborhood.trim() || isNaN(fee)) return
+    if (!newZone.neighborhood.trim()) return
+    const fee = newZone.fee.trim() === '' ? 0 : parseFloat(newZone.fee.replace(',', '.'))
+    if (isNaN(fee)) return
     const zone: DeliveryZone = { id: id(), neighborhood: newZone.neighborhood.trim(), fee }
-    update({ zones: [...cfg.zones, zone] })
+    update({ zones: [...(cfg.zones ?? []), zone] })
     setNewZone({ neighborhood: '', fee: '' })
   }
 
   function removeZone(zid: string) {
-    update({ zones: cfg.zones.filter(z => z.id !== zid) })
+    update({ zones: (cfg.zones ?? []).filter(z => z.id !== zid) })
   }
 
   async function copyLink() {
@@ -215,11 +216,11 @@ export default function Delivery() {
       {/* Bairros / taxas */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
         <h2 className="font-semibold text-gray-700 flex items-center gap-2"><MapPin size={16} className="text-[#F5C542]" /> Bairros e taxas de entrega</h2>
-        {cfg.zones.length === 0 ? (
+        {(cfg.zones ?? []).length === 0 ? (
           <p className="text-xs text-gray-400">Nenhum bairro cadastrado. Adicione os bairros que você atende e a taxa de cada um.</p>
         ) : (
           <div className="space-y-2">
-            {cfg.zones.map(z => (
+            {(cfg.zones ?? []).map(z => (
               <div key={z.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
                 <MapPin size={14} className="text-gray-400 shrink-0" />
                 <span className="flex-1 text-sm text-gray-700">{z.neighborhood}</span>
