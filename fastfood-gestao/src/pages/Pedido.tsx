@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { fetchPublicMenu, fetchBusinessIdBySlug, submitOnlineOrder, DEFAULT_DELIVERY_CONFIG } from '../store/delivery'
@@ -9,7 +9,9 @@ import {
   ChevronRight, QrCode as QrIcon, Copy, Bike, Clock, ArrowLeft, Phone, Star,
 } from 'lucide-react'
 
-// ── Category config ───────────────────────────────────────────────────────────
+// ── Category config (ordem fixa) ──────────────────────────────────────────────
+const CATEGORY_ORDER = ['macarrao', 'hamburguer', 'cachorro_quente', 'bebida', 'outro'] as const
+
 const CAT: Record<string, { label: string; emoji: string; color: string; img: string }> = {
   macarrao:        { label: 'Macarrão',        emoji: '🍝', color: '#F97316', img: 'https://images.unsplash.com/photo-1555949258-eb67b1ef0ceb?w=600&q=75&auto=format&fit=crop' },
   hamburguer:      { label: 'Hambúrguer',      emoji: '🍔', color: '#EF4444', img: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&q=75&auto=format&fit=crop' },
@@ -18,8 +20,16 @@ const CAT: Record<string, { label: string; emoji: string; color: string; img: st
   outro:           { label: 'Outros',          emoji: '🍽️', color: '#8B5CF6', img: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=75&auto=format&fit=crop' },
 }
 
+// Imagens específicas por nome de produto
+const WATER_IMG = 'https://images.unsplash.com/photo-1553361371-9b22f78e8b1d?w=600&q=75&auto=format&fit=crop'
+const JUICE_IMG = 'https://images.unsplash.com/photo-1600271886742-f049cd451bba?w=600&q=75&auto=format&fit=crop'
+
 function getImg(p: Product) {
-  return p.imageUrl || CAT[p.category]?.img || ''
+  if (p.imageUrl) return p.imageUrl
+  const n = p.name.toLowerCase()
+  if (n.includes('água') || n.includes('agua')) return WATER_IMG
+  if (n.includes('suco')) return JUICE_IMG
+  return CAT[p.category]?.img || ''
 }
 
 // ── Customer profile ──────────────────────────────────────────────────────────
@@ -55,13 +65,19 @@ export default function Pedido() {
   const [products, setProducts] = useState<Product[]>([])
   const [resolvedBid, setResolvedBid] = useState('')
 
-  // Cart
+  // Cart & UI
   const [cart, setCart] = useState<SaleItem[]>([])
-  const [activeCat, setActiveCat] = useState('all')
+  const [activeCat, setActiveCat] = useState('macarrao')
   const [showCart, setShowCart] = useState(false)
   const [showCheckout, setShowCheckout] = useState(false)
   const [checkStep, setCheckStep] = useState<CheckStep>('id')
   const [addedAnim, setAddedAnim] = useState<Set<string>>(new Set())
+  const [drinkPromptDismissed, setDrinkPromptDismissed] = useState(false)
+
+  // Refs for scroll
+  const sectionRefs = useRef<Record<string, HTMLElement | null>>({})
+  const catBarRef = useRef<HTMLDivElement>(null)
+  const scrollingProgrammatically = useRef(false)
 
   // Customer fields
   const [phoneInput, setPhoneInput] = useState('')
@@ -95,6 +111,34 @@ export default function Pedido() {
     load()
   }, [bid])
 
+  // IntersectionObserver — atualiza aba ativa conforme scroll
+  useEffect(() => {
+    if (stage !== 'menu' || products.length === 0) return
+    const observer = new IntersectionObserver(entries => {
+      if (scrollingProgrammatically.current) return
+      // Pega a seção mais alta que está visível
+      const visible = entries
+        .filter(e => e.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+      if (visible.length > 0) {
+        const cat = visible[0].target.getAttribute('data-cat')
+        if (cat) setActiveCat(cat)
+      }
+    }, { rootMargin: '-120px 0px -55% 0px', threshold: 0 })
+
+    const refs = sectionRefs.current
+    Object.values(refs).forEach(el => { if (el) observer.observe(el) })
+    return () => observer.disconnect()
+  }, [stage, products])
+
+  // Scroll aba ativa para centro no catBar
+  useEffect(() => {
+    const bar = catBarRef.current
+    if (!bar) return
+    const btn = bar.querySelector(`[data-catbtn="${activeCat}"]`) as HTMLElement | null
+    if (btn) btn.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  }, [activeCat])
+
   // Phone auto-lookup
   useEffect(() => {
     const clean = phoneInput.replace(/\D/g, '')
@@ -106,16 +150,40 @@ export default function Pedido() {
   }, [phoneInput])
 
   // Computed
-  const categories = useMemo(() => ['all', ...Array.from(new Set(products.map(p => p.category)))], [products])
-  const visibleRaw = activeCat === 'all' ? products : products.filter(p => p.category === activeCat)
-  const visible = [...visibleRaw].sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0))
+  const grouped = useMemo(() => {
+    const g: Record<string, Product[]> = {}
+    for (const p of products) { (g[p.category] ??= []).push(p) }
+    // Destaques primeiro em cada grupo
+    for (const cat in g) g[cat].sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0))
+    return g
+  }, [products])
+
+  const orderedCats = CATEGORY_ORDER.filter(c => grouped[c]?.length > 0)
   const featured = products.filter(p => p.featured)
+
   const subtotal = cart.reduce((s, x) => s + x.total, 0)
   const zone = config.zones?.find(z => z.neighborhood === neighborhood)
   const deliveryFee = zone?.fee ?? 0
   const total = subtotal + deliveryFee
   const cartCount = cart.reduce((s, x) => s + x.quantity, 0)
   const belowMin = config.minOrder > 0 && subtotal < config.minOrder
+
+  // Prompt de bebida
+  const hasDrinkInCart = cart.some(x => products.find(p => p.id === x.productId)?.category === 'bebida')
+  const hasFoodInCart = cart.some(x => products.find(p => p.id === x.productId)?.category !== 'bebida')
+  const showDrinkPrompt = hasFoodInCart && !hasDrinkInCart && cartCount > 0 && !showCart && !showCheckout && !drinkPromptDismissed
+
+  function scrollToCategory(cat: string) {
+    scrollingProgrammatically.current = true
+    setActiveCat(cat)
+    const el = sectionRefs.current[cat]
+    if (el) {
+      const offset = 120 // altura do header fixo
+      const top = el.getBoundingClientRect().top + window.scrollY - offset
+      window.scrollTo({ top, behavior: 'smooth' })
+    }
+    setTimeout(() => { scrollingProgrammatically.current = false }, 800)
+  }
 
   function addToCart(p: Product) {
     setCart(prev => {
@@ -181,7 +249,7 @@ export default function Pedido() {
     setConfirmed(order); setStage('success')
   }
 
-  // ── Splash / Loading ──────────────────────────────────────────────────────────
+  // ── Splash ────────────────────────────────────────────────────────────────────
   if (stage === 'loading') {
     return (
       <div className="min-h-screen bg-[#0F0F0F] flex flex-col items-center justify-center gap-6">
@@ -226,10 +294,9 @@ export default function Pedido() {
             </div>
             <div>
               <h1 className="text-2xl font-black">Pedido enviado! 🎉</h1>
-              <p className="text-gray-400 text-sm mt-1 leading-relaxed">{config.storeName} recebeu e já está preparando.</p>
+              <p className="text-gray-400 text-sm mt-1">{config.storeName} recebeu e já está preparando.</p>
             </div>
           </div>
-
           {payment === 'pix' && pixQr && (
             <div className="bg-[#1a1a1a] border border-[#F5C542]/20 rounded-2xl p-5 text-center space-y-3">
               <p className="font-bold text-[#F5C542] flex items-center justify-center gap-2 text-sm"><QrIcon size={15} /> Pague com PIX</p>
@@ -241,9 +308,8 @@ export default function Pedido() {
               </button>
             </div>
           )}
-
           <div className="bg-[#1a1a1a] rounded-2xl p-4 space-y-2">
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Resumo do pedido</p>
+            <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Resumo</p>
             {confirmed.items.map(i => (
               <div key={i.productId} className="flex justify-between text-sm">
                 <span className="text-gray-300">{i.quantity}× {i.productName}</span>
@@ -256,7 +322,6 @@ export default function Pedido() {
               <div className="flex justify-between font-black text-base pt-1"><span>Total</span><span className="text-[#F5C542]">{fmt(confirmed.total)}</span></div>
             </div>
           </div>
-
           {waLink && (
             <a href={waLink} target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-2.5 w-full bg-[#25D366] text-white py-4 rounded-2xl font-bold">
@@ -275,38 +340,38 @@ export default function Pedido() {
 
   // ── Menu ──────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#F5F5F5] pb-28">
+    <div className="min-h-screen bg-[#F5F5F5] pb-36">
 
-      {/* ── Header ── */}
+      {/* Header */}
       <header className="bg-[#0F0F0F] text-white px-5 pt-8 pb-7 relative overflow-hidden">
         <div className="absolute inset-0 pointer-events-none"
           style={{ background: 'radial-gradient(ellipse at 85% 50%, rgba(245,197,66,0.14) 0%, transparent 60%)' }} />
-        <div className="max-w-md mx-auto relative">
-          <div className="flex items-center gap-4">
-            <img src="/logo.jpeg" alt="Logo" className="w-14 h-14 rounded-2xl object-cover shrink-0"
-              style={{ boxShadow: '0 0 28px rgba(245,197,66,0.4)' }}
-              onError={e => { e.currentTarget.style.display = 'none' }} />
-            <div className="flex-1 min-w-0">
-              <h1 className="text-2xl font-black tracking-tight leading-tight truncate">{config.storeName || 'Cardápio'}</h1>
-              <div className="flex items-center gap-2 mt-1.5">
-                <span className="flex items-center gap-1.5 text-xs">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-                  <span className="text-green-400 font-medium">Aberto agora</span>
-                </span>
-                <span className="text-gray-600 text-xs">·</span>
-                <span className="flex items-center gap-1 text-xs text-gray-400"><Bike size={11} /> Delivery</span>
-              </div>
+        <div className="max-w-md mx-auto relative flex items-center gap-4">
+          <img src="/logo.jpeg" alt="Logo" className="w-14 h-14 rounded-2xl object-cover shrink-0"
+            style={{ boxShadow: '0 0 28px rgba(245,197,66,0.4)' }}
+            onError={e => { e.currentTarget.style.display = 'none' }} />
+          <div className="flex-1 min-w-0">
+            <h1 className="text-2xl font-black tracking-tight leading-tight truncate">{config.storeName || 'Cardápio'}</h1>
+            <div className="flex items-center gap-2 mt-1.5">
+              <span className="flex items-center gap-1.5 text-xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+                <span className="text-green-400 font-medium">Aberto agora</span>
+              </span>
+              <span className="text-gray-600 text-xs">·</span>
+              <span className="flex items-center gap-1 text-xs text-gray-400"><Bike size={11} /> Delivery</span>
             </div>
           </div>
-          {config.notice && (
-            <div className="mt-4 flex items-center gap-2 bg-[#F5C542]/10 border border-[#F5C542]/20 rounded-xl px-4 py-2.5 text-xs text-[#F5C542]">
+        </div>
+        {config.notice && (
+          <div className="max-w-md mx-auto relative mt-4">
+            <div className="flex items-center gap-2 bg-[#F5C542]/10 border border-[#F5C542]/20 rounded-xl px-4 py-2.5 text-xs text-[#F5C542]">
               <Clock size={13} className="shrink-0" /> {config.notice}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </header>
 
-      {/* ── Featured carousel ── */}
+      {/* Featured carousel */}
       {featured.length > 0 && (
         <div className="bg-white pt-4 pb-2 border-b border-gray-100">
           <div className="max-w-md mx-auto">
@@ -318,17 +383,11 @@ export default function Pedido() {
                 const q = qtyOf(p.id)
                 return (
                   <div key={p.id} className="shrink-0 w-40 rounded-2xl overflow-hidden border border-gray-100 shadow-sm bg-white">
-                    <div className="relative h-24 overflow-hidden">
+                    <div className="relative h-24 overflow-hidden bg-gray-100">
                       <img src={getImg(p)} alt={p.name} className="w-full h-full object-cover" loading="lazy"
-                        onError={e => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex' }} />
-                      <div className="hidden w-full h-full items-center justify-center text-3xl"
-                        style={{ background: `${CAT[p.category]?.color || '#888'}22` }}>
-                        {CAT[p.category]?.emoji}
-                      </div>
+                        onError={e => { e.currentTarget.style.display = 'none' }} />
                       <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 55%)' }} />
-                      <span className="absolute top-2 left-2 text-[10px] font-black bg-[#F5C542] text-[#0F0F0F] px-1.5 py-0.5 rounded-full leading-none">
-                        DESTAQUE
-                      </span>
+                      <span className="absolute top-2 left-2 text-[10px] font-black bg-[#F5C542] text-[#0F0F0F] px-1.5 py-0.5 rounded-full">DESTAQUE</span>
                     </div>
                     <div className="p-2.5">
                       <p className="text-xs font-bold text-gray-900 leading-tight line-clamp-1">{p.name}</p>
@@ -356,15 +415,11 @@ export default function Pedido() {
         </div>
       )}
 
-      {/* ── Category bar ── */}
+      {/* Category bar — sticky */}
       <div className="sticky top-0 z-20 bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-md mx-auto flex gap-2 px-4 py-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
-          <button onClick={() => setActiveCat('all')}
-            className={`whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${activeCat === 'all' ? 'bg-[#0F0F0F] text-[#F5C542]' : 'bg-gray-100 text-gray-500'}`}>
-            Todos
-          </button>
-          {categories.filter(c => c !== 'all').map(cat => (
-            <button key={cat} onClick={() => setActiveCat(cat)}
+        <div ref={catBarRef} className="max-w-md mx-auto flex gap-2 px-4 py-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+          {orderedCats.map(cat => (
+            <button key={cat} data-catbtn={cat} onClick={() => scrollToCategory(cat)}
               className={`whitespace-nowrap flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${activeCat === cat ? 'bg-[#0F0F0F] text-[#F5C542]' : 'bg-gray-100 text-gray-500'}`}>
               <span>{CAT[cat]?.emoji}</span> {CAT[cat]?.label || cat}
             </button>
@@ -372,62 +427,75 @@ export default function Pedido() {
         </div>
       </div>
 
-      {/* ── Product list ── */}
-      <div className="max-w-md mx-auto p-4 space-y-3">
-        {visible.length === 0 ? (
-          <div className="text-center py-16"><p className="text-4xl mb-2">🍽️</p><p className="text-gray-400 text-sm">Nenhum item disponível.</p></div>
-        ) : visible.map(p => {
-          const q = qtyOf(p.id)
-          const cat = CAT[p.category]
-          const img = getImg(p)
-          return (
-            <div key={p.id} className={`bg-white rounded-2xl overflow-hidden shadow-sm ${p.featured ? 'ring-2 ring-[#F5C542]' : 'border border-gray-100'}`}>
-              {/* Image strip */}
-              <div className="relative h-36 overflow-hidden">
-                <img src={img} alt={p.name} className="w-full h-full object-cover" loading="lazy"
-                  onError={e => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex' }} />
-                <div className="hidden w-full h-full items-center justify-center text-5xl"
-                  style={{ background: `${cat?.color || '#888'}18` }}>
-                  {cat?.emoji}
-                </div>
-                <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 50%)' }} />
-                {p.featured && (
-                  <span className="absolute top-2.5 left-2.5 text-[10px] font-black bg-[#F5C542] text-[#0F0F0F] px-2 py-0.5 rounded-full">
-                    ⭐ DESTAQUE
-                  </span>
-                )}
-                <div className="absolute bottom-2.5 left-3 right-3 flex items-end justify-between">
-                  <div>
-                    <p className="text-white font-black text-base leading-tight drop-shadow">{p.name}</p>
-                    {p.description && <p className="text-white/70 text-xs mt-0.5 line-clamp-1">{p.description}</p>}
-                  </div>
-                </div>
-              </div>
-              {/* Bottom row */}
-              <div className="px-3 py-2.5 flex items-center justify-between">
-                <div>
-                  <span className="text-xs text-gray-400">{cat?.label}</span>
-                  <p className="text-lg font-black text-gray-900 leading-tight">{fmt(p.salePrice)}</p>
-                </div>
-                {q === 0 ? (
-                  <button onClick={() => addToCart(p)}
-                    className={`bg-[#F5C542] text-[#0F0F0F] px-4 py-2 rounded-xl font-black text-sm flex items-center gap-1.5 transition-transform ${addedAnim.has(p.id) ? 'scale-90' : 'scale-100'}`}>
-                    <Plus size={16} strokeWidth={2.5} /> Adicionar
-                  </button>
-                ) : (
-                  <div className="flex items-center gap-1.5 bg-[#0F0F0F] rounded-xl px-2 py-1.5">
-                    <button onClick={() => changeQty(p.id, -1)} className="w-7 h-7 rounded-lg flex items-center justify-center text-white"><Minus size={14} /></button>
-                    <span className="text-white font-black w-5 text-center text-sm">{q}</span>
-                    <button onClick={() => changeQty(p.id, 1)} className="w-7 h-7 rounded-lg flex items-center justify-center text-[#F5C542]"><Plus size={14} /></button>
-                  </div>
-                )}
-              </div>
+      {/* Product sections */}
+      <div className="max-w-md mx-auto px-4 pt-4 space-y-6">
+        {orderedCats.map(cat => (
+          <div key={cat} ref={el => { sectionRefs.current[cat] = el }} data-cat={cat}>
+            {/* Section header */}
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xl">{CAT[cat]?.emoji}</span>
+              <h2 className="font-black text-gray-800 text-base">{CAT[cat]?.label || cat}</h2>
+              <div className="flex-1 h-px bg-gray-200" />
             </div>
-          )
-        })}
+            {/* Products */}
+            <div className="space-y-3">
+              {grouped[cat].map(p => {
+                const q = qtyOf(p.id)
+                return (
+                  <div key={p.id} className={`bg-white rounded-2xl overflow-hidden shadow-sm ${p.featured ? 'ring-2 ring-[#F5C542]' : 'border border-gray-100'}`}>
+                    <div className="relative h-36 overflow-hidden bg-gray-100">
+                      <img src={getImg(p)} alt={p.name} className="w-full h-full object-cover" loading="lazy"
+                        onError={e => { e.currentTarget.style.display = 'none' }} />
+                      <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.6) 0%, transparent 50%)' }} />
+                      {p.featured && <span className="absolute top-2.5 left-2.5 text-[10px] font-black bg-[#F5C542] text-[#0F0F0F] px-2 py-0.5 rounded-full">⭐ DESTAQUE</span>}
+                      <div className="absolute bottom-2.5 left-3 right-3">
+                        <p className="text-white font-black text-base leading-tight drop-shadow">{p.name}</p>
+                        {p.description && <p className="text-white/70 text-xs mt-0.5 line-clamp-1">{p.description}</p>}
+                      </div>
+                    </div>
+                    <div className="px-3 py-2.5 flex items-center justify-between">
+                      <p className="text-lg font-black text-gray-900">{fmt(p.salePrice)}</p>
+                      {q === 0 ? (
+                        <button onClick={() => addToCart(p)}
+                          className={`bg-[#F5C542] text-[#0F0F0F] px-4 py-2 rounded-xl font-black text-sm flex items-center gap-1.5 transition-transform ${addedAnim.has(p.id) ? 'scale-90' : 'scale-100'}`}>
+                          <Plus size={16} strokeWidth={2.5} /> Adicionar
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-1.5 bg-[#0F0F0F] rounded-xl px-2 py-1.5">
+                          <button onClick={() => changeQty(p.id, -1)} className="w-7 h-7 rounded-lg flex items-center justify-center text-white"><Minus size={14} /></button>
+                          <span className="text-white font-black w-5 text-center text-sm">{q}</span>
+                          <button onClick={() => changeQty(p.id, 1)} className="w-7 h-7 rounded-lg flex items-center justify-center text-[#F5C542]"><Plus size={14} /></button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
-      {/* ── Floating cart ── */}
+      {/* Prompt: adicionar bebida */}
+      {showDrinkPrompt && (
+        <div className="fixed bottom-24 left-0 right-0 px-4 z-30 pointer-events-none">
+          <div className="max-w-md mx-auto pointer-events-auto">
+            <div className="bg-[#0F0F0F] text-white rounded-2xl px-4 py-3 flex items-center gap-3 shadow-2xl border border-white/10">
+              <span className="text-2xl shrink-0">🥤</span>
+              <p className="flex-1 text-sm font-semibold">Que tal uma bebida para acompanhar?</p>
+              <button onClick={() => { scrollToCategory('bebida'); setDrinkPromptDismissed(true) }}
+                className="shrink-0 bg-[#F5C542] text-[#0F0F0F] text-xs font-black px-3 py-1.5 rounded-lg">
+                Ver
+              </button>
+              <button onClick={() => setDrinkPromptDismissed(true)} className="shrink-0 text-gray-500">
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating cart */}
       {cartCount > 0 && !showCart && !showCheckout && (
         <div className="fixed bottom-0 left-0 right-0 p-4 z-30 pointer-events-none">
           <div className="max-w-md mx-auto pointer-events-auto">
@@ -443,7 +511,7 @@ export default function Pedido() {
         </div>
       )}
 
-      {/* ── Cart sheet ── */}
+      {/* Cart sheet */}
       {showCart && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center" onClick={() => setShowCart(false)}>
           <div className="bg-white w-full max-w-md rounded-t-3xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
@@ -476,7 +544,7 @@ export default function Pedido() {
         </div>
       )}
 
-      {/* ── Checkout sheet ── */}
+      {/* Checkout sheet */}
       {showCheckout && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center">
           <div className="bg-white w-full max-w-md rounded-t-3xl max-h-[93vh] flex flex-col">
