@@ -42,6 +42,7 @@ import { formatCurrency, formatDateBR, calcPrazo, type PrazoStatus } from "@/lib
 import { valesSupabase } from "@/lib/valesSupabase";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
+import { enviarMensagemGrupo } from "@/lib/zapi";
 import { sendMessage } from "@/lib/valesZapi";
 import { formatPhoneForZAPI } from "@/lib/valesUtils";
 
@@ -372,22 +373,59 @@ export default function ValesPage() {
     if (!fluxoVale || !fluxoAjudante.trim() || !usuario) return;
     setSolicitandoFluxo(true);
     try {
+      const registradoPor = usuario.nome ?? usuario.login;
+      const colaborador = fluxoAjudante.trim();
+      const dataFormatada = fluxoData
+        ? new Date(fluxoData + "T12:00:00").toLocaleDateString("pt-BR")
+        : "—";
+      const obs = `Vale #${fluxoVale.numero_vale}${fluxoVale.mapa ? ` · Mapa ${fluxoVale.mapa}` : ""}`;
+
       const { error } = await supabase.from("fluxo_punitivo").insert({
         filial: usuario.filial,
-        colaborador_nome: fluxoAjudante.trim(),
+        colaborador_nome: colaborador,
         origem: "Vales",
         tipo_acao: null,
         status: "Solicitado",
         motivo: "GERAÇÃO DE VALE FISICO",
         data_infracao: fluxoData || null,
-        observacao: `Vale #${fluxoVale.numero_vale}${fluxoVale.mapa ? ` · Mapa ${fluxoVale.mapa}` : ""}`,
-        registrado_por: usuario.nome ?? usuario.login,
+        observacao: obs,
+        registrado_por: registradoPor,
         source_id: null,
         dias_suspensao: null,
         data_acao: null,
       });
       if (error) throw new Error(error.message);
-      toast({ title: "Fluxo solicitado", description: `Solicitação registrada para ${fluxoAjudante}` });
+
+      // Envia para o grupo WhatsApp da filial (igual ao fluxo do GSDPQ)
+      const { data: filialData } = await supabase
+        .from("filiais")
+        .select("grupo_fluxo_whatsapp")
+        .eq("nome", usuario.filial)
+        .single();
+      const grupo = filialData?.grupo_fluxo_whatsapp ?? null;
+      if (grupo) {
+        const mensagem =
+          `🔔 *Solicitação de Fluxo Punitivo*\n` +
+          `📍 Filial: ${usuario.filial}\n` +
+          `👤 Colaborador: ${colaborador}\n` +
+          `📋 Origem: Vales\n` +
+          `🗓️ Data: ${dataFormatada}\n` +
+          `💰 ${obs}\n` +
+          `⚠️ Motivo: GERAÇÃO DE VALE FISICO\n` +
+          `✍️ Solicitado por: ${registradoPor}`;
+        const { sucesso, erro } = await enviarMensagemGrupo(grupo, mensagem);
+        await supabase.from("disparos").insert({
+          filial: usuario.filial, whatsapp: grupo, mensagem,
+          status: sucesso ? "enviado" : "erro", erro: erro ?? null,
+        });
+        if (!sucesso) {
+          toast({ variant: "destructive", title: "Fluxo registrado", description: `Solicitação salva, mas a mensagem para o grupo falhou: ${erro}` });
+          setFluxoVale(null);
+          return;
+        }
+      }
+
+      toast({ title: "Fluxo solicitado", description: `Solicitação registrada para ${colaborador}` });
       setFluxoVale(null);
     } catch (err) {
       toast({ variant: "destructive", title: "Erro ao solicitar fluxo", description: err instanceof Error ? err.message : "Erro desconhecido" });
