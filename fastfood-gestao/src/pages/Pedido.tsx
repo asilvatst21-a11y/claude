@@ -86,6 +86,7 @@ export default function Pedido() {
   const [street, setStreet] = useState('')
   const [houseNumber, setHouseNumber] = useState('')
   const [neighborhood, setNeighborhood] = useState('')
+  const [neighborhoodOther, setNeighborhoodOther] = useState('')
   const [complement, setComplement] = useState('')
   const [reference, setReference] = useState('')
   const [payment, setPayment] = useState<OnlineOrder['payment']>('pix')
@@ -164,7 +165,8 @@ export default function Pedido() {
   const STEPS: CheckStep[] = orderType === 'pickup' ? ['id', 'payment'] : ['id', 'address', 'payment']
 
   const subtotal = cart.reduce((s, x) => s + x.total, 0)
-  const zone = config.zones?.find(z => z.neighborhood === neighborhood)
+  const effectiveNeighborhood = neighborhood === '__other__' ? neighborhoodOther : neighborhood
+  const zone = config.zones?.find(z => z.neighborhood === effectiveNeighborhood)
   const deliveryFee = orderType === 'pickup' ? 0 : (zone?.fee ?? 0)
   const total = subtotal + deliveryFee
   const cartCount = cart.reduce((s, x) => s + x.quantity, 0)
@@ -218,6 +220,7 @@ export default function Pedido() {
     if (checkStep === 'address' && orderType === 'delivery') {
       if (!street.trim() || !houseNumber.trim()) return 'Informe o endereço completo'
       if ((config.zones?.length ?? 0) > 0 && !neighborhood) return 'Selecione o bairro de entrega'
+      if (neighborhood === '__other__' && !neighborhoodOther.trim()) return 'Informe o nome do seu bairro'
       if (belowMin) return `Pedido mínimo de ${fmt(config.minOrder)}`
     }
     return null
@@ -238,7 +241,7 @@ export default function Pedido() {
       id: genId(), createdAt: new Date().toISOString(), status: 'pending',
       orderType,
       customerName: name.trim(), customerPhone: phoneInput.replace(/\D/g, ''),
-      address: orderType === 'delivery' ? { street: street.trim(), number: houseNumber.trim(), neighborhood, complement: complement.trim() || undefined, reference: reference.trim() || undefined } : undefined,
+      address: orderType === 'delivery' ? { street: street.trim(), number: houseNumber.trim(), neighborhood: effectiveNeighborhood, complement: complement.trim() || undefined, reference: reference.trim() || undefined } : undefined,
       items: cart, subtotal, deliveryFee, total, payment,
       trocoPara: payment === 'dinheiro' && trocoPara ? parseFloat(trocoPara) : undefined,
       notes: notes.trim() || undefined,
@@ -247,8 +250,8 @@ export default function Pedido() {
     const ok = await submitOnlineOrder(resolvedBid, order)
     setSending(false)
     if (!ok) { setError('Não foi possível enviar. Tente novamente.'); return }
-    saveProfile({ name: name.trim(), phone: phoneInput.replace(/\D/g, ''), street: street.trim(), houseNumber: houseNumber.trim(), neighborhood, complement: complement.trim(), reference: reference.trim() })
-    if (payment === 'pix') generatePixQr(total)
+    saveProfile({ name: name.trim(), phone: phoneInput.replace(/\D/g, ''), street: street.trim(), houseNumber: houseNumber.trim(), neighborhood: effectiveNeighborhood, complement: complement.trim(), reference: reference.trim() })
+    if (payment === 'pix') await generatePixQr(total)
     setConfirmed(order); setStage('success')
   }
 
@@ -300,16 +303,23 @@ export default function Pedido() {
               <p className="text-gray-400 text-sm mt-1">{config.storeName} recebeu e já está preparando.</p>
             </div>
           </div>
-          {payment === 'pix' && pixQr && (
-            <div className="bg-[#1a1a1a] border border-[#F5C542]/20 rounded-2xl p-5 text-center space-y-3">
-              <p className="font-bold text-[#F5C542] flex items-center justify-center gap-2 text-sm"><QrIcon size={15} /> Pague com PIX</p>
-              <img src={pixQr} alt="QR Code PIX" className="mx-auto rounded-xl bg-white p-2" width={180} height={180} />
-              <p className="text-3xl font-black">{fmt(confirmed.total)}</p>
-              <button onClick={() => navigator.clipboard.writeText(buildPixPayload(config.pixKey, confirmed.total, config.pixName || config.storeName, config.pixCity))}
-                className="text-xs text-[#F5C542] flex items-center justify-center gap-1.5 mx-auto hover:underline">
-                <Copy size={12} /> Copiar código PIX
-              </button>
-            </div>
+          {payment === 'pix' && (
+            pixQr ? (
+              <div className="bg-[#1a1a1a] border border-[#F5C542]/20 rounded-2xl p-5 text-center space-y-3">
+                <p className="font-bold text-[#F5C542] flex items-center justify-center gap-2 text-sm"><QrIcon size={15} /> Pague com PIX</p>
+                <img src={pixQr} alt="QR Code PIX" className="mx-auto rounded-xl bg-white p-2" width={180} height={180} />
+                <p className="text-3xl font-black">{fmt(confirmed.total)}</p>
+                <button onClick={() => navigator.clipboard.writeText(buildPixPayload(config.pixKey, confirmed.total, config.pixName || config.storeName, config.pixCity))}
+                  className="text-xs text-[#F5C542] flex items-center justify-center gap-1.5 mx-auto hover:underline">
+                  <Copy size={12} /> Copiar código PIX
+                </button>
+              </div>
+            ) : (
+              <div className="bg-amber-900/30 border border-amber-500/30 rounded-2xl p-4 text-center">
+                <p className="text-amber-400 font-semibold text-sm">Chave PIX não configurada</p>
+                <p className="text-amber-300/70 text-xs mt-1">O estabelecimento informará os dados para pagamento via WhatsApp.</p>
+              </div>
+            )
           )}
           <div className="bg-[#1a1a1a] rounded-2xl p-4 space-y-2">
             <p className="text-xs font-bold text-gray-500 uppercase tracking-widest mb-3">Resumo</p>
@@ -633,10 +643,19 @@ export default function Pedido() {
                     <div className="space-y-1.5">
                       <label className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1"><MapPin size={10} className="text-[#F5C542]" /> Bairro</label>
                       {(config.zones?.length ?? 0) > 0 ? (
-                        <select value={neighborhood} onChange={e => setNeighborhood(e.target.value)} className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors bg-white">
-                          <option value="">Selecione o bairro...</option>
-                          {config.zones?.map(z => <option key={z.id} value={z.neighborhood}>{z.neighborhood} — {fmt(z.fee)}</option>)}
-                        </select>
+                        <>
+                          <select value={neighborhood} onChange={e => { setNeighborhood(e.target.value); setNeighborhoodOther('') }} className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors bg-white">
+                            <option value="">Selecione o bairro...</option>
+                            {config.zones?.map(z => <option key={z.id} value={z.neighborhood}>{z.neighborhood} — {fmt(z.fee)}</option>)}
+                            <option value="__other__">Outro bairro...</option>
+                          </select>
+                          {neighborhood === '__other__' && (
+                            <div className="space-y-1">
+                              <input value={neighborhoodOther} onChange={e => setNeighborhoodOther(e.target.value)} placeholder="Nome do seu bairro" autoFocus className="w-full border-2 border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
+                              <p className="text-xs text-amber-600 bg-amber-50 rounded-lg px-3 py-2">Taxa de entrega a combinar com o estabelecimento.</p>
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <input value={neighborhood} onChange={e => setNeighborhood(e.target.value)} placeholder="Bairro" className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
                       )}
@@ -673,7 +692,7 @@ export default function Pedido() {
                     ))}
                     <div className="border-t border-gray-200 pt-2 mt-1 space-y-1">
                       <div className="flex justify-between text-sm text-gray-500"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
-                      <div className="flex justify-between text-sm text-gray-500"><span>Entrega</span><span>{orderType === 'pickup' ? 'Grátis (retirada)' : neighborhood ? fmt(deliveryFee) : '—'}</span></div>
+                      <div className="flex justify-between text-sm text-gray-500"><span>Entrega</span><span>{orderType === 'pickup' ? 'Grátis (retirada)' : neighborhood === '__other__' ? 'A combinar' : neighborhood ? fmt(deliveryFee) : '—'}</span></div>
                       <div className="flex justify-between font-black text-gray-900 pt-1 text-base"><span>Total</span><span>{fmt(total)}</span></div>
                     </div>
                   </div>
