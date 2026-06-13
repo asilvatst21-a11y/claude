@@ -1,6 +1,6 @@
 import type { Plan } from './ProfileContext'
 
-export type Feature = 'caixa' | 'clientes' | 'relatorios' | 'dre' | 'precificacao'
+export type Feature = 'caixa' | 'clientes' | 'relatorios' | 'dre' | 'precificacao' | 'delivery'
 
 const PLAN_RANK: Record<Plan, number> = {
   expired: -1,
@@ -16,6 +16,7 @@ export const FEATURE_MIN_PLAN: Record<Feature, Plan> = {
   relatorios:  'pro',
   dre:         'rede',
   precificacao:'rede',
+  delivery:    'pro',
 }
 
 export const PLAN_LABELS: Record<Plan, string> = {

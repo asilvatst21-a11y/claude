@@ -3,9 +3,10 @@ import { useState, useEffect, useRef } from 'react'
 import QRCode from 'qrcode'
 import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer, getCashbackConfig, getPixConfig, savePixConfig, getIngredients, id } from '../store/storage'
 import type { PixConfig } from '../store/storage'
-import type { Sale, SaleItem, Customer } from '../types'
-import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed, Maximize2, Minimize2, Clock, Play } from 'lucide-react'
+import type { Sale, SaleItem, Customer, OnlineOrder } from '../types'
+import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed, Maximize2, Minimize2, Clock, Play, MapPin } from 'lucide-react'
 import { supabase, getBusinessId } from '../store/supabase'
+import { fetchOnlineOrders, removeOnlineOrder, subscribeOnlineOrders } from '../store/delivery'
 
 type QueuedOrder = {
   qid: string
@@ -217,7 +218,38 @@ export default function Vendas() {
   const [queueLabel, setQueueLabel] = useState('')
   const [showQueueLabel, setShowQueueLabel] = useState(false)
 
-  useEffect(() => { setSales(getSales()); setCustomers(getCustomers()) }, [view])
+  // Pedidos online aceitos (vindos do site de delivery)
+  const [onlineOrders, setOnlineOrders] = useState<OnlineOrder[]>([])
+  function refreshOnlineOrders() {
+    fetchOnlineOrders('accepted').then(setOnlineOrders)
+  }
+  useEffect(() => {
+    refreshOnlineOrders()
+    const unsub = subscribeOnlineOrders(getBusinessId(), refreshOnlineOrders)
+    return () => unsub()
+  }, [])
+
+  function finalizeOnlineOrder(order: OnlineOrder) {
+    const sale: Sale = {
+      id: id(), date: today(), time: nowTime(),
+      items: order.items, total: order.total, paymentMethod: order.payment === 'cartao' ? 'cartao_credito' : order.payment,
+      notes: order.notes || '', orderType: 'delivery', deliveryFee: order.deliveryFee || undefined,
+      customerName: order.customerName,
+    }
+    saveSale(sale)
+    removeOnlineOrder(order.id)
+    setOnlineOrders(prev => prev.filter(o => o.id !== order.id))
+    setSales(getSales())
+    setSuccess(true)
+    setTimeout(() => setSuccess(false), 2500)
+  }
+
+  function rejectOnlineOrder(order: OnlineOrder) {
+    removeOnlineOrder(order.id)
+    setOnlineOrders(prev => prev.filter(o => o.id !== order.id))
+  }
+
+  useEffect(() => { setSales(getSales()); setCustomers(getCustomers()); refreshOnlineOrders() }, [view])
 
   const activeProducts = products.filter(p => p.active)
   const categories = ['all', ...Array.from(new Set(activeProducts.map(p => p.category)))]
@@ -652,8 +684,8 @@ export default function Vendas() {
         <button onClick={() => setView('fila')}
           className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'fila' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:text-gray-700'}`}>
           <Clock size={15} /> Fila
-          {queue.length > 0 && (
-            <span className={`w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center ${view === 'fila' ? 'bg-[#0F0F0F] text-[#F5C542]' : 'bg-[#F5C542] text-[#0F0F0F]'}`}>{queue.length}</span>
+          {(queue.length + onlineOrders.length) > 0 && (
+            <span className={`w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center ${view === 'fila' ? 'bg-[#0F0F0F] text-[#F5C542]' : 'bg-[#F5C542] text-[#0F0F0F]'}`}>{queue.length + onlineOrders.length}</span>
           )}
         </button>
         <button
@@ -797,15 +829,67 @@ export default function Vendas() {
       {/* Fila de pedidos */}
       {view === 'fila' && (
         <div className="flex-1 overflow-y-auto p-4">
-          {queue.length === 0 ? (
+          {queue.length === 0 && onlineOrders.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400 py-16">
               <Clock size={40} className="mb-3 opacity-30" />
               <p className="text-sm font-medium">Nenhum pedido na fila</p>
-              <p className="text-xs mt-1 text-center max-w-xs">Use "Guardar na fila" no PDV para atender vários clientes ao mesmo tempo</p>
+              <p className="text-xs mt-1 text-center max-w-xs">Pedidos do delivery aceitos e pedidos guardados aparecem aqui</p>
             </div>
           ) : (
             <div className="space-y-3 max-w-xl mx-auto">
-              <p className="text-sm text-gray-500 font-medium">{queue.length} pedido{queue.length !== 1 ? 's' : ''} aguardando</p>
+
+              {/* Pedidos online (delivery) */}
+              {onlineOrders.length > 0 && (
+                <>
+                  <p className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                    <Bike size={15} className="text-[#F5C542]" /> Delivery · {onlineOrders.length} pedido{onlineOrders.length !== 1 ? 's' : ''}
+                  </p>
+                  {onlineOrders.map(o => (
+                    <div key={o.id} className="bg-white rounded-xl border-2 border-[#F5C542]/40 shadow-sm overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-yellow-50/50">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="inline-flex items-center gap-1 bg-[#F5C542] text-[#0F0F0F] text-xs font-bold px-2 py-0.5 rounded-full shrink-0"><Bike size={10} /> Delivery</span>
+                          <span className="font-semibold text-gray-800 truncate">{o.customerName}</span>
+                        </div>
+                        <span className="font-bold text-[#F5C542] shrink-0">{fmt(o.total)}</span>
+                      </div>
+                      <div className="px-4 py-3 space-y-1">
+                        <p className="text-sm text-gray-600 leading-relaxed">
+                          {o.items.map(i => `${i.quantity}× ${i.productName}`).join(' · ')}
+                        </p>
+                        <p className="text-xs text-gray-500 flex items-start gap-1">
+                          <MapPin size={11} className="text-gray-400 mt-0.5 shrink-0" />
+                          {o.address.street}, {o.address.number} — {o.address.neighborhood}
+                          {o.address.complement ? ` (${o.address.complement})` : ''}
+                        </p>
+                        <a href={`https://wa.me/55${o.customerPhone}`} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-green-600 inline-flex items-center gap-1"><User size={11} />{o.customerPhone}</a>
+                        <p className="text-xs text-gray-400">
+                          {o.payment === 'pix' ? 'PIX' : o.payment === 'dinheiro' ? `Dinheiro${o.trocoPara ? ` · troco p/ ${fmt(o.trocoPara)}` : ''}` : 'Cartão na entrega'}
+                          {o.notes ? ` · ${o.notes}` : ''}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 border-t border-gray-100">
+                        <button onClick={() => rejectOnlineOrder(o)}
+                          className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-gray-500 hover:bg-gray-50 transition-colors border-r border-gray-100">
+                          <X size={14} /> Cancelar
+                        </button>
+                        <button onClick={() => finalizeOnlineOrder(o)}
+                          className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-green-600 hover:bg-green-50 transition-colors">
+                          <Check size={14} /> Concluir venda
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Fila manual (balcão) */}
+              {queue.length > 0 && (
+                <p className="text-sm font-bold text-gray-700 flex items-center gap-2 pt-1">
+                  <Clock size={15} className="text-gray-400" /> Balcão · {queue.length} pedido{queue.length !== 1 ? 's' : ''}
+                </p>
+              )}
               {queue.map((order, idx) => (
                 <div key={order.qid} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
