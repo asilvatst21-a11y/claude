@@ -44,7 +44,8 @@ function temAcesso(permissoes: string[] | null | undefined, permKey: string): bo
   return permissoes.includes(permKey)
 }
 
-type NavItemDef = { permKey: string; to: string; label: string; icon: React.ElementType; end?: boolean }
+type NavItemDef = { to: string; label: string; icon: React.ElementType; end?: boolean }
+type NavItemWithPerm = NavItemDef & { permKey: string }
 
 function NavItem({ to, label, icon: Icon, end, collapsed }: NavItemDef & { collapsed: boolean }) {
   return (
@@ -67,7 +68,7 @@ function NavItem({ to, label, icon: Icon, end, collapsed }: NavItemDef & { colla
 interface SectionProps {
   label: string
   icon: React.ElementType
-  items: NavItemDef[]
+  items: NavItemWithPerm[]
   open: boolean
   onToggle: () => void
   collapsed: boolean
