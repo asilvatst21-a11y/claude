@@ -24,13 +24,17 @@ function norm(s: string): string {
 
 async function enviarGrupo(grupoId: string, message: string): Promise<void> {
   try {
-    await fetch(`${ZAPI_BASE}/send-text`, {
+    const resp = await fetch(`${ZAPI_BASE}/send-text`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Client-Token': ZAPI_CLIENT_TOKEN },
       body: JSON.stringify({ phone: grupoId, message }),
     })
+    if (!resp.ok) {
+      const txt = await resp.text().catch(() => '')
+      console.error('enviarGrupo HTTP error:', resp.status, txt)
+    }
   } catch (e) {
-    console.error('Falha ao enviar texto no grupo:', e)
+    console.error('enviarGrupo exception:', e)
   }
 }
 
@@ -128,23 +132,38 @@ export default async function handler(req: any, res: any) {
 
   const body = typeof req.body === 'string' ? safeJson(req.body) : (req.body ?? {})
 
+  // Log para diagnóstico nos logs da Vercel
+  console.log('WEBHOOK type:', body.type, '| fromMe:', body.fromMe, '| isGroup:', body.isGroup, '| phone:', body.phone)
+
   try {
     const fromMe: boolean = body.fromMe === true
     const grupoId: string = String(body.phone ?? '')
-    const isGroup: boolean = body.isGroup === true || grupoId.endsWith('-group')
-    const texto: string = String(body?.text?.message ?? '').trim()
+    // Suporta tanto "-group" (Z-API v1) quanto "@g.us" (Z-API v2/WhatsApp nativo)
+    const isGroup: boolean =
+      body.isGroup === true || body.isGroup === 'true' ||
+      grupoId.endsWith('-group') || grupoId.endsWith('@g.us')
+    // Z-API envia o texto em campos diferentes dependendo da versão
+    const texto: string = String(
+      body?.text?.message ??
+      body?.message ??
+      body?.body ??
+      ''
+    ).trim()
     const temConteudo = texto || body?.buttonsResponseMessage || body?.listResponse
-    const senderName: string = String(body.senderName ?? body.chatName ?? '')
+    const senderName: string = String(body.senderName ?? body.chatName ?? body.pushName ?? '')
     const participante: string = String(body.participantPhone ?? body.participant ?? '')
 
     if (fromMe || !isGroup || !grupoId || !temConteudo) {
+      console.log('Ignored:', { fromMe, isGroup, grupoId, temConteudo: !!temConteudo, texto })
       res.status(200).json({ ok: true, ignored: 'not-applicable' })
       return
     }
 
-    const { data: filialRow } = await supabase
+    const { data: filialRow, error: filialErr } = await supabase
       .from('filiais').select('nome').eq('grupo_fluxo_whatsapp', grupoId).maybeSingle()
+    if (filialErr) console.error('Erro ao buscar filial:', filialErr)
     if (!filialRow) {
+      console.log('Grupo não configurado em filiais:', grupoId)
       res.status(200).json({ ok: true, ignored: 'group-not-configured' })
       return
     }

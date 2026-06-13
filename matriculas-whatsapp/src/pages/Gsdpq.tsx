@@ -103,7 +103,7 @@ const QUESTOES_FRASES: Record<string, string> = {
   'Equipe guarda o carrinho corretamente após a utilização?': 'GUARDA INCORRETA DO CARRINHO',
   'A equipe verifica o fechamento das baias/sider/portas antes de sair do PDV, utilizando o  trava baias?': 'NÃO VERIFICAÇÃO DO FECHAMENTO DE BAIAS / PORTAS',
   'Calço e cones foram retirados corretamente conforme orientação da FABET após a finalização da entrega?': 'NÃO RETIRADA DE CALÇO / CONES APÓS ENTREGA',
-  ' O motorista faz o giro 360º antes de sair com o veículo, avaliando se existe algum obstáculo que dificulte a manobra ou algo embaixo do caminhão?': 'NÃO REALIZAÇÃO DO GIRO 360°',
+  'O motorista faz o giro 360º antes de sair com o veículo, avaliando se existe algum obstáculo que dificulte a manobra ou algo embaixo do caminhão?': 'NÃO REALIZAÇÃO DO GIRO 360°',
   'Caso seja necessária uma manobra de ré, o ajudante se posiciona em local correto e auxilia o motorista?': 'AUSÊNCIA DE APOIO DO AJUDANTE NA MANOBRA DE RÉ',
   'A equipe realizou o check-list do veículo antes de sair?': 'NÃO REALIZAÇÃO DO CHECK-LIST DO VEÍCULO',
   'A equipe realizou o bloqueio da chave conforme padrão local?': 'NÃO REALIZAÇÃO DO BLOQUEIO DA CHAVE',

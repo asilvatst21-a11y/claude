@@ -15,6 +15,12 @@ import Relatos from './pages/Relatos'
 import Telemetria from './pages/Telemetria'
 import Jornada from './pages/Jornada'
 import FluxoPunitivo from './pages/FluxoPunitivo'
+import ValesPage from './pages/vales/Vales'
+import AjudantesPage from './pages/vales/Ajudantes'
+import ImportarPage from './pages/vales/Importar'
+import ImportacoesPage from './pages/vales/Importacoes'
+import ReposicoesPage from './pages/vales/Reposicoes'
+import ValesConfiguracoesPage from './pages/vales/Configuracoes'
 
 function ProtectedRoutes() {
   const { usuario, loading } = useAuth()
@@ -56,6 +62,13 @@ export default function App() {
             <Route path="/relatos" element={<Relatos />} />
             <Route path="/telemetria" element={<Telemetria />} />
             <Route path="/jornada" element={<Jornada />} />
+            {/* Vales LOG20 */}
+            <Route path="/vales" element={<ValesPage />} />
+            <Route path="/vales/ajudantes" element={<AjudantesPage />} />
+            <Route path="/vales/importar" element={<ImportarPage />} />
+            <Route path="/vales/importacoes" element={<ImportacoesPage />} />
+            <Route path="/vales/reposicoes" element={<ReposicoesPage />} />
+            <Route path="/vales/configuracoes" element={<ValesConfiguracoesPage />} />
           </Route>
         </Routes>
       </BrowserRouter>
