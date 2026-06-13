@@ -310,6 +310,22 @@ export default function Cadastros() {
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]"
               />
             </div>
+            <div className="lg:col-span-4">
+              <label className="text-xs text-gray-600 mb-1 block">Foto do produto (URL da imagem)</label>
+              <div className="flex gap-2 items-start">
+                <input
+                  value={editProduct.imageUrl || ''}
+                  onChange={e => setEditProduct({ ...editProduct, imageUrl: e.target.value })}
+                  placeholder="https://... (link de uma foto do produto)"
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]"
+                />
+                {editProduct.imageUrl && (
+                  <img src={editProduct.imageUrl} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0 border border-gray-200"
+                    onError={e => (e.currentTarget.style.display = 'none')} />
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Cole o link de uma foto. Se vazio, usamos uma imagem ilustrativa da categoria.</p>
+            </div>
           </div>
 
           <div className="mb-4">

@@ -2,6 +2,7 @@ export interface Product {
   id: string
   name: string
   description?: string
+  imageUrl?: string
   category: 'macarrao' | 'hamburguer' | 'cachorro_quente' | 'bebida' | 'outro'
   salePrice: number
   ingredients: ProductIngredient[]

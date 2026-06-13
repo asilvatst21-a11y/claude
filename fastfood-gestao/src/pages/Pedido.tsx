@@ -9,39 +9,29 @@ import {
   ChevronRight, QrCode as QrIcon, Copy, Bike, Clock, Store, ArrowLeft, Phone, Star,
 } from 'lucide-react'
 
-// ── Category display ──────────────────────────────────────────────────────────
-const CAT: Record<string, { label: string; emoji: string; color: string }> = {
-  macarrao:        { label: 'Macarrão',        emoji: '🍝', color: '#F97316' },
-  hamburguer:      { label: 'Hambúrguer',      emoji: '🍔', color: '#EF4444' },
-  cachorro_quente: { label: 'Cachorro Quente', emoji: '🌭', color: '#EAB308' },
-  bebida:          { label: 'Bebida',          emoji: '🥤', color: '#3B82F6' },
-  outro:           { label: 'Outros',          emoji: '🍽️', color: '#8B5CF6' },
+// ── Category config ───────────────────────────────────────────────────────────
+const CAT: Record<string, { label: string; emoji: string; color: string; img: string }> = {
+  macarrao:        { label: 'Macarrão',        emoji: '🍝', color: '#F97316', img: 'https://images.unsplash.com/photo-1555949258-eb67b1ef0ceb?w=600&q=75&auto=format&fit=crop' },
+  hamburguer:      { label: 'Hambúrguer',      emoji: '🍔', color: '#EF4444', img: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&q=75&auto=format&fit=crop' },
+  cachorro_quente: { label: 'Cachorro Quente', emoji: '🌭', color: '#EAB308', img: 'https://images.unsplash.com/photo-1612392062631-94ab0c341f81?w=600&q=75&auto=format&fit=crop' },
+  bebida:          { label: 'Bebida',          emoji: '🥤', color: '#3B82F6', img: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=600&q=75&auto=format&fit=crop' },
+  outro:           { label: 'Outros',          emoji: '🍽️', color: '#8B5CF6', img: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=75&auto=format&fit=crop' },
 }
 
-// ── Customer profile (localStorage) ──────────────────────────────────────────
-interface Profile {
-  name: string; phone: string
-  street: string; houseNumber: string; neighborhood: string
-  complement: string; reference: string
+function getImg(p: Product) {
+  return p.imageUrl || CAT[p.category]?.img || ''
 }
+
+// ── Customer profile ──────────────────────────────────────────────────────────
+interface Profile { name: string; phone: string; street: string; houseNumber: string; neighborhood: string; complement: string; reference: string }
 const PKEY = 'ff_cust_v1'
-
 function lookupProfile(phone: string): Profile | null {
-  try {
-    const clean = phone.replace(/\D/g, '')
-    if (!clean) return null
-    const all = JSON.parse(localStorage.getItem(PKEY) || '{}')
-    return all[clean] ?? null
-  } catch { return null }
+  try { const all = JSON.parse(localStorage.getItem(PKEY) || '{}'); return all[phone.replace(/\D/g, '')] ?? null } catch { return null }
 }
 function saveProfile(p: Profile) {
   const clean = p.phone.replace(/\D/g, '')
   if (!clean) return
-  try {
-    const all = JSON.parse(localStorage.getItem(PKEY) || '{}')
-    all[clean] = { ...p, phone: clean }
-    localStorage.setItem(PKEY, JSON.stringify(all))
-  } catch { /* ignore */ }
+  try { const all = JSON.parse(localStorage.getItem(PKEY) || '{}'); all[clean] = { ...p, phone: clean }; localStorage.setItem(PKEY, JSON.stringify(all)) } catch { /* ignore */ }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -71,6 +61,7 @@ export default function Pedido() {
   const [showCart, setShowCart] = useState(false)
   const [showCheckout, setShowCheckout] = useState(false)
   const [checkStep, setCheckStep] = useState<CheckStep>('id')
+  const [addedAnim, setAddedAnim] = useState<Set<string>>(new Set())
 
   // Customer fields
   const [phoneInput, setPhoneInput] = useState('')
@@ -95,16 +86,11 @@ export default function Pedido() {
     async function load() {
       const isUuid = /^[0-9a-f-]{36}$/i.test(bid)
       let businessId = bid
-      if (!isUuid) {
-        const found = await fetchBusinessIdBySlug(bid)
-        if (found) businessId = found
-      }
+      if (!isUuid) { const found = await fetchBusinessIdBySlug(bid); if (found) businessId = found }
       setResolvedBid(businessId)
       const { config, products } = await fetchPublicMenu(businessId)
       if (!config || !config.enabled) { setStage('closed'); if (config) setConfig(config); return }
-      setConfig(config)
-      setProducts(products)
-      setStage('menu')
+      setConfig(config); setProducts(products); setStage('menu')
     }
     load()
   }, [bid])
@@ -115,22 +101,17 @@ export default function Pedido() {
     if (clean.length >= 10) {
       const p = lookupProfile(clean)
       setProfileFound(p)
-      if (p) {
-        setName(p.name); setStreet(p.street); setHouseNumber(p.houseNumber)
-        setNeighborhood(p.neighborhood); setComplement(p.complement || '')
-        setReference(p.reference || '')
-      }
-    } else {
-      setProfileFound(null)
-    }
+      if (p) { setName(p.name); setStreet(p.street); setHouseNumber(p.houseNumber); setNeighborhood(p.neighborhood); setComplement(p.complement || ''); setReference(p.reference || '') }
+    } else { setProfileFound(null) }
   }, [phoneInput])
 
   // Computed
   const categories = useMemo(() => ['all', ...Array.from(new Set(products.map(p => p.category)))], [products])
-  const visibleUnsorted = activeCat === 'all' ? products : products.filter(p => p.category === activeCat)
-  const visible = [...visibleUnsorted].sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0))
+  const visibleRaw = activeCat === 'all' ? products : products.filter(p => p.category === activeCat)
+  const visible = [...visibleRaw].sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0))
+  const featured = products.filter(p => p.featured)
   const subtotal = cart.reduce((s, x) => s + x.total, 0)
-  const zone = config.zones.find(z => z.neighborhood === neighborhood)
+  const zone = config.zones?.find(z => z.neighborhood === neighborhood)
   const deliveryFee = zone?.fee ?? 0
   const total = subtotal + deliveryFee
   const cartCount = cart.reduce((s, x) => s + x.quantity, 0)
@@ -139,31 +120,24 @@ export default function Pedido() {
   function addToCart(p: Product) {
     setCart(prev => {
       const idx = prev.findIndex(x => x.productId === p.id)
-      if (idx >= 0) {
-        const next = [...prev]
-        const q = next[idx].quantity + 1
-        next[idx] = { ...next[idx], quantity: q, total: q * next[idx].unitPrice }
-        return next
-      }
+      if (idx >= 0) { const next = [...prev]; const q = next[idx].quantity + 1; next[idx] = { ...next[idx], quantity: q, total: q * next[idx].unitPrice }; return next }
       return [...prev, { productId: p.id, productName: p.name, quantity: 1, unitPrice: p.salePrice, total: p.salePrice }]
     })
+    setAddedAnim(s => new Set(s).add(p.id))
+    setTimeout(() => setAddedAnim(s => { const n = new Set(s); n.delete(p.id); return n }), 400)
   }
   function changeQty(productId: string, delta: number) {
     setCart(prev => prev.flatMap(x => {
       if (x.productId !== productId) return [x]
       const q = x.quantity + delta
-      if (q <= 0) return []
-      return [{ ...x, quantity: q, total: q * x.unitPrice }]
+      return q <= 0 ? [] : [{ ...x, quantity: q, total: q * x.unitPrice }]
     }))
   }
   function qtyOf(id: string) { return cart.find(x => x.productId === id)?.quantity ?? 0 }
 
   async function generatePixQr(amount: number) {
     if (!config.pixKey) return
-    try {
-      const payload = buildPixPayload(config.pixKey, amount, config.pixName || config.storeName, config.pixCity)
-      setPixQr(await QRCode.toDataURL(payload, { width: 240, margin: 2 }))
-    } catch { /* ignore */ }
+    try { setPixQr(await QRCode.toDataURL(buildPixPayload(config.pixKey, amount, config.pixName || config.storeName, config.pixCity), { width: 240, margin: 2 })) } catch { /* ignore */ }
   }
 
   function validateStep(): string | null {
@@ -173,42 +147,28 @@ export default function Pedido() {
     }
     if (checkStep === 'address') {
       if (!street.trim() || !houseNumber.trim()) return 'Informe o endereço completo'
-      if (config.zones.length > 0 && !neighborhood) return 'Selecione o bairro de entrega'
+      if ((config.zones?.length ?? 0) > 0 && !neighborhood) return 'Selecione o bairro de entrega'
       if (belowMin) return `Pedido mínimo de ${fmt(config.minOrder)}`
     }
     return null
   }
-
   function nextStep() {
-    const err = validateStep()
-    if (err) { setError(err); return }
+    const err = validateStep(); if (err) { setError(err); return }
     setError('')
-    const idx = STEPS.indexOf(checkStep)
-    if (idx < STEPS.length - 1) setCheckStep(STEPS[idx + 1])
+    const idx = STEPS.indexOf(checkStep); if (idx < STEPS.length - 1) setCheckStep(STEPS[idx + 1])
   }
-
   function prevStep() {
     const idx = STEPS.indexOf(checkStep)
-    if (idx === 0) { setShowCheckout(false); setShowCart(true) }
-    else setCheckStep(STEPS[idx - 1])
+    if (idx === 0) { setShowCheckout(false); setShowCart(true) } else setCheckStep(STEPS[idx - 1])
   }
 
   async function handleSubmit() {
     setError('')
     const order: OnlineOrder = {
-      id: genId(),
-      createdAt: new Date().toISOString(),
-      status: 'pending',
-      customerName: name.trim(),
-      customerPhone: phoneInput.replace(/\D/g, ''),
-      address: {
-        street: street.trim(), number: houseNumber.trim(), neighborhood,
-        complement: complement.trim() || undefined,
-        reference: reference.trim() || undefined,
-      },
-      items: cart,
-      subtotal, deliveryFee, total,
-      payment,
+      id: genId(), createdAt: new Date().toISOString(), status: 'pending',
+      customerName: name.trim(), customerPhone: phoneInput.replace(/\D/g, ''),
+      address: { street: street.trim(), number: houseNumber.trim(), neighborhood, complement: complement.trim() || undefined, reference: reference.trim() || undefined },
+      items: cart, subtotal, deliveryFee, total, payment,
       trocoPara: payment === 'dinheiro' && trocoPara ? parseFloat(trocoPara) : undefined,
       notes: notes.trim() || undefined,
     }
@@ -218,25 +178,33 @@ export default function Pedido() {
     if (!ok) { setError('Não foi possível enviar. Tente novamente.'); return }
     saveProfile({ name: name.trim(), phone: phoneInput.replace(/\D/g, ''), street: street.trim(), houseNumber: houseNumber.trim(), neighborhood, complement: complement.trim(), reference: reference.trim() })
     if (payment === 'pix') generatePixQr(total)
-    setConfirmed(order)
-    setStage('success')
+    setConfirmed(order); setStage('success')
   }
 
-  // ── Loading ──────────────────────────────────────────────────────────────────
+  // ── Splash / Loading ──────────────────────────────────────────────────────────
   if (stage === 'loading') {
     return (
-      <div className="min-h-screen bg-[#0F0F0F]">
-        <div className="h-52 bg-[#181818] animate-pulse" />
-        <div className="p-4 space-y-3">
-          {[1, 2, 3, 4].map(i => (
-            <div key={i} className="h-[88px] bg-[#1a1a1a] rounded-2xl animate-pulse" style={{ opacity: 1 - i * 0.15 }} />
-          ))}
+      <div className="min-h-screen bg-[#0F0F0F] flex flex-col items-center justify-center gap-6">
+        <div className="relative">
+          <div className="w-24 h-24 rounded-3xl bg-[#F5C542] flex items-center justify-center"
+            style={{ boxShadow: '0 0 60px rgba(245,197,66,0.4)', animation: 'pulse 2s ease-in-out infinite' }}>
+            <Store size={40} className="text-[#0F0F0F]" />
+          </div>
+        </div>
+        <div className="text-center space-y-3">
+          <p className="text-white font-black text-lg tracking-tight">Preparando seu cardápio...</p>
+          <div className="flex justify-center gap-1.5">
+            {[0, 1, 2].map(i => (
+              <div key={i} className="w-2 h-2 rounded-full bg-[#F5C542]"
+                style={{ animation: 'bounce 1.2s ease-in-out infinite', animationDelay: `${i * 0.2}s` }} />
+            ))}
+          </div>
         </div>
       </div>
     )
   }
 
-  // ── Closed ───────────────────────────────────────────────────────────────────
+  // ── Closed ────────────────────────────────────────────────────────────────────
   if (stage === 'closed') {
     return (
       <div className="min-h-screen bg-[#0F0F0F] flex items-center justify-center p-6">
@@ -244,18 +212,14 @@ export default function Pedido() {
           <div className="w-20 h-20 rounded-3xl bg-[#1e1e1e] border border-white/8 flex items-center justify-center mx-auto">
             <Store size={32} className="text-[#F5C542]" />
           </div>
-          <div>
-            <h1 className="text-2xl font-black text-white">{config.storeName || 'Loja'}</h1>
-            <p className="text-gray-500 text-sm mt-1 leading-relaxed">
-              Pedidos online fechados no momento.<br />Volte mais tarde! 🙏
-            </p>
-          </div>
+          <h1 className="text-2xl font-black text-white">{config.storeName || 'Loja'}</h1>
+          <p className="text-gray-500 text-sm leading-relaxed">Pedidos online fechados no momento.<br />Volte mais tarde! 🙏</p>
         </div>
       </div>
     )
   }
 
-  // ── Success ──────────────────────────────────────────────────────────────────
+  // ── Success ───────────────────────────────────────────────────────────────────
   if (stage === 'success' && confirmed) {
     const waLink = config.whatsapp
       ? `https://wa.me/55${config.whatsapp.replace(/\D/g, '')}?text=${encodeURIComponent(`Olá! Fiz um pedido pelo site (${fmt(confirmed.total)}) — nome: ${confirmed.customerName}.`)}`
@@ -264,28 +228,23 @@ export default function Pedido() {
       <div className="min-h-screen bg-[#0F0F0F] text-white">
         <div className="max-w-md mx-auto p-5 pb-12 space-y-5">
           <div className="text-center pt-10 space-y-4">
-            <div className="w-24 h-24 rounded-full bg-[#F5C542] flex items-center justify-center mx-auto shadow-[0_0_50px_rgba(245,197,66,0.35)]">
+            <div className="w-24 h-24 rounded-full bg-[#F5C542] flex items-center justify-center mx-auto"
+              style={{ boxShadow: '0 0 50px rgba(245,197,66,0.35)' }}>
               <Check size={44} className="text-[#0F0F0F]" strokeWidth={3} />
             </div>
             <div>
               <h1 className="text-2xl font-black">Pedido enviado! 🎉</h1>
-              <p className="text-gray-400 text-sm mt-1 leading-relaxed">
-                {config.storeName} recebeu e já está preparando.<br />Acompanhe pelo WhatsApp.
-              </p>
+              <p className="text-gray-400 text-sm mt-1 leading-relaxed">{config.storeName} recebeu e já está preparando.</p>
             </div>
           </div>
 
           {payment === 'pix' && pixQr && (
             <div className="bg-[#1a1a1a] border border-[#F5C542]/20 rounded-2xl p-5 text-center space-y-3">
-              <p className="font-bold text-[#F5C542] flex items-center justify-center gap-2 text-sm">
-                <QrIcon size={15} /> Pague com PIX
-              </p>
+              <p className="font-bold text-[#F5C542] flex items-center justify-center gap-2 text-sm"><QrIcon size={15} /> Pague com PIX</p>
               <img src={pixQr} alt="QR Code PIX" className="mx-auto rounded-xl bg-white p-2" width={180} height={180} />
               <p className="text-3xl font-black">{fmt(confirmed.total)}</p>
-              <button
-                onClick={() => navigator.clipboard.writeText(buildPixPayload(config.pixKey, confirmed.total, config.pixName || config.storeName, config.pixCity))}
-                className="text-xs text-[#F5C542] flex items-center justify-center gap-1.5 mx-auto hover:underline"
-              >
+              <button onClick={() => navigator.clipboard.writeText(buildPixPayload(config.pixKey, confirmed.total, config.pixName || config.storeName, config.pixCity))}
+                className="text-xs text-[#F5C542] flex items-center justify-center gap-1.5 mx-auto hover:underline">
                 <Copy size={12} /> Copiar código PIX
               </button>
             </div>
@@ -302,9 +261,7 @@ export default function Pedido() {
             <div className="border-t border-white/8 pt-2 mt-1 space-y-1.5">
               <div className="flex justify-between text-sm text-gray-500"><span>Subtotal</span><span>{fmt(confirmed.subtotal)}</span></div>
               <div className="flex justify-between text-sm text-gray-500"><span>Entrega</span><span>{fmt(confirmed.deliveryFee)}</span></div>
-              <div className="flex justify-between font-black text-base pt-1">
-                <span>Total</span><span className="text-[#F5C542]">{fmt(confirmed.total)}</span>
-              </div>
+              <div className="flex justify-between font-black text-base pt-1"><span>Total</span><span className="text-[#F5C542]">{fmt(confirmed.total)}</span></div>
             </div>
           </div>
 
@@ -318,26 +275,24 @@ export default function Pedido() {
               Falar no WhatsApp
             </a>
           )}
-          <button onClick={() => window.location.reload()} className="w-full text-center text-gray-600 text-sm py-2">
-            Fazer outro pedido
-          </button>
+          <button onClick={() => window.location.reload()} className="w-full text-center text-gray-600 text-sm py-2">Fazer outro pedido</button>
         </div>
       </div>
     )
   }
 
-  // ── Menu ─────────────────────────────────────────────────────────────────────
+  // ── Menu ──────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gray-50 pb-28">
+    <div className="min-h-screen bg-[#F5F5F5] pb-28">
 
-      {/* Header */}
+      {/* ── Header ── */}
       <header className="bg-[#0F0F0F] text-white px-5 pt-8 pb-7 relative overflow-hidden">
         <div className="absolute inset-0 pointer-events-none"
-          style={{ background: 'radial-gradient(ellipse at 90% 40%, rgba(245,197,66,0.12) 0%, transparent 65%)' }} />
+          style={{ background: 'radial-gradient(ellipse at 85% 50%, rgba(245,197,66,0.14) 0%, transparent 60%)' }} />
         <div className="max-w-md mx-auto relative">
           <div className="flex items-center gap-4">
             <div className="w-14 h-14 rounded-2xl bg-[#F5C542] flex items-center justify-center shrink-0"
-              style={{ boxShadow: '0 0 24px rgba(245,197,66,0.35)' }}>
+              style={{ boxShadow: '0 0 28px rgba(245,197,66,0.4)' }}>
               <Store size={26} className="text-[#0F0F0F]" />
             </div>
             <div className="flex-1 min-w-0">
@@ -345,7 +300,7 @@ export default function Pedido() {
               <div className="flex items-center gap-2 mt-1.5">
                 <span className="flex items-center gap-1.5 text-xs">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
-                  <span className="text-green-400 font-medium">Aberto</span>
+                  <span className="text-green-400 font-medium">Aberto agora</span>
                 </span>
                 <span className="text-gray-600 text-xs">·</span>
                 <span className="flex items-center gap-1 text-xs text-gray-400"><Bike size={11} /> Delivery</span>
@@ -360,10 +315,59 @@ export default function Pedido() {
         </div>
       </header>
 
-      {/* Category bar */}
+      {/* ── Featured carousel ── */}
+      {featured.length > 0 && (
+        <div className="bg-white pt-4 pb-2 border-b border-gray-100">
+          <div className="max-w-md mx-auto">
+            <p className="text-xs font-black text-gray-500 uppercase tracking-widest px-4 mb-3 flex items-center gap-1.5">
+              <Star size={11} className="text-[#F5C542] fill-[#F5C542]" /> Destaques
+            </p>
+            <div className="flex gap-3 px-4 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none' }}>
+              {featured.map(p => {
+                const q = qtyOf(p.id)
+                return (
+                  <div key={p.id} className="shrink-0 w-40 rounded-2xl overflow-hidden border border-gray-100 shadow-sm bg-white">
+                    <div className="relative h-24 overflow-hidden">
+                      <img src={getImg(p)} alt={p.name} className="w-full h-full object-cover" loading="lazy"
+                        onError={e => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex' }} />
+                      <div className="hidden w-full h-full items-center justify-center text-3xl"
+                        style={{ background: `${CAT[p.category]?.color || '#888'}22` }}>
+                        {CAT[p.category]?.emoji}
+                      </div>
+                      <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.45) 0%, transparent 55%)' }} />
+                      <span className="absolute top-2 left-2 text-[10px] font-black bg-[#F5C542] text-[#0F0F0F] px-1.5 py-0.5 rounded-full leading-none">
+                        DESTAQUE
+                      </span>
+                    </div>
+                    <div className="p-2.5">
+                      <p className="text-xs font-bold text-gray-900 leading-tight line-clamp-1">{p.name}</p>
+                      <p className="text-sm font-black text-gray-900 mt-0.5">{fmt(p.salePrice)}</p>
+                      <div className="mt-2">
+                        {q === 0 ? (
+                          <button onClick={() => addToCart(p)}
+                            className={`w-full bg-[#F5C542] text-[#0F0F0F] rounded-lg py-1.5 text-xs font-black flex items-center justify-center gap-1 transition-transform ${addedAnim.has(p.id) ? 'scale-90' : 'scale-100'}`}>
+                            <Plus size={13} /> Adicionar
+                          </button>
+                        ) : (
+                          <div className="flex items-center justify-between bg-[#0F0F0F] rounded-lg px-1.5 py-1">
+                            <button onClick={() => changeQty(p.id, -1)} className="w-6 h-6 flex items-center justify-center text-white"><Minus size={12} /></button>
+                            <span className="text-white font-black text-xs">{q}</span>
+                            <button onClick={() => changeQty(p.id, 1)} className="w-6 h-6 flex items-center justify-center text-[#F5C542]"><Plus size={12} /></button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Category bar ── */}
       <div className="sticky top-0 z-20 bg-white border-b border-gray-100 shadow-sm">
-        <div className="max-w-md mx-auto flex gap-2 px-4 py-3 overflow-x-auto"
-          style={{ scrollbarWidth: 'none' }}>
+        <div className="max-w-md mx-auto flex gap-2 px-4 py-3 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
           <button onClick={() => setActiveCat('all')}
             className={`whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${activeCat === 'all' ? 'bg-[#0F0F0F] text-[#F5C542]' : 'bg-gray-100 text-gray-500'}`}>
             Todos
@@ -371,60 +375,58 @@ export default function Pedido() {
           {categories.filter(c => c !== 'all').map(cat => (
             <button key={cat} onClick={() => setActiveCat(cat)}
               className={`whitespace-nowrap flex items-center gap-1.5 px-4 py-1.5 rounded-full text-xs font-bold transition-all shrink-0 ${activeCat === cat ? 'bg-[#0F0F0F] text-[#F5C542]' : 'bg-gray-100 text-gray-500'}`}>
-              <span>{CAT[cat]?.emoji}</span>
-              {CAT[cat]?.label || cat}
+              <span>{CAT[cat]?.emoji}</span> {CAT[cat]?.label || cat}
             </button>
           ))}
         </div>
       </div>
 
-      {/* Product list */}
+      {/* ── Product list ── */}
       <div className="max-w-md mx-auto p-4 space-y-3">
         {visible.length === 0 ? (
-          <div className="text-center py-16 space-y-2">
-            <p className="text-4xl">🍽️</p>
-            <p className="text-gray-400 text-sm">Nenhum item disponível.</p>
-          </div>
+          <div className="text-center py-16"><p className="text-4xl mb-2">🍽️</p><p className="text-gray-400 text-sm">Nenhum item disponível.</p></div>
         ) : visible.map(p => {
           const q = qtyOf(p.id)
           const cat = CAT[p.category]
+          const img = getImg(p)
           return (
-            <div key={p.id} className={`bg-white rounded-2xl overflow-hidden shadow-sm ${p.featured ? 'border-2 border-[#F5C542]' : 'border border-gray-100'}`}>
-              <div className="h-1" style={{ background: cat?.color || '#6B7280' }} />
-              <div className="p-4 flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 relative"
-                  style={{ background: `${cat?.color || '#6B7280'}18` }}>
-                  {cat?.emoji || '🍽️'}
-                  {p.featured && (
-                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#F5C542] rounded-full flex items-center justify-center">
-                      <Star size={9} className="text-[#0F0F0F] fill-[#0F0F0F]" />
-                    </span>
-                  )}
+            <div key={p.id} className={`bg-white rounded-2xl overflow-hidden shadow-sm ${p.featured ? 'ring-2 ring-[#F5C542]' : 'border border-gray-100'}`}>
+              {/* Image strip */}
+              <div className="relative h-36 overflow-hidden">
+                <img src={img} alt={p.name} className="w-full h-full object-cover" loading="lazy"
+                  onError={e => { e.currentTarget.style.display = 'none'; (e.currentTarget.nextElementSibling as HTMLElement).style.display = 'flex' }} />
+                <div className="hidden w-full h-full items-center justify-center text-5xl"
+                  style={{ background: `${cat?.color || '#888'}18` }}>
+                  {cat?.emoji}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="font-bold text-gray-900 leading-tight">{p.name}</p>
-                    {p.featured && (
-                      <span className="shrink-0 text-[10px] font-black bg-[#F5C542] text-[#0F0F0F] px-1.5 py-0.5 rounded-full leading-none">
-                        DESTAQUE
-                      </span>
-                    )}
+                <div className="absolute inset-0" style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 50%)' }} />
+                {p.featured && (
+                  <span className="absolute top-2.5 left-2.5 text-[10px] font-black bg-[#F5C542] text-[#0F0F0F] px-2 py-0.5 rounded-full">
+                    ⭐ DESTAQUE
+                  </span>
+                )}
+                <div className="absolute bottom-2.5 left-3 right-3 flex items-end justify-between">
+                  <div>
+                    <p className="text-white font-black text-base leading-tight drop-shadow">{p.name}</p>
+                    {p.description && <p className="text-white/70 text-xs mt-0.5 line-clamp-1">{p.description}</p>}
                   </div>
-                  {p.description
-                    ? <p className="text-xs text-gray-500 mt-0.5 leading-snug line-clamp-2">{p.description}</p>
-                    : <p className="text-xs text-gray-400 mt-0.5">{cat?.label || p.category}</p>
-                  }
-                  <p className="text-base font-black text-gray-900 mt-1.5">{fmt(p.salePrice)}</p>
+                </div>
+              </div>
+              {/* Bottom row */}
+              <div className="px-3 py-2.5 flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-gray-400">{cat?.label}</span>
+                  <p className="text-lg font-black text-gray-900 leading-tight">{fmt(p.salePrice)}</p>
                 </div>
                 {q === 0 ? (
                   <button onClick={() => addToCart(p)}
-                    className="shrink-0 w-10 h-10 rounded-xl bg-[#F5C542] text-[#0F0F0F] flex items-center justify-center active:scale-90 transition-transform">
-                    <Plus size={20} strokeWidth={2.5} />
+                    className={`bg-[#F5C542] text-[#0F0F0F] px-4 py-2 rounded-xl font-black text-sm flex items-center gap-1.5 transition-transform ${addedAnim.has(p.id) ? 'scale-90' : 'scale-100'}`}>
+                    <Plus size={16} strokeWidth={2.5} /> Adicionar
                   </button>
                 ) : (
-                  <div className="shrink-0 flex items-center gap-1 bg-[#0F0F0F] rounded-xl px-1.5 py-1">
+                  <div className="flex items-center gap-1.5 bg-[#0F0F0F] rounded-xl px-2 py-1.5">
                     <button onClick={() => changeQty(p.id, -1)} className="w-7 h-7 rounded-lg flex items-center justify-center text-white"><Minus size={14} /></button>
-                    <span className="text-white font-bold w-5 text-center text-sm">{q}</span>
+                    <span className="text-white font-black w-5 text-center text-sm">{q}</span>
                     <button onClick={() => changeQty(p.id, 1)} className="w-7 h-7 rounded-lg flex items-center justify-center text-[#F5C542]"><Plus size={14} /></button>
                   </div>
                 )}
@@ -434,7 +436,7 @@ export default function Pedido() {
         })}
       </div>
 
-      {/* Floating cart bar */}
+      {/* ── Floating cart ── */}
       {cartCount > 0 && !showCart && !showCheckout && (
         <div className="fixed bottom-0 left-0 right-0 p-4 z-30 pointer-events-none">
           <div className="max-w-md mx-auto pointer-events-auto">
@@ -450,19 +452,14 @@ export default function Pedido() {
         </div>
       )}
 
-      {/* ── Cart sheet ──────────────────────────────────────────────────────── */}
+      {/* ── Cart sheet ── */}
       {showCart && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center" onClick={() => setShowCart(false)}>
           <div className="bg-white w-full max-w-md rounded-t-3xl max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 shrink-0">
-              <h2 className="font-black text-gray-900 text-lg flex items-center gap-2.5">
-                <ShoppingBag size={19} /> Sua sacola
-              </h2>
-              <button onClick={() => setShowCart(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500">
-                <X size={16} />
-              </button>
+              <h2 className="font-black text-gray-900 text-lg flex items-center gap-2.5"><ShoppingBag size={19} /> Sua sacola</h2>
+              <button onClick={() => setShowCart(false)} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500"><X size={16} /></button>
             </div>
-
             <div className="overflow-y-auto flex-1 px-5 py-3 space-y-3">
               {cart.map(item => (
                 <div key={item.productId} className="flex items-center gap-3">
@@ -476,16 +473,9 @@ export default function Pedido() {
                 </div>
               ))}
             </div>
-
             <div className="px-5 pb-6 pt-3 border-t border-gray-100 shrink-0 space-y-3">
-              {belowMin && (
-                <div className="bg-orange-50 text-orange-600 text-xs text-center rounded-xl py-2 font-medium">
-                  Mínimo {fmt(config.minOrder)} — faltam {fmt(config.minOrder - subtotal)}
-                </div>
-              )}
-              <div className="flex justify-between font-black text-gray-900 text-base">
-                <span>Subtotal</span><span>{fmt(subtotal)}</span>
-              </div>
+              {belowMin && <div className="bg-orange-50 text-orange-600 text-xs text-center rounded-xl py-2 font-medium">Mínimo {fmt(config.minOrder)} — faltam {fmt(config.minOrder - subtotal)}</div>}
+              <div className="flex justify-between font-black text-gray-900 text-base"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
               <button onClick={() => { setShowCart(false); setShowCheckout(true); setCheckStep('id') }} disabled={belowMin}
                 className="w-full bg-[#F5C542] text-[#0F0F0F] py-4 rounded-2xl font-black flex items-center justify-center gap-2 disabled:opacity-50 active:scale-[0.98] transition-transform text-sm">
                 Continuar <ChevronRight size={18} />
@@ -495,186 +485,103 @@ export default function Pedido() {
         </div>
       )}
 
-      {/* ── Checkout sheet ──────────────────────────────────────────────────── */}
+      {/* ── Checkout sheet ── */}
       {showCheckout && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center">
           <div className="bg-white w-full max-w-md rounded-t-3xl max-h-[93vh] flex flex-col">
-
-            {/* Step header */}
             <div className="flex items-center gap-3 px-5 py-4 border-b border-gray-100 shrink-0">
-              <button onClick={prevStep} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500">
-                <ArrowLeft size={16} />
-              </button>
+              <button onClick={prevStep} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500"><ArrowLeft size={16} /></button>
               <div className="flex-1">
-                <p className="font-black text-gray-900 text-base">
-                  {checkStep === 'id' ? 'Identificação' : checkStep === 'address' ? 'Endereço de entrega' : 'Forma de pagamento'}
-                </p>
-                <p className="text-xs text-gray-400">
-                  {checkStep === 'id' ? 'Passo 1 de 3' : checkStep === 'address' ? 'Passo 2 de 3' : 'Passo 3 de 3'}
-                </p>
+                <p className="font-black text-gray-900">{checkStep === 'id' ? 'Identificação' : checkStep === 'address' ? 'Endereço de entrega' : 'Forma de pagamento'}</p>
+                <p className="text-xs text-gray-400">{checkStep === 'id' ? 'Passo 1 de 3' : checkStep === 'address' ? 'Passo 2 de 3' : 'Passo 3 de 3'}</p>
               </div>
-              {/* Progress dots */}
               <div className="flex items-center gap-1.5">
-                {STEPS.map((s, i) => {
-                  const current = STEPS.indexOf(checkStep)
-                  return (
-                    <div key={s} className={`rounded-full transition-all duration-300 ${
-                      i === current ? 'w-6 h-2 bg-[#F5C542]' :
-                      i < current ? 'w-2 h-2 bg-[#c49a20]' : 'w-2 h-2 bg-gray-200'
-                    }`} />
-                  )
-                })}
+                {STEPS.map((s, i) => { const cur = STEPS.indexOf(checkStep); return <div key={s} className={`rounded-full transition-all duration-300 ${i === cur ? 'w-6 h-2 bg-[#F5C542]' : i < cur ? 'w-2 h-2 bg-[#c49a20]' : 'w-2 h-2 bg-gray-200'}`} /> })}
               </div>
             </div>
 
             <div className="overflow-y-auto flex-1 px-5 py-5 space-y-4">
-
-              {/* ── Step 1: Identificação ─────────────────────────────────── */}
               {checkStep === 'id' && (
                 <>
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
-                      <Phone size={11} className="text-[#F5C542]" /> WhatsApp
-                    </label>
-                    <input
-                      value={phoneInput}
-                      onChange={e => setPhoneInput(fmtPhone(e.target.value))}
-                      placeholder="(22) 99999-8888"
-                      inputMode="numeric"
-                      autoFocus
-                      className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-4 py-3.5 text-base font-semibold outline-none transition-colors"
-                    />
-                    <p className="text-xs text-gray-400">Usamos para identificar seu cadastro e confirmar o pedido.</p>
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5"><Phone size={11} className="text-[#F5C542]" /> WhatsApp</label>
+                    <input value={phoneInput} onChange={e => setPhoneInput(fmtPhone(e.target.value))} placeholder="(22) 99999-8888" inputMode="numeric" autoFocus
+                      className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-4 py-3.5 text-base font-semibold outline-none transition-colors" />
+                    <p className="text-xs text-gray-400">Usamos para identificar seu cadastro.</p>
                   </div>
-
-                  {/* Profile found banner */}
                   {profileFound && (
                     <div className="flex items-center gap-3 bg-green-50 border border-green-200 rounded-2xl px-4 py-3.5">
-                      <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center shrink-0">
-                        <User size={18} className="text-green-600" />
-                      </div>
+                      <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center shrink-0"><User size={18} className="text-green-600" /></div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-black text-green-900">Olá, {profileFound.name}! 👋</p>
-                        <p className="text-xs text-green-600 mt-0.5">Encontramos seu endereço salvo.</p>
+                        <p className="text-xs text-green-600 mt-0.5">Endereço salvo encontrado.</p>
                       </div>
-                      <button onClick={() => {
-                        setProfileFound(null)
-                        setName(''); setStreet(''); setHouseNumber('')
-                        setNeighborhood(''); setComplement(''); setReference('')
-                      }} className="text-xs text-green-500 underline shrink-0 font-medium">
-                        Não sou eu
-                      </button>
+                      <button onClick={() => { setProfileFound(null); setName(''); setStreet(''); setHouseNumber(''); setNeighborhood(''); setComplement(''); setReference('') }}
+                        className="text-xs text-green-500 underline shrink-0 font-medium">Não sou eu</button>
                     </div>
                   )}
-
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5">
-                      <User size={11} className="text-[#F5C542]" /> Nome completo
-                    </label>
-                    <input
-                      value={name}
-                      onChange={e => setName(e.target.value)}
-                      placeholder="João da Silva"
-                      className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-4 py-3.5 text-sm outline-none transition-colors"
-                    />
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5"><User size={11} className="text-[#F5C542]" /> Nome completo</label>
+                    <input value={name} onChange={e => setName(e.target.value)} placeholder="João da Silva"
+                      className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-4 py-3.5 text-sm outline-none transition-colors" />
                   </div>
                 </>
               )}
 
-              {/* ── Step 2: Endereço ──────────────────────────────────────── */}
               {checkStep === 'address' && (
                 <>
-                  {profileFound && (
-                    <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5">
-                      <Check size={13} className="text-blue-500 shrink-0" />
-                      <p className="text-xs text-blue-700 font-medium">Endereço pré-preenchido — confira e edite se necessário.</p>
-                    </div>
-                  )}
+                  {profileFound && <div className="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-2.5"><Check size={13} className="text-blue-500 shrink-0" /><p className="text-xs text-blue-700 font-medium">Endereço pré-preenchido — confirme e edite se necessário.</p></div>}
                   <div className="space-y-3">
                     <div className="flex gap-3">
                       <div className="flex-1 space-y-1.5">
                         <label className="text-xs font-bold text-gray-500 uppercase tracking-wide block">Rua / Avenida</label>
-                        <input value={street} onChange={e => setStreet(e.target.value)} placeholder="Rua das Flores"
-                          className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
+                        <input value={street} onChange={e => setStreet(e.target.value)} placeholder="Rua das Flores" className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
                       </div>
                       <div className="w-24 space-y-1.5">
                         <label className="text-xs font-bold text-gray-500 uppercase tracking-wide block">Nº</label>
-                        <input value={houseNumber} onChange={e => setHouseNumber(e.target.value)} placeholder="123"
-                          inputMode="numeric"
-                          className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
+                        <input value={houseNumber} onChange={e => setHouseNumber(e.target.value)} placeholder="123" inputMode="numeric" className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
                       </div>
                     </div>
-
                     <div className="space-y-1.5">
-                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1">
-                        <MapPin size={10} className="text-[#F5C542]" /> Bairro
-                      </label>
-                      {config.zones.length > 0 ? (
-                        <select value={neighborhood} onChange={e => setNeighborhood(e.target.value)}
-                          className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors bg-white">
+                      <label className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1"><MapPin size={10} className="text-[#F5C542]" /> Bairro</label>
+                      {(config.zones?.length ?? 0) > 0 ? (
+                        <select value={neighborhood} onChange={e => setNeighborhood(e.target.value)} className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors bg-white">
                           <option value="">Selecione o bairro...</option>
-                          {config.zones.map(z => <option key={z.id} value={z.neighborhood}>{z.neighborhood} — {fmt(z.fee)}</option>)}
+                          {config.zones?.map(z => <option key={z.id} value={z.neighborhood}>{z.neighborhood} — {fmt(z.fee)}</option>)}
                         </select>
                       ) : (
-                        <input value={neighborhood} onChange={e => setNeighborhood(e.target.value)} placeholder="Bairro"
-                          className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
+                        <input value={neighborhood} onChange={e => setNeighborhood(e.target.value)} placeholder="Bairro" className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
                       )}
                     </div>
-
-                    <input value={complement} onChange={e => setComplement(e.target.value)} placeholder="Complemento (apto, bloco...) — opcional"
-                      className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
-                    <input value={reference} onChange={e => setReference(e.target.value)} placeholder="Ponto de referência — opcional"
-                      className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
+                    <input value={complement} onChange={e => setComplement(e.target.value)} placeholder="Complemento (apto, bloco...) — opcional" className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
+                    <input value={reference} onChange={e => setReference(e.target.value)} placeholder="Ponto de referência — opcional" className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
                   </div>
                 </>
               )}
 
-              {/* ── Step 3: Pagamento ──────────────────────────────────────── */}
               {checkStep === 'payment' && (
                 <div className="space-y-4">
                   <div className="space-y-2.5">
-                    {([
-                      ['pix',      '📱', 'PIX',     'Escaneie o QR no app do banco'],
-                      ['dinheiro', '💵', 'Dinheiro', 'Entregador leva troco'],
-                      ['cartao',   '💳', 'Cartão',   'Maquininha na entrega'],
-                    ] as const).map(([val, emoji, label, desc]) => (
+                    {([['pix', '📱', 'PIX', 'Escaneie o QR no app do banco'], ['dinheiro', '💵', 'Dinheiro', 'Entregador leva troco'], ['cartao', '💳', 'Cartão', 'Maquininha na entrega']] as const).map(([val, emoji, label, desc]) => (
                       <button key={val} type="button" onClick={() => setPayment(val)}
-                        className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl border-2 text-left transition-all ${
-                          payment === val ? 'border-[#F5C542] bg-yellow-50' : 'border-gray-200'
-                        }`}>
+                        className={`w-full flex items-center gap-4 px-4 py-4 rounded-2xl border-2 text-left transition-all ${payment === val ? 'border-[#F5C542] bg-yellow-50' : 'border-gray-200'}`}>
                         <span className="text-2xl">{emoji}</span>
-                        <div className="flex-1">
-                          <p className={`text-sm font-black ${payment === val ? 'text-[#0F0F0F]' : 'text-gray-700'}`}>{label}</p>
-                          <p className="text-xs text-gray-400 mt-0.5">{desc}</p>
-                        </div>
+                        <div className="flex-1"><p className={`text-sm font-black ${payment === val ? 'text-[#0F0F0F]' : 'text-gray-700'}`}>{label}</p><p className="text-xs text-gray-400 mt-0.5">{desc}</p></div>
                         <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${payment === val ? 'border-[#c49a20] bg-[#F5C542]' : 'border-gray-300'}`}>
                           {payment === val && <Check size={11} className="text-[#0F0F0F]" strokeWidth={3} />}
                         </div>
                       </button>
                     ))}
                   </div>
-
-                  {payment === 'dinheiro' && (
-                    <input value={trocoPara} onChange={e => setTrocoPara(e.target.value)} placeholder="Troco para quanto? (deixe vazio se não precisar)"
-                      inputMode="numeric"
-                      className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />
-                  )}
-
+                  {payment === 'dinheiro' && <input value={trocoPara} onChange={e => setTrocoPara(e.target.value)} placeholder="Troco para quanto? (opcional)" inputMode="numeric" className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors" />}
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wide block">Observações (opcional)</label>
-                    <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
-                      placeholder="Ex: sem cebola, sem campainha..."
-                      className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors resize-none" />
+                    <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} placeholder="Ex: sem cebola, sem campainha..." className="w-full border-2 border-gray-200 focus:border-[#F5C542] rounded-xl px-3 py-3 text-sm outline-none transition-colors resize-none" />
                   </div>
-
-                  {/* Order summary */}
                   <div className="bg-gray-50 rounded-2xl p-4 space-y-2">
                     <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Resumo</p>
                     {cart.map(i => (
-                      <div key={i.productId} className="flex justify-between text-sm">
-                        <span className="text-gray-600">{i.quantity}× {i.productName}</span>
-                        <span className="text-gray-400">{fmt(i.total)}</span>
-                      </div>
+                      <div key={i.productId} className="flex justify-between text-sm"><span className="text-gray-600">{i.quantity}× {i.productName}</span><span className="text-gray-400">{fmt(i.total)}</span></div>
                     ))}
                     <div className="border-t border-gray-200 pt-2 mt-1 space-y-1">
                       <div className="flex justify-between text-sm text-gray-500"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
@@ -685,27 +592,17 @@ export default function Pedido() {
                 </div>
               )}
 
-              {error && (
-                <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600 text-center font-medium">
-                  {error}
-                </div>
-              )}
+              {error && <div className="bg-red-50 border border-red-100 rounded-xl px-4 py-3 text-sm text-red-600 text-center font-medium">{error}</div>}
             </div>
 
-            {/* CTA button */}
             <div className="px-5 pb-6 pt-3 border-t border-gray-100 shrink-0">
               {checkStep !== 'payment' ? (
-                <button onClick={nextStep}
-                  className="w-full bg-[#F5C542] text-[#0F0F0F] py-4 rounded-2xl font-black flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
+                <button onClick={nextStep} className="w-full bg-[#F5C542] text-[#0F0F0F] py-4 rounded-2xl font-black flex items-center justify-center gap-2 active:scale-[0.98] transition-transform">
                   Continuar <ChevronRight size={18} />
                 </button>
               ) : (
-                <button onClick={handleSubmit} disabled={sending}
-                  className="w-full bg-[#F5C542] text-[#0F0F0F] py-4 rounded-2xl font-black flex items-center justify-center gap-2 disabled:opacity-60 active:scale-[0.98] transition-transform">
-                  {sending
-                    ? <><Loader2 size={17} className="animate-spin" /> Enviando...</>
-                    : <>Enviar pedido · {fmt(total)}</>
-                  }
+                <button onClick={handleSubmit} disabled={sending} className="w-full bg-[#F5C542] text-[#0F0F0F] py-4 rounded-2xl font-black flex items-center justify-center gap-2 disabled:opacity-60 active:scale-[0.98] transition-transform">
+                  {sending ? <><Loader2 size={17} className="animate-spin" /> Enviando...</> : <>Enviar pedido · {fmt(total)}</>}
                 </button>
               )}
             </div>
