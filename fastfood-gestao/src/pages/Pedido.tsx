@@ -6,7 +6,7 @@ import { buildPixPayload } from '../store/pix'
 import type { DeliveryConfig, OnlineOrder, Product, SaleItem } from '../types'
 import {
   ShoppingBag, Plus, Minus, X, MapPin, User, Loader2, Check,
-  ChevronRight, QrCode as QrIcon, Copy, Bike, Clock, Store, ArrowLeft, Phone, Star,
+  ChevronRight, QrCode as QrIcon, Copy, Bike, Clock, ArrowLeft, Phone, Star,
 } from 'lucide-react'
 
 // ── Category config ───────────────────────────────────────────────────────────
@@ -14,7 +14,7 @@ const CAT: Record<string, { label: string; emoji: string; color: string; img: st
   macarrao:        { label: 'Macarrão',        emoji: '🍝', color: '#F97316', img: 'https://images.unsplash.com/photo-1555949258-eb67b1ef0ceb?w=600&q=75&auto=format&fit=crop' },
   hamburguer:      { label: 'Hambúrguer',      emoji: '🍔', color: '#EF4444', img: 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&q=75&auto=format&fit=crop' },
   cachorro_quente: { label: 'Cachorro Quente', emoji: '🌭', color: '#EAB308', img: 'https://images.unsplash.com/photo-1612392062631-94ab0c341f81?w=600&q=75&auto=format&fit=crop' },
-  bebida:          { label: 'Bebida',          emoji: '🥤', color: '#3B82F6', img: 'https://images.unsplash.com/photo-1544145945-f90425340c7e?w=600&q=75&auto=format&fit=crop' },
+  bebida:          { label: 'Bebida',          emoji: '🥤', color: '#3B82F6', img: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=600&q=75&auto=format&fit=crop' },
   outro:           { label: 'Outros',          emoji: '🍽️', color: '#8B5CF6', img: 'https://images.unsplash.com/photo-1504674900247-0877df9cc836?w=600&q=75&auto=format&fit=crop' },
 }
 
@@ -185,20 +185,13 @@ export default function Pedido() {
   if (stage === 'loading') {
     return (
       <div className="min-h-screen bg-[#0F0F0F] flex flex-col items-center justify-center gap-6">
-        <div className="relative">
-          <div className="w-24 h-24 rounded-3xl bg-[#F5C542] flex items-center justify-center"
-            style={{ boxShadow: '0 0 60px rgba(245,197,66,0.4)', animation: 'pulse 2s ease-in-out infinite' }}>
-            <Store size={40} className="text-[#0F0F0F]" />
-          </div>
-        </div>
-        <div className="text-center space-y-3">
-          <p className="text-white font-black text-lg tracking-tight">Preparando seu cardápio...</p>
-          <div className="flex justify-center gap-1.5">
-            {[0, 1, 2].map(i => (
-              <div key={i} className="w-2 h-2 rounded-full bg-[#F5C542]"
-                style={{ animation: 'bounce 1.2s ease-in-out infinite', animationDelay: `${i * 0.2}s` }} />
-            ))}
-          </div>
+        <img src="/logo.jpeg" alt="Macarrão na Chapa" className="w-44 h-44 object-contain rounded-3xl"
+          style={{ animation: 'pulse 2s ease-in-out infinite' }} />
+        <div className="flex justify-center gap-1.5">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="w-2 h-2 rounded-full bg-[#F5C542]"
+              style={{ animation: 'bounce 1.2s ease-in-out infinite', animationDelay: `${i * 0.2}s` }} />
+          ))}
         </div>
       </div>
     )
@@ -209,9 +202,8 @@ export default function Pedido() {
     return (
       <div className="min-h-screen bg-[#0F0F0F] flex items-center justify-center p-6">
         <div className="text-center space-y-4 max-w-xs">
-          <div className="w-20 h-20 rounded-3xl bg-[#1e1e1e] border border-white/8 flex items-center justify-center mx-auto">
-            <Store size={32} className="text-[#F5C542]" />
-          </div>
+          <img src="/logo.jpeg" alt="Logo" className="w-28 h-28 rounded-3xl object-cover mx-auto"
+            onError={e => { e.currentTarget.style.display = 'none' }} />
           <h1 className="text-2xl font-black text-white">{config.storeName || 'Loja'}</h1>
           <p className="text-gray-500 text-sm leading-relaxed">Pedidos online fechados no momento.<br />Volte mais tarde! 🙏</p>
         </div>
@@ -291,10 +283,9 @@ export default function Pedido() {
           style={{ background: 'radial-gradient(ellipse at 85% 50%, rgba(245,197,66,0.14) 0%, transparent 60%)' }} />
         <div className="max-w-md mx-auto relative">
           <div className="flex items-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-[#F5C542] flex items-center justify-center shrink-0"
-              style={{ boxShadow: '0 0 28px rgba(245,197,66,0.4)' }}>
-              <Store size={26} className="text-[#0F0F0F]" />
-            </div>
+            <img src="/logo.jpeg" alt="Logo" className="w-14 h-14 rounded-2xl object-cover shrink-0"
+              style={{ boxShadow: '0 0 28px rgba(245,197,66,0.4)' }}
+              onError={e => { e.currentTarget.style.display = 'none' }} />
             <div className="flex-1 min-w-0">
               <h1 className="text-2xl font-black tracking-tight leading-tight truncate">{config.storeName || 'Cardápio'}</h1>
               <div className="flex items-center gap-2 mt-1.5">
