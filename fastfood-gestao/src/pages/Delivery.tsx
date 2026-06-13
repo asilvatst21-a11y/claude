@@ -216,26 +216,48 @@ export default function Delivery() {
       {/* Bairros / taxas */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
         <h2 className="font-semibold text-gray-700 flex items-center gap-2"><MapPin size={16} className="text-[#F5C542]" /> Bairros e taxas de entrega</h2>
+
+        {/* Lista de bairros */}
         {(cfg.zones ?? []).length === 0 ? (
-          <p className="text-xs text-gray-400">Nenhum bairro cadastrado. Adicione os bairros que você atende e a taxa de cada um.</p>
+          <p className="text-xs text-gray-400">Nenhum bairro cadastrado. Adicione abaixo.</p>
         ) : (
           <div className="space-y-2">
             {(cfg.zones ?? []).map(z => (
-              <div key={z.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2">
-                <MapPin size={14} className="text-gray-400 shrink-0" />
+              <div key={z.id} className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5">
+                <MapPin size={13} className="text-gray-400 shrink-0" />
                 <span className="flex-1 text-sm text-gray-700">{z.neighborhood}</span>
-                <span className="text-sm font-semibold text-gray-800">{fmt(z.fee)}</span>
-                <button onClick={() => removeZone(z.id)} className="text-red-300 hover:text-red-500"><Trash2 size={15} /></button>
+                <span className="text-sm font-semibold text-[#c49a20]">{fmt(z.fee)}</span>
+                <button onClick={() => removeZone(z.id)} className="ml-1 text-red-300 hover:text-red-500 shrink-0"><Trash2 size={15} /></button>
               </div>
             ))}
           </div>
         )}
-        <div className="flex gap-2">
-          <input value={newZone.neighborhood} onChange={e => setNewZone(z => ({ ...z, neighborhood: e.target.value }))}
-            placeholder="Bairro" className={`flex-1 ${inputCls}`} onKeyDown={e => { if (e.key === 'Enter') addZone() }} />
-          <input value={newZone.fee} onChange={e => setNewZone(z => ({ ...z, fee: e.target.value }))}
-            placeholder="Taxa R$" inputMode="numeric" className={`w-24 ${inputCls}`} onKeyDown={e => { if (e.key === 'Enter') addZone() }} />
-          <button onClick={addZone} className="bg-[#0F0F0F] text-[#F5C542] px-3 rounded-xl shrink-0"><Plus size={18} /></button>
+
+        {/* Formulário de adição */}
+        <div className="border border-dashed border-gray-200 rounded-xl p-3 space-y-2">
+          <p className="text-xs font-semibold text-gray-400">Adicionar bairro</p>
+          <input
+            value={newZone.neighborhood}
+            onChange={e => setNewZone(v => ({ ...v, neighborhood: e.target.value }))}
+            placeholder="Nome do bairro"
+            className="block w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
+          />
+          <div className="flex gap-2">
+            <input
+              value={newZone.fee}
+              onChange={e => setNewZone(v => ({ ...v, fee: e.target.value }))}
+              placeholder="Taxa de entrega (R$) — deixe vazio para grátis"
+              inputMode="decimal"
+              className="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F5C542]"
+              onKeyDown={e => { if (e.key === 'Enter') addZone() }}
+            />
+            <button
+              onClick={addZone}
+              className="shrink-0 bg-[#0F0F0F] text-[#F5C542] px-4 py-2.5 rounded-xl font-bold text-sm flex items-center gap-1.5"
+            >
+              <Plus size={16} /> Adicionar
+            </button>
+          </div>
         </div>
       </div>
 
