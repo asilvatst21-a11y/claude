@@ -2,11 +2,12 @@ import { NavLink, Outlet } from 'react-router-dom'
 import {
   LayoutDashboard, ShoppingCart, Package, TrendingUp,
   FileText, BarChart2, Settings, UtensilsCrossed, MoreHorizontal, Users, DollarSign, BookOpen,
-  ChevronLeft, ChevronRight, LogOut, CreditCard,
+  ChevronLeft, ChevronRight, LogOut, CreditCard, Bike,
 } from 'lucide-react'
 import { useState } from 'react'
 import { supabase, signOut } from '../store/supabase'
 import TrialBanner from './TrialBanner'
+import OnlineOrderWatcher from './OnlineOrderWatcher'
 import { useProfile } from '../store/ProfileContext'
 import { PLAN_LABELS } from '../store/permissions'
 
@@ -18,6 +19,7 @@ const navMain = [
 ]
 
 const navMore = [
+  { to: '/delivery',     icon: Bike,        label: 'Delivery' },
   { to: '/clientes',     icon: Users,       label: 'Clientes' },
   { to: '/cadastros',    icon: Settings,    label: 'Cadastros' },
   { to: '/precificacao', icon: TrendingUp,  label: 'Precificação' },
@@ -44,6 +46,9 @@ export default function Layout() {
 
   return (
     <div className="flex h-screen bg-gray-50">
+
+      {/* Alerta global de novos pedidos online (som + popup em qualquer tela) */}
+      <OnlineOrderWatcher />
 
       {/* Sidebar — desktop */}
       <aside

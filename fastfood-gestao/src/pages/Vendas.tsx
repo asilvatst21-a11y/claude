@@ -1,10 +1,12 @@
+// v2 — fila de pedidos
 import { useState, useEffect, useRef } from 'react'
 import QRCode from 'qrcode'
 import { getProducts, getSales, saveSale, deleteSale, getCustomers, saveCustomer, getCashbackConfig, getPixConfig, savePixConfig, getIngredients, id } from '../store/storage'
 import type { PixConfig } from '../store/storage'
-import type { Sale, SaleItem, Customer } from '../types'
-import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed, Maximize2, Minimize2, Clock, Play } from 'lucide-react'
+import type { Sale, SaleItem, Customer, OnlineOrder } from '../types'
+import { Trash2, ShoppingCart, X, Check, ClipboardList, Minus, Plus, User, Gift, ChevronDown, QrCode, Settings2, Bike, UtensilsCrossed, Maximize2, Minimize2, Clock, Play, MapPin } from 'lucide-react'
 import { supabase, getBusinessId } from '../store/supabase'
+import { fetchOnlineOrders, removeOnlineOrder, subscribeOnlineOrders } from '../store/delivery'
 
 type QueuedOrder = {
   qid: string
@@ -216,7 +218,38 @@ export default function Vendas() {
   const [queueLabel, setQueueLabel] = useState('')
   const [showQueueLabel, setShowQueueLabel] = useState(false)
 
-  useEffect(() => { setSales(getSales()); setCustomers(getCustomers()) }, [view])
+  // Pedidos online aceitos (vindos do site de delivery)
+  const [onlineOrders, setOnlineOrders] = useState<OnlineOrder[]>([])
+  function refreshOnlineOrders() {
+    fetchOnlineOrders('accepted').then(setOnlineOrders)
+  }
+  useEffect(() => {
+    refreshOnlineOrders()
+    const unsub = subscribeOnlineOrders(getBusinessId(), refreshOnlineOrders)
+    return () => unsub()
+  }, [])
+
+  function finalizeOnlineOrder(order: OnlineOrder) {
+    const sale: Sale = {
+      id: id(), date: today(), time: nowTime(),
+      items: order.items, total: order.total, paymentMethod: order.payment === 'cartao' ? 'cartao_credito' : order.payment,
+      notes: order.notes || '', orderType: 'delivery', deliveryFee: order.deliveryFee || undefined,
+      customerName: order.customerName,
+    }
+    saveSale(sale)
+    removeOnlineOrder(order.id)
+    setOnlineOrders(prev => prev.filter(o => o.id !== order.id))
+    setSales(getSales())
+    setSuccess(true)
+    setTimeout(() => setSuccess(false), 2500)
+  }
+
+  function rejectOnlineOrder(order: OnlineOrder) {
+    removeOnlineOrder(order.id)
+    setOnlineOrders(prev => prev.filter(o => o.id !== order.id))
+  }
+
+  useEffect(() => { setSales(getSales()); setCustomers(getCustomers()); refreshOnlineOrders() }, [view])
 
   const activeProducts = products.filter(p => p.active)
   const categories = ['all', ...Array.from(new Set(activeProducts.map(p => p.category)))]
@@ -638,7 +671,7 @@ export default function Vendas() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Abas */}
+      {/* Abas — PDV | Histórico | Fila */}
       <div className="flex border-b border-gray-200 bg-white px-4 pt-4 gap-1 shrink-0 items-end">
         <button onClick={() => setView('pdv')}
           className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'pdv' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -651,8 +684,8 @@ export default function Vendas() {
         <button onClick={() => setView('fila')}
           className={`flex items-center gap-2 px-4 py-2 rounded-t-lg text-sm font-medium transition-colors ${view === 'fila' ? 'bg-[#F5C542] text-[#0F0F0F]' : 'text-gray-500 hover:text-gray-700'}`}>
           <Clock size={15} /> Fila
-          {queue.length > 0 && (
-            <span className={`w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center ${view === 'fila' ? 'bg-[#0F0F0F] text-[#F5C542]' : 'bg-[#F5C542] text-[#0F0F0F]'}`}>{queue.length}</span>
+          {(queue.length + onlineOrders.length) > 0 && (
+            <span className={`w-5 h-5 rounded-full text-xs font-bold flex items-center justify-center ${view === 'fila' ? 'bg-[#0F0F0F] text-[#F5C542]' : 'bg-[#F5C542] text-[#0F0F0F]'}`}>{queue.length + onlineOrders.length}</span>
           )}
         </button>
         <button
@@ -796,11 +829,11 @@ export default function Vendas() {
       {/* Fila de pedidos */}
       {view === 'fila' && (
         <div className="flex-1 overflow-y-auto p-4">
-          {queue.length === 0 ? (
+          {queue.length === 0 && onlineOrders.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-gray-400 py-16">
               <Clock size={40} className="mb-3 opacity-30" />
               <p className="text-sm font-medium">Nenhum pedido na fila</p>
-              <p className="text-xs mt-1 text-center max-w-xs">Use "Guardar na fila" no PDV para atender vários clientes ao mesmo tempo</p>
+              <p className="text-xs mt-1 text-center max-w-xs">Pedidos do delivery aceitos e pedidos guardados aparecem aqui</p>
             </div>
           ) : (
             <div className="space-y-3 max-w-xl mx-auto">

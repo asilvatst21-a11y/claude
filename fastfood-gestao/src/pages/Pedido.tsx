@@ -590,6 +590,7 @@ export default function Pedido() {
                     </div>
                   </div>
 
+
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5"><Phone size={11} className="text-[#F5C542]" /> WhatsApp</label>
                     <input value={phoneInput} onChange={e => setPhoneInput(fmtPhone(e.target.value))} placeholder="(22) 99999-8888" inputMode="numeric" autoFocus

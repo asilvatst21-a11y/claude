@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { getProducts, saveProduct, deleteProduct, getIngredients, saveIngredient, id } from '../store/storage'
 import type { Product, ProductIngredient, Ingredient } from '../types'
-import { Plus, Trash2, X, Settings, Edit2, FileText, Check, AlertCircle } from 'lucide-react'
+import { Plus, Trash2, X, Settings, Edit2, FileText, Check, AlertCircle, Star } from 'lucide-react'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -301,6 +301,31 @@ export default function Cadastros() {
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]"
               />
             </div>
+            <div className="lg:col-span-4">
+              <label className="text-xs text-gray-600 mb-1 block">Descrição (exibida no cardápio online)</label>
+              <input
+                value={editProduct.description || ''}
+                onChange={e => setEditProduct({ ...editProduct, description: e.target.value })}
+                placeholder="Ex: Macarrão ao molho bolonhesa com queijo gratinado e bacon crocante"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]"
+              />
+            </div>
+            <div className="lg:col-span-4">
+              <label className="text-xs text-gray-600 mb-1 block">Foto do produto (URL da imagem)</label>
+              <div className="flex gap-2 items-start">
+                <input
+                  value={editProduct.imageUrl || ''}
+                  onChange={e => setEditProduct({ ...editProduct, imageUrl: e.target.value })}
+                  placeholder="https://... (link de uma foto do produto)"
+                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#F5C542]"
+                />
+                {editProduct.imageUrl && (
+                  <img src={editProduct.imageUrl} alt="" className="w-12 h-12 rounded-lg object-cover shrink-0 border border-gray-200"
+                    onError={e => (e.currentTarget.style.display = 'none')} />
+                )}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Cole o link de uma foto. Se vazio, usamos uma imagem ilustrativa da categoria.</p>
+            </div>
           </div>
 
           <div className="mb-4">
@@ -345,14 +370,25 @@ export default function Cadastros() {
           </div>
 
           <div className="flex items-center justify-between">
-            <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
-              <input
-                type="checkbox" checked={editProduct.active}
-                onChange={e => setEditProduct({ ...editProduct, active: e.target.checked })}
-                className="accent-[#F5C542]"
-              />
-              Produto ativo no cardápio
-            </label>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox" checked={editProduct.active}
+                  onChange={e => setEditProduct({ ...editProduct, active: e.target.checked })}
+                  className="accent-[#F5C542]"
+                />
+                Ativo no cardápio
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox" checked={!!editProduct.featured}
+                  onChange={e => setEditProduct({ ...editProduct, featured: e.target.checked })}
+                  className="accent-[#F5C542]"
+                />
+                <Star size={13} className="text-[#F5C542]" />
+                Destaque
+              </label>
+            </div>
             <div className="flex gap-2">
               <button onClick={() => setEditProduct(null)} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700">
                 Cancelar
@@ -392,9 +428,13 @@ export default function Cadastros() {
                       <div className="flex items-center gap-3">
                         <div className={`w-2 h-2 rounded-full ${p.active ? 'bg-green-400' : 'bg-gray-300'}`} />
                         <div>
-                          <p className="font-medium text-gray-700 text-sm">{p.name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="font-medium text-gray-700 text-sm">{p.name}</p>
+                            {p.featured && <Star size={12} className="text-[#F5C542] fill-[#F5C542] shrink-0" />}
+                          </div>
                           <p className="text-xs text-gray-400">
                             {p.ingredients.length} ingrediente(s) · {p.active ? 'Ativo' : 'Inativo'}
+                            {p.description && ` · "${p.description.slice(0, 40)}${p.description.length > 40 ? '…' : ''}"`}
                           </p>
                         </div>
                       </div>

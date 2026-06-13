@@ -13,12 +13,13 @@ import Clientes from './pages/Clientes'
 import Caixa from './pages/Caixa'
 import Ajuda from './pages/Ajuda'
 import CadastroPublico from './pages/CadastroPublico'
+import Pedido from './pages/Pedido'
+import Delivery from './pages/Delivery'
 import Planos from './pages/Planos'
 import Login from './pages/Login'
 import ResetPassword from './pages/ResetPassword'
 import ExpiredScreen from './components/ExpiredScreen'
 import FeatureGate from './components/FeatureGate'
-import SyncSetup from './components/SyncSetup'
 import { pullFromCloud, hasNewData } from './store/sync'
 import { supabase, setBusinessId } from './store/supabase'
 import { ProfileContext, isPlanActive } from './store/ProfileContext'
@@ -33,6 +34,7 @@ export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null)
 
   const isPublicRoute = ['/cadastro', '/planos', '/login'].includes(window.location.pathname)
+    || window.location.pathname.startsWith('/pedido')
 
   async function fetchProfile(userId: string) {
     if (!supabase) return
@@ -94,7 +96,14 @@ export default function App() {
       .channel('ff_sync_changes')
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'ff_sync', filter: `business_id=eq.${businessId}` },
-        () => { pullFromCloud().then(ok => { if (ok) window.location.reload() }) }
+        (payload) => {
+          // Pedidos online e config de delivery têm tratamento próprio (popup/fila),
+          // não devem forçar reload da página inteira (perderia o carrinho do PDV).
+          const et = (payload.new as { entity_type?: string })?.entity_type
+            ?? (payload.old as { entity_type?: string })?.entity_type
+          if (et === 'online_orders' || et === 'delivery_config') return
+          pullFromCloud().then(ok => { if (ok) window.location.reload() })
+        }
       )
       .subscribe()
     return () => { supabase!.removeChannel(channel) }
@@ -129,6 +138,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/cadastro" element={<CadastroPublico />} />
+        <Route path="/pedido/:bid" element={<Pedido />} />
         <Route path="/planos" element={<Planos />} />
         <Route path="/login" element={<Login />} />
         <Route
@@ -140,11 +150,11 @@ export default function App() {
               <Planos />
             ) : (
               <ProfileContext.Provider value={profile}>
-                <SyncSetup session={session} />
                 <Routes>
                   <Route path="/" element={<Layout />}>
                     <Route index element={<Dashboard />} />
                     <Route path="vendas" element={<Vendas />} />
+                    <Route path="delivery" element={<FeatureGate feature="delivery"><Delivery /></FeatureGate>} />
                     <Route path="estoque" element={<Estoque />} />
                     <Route path="precificacao" element={<FeatureGate feature="precificacao"><Precificacao /></FeatureGate>} />
                     <Route path="dre" element={<FeatureGate feature="dre"><DRE /></FeatureGate>} />

@@ -1,4 +1,3 @@
 {
-  "ignoreCommand": "git diff HEAD^ HEAD --quiet -- fastfood-gestao/",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

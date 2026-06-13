@@ -10,6 +10,7 @@ const FEATURE_LABELS: Record<Feature, string> = {
   relatorios:   'Relatórios',
   dre:          'DRE',
   precificacao: 'Precificação',
+  delivery:     'Delivery / Pedido Online',
 }
 
 export default function FeatureGate({ feature, children }: { feature: Feature; children: React.ReactNode }) {
