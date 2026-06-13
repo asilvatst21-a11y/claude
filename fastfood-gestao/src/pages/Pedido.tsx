@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams } from 'react-router-dom'
 import QRCode from 'qrcode'
-import { fetchPublicMenu, submitOnlineOrder, DEFAULT_DELIVERY_CONFIG } from '../store/delivery'
+import { fetchPublicMenu, fetchBusinessIdBySlug, submitOnlineOrder, DEFAULT_DELIVERY_CONFIG } from '../store/delivery'
 import { buildPixPayload } from '../store/pix'
 import type { DeliveryConfig, OnlineOrder, Product, SaleItem } from '../types'
 import {
@@ -33,6 +33,7 @@ export default function Pedido() {
   const [stage, setStage] = useState<Stage>('loading')
   const [config, setConfig] = useState<DeliveryConfig>(DEFAULT_DELIVERY_CONFIG)
   const [products, setProducts] = useState<Product[]>([])
+  const [resolvedBid, setResolvedBid] = useState('')
 
   const [cart, setCart] = useState<SaleItem[]>([])
   const [activeCat, setActiveCat] = useState('all')
@@ -58,12 +59,25 @@ export default function Pedido() {
 
   useEffect(() => {
     if (!bid) { setStage('closed'); return }
-    fetchPublicMenu(bid).then(({ config, products }) => {
+
+    async function load() {
+      // Tenta resolver slug → business_id; se falhar, assume que bid já é um UUID
+      const isUuid = /^[0-9a-f-]{36}$/i.test(bid)
+      let businessId = bid
+      if (!isUuid) {
+        const found = await fetchBusinessIdBySlug(bid)
+        if (found) businessId = found
+      }
+      setResolvedBid(businessId)
+
+      const { config, products } = await fetchPublicMenu(businessId)
       if (!config || !config.enabled) { setStage('closed'); if (config) setConfig(config); return }
       setConfig(config)
       setProducts(products)
       setStage('menu')
-    })
+    }
+
+    load()
   }, [bid])
 
   const categories = useMemo(
@@ -139,7 +153,7 @@ export default function Pedido() {
     }
 
     setSending(true)
-    const ok = await submitOnlineOrder(bid, order)
+    const ok = await submitOnlineOrder(resolvedBid, order)
     setSending(false)
     if (!ok) { setError('Não foi possível enviar. Tente novamente.'); return }
 

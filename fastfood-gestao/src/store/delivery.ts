@@ -8,6 +8,7 @@ const CONFIG_ENTITY_ID = 'config' // registro único por estabelecimento
 export const DEFAULT_DELIVERY_CONFIG: DeliveryConfig = {
   enabled: false,
   storeName: '',
+  slug: '',
   whatsapp: '',
   pixKey: '',
   pixName: '',
@@ -155,6 +156,25 @@ export async function removeOnlineOrder(orderId: string): Promise<boolean> {
     return !error
   } catch {
     return false
+  }
+}
+
+// Resolve slug amigável → business_id (para URLs do tipo /pedido/macarrao-na-chapa)
+export async function fetchBusinessIdBySlug(slug: string): Promise<string | null> {
+  if (!supabase || !slug) return null
+  try {
+    const { data, error } = await supabase
+      .from('ff_sync')
+      .select('business_id')
+      .eq('entity_type', 'delivery_config')
+      .eq('deleted', false)
+      .filter('data->>slug', 'eq', slug)
+      .limit(1)
+      .maybeSingle()
+    if (error || !data) return null
+    return (data as { business_id: string }).business_id
+  } catch {
+    return null
   }
 }
 

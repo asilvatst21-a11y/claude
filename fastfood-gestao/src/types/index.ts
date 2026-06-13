@@ -143,6 +143,7 @@ export interface DeliveryZone {
 export interface DeliveryConfig {
   enabled: boolean
   storeName: string
+  slug: string            // URL amigável: ex. "macarrao-na-chapa"
   whatsapp: string        // número do estabelecimento (só dígitos, com DDD)
   pixKey: string
   pixName: string

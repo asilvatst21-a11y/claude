@@ -14,6 +14,17 @@ function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
+function toSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+}
+
 export default function Delivery() {
   const [cfg, setCfg] = useState<DeliveryConfig>(getDeliveryConfigLocal)
   const [loading, setLoading] = useState(true)
@@ -21,26 +32,46 @@ export default function Delivery() {
   const [copied, setCopied] = useState(false)
   const [qrUrl, setQrUrl] = useState('')
   const [newZone, setNewZone] = useState({ neighborhood: '', fee: '' })
+  const [slugCustom, setSlugCustom] = useState(false)
 
   const businessId = getBusinessId()
-  const link = `${window.location.origin}/pedido/${businessId}`
+  const activeSlug = cfg.slug || businessId
+  const link = `${window.location.origin}/pedido/${activeSlug}`
 
   // Carrega config da nuvem (sincroniza entre dispositivos), com prefill do PIX já cadastrado
   useEffect(() => {
     fetchDeliveryConfigCloud().then(cloud => {
       if (cloud) {
         setCfg(cloud)
+        if (cloud.slug) setSlugCustom(true)
       } else {
         const pix = getPixConfig()
         if (pix) setCfg(c => ({ ...c, pixKey: pix.key, pixName: pix.merchantName, pixCity: pix.city, storeName: c.storeName || pix.merchantName }))
       }
       setLoading(false)
     })
-    QRCode.toDataURL(link, { width: 240, margin: 2 }).then(setQrUrl).catch(() => {})
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Regenera QR sempre que o link mudar
+  useEffect(() => {
+    if (link) QRCode.toDataURL(link, { width: 240, margin: 2 }).then(setQrUrl).catch(() => {})
+  }, [link])
 
   function update(patch: Partial<DeliveryConfig>) {
     setCfg(c => ({ ...c, ...patch }))
+  }
+
+  function handleStoreNameChange(name: string) {
+    if (!slugCustom) {
+      setCfg(c => ({ ...c, storeName: name, slug: toSlug(name) }))
+    } else {
+      update({ storeName: name })
+    }
+  }
+
+  function handleSlugChange(v: string) {
+    setSlugCustom(true)
+    update({ slug: v.toLowerCase().replace(/[^a-z0-9-]/g, '').replace(/-+/g, '-') })
   }
 
   function persist(next: DeliveryConfig) {
@@ -139,8 +170,16 @@ export default function Delivery() {
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 space-y-3">
         <h2 className="font-semibold text-gray-700 flex items-center gap-2"><Store size={16} className="text-[#F5C542]" /> Dados da loja</h2>
         <Field label="Nome da loja (exibido no cardápio)">
-          <input value={cfg.storeName} onChange={e => update({ storeName: e.target.value })}
+          <input value={cfg.storeName} onChange={e => handleStoreNameChange(e.target.value)}
             placeholder="Ex: Macarrão na Chapa" className={inputCls} />
+        </Field>
+        <Field label="Endereço do link (slug)">
+          <div className="flex items-center gap-0">
+            <span className="text-xs text-gray-400 bg-gray-100 border border-r-0 border-gray-200 rounded-l-xl px-2.5 py-2.5 shrink-0 whitespace-nowrap">/pedido/</span>
+            <input value={cfg.slug} onChange={e => handleSlugChange(e.target.value)}
+              placeholder="nome-da-loja" className={`flex-1 border border-gray-200 rounded-r-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#F5C542] font-mono`} />
+          </div>
+          <p className="text-xs text-gray-400 mt-1">Gerado automaticamente a partir do nome. Só letras minúsculas, números e hífens.</p>
         </Field>
         <Field label="WhatsApp da loja (com DDD)">
           <input value={cfg.whatsapp} onChange={e => update({ whatsapp: e.target.value })}
