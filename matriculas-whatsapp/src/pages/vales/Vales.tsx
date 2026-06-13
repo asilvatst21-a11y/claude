@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { useSearchParams } from "react-router-dom";
-import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, AlertTriangle, Clock, ChevronUp, ChevronDown, ChevronsUpDown, Download } from "lucide-react";
+import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, AlertTriangle, Clock, ChevronUp, ChevronDown, ChevronsUpDown, Download, GitBranch } from "lucide-react";
 import { ValeDetalhesModal, type ValeDetalhes } from "./ValeDetalhesModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +40,8 @@ import {
 import { useToast } from "@/components/ui/use-toast";
 import { formatCurrency, formatDateBR, calcPrazo, type PrazoStatus } from "@/lib/valesUtils";
 import { valesSupabase } from "@/lib/valesSupabase";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth";
 import { sendMessage } from "@/lib/valesZapi";
 import { formatPhoneForZAPI } from "@/lib/valesUtils";
 
@@ -151,6 +153,7 @@ const TEMPLATE_DEFAULT =
 export default function ValesPage() {
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
+  const { usuario } = useAuth();
   const [vales, setVales] = useState<ValeRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("todos");
@@ -182,6 +185,11 @@ export default function ValesPage() {
   const [atribuirVale, setAtribuirVale] = useState<ValeRow | null>(null);
   const [buscaAtribuir, setBuscaAtribuir] = useState("");
   const [atribuindo, setAtribuindo] = useState(false);
+
+  const [fluxoVale, setFluxoVale] = useState<ValeRow | null>(null);
+  const [fluxoAjudante, setFluxoAjudante] = useState("");
+  const [fluxoData, setFluxoData] = useState("");
+  const [solicitandoFluxo, setSolicitandoFluxo] = useState(false);
 
   const fetchVales = useCallback(async () => {
     setIsLoading(true);
@@ -352,6 +360,41 @@ export default function ValesPage() {
       setAtribuindo(false);
     }
   };
+
+  function abrirSolicitarFluxo(vale: ValeRow) {
+    const primeiroAjudante = vale.ajudantes[0]?.nome ?? "";
+    setFluxoAjudante(primeiroAjudante);
+    setFluxoData(vale.data_emissao ?? new Date().toISOString().slice(0, 10));
+    setFluxoVale(vale);
+  }
+
+  async function handleSolicitarFluxo() {
+    if (!fluxoVale || !fluxoAjudante.trim() || !usuario) return;
+    setSolicitandoFluxo(true);
+    try {
+      const { error } = await supabase.from("fluxo_punitivo").insert({
+        filial: usuario.filial,
+        colaborador_nome: fluxoAjudante.trim(),
+        origem: "Vales",
+        tipo_acao: null,
+        status: "Solicitado",
+        motivo: "GERAÇÃO DE VALE FISICO",
+        data_infracao: fluxoData || null,
+        observacao: `Vale #${fluxoVale.numero_vale}${fluxoVale.mapa ? ` · Mapa ${fluxoVale.mapa}` : ""}`,
+        registrado_por: usuario.nome ?? usuario.login,
+        source_id: null,
+        dias_suspensao: null,
+        data_acao: null,
+      });
+      if (error) throw new Error(error.message);
+      toast({ title: "Fluxo solicitado", description: `Solicitação registrada para ${fluxoAjudante}` });
+      setFluxoVale(null);
+    } catch (err) {
+      toast({ variant: "destructive", title: "Erro ao solicitar fluxo", description: err instanceof Error ? err.message : "Erro desconhecido" });
+    } finally {
+      setSolicitandoFluxo(false);
+    }
+  }
 
   const hasFilters = busca || dataInicio || dataFim || ajudanteFiltro !== "todos";
 
@@ -576,6 +619,75 @@ export default function ValesPage() {
             <DialogFooter>
               <Button variant="outline" onClick={() => { setAtribuirVale(null); setBuscaAtribuir(""); }}>
                 Cancelar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Solicitar Fluxo Punitivo Modal */}
+      {fluxoVale && (
+        <Dialog open={!!fluxoVale} onOpenChange={(o) => { if (!o) setFluxoVale(null); }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <GitBranch className="h-5 w-5 text-indigo-600" />
+                Solicitar Fluxo Punitivo
+              </DialogTitle>
+              <DialogDescription>
+                Vale #{fluxoVale.numero_vale}{fluxoVale.mapa ? ` · Mapa ${fluxoVale.mapa}` : ""} · Motivo: GERAÇÃO DE VALE FISICO
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {fluxoVale.ajudantes.length === 0 ? (
+                <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3">
+                  <p className="text-sm text-yellow-800">Este vale não tem ajudante atribuído. Atribua um ajudante antes de solicitar o fluxo.</p>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Colaborador</label>
+                    {fluxoVale.ajudantes.length === 1 ? (
+                      <p className="text-sm text-muted-foreground border rounded-md px-3 py-2 bg-muted/40">{fluxoVale.ajudantes[0].nome}</p>
+                    ) : (
+                      <select
+                        value={fluxoAjudante}
+                        onChange={(e) => setFluxoAjudante(e.target.value)}
+                        className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        {fluxoVale.ajudantes.map((a) => (
+                          <option key={a.id} value={a.nome}>{a.nome}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Data da infração</label>
+                    <input
+                      type="date"
+                      value={fluxoData}
+                      onChange={(e) => setFluxoData(e.target.value)}
+                      className="w-full text-sm border border-input rounded-md px-3 py-2 bg-background focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                  </div>
+                  <div className="rounded-md border border-indigo-100 bg-indigo-50 px-3 py-2.5">
+                    <p className="text-xs text-indigo-700 font-medium">Motivo fixo</p>
+                    <p className="text-sm text-indigo-900 mt-0.5">GERAÇÃO DE VALE FISICO</p>
+                  </div>
+                </>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setFluxoVale(null)} disabled={solicitandoFluxo}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={handleSolicitarFluxo}
+                disabled={solicitandoFluxo || fluxoVale.ajudantes.length === 0 || !fluxoAjudante.trim()}
+                className="gap-2"
+              >
+                {solicitandoFluxo ? <Loader2 className="h-4 w-4 animate-spin" /> : <GitBranch className="h-4 w-4" />}
+                Solicitar Fluxo
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -815,6 +927,17 @@ export default function ValesPage() {
                                 )}
                                 <span className="ml-1 hidden sm:inline">Notificar</span>
                               </Button>
+                              {(vale.status_vale === "Faturado" || vale.status_vale === "Faturar") && (
+                                <Button
+                                  variant="outline" size="sm"
+                                  onClick={() => abrirSolicitarFluxo(vale)}
+                                  title="Solicitar fluxo punitivo"
+                                  className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                >
+                                  <GitBranch className="h-4 w-4" />
+                                  <span className="ml-1 hidden sm:inline">Fluxo</span>
+                                </Button>
+                              )}
                             </div>
                           </TableCell>
                         </TableRow>

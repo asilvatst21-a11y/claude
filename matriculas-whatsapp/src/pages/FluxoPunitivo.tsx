@@ -21,6 +21,7 @@ const ORIGEM_COLOR: Record<string, string> = {
   DTO:        'bg-teal-50 text-teal-700 border-teal-200',
   Grupo:      'bg-green-50 text-green-700 border-green-200',
   Manual:     'bg-gray-100 text-gray-600 border-gray-200',
+  Vales:      'bg-indigo-50 text-indigo-700 border-indigo-200',
 }
 
 const ACAO_COLOR: Record<string, string> = {

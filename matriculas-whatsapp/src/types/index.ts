@@ -226,7 +226,7 @@ export interface FluxoPunitivo {
   id: string
   filial: string
   colaborador_nome: string
-  origem: 'GSDPQ' | 'Relatos' | 'Telemetria' | 'DTO' | 'Grupo' | 'Manual'
+  origem: 'GSDPQ' | 'Relatos' | 'Telemetria' | 'DTO' | 'Grupo' | 'Manual' | 'Vales'
   tipo_acao: string | null
   dias_suspensao: number | null
   data_acao: string | null
