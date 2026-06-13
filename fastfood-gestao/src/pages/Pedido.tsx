@@ -6,7 +6,7 @@ import { buildPixPayload } from '../store/pix'
 import type { DeliveryConfig, OnlineOrder, Product, SaleItem } from '../types'
 import {
   ShoppingBag, Plus, Minus, X, MapPin, User, Loader2, Check,
-  ChevronRight, QrCode as QrIcon, Copy, Bike, Clock, Store, ArrowLeft, Phone,
+  ChevronRight, QrCode as QrIcon, Copy, Bike, Clock, Store, ArrowLeft, Phone, Star,
 } from 'lucide-react'
 
 // ── Category display ──────────────────────────────────────────────────────────
@@ -127,7 +127,8 @@ export default function Pedido() {
 
   // Computed
   const categories = useMemo(() => ['all', ...Array.from(new Set(products.map(p => p.category)))], [products])
-  const visible = activeCat === 'all' ? products : products.filter(p => p.category === activeCat)
+  const visibleUnsorted = activeCat === 'all' ? products : products.filter(p => p.category === activeCat)
+  const visible = [...visibleUnsorted].sort((a, b) => (b.featured ? 1 : 0) - (a.featured ? 1 : 0))
   const subtotal = cart.reduce((s, x) => s + x.total, 0)
   const zone = config.zones.find(z => z.neighborhood === neighborhood)
   const deliveryFee = zone?.fee ?? 0
@@ -388,16 +389,31 @@ export default function Pedido() {
           const q = qtyOf(p.id)
           const cat = CAT[p.category]
           return (
-            <div key={p.id} className="bg-white rounded-2xl overflow-hidden border border-gray-100 shadow-sm">
+            <div key={p.id} className={`bg-white rounded-2xl overflow-hidden shadow-sm ${p.featured ? 'border-2 border-[#F5C542]' : 'border border-gray-100'}`}>
               <div className="h-1" style={{ background: cat?.color || '#6B7280' }} />
               <div className="p-4 flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0"
+                <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0 relative"
                   style={{ background: `${cat?.color || '#6B7280'}18` }}>
                   {cat?.emoji || '🍽️'}
+                  {p.featured && (
+                    <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#F5C542] rounded-full flex items-center justify-center">
+                      <Star size={9} className="text-[#0F0F0F] fill-[#0F0F0F]" />
+                    </span>
+                  )}
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="font-bold text-gray-900 leading-tight">{p.name}</p>
-                  <p className="text-xs text-gray-400 mt-0.5">{cat?.label || p.category}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-gray-900 leading-tight">{p.name}</p>
+                    {p.featured && (
+                      <span className="shrink-0 text-[10px] font-black bg-[#F5C542] text-[#0F0F0F] px-1.5 py-0.5 rounded-full leading-none">
+                        DESTAQUE
+                      </span>
+                    )}
+                  </div>
+                  {p.description
+                    ? <p className="text-xs text-gray-500 mt-0.5 leading-snug line-clamp-2">{p.description}</p>
+                    : <p className="text-xs text-gray-400 mt-0.5">{cat?.label || p.category}</p>
+                  }
                   <p className="text-base font-black text-gray-900 mt-1.5">{fmt(p.salePrice)}</p>
                 </div>
                 {q === 0 ? (

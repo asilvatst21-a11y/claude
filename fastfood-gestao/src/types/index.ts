@@ -1,10 +1,12 @@
 export interface Product {
   id: string
   name: string
+  description?: string
   category: 'macarrao' | 'hamburguer' | 'cachorro_quente' | 'bebida' | 'outro'
   salePrice: number
   ingredients: ProductIngredient[]
   active: boolean
+  featured?: boolean
 }
 
 export interface ProductIngredient {
