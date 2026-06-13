@@ -168,14 +168,15 @@ export interface OnlineOrder {
   id: string
   createdAt: string       // ISO
   status: 'pending' | 'accepted'
+  orderType: 'delivery' | 'pickup'
   customerName: string
   customerPhone: string   // só dígitos
-  address: OnlineOrderAddress
+  address?: OnlineOrderAddress
   items: SaleItem[]
   subtotal: number
   deliveryFee: number
   total: number
   payment: 'pix' | 'dinheiro' | 'cartao'
-  trocoPara?: number      // troco para (pagamento em dinheiro)
+  trocoPara?: number
   notes?: string
 }

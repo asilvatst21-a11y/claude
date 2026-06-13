@@ -857,11 +857,13 @@ export default function Vendas() {
                         <p className="text-sm text-gray-600 leading-relaxed">
                           {o.items.map(i => `${i.quantity}× ${i.productName}`).join(' · ')}
                         </p>
+                        {o.address && (
                         <p className="text-xs text-gray-500 flex items-start gap-1">
                           <MapPin size={11} className="text-gray-400 mt-0.5 shrink-0" />
                           {o.address.street}, {o.address.number} — {o.address.neighborhood}
                           {o.address.complement ? ` (${o.address.complement})` : ''}
                         </p>
+                        )}
                         <a href={`https://wa.me/55${o.customerPhone}`} target="_blank" rel="noopener noreferrer"
                           className="text-xs text-green-600 inline-flex items-center gap-1"><User size={11} />{o.customerPhone}</a>
                         <p className="text-xs text-gray-400">

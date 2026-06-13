@@ -55,7 +55,6 @@ function fmtPhone(v: string) {
 
 type Stage = 'loading' | 'closed' | 'menu' | 'success'
 type CheckStep = 'id' | 'address' | 'payment'
-const STEPS: CheckStep[] = ['id', 'address', 'payment']
 
 // ── Main component ────────────────────────────────────────────────────────────
 export default function Pedido() {
@@ -70,6 +69,7 @@ export default function Pedido() {
   const [activeCat, setActiveCat] = useState('macarrao')
   const [showCart, setShowCart] = useState(false)
   const [showCheckout, setShowCheckout] = useState(false)
+  const [orderType, setOrderType] = useState<'delivery' | 'pickup'>('delivery')
   const [checkStep, setCheckStep] = useState<CheckStep>('id')
   const [addedAnim, setAddedAnim] = useState<Set<string>>(new Set())
   const [drinkPromptDismissed, setDrinkPromptDismissed] = useState(false)
@@ -161,9 +161,11 @@ export default function Pedido() {
   const orderedCats = CATEGORY_ORDER.filter(c => grouped[c]?.length > 0)
   const featured = products.filter(p => p.featured)
 
+  const STEPS: CheckStep[] = orderType === 'pickup' ? ['id', 'payment'] : ['id', 'address', 'payment']
+
   const subtotal = cart.reduce((s, x) => s + x.total, 0)
   const zone = config.zones?.find(z => z.neighborhood === neighborhood)
-  const deliveryFee = zone?.fee ?? 0
+  const deliveryFee = orderType === 'pickup' ? 0 : (zone?.fee ?? 0)
   const total = subtotal + deliveryFee
   const cartCount = cart.reduce((s, x) => s + x.quantity, 0)
   const belowMin = config.minOrder > 0 && subtotal < config.minOrder
@@ -213,7 +215,7 @@ export default function Pedido() {
       if (!name.trim()) return 'Informe seu nome'
       if (phoneInput.replace(/\D/g, '').length < 10) return 'Informe um WhatsApp válido'
     }
-    if (checkStep === 'address') {
+    if (checkStep === 'address' && orderType === 'delivery') {
       if (!street.trim() || !houseNumber.trim()) return 'Informe o endereço completo'
       if ((config.zones?.length ?? 0) > 0 && !neighborhood) return 'Selecione o bairro de entrega'
       if (belowMin) return `Pedido mínimo de ${fmt(config.minOrder)}`
@@ -234,8 +236,9 @@ export default function Pedido() {
     setError('')
     const order: OnlineOrder = {
       id: genId(), createdAt: new Date().toISOString(), status: 'pending',
+      orderType,
       customerName: name.trim(), customerPhone: phoneInput.replace(/\D/g, ''),
-      address: { street: street.trim(), number: houseNumber.trim(), neighborhood, complement: complement.trim() || undefined, reference: reference.trim() || undefined },
+      address: orderType === 'delivery' ? { street: street.trim(), number: houseNumber.trim(), neighborhood, complement: complement.trim() || undefined, reference: reference.trim() || undefined } : undefined,
       items: cart, subtotal, deliveryFee, total, payment,
       trocoPara: payment === 'dinheiro' && trocoPara ? parseFloat(trocoPara) : undefined,
       notes: notes.trim() || undefined,
@@ -552,7 +555,7 @@ export default function Pedido() {
               <button onClick={prevStep} className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 text-gray-500"><ArrowLeft size={16} /></button>
               <div className="flex-1">
                 <p className="font-black text-gray-900">{checkStep === 'id' ? 'Identificação' : checkStep === 'address' ? 'Endereço de entrega' : 'Forma de pagamento'}</p>
-                <p className="text-xs text-gray-400">{checkStep === 'id' ? 'Passo 1 de 3' : checkStep === 'address' ? 'Passo 2 de 3' : 'Passo 3 de 3'}</p>
+                <p className="text-xs text-gray-400">Passo {STEPS.indexOf(checkStep) + 1} de {STEPS.length}{checkStep === 'id' && orderType === 'pickup' ? ' · Retirada no balcão' : ''}</p>
               </div>
               <div className="flex items-center gap-1.5">
                 {STEPS.map((s, i) => { const cur = STEPS.indexOf(checkStep); return <div key={s} className={`rounded-full transition-all duration-300 ${i === cur ? 'w-6 h-2 bg-[#F5C542]' : i < cur ? 'w-2 h-2 bg-[#c49a20]' : 'w-2 h-2 bg-gray-200'}`} /> })}
@@ -562,6 +565,32 @@ export default function Pedido() {
             <div className="overflow-y-auto flex-1 px-5 py-5 space-y-4">
               {checkStep === 'id' && (
                 <>
+                  {/* Tipo do pedido */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-gray-500 uppercase tracking-wide block">Como você prefere?</label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <button type="button" onClick={() => setOrderType('delivery')}
+                        className={`flex flex-col items-center gap-2 py-4 rounded-2xl border-2 transition-all ${orderType === 'delivery' ? 'border-[#F5C542] bg-yellow-50' : 'border-gray-200'}`}>
+                        <span className="text-2xl">🛵</span>
+                        <div className="text-center">
+                          <p className={`text-sm font-black ${orderType === 'delivery' ? 'text-[#0F0F0F]' : 'text-gray-600'}`}>Entrega</p>
+                          <p className="text-xs text-gray-400">Em casa</p>
+                        </div>
+                        {orderType === 'delivery' && <div className="w-4 h-4 rounded-full bg-[#F5C542] flex items-center justify-center"><Check size={10} className="text-[#0F0F0F]" strokeWidth={3} /></div>}
+                      </button>
+                      <button type="button" onClick={() => setOrderType('pickup')}
+                        className={`flex flex-col items-center gap-2 py-4 rounded-2xl border-2 transition-all ${orderType === 'pickup' ? 'border-[#F5C542] bg-yellow-50' : 'border-gray-200'}`}>
+                        <span className="text-2xl">🏪</span>
+                        <div className="text-center">
+                          <p className={`text-sm font-black ${orderType === 'pickup' ? 'text-[#0F0F0F]' : 'text-gray-600'}`}>Retirada</p>
+                          <p className="text-xs text-gray-400">No balcão · Grátis</p>
+                        </div>
+                        {orderType === 'pickup' && <div className="w-4 h-4 rounded-full bg-[#F5C542] flex items-center justify-center"><Check size={10} className="text-[#0F0F0F]" strokeWidth={3} /></div>}
+                      </button>
+                    </div>
+                  </div>
+
+
                   <div className="space-y-1.5">
                     <label className="text-xs font-bold text-gray-500 uppercase tracking-wide flex items-center gap-1.5"><Phone size={11} className="text-[#F5C542]" /> WhatsApp</label>
                     <input value={phoneInput} onChange={e => setPhoneInput(fmtPhone(e.target.value))} placeholder="(22) 99999-8888" inputMode="numeric" autoFocus
@@ -644,7 +673,7 @@ export default function Pedido() {
                     ))}
                     <div className="border-t border-gray-200 pt-2 mt-1 space-y-1">
                       <div className="flex justify-between text-sm text-gray-500"><span>Subtotal</span><span>{fmt(subtotal)}</span></div>
-                      <div className="flex justify-between text-sm text-gray-500"><span>Entrega</span><span>{neighborhood ? fmt(deliveryFee) : '—'}</span></div>
+                      <div className="flex justify-between text-sm text-gray-500"><span>Entrega</span><span>{orderType === 'pickup' ? 'Grátis (retirada)' : neighborhood ? fmt(deliveryFee) : '—'}</span></div>
                       <div className="flex justify-between font-black text-gray-900 pt-1 text-base"><span>Total</span><span>{fmt(total)}</span></div>
                     </div>
                   </div>

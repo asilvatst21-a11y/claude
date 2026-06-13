@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { fetchOnlineOrders, acceptOnlineOrder, removeOnlineOrder, subscribeOnlineOrders } from '../store/delivery'
 import { getBusinessId } from '../store/supabase'
 import type { OnlineOrder } from '../types'
-import { Bike, MapPin, Phone, X, Check, Banknote, QrCode, CreditCard } from 'lucide-react'
+import { Bike, MapPin, Phone, X, Check, Banknote, QrCode, CreditCard, Store } from 'lucide-react'
 
 function fmt(v: number) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
@@ -100,11 +100,11 @@ export default function OnlineOrderWatcher() {
         <div className="bg-[#0F0F0F] text-white p-4 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
             <div className="w-9 h-9 rounded-lg bg-[#F5C542] flex items-center justify-center">
-              <Bike size={18} className="text-[#0F0F0F]" />
+              {order.orderType === 'pickup' ? <Store size={18} className="text-[#0F0F0F]" /> : <Bike size={18} className="text-[#0F0F0F]" />}
             </div>
             <div>
               <p className="font-bold leading-tight">Novo pedido online! 🔔</p>
-              <p className="text-xs text-gray-400">{time} {pending.length > 1 && `· +${pending.length - 1} na fila`}</p>
+              <p className="text-xs text-gray-400">{time} · {order.orderType === 'pickup' ? '🏪 Retirada' : '🛵 Entrega'} {pending.length > 1 && `· +${pending.length - 1} na fila`}</p>
             </div>
           </div>
           <span className="text-lg font-black text-[#F5C542]">{fmt(order.total)}</span>
@@ -118,15 +118,22 @@ export default function OnlineOrderWatcher() {
               className="text-xs text-green-600 flex items-center gap-1"><Phone size={11} /> {order.customerPhone}</a>
           </div>
 
-          {/* Endereço */}
-          <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-600 flex gap-2">
-            <MapPin size={14} className="text-[#F5C542] shrink-0 mt-0.5" />
-            <div>
-              <p>{order.address.street}, {order.address.number}{order.address.complement ? ` — ${order.address.complement}` : ''}</p>
-              <p className="text-gray-500">{order.address.neighborhood}</p>
-              {order.address.reference && <p className="text-xs text-gray-400">Ref: {order.address.reference}</p>}
+          {/* Endereço ou retirada */}
+          {order.orderType === 'pickup' ? (
+            <div className="bg-blue-50 rounded-xl p-3 text-sm text-blue-700 flex gap-2 items-center">
+              <Store size={14} className="shrink-0 text-blue-500" />
+              <p className="font-semibold">Retirada no balcão</p>
             </div>
-          </div>
+          ) : order.address ? (
+            <div className="bg-gray-50 rounded-xl p-3 text-sm text-gray-600 flex gap-2">
+              <MapPin size={14} className="text-[#F5C542] shrink-0 mt-0.5" />
+              <div>
+                <p>{order.address.street}, {order.address.number}{order.address.complement ? ` — ${order.address.complement}` : ''}</p>
+                <p className="text-gray-500">{order.address.neighborhood}</p>
+                {order.address.reference && <p className="text-xs text-gray-400">Ref: {order.address.reference}</p>}
+              </div>
+            </div>
+          ) : null}
 
           {/* Itens */}
           <div className="space-y-1">
@@ -145,7 +152,7 @@ export default function OnlineOrderWatcher() {
           {/* Totais + pagamento */}
           <div className="border-t border-gray-100 pt-2 space-y-1">
             <div className="flex justify-between text-sm text-gray-500"><span>Subtotal</span><span>{fmt(order.subtotal)}</span></div>
-            <div className="flex justify-between text-sm text-gray-500"><span>Entrega ({order.address.neighborhood})</span><span>{fmt(order.deliveryFee)}</span></div>
+            {order.orderType !== 'pickup' && <div className="flex justify-between text-sm text-gray-500"><span>Entrega ({order.address?.neighborhood})</span><span>{fmt(order.deliveryFee)}</span></div>}
             <div className="flex justify-between font-bold text-gray-800"><span>Total</span><span>{fmt(order.total)}</span></div>
           </div>
 
