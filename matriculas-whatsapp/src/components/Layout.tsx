@@ -6,26 +6,32 @@ import {
 import { useAuth } from '../lib/auth'
 
 const segItems = [
-  { to: '/',          label: 'Dashboard',          icon: BarChart2    },
-  { to: '/matriculas',label: 'Matrículas',          icon: CreditCard   },
-  { to: '/clientes',  label: 'Clientes',            icon: Users        },
-  { to: '/historico', label: 'Histórico',           icon: MessageSquare},
-  { to: '/gsdpq',     label: 'Análise GSDPQ',       icon: ClipboardList},
-  { to: '/dto',       label: 'Análise DTO',          icon: Activity     },
-  { to: '/dto-gerenciador', label: 'Gerenciador DTO', icon: CalendarClock },
-  { to: '/prontuario',label: 'Prontuário',           icon: FileText     },
-  { to: '/relatos',   label: 'Relatos',              icon: Flag         },
-  { to: '/telemetria',label: 'Telemetria',           icon: Gauge        },
+  { key: 'dashboard',       to: '/',                 label: 'Dashboard',       icon: BarChart2,     end: true },
+  { key: 'matriculas',      to: '/matriculas',       label: 'Matrículas',      icon: CreditCard           },
+  { key: 'clientes',        to: '/clientes',         label: 'Clientes',        icon: Users                },
+  { key: 'historico',       to: '/historico',        label: 'Histórico',       icon: MessageSquare        },
+  { key: 'gsdpq',           to: '/gsdpq',            label: 'Análise GSDPQ',   icon: ClipboardList        },
+  { key: 'dto',             to: '/dto',              label: 'Análise DTO',      icon: Activity             },
+  { key: 'dto-gerenciador', to: '/dto-gerenciador',  label: 'Gerenciador DTO', icon: CalendarClock        },
+  { key: 'prontuario',      to: '/prontuario',       label: 'Prontuário',      icon: FileText             },
+  { key: 'relatos',         to: '/relatos',          label: 'Relatos',         icon: Flag                 },
+  { key: 'telemetria',      to: '/telemetria',       label: 'Telemetria',      icon: Gauge                },
 ]
 
 const genteItems = [
-  { to: '/jornada', label: 'Controle de Jornada', icon: Clock },
+  { key: 'jornada', to: '/jornada', label: 'Controle de Jornada', icon: Clock },
 ]
 
 const adminItems = [
-  { to: '/fluxo',  label: 'Fluxo Punitivo',  icon: GitBranch },
-  { to: '/admin',  label: 'Administração',    icon: Shield    },
+  { key: 'fluxo', to: '/fluxo',  label: 'Fluxo Punitivo', icon: GitBranch },
+  { key: 'admin', to: '/admin',  label: 'Administração',  icon: Shield    },
 ]
+
+/** Retorna true se o usuário tem acesso à seção */
+function temAcesso(permissoes: string[] | null | undefined, key: string): boolean {
+  if (!permissoes) return true   // sem restrição (usuários legados)
+  return permissoes.includes(key)
+}
 
 function SectionLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -73,24 +79,39 @@ export default function Layout() {
         </div>
 
         <nav className="flex-1 p-3 overflow-y-auto space-y-0.5">
-          <SectionLabel>Segurança</SectionLabel>
-          {segItems.map(({ to, label, icon }) => (
-            <NavItem key={to} to={to} label={label} icon={icon} end={to === '/'} />
-          ))}
-
-          <SectionLabel>Gente</SectionLabel>
-          {genteItems.map(({ to, label, icon }) => (
-            <NavItem key={to} to={to} label={label} icon={icon} />
-          ))}
-
-          {usuario?.admin && (
-            <>
-              <SectionLabel>Admin</SectionLabel>
-              {adminItems.map(({ to, label, icon }) => (
-                <NavItem key={to} to={to} label={label} icon={icon} />
-              ))}
-            </>
-          )}
+          {(() => {
+            const p = usuario?.admin ? null : usuario?.permissoes
+            const seg = segItems.filter(i => temAcesso(p, i.key))
+            const gente = genteItems.filter(i => temAcesso(p, i.key))
+            return (
+              <>
+                {seg.length > 0 && (
+                  <>
+                    <SectionLabel>Segurança</SectionLabel>
+                    {seg.map(({ to, label, icon, end }) => (
+                      <NavItem key={to} to={to} label={label} icon={icon} end={end} />
+                    ))}
+                  </>
+                )}
+                {gente.length > 0 && (
+                  <>
+                    <SectionLabel>Gente</SectionLabel>
+                    {gente.map(({ to, label, icon }) => (
+                      <NavItem key={to} to={to} label={label} icon={icon} />
+                    ))}
+                  </>
+                )}
+                {usuario?.admin && (
+                  <>
+                    <SectionLabel>Admin</SectionLabel>
+                    {adminItems.map(({ to, label, icon }) => (
+                      <NavItem key={to} to={to} label={label} icon={icon} />
+                    ))}
+                  </>
+                )}
+              </>
+            )
+          })()}
         </nav>
 
         <div className="p-3 border-t border-brand-600">

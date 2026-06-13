@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { Usuario, Filial, DtoAvaliador } from '../types'
-import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2 } from 'lucide-react'
+import { SECOES_SISTEMA } from '../types'
+import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2, Lock } from 'lucide-react'
 import { listarGrupos, type GrupoZApi } from '../lib/zapi'
 
 const AVALIADORES_PADRAO = [
@@ -100,6 +101,32 @@ function AbaUsuarios({
   const [form, setForm] = useState({ filial: '', login: '', senha: '', nome: '', admin: false })
   const [loading, setLoading] = useState(false)
 
+  // Painel de permissões
+  const [permModal, setPermModal] = useState<Usuario | null>(null)
+  const [permSelecionadas, setPermSelecionadas] = useState<string[]>([])
+  const [savingPerm, setSavingPerm] = useState(false)
+
+  function abrirPermissoes(u: Usuario) {
+    // null = sem restrição → pré-seleciona tudo para exibição
+    setPermSelecionadas(u.permissoes ?? SECOES_SISTEMA.map(s => s.key))
+    setPermModal(u)
+  }
+
+  function togglePerm(key: string) {
+    setPermSelecionadas(prev =>
+      prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]
+    )
+  }
+
+  async function salvarPermissoes() {
+    if (!permModal) return
+    setSavingPerm(true)
+    await supabase.from('usuarios').update({ permissoes: permSelecionadas }).eq('id', permModal.id)
+    setSavingPerm(false)
+    setPermModal(null)
+    recarregar()
+  }
+
   function abrirNovo() {
     setForm({ filial: filiais[0]?.nome ?? '', login: '', senha: '', nome: '', admin: false })
     setEditId(null)
@@ -170,6 +197,7 @@ function AbaUsuarios({
               <th className="text-left px-4 py-3 font-medium text-gray-600">Login</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Nome</th>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Admin</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Acesso</th>
               <th className="text-right px-4 py-3 font-medium text-gray-600">Ações</th>
             </tr>
           </thead>
@@ -188,11 +216,24 @@ function AbaUsuarios({
                     : <span className="text-xs text-gray-400">—</span>
                   }
                 </td>
+                <td className="px-4 py-3">
+                  {u.admin
+                    ? <span className="text-xs text-gray-400">Todas</span>
+                    : u.permissoes === null
+                      ? <span className="text-xs text-gray-400">Sem restrição</span>
+                      : <span className="text-xs text-brand-700 font-medium">{u.permissoes.length} seção(ões)</span>
+                  }
+                </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end gap-1">
                     <button onClick={() => resetarSenha(u)} title="Resetar senha" className="p-1.5 text-gray-400 hover:text-yellow-600 hover:bg-yellow-50 rounded">
                       <KeyRound size={15} />
                     </button>
+                    {!u.admin && (
+                      <button onClick={() => abrirPermissoes(u)} title="Gerenciar acesso" className="p-1.5 text-gray-400 hover:text-purple-600 hover:bg-purple-50 rounded">
+                        <Lock size={15} />
+                      </button>
+                    )}
                     <button onClick={() => abrirEditar(u)} title="Editar" className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded">
                       <Pencil size={15} />
                     </button>
@@ -268,6 +309,75 @@ function AbaUsuarios({
                 className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-lg font-medium"
               >
                 {loading ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Permissões */}
+      {permModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md p-6 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 flex items-center gap-2">
+                  <Lock size={18} className="text-purple-600" /> Acesso por Seção
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">{permModal.login} · {permModal.filial}</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-400 mb-4">
+              Marque as seções que este usuário pode acessar. Desmarque todas para bloquear o acesso completo.
+            </p>
+
+            <div className="space-y-4">
+              {(['Segurança', 'Gente', 'Financeiro', 'Admin'] as const).map(grupo => {
+                const secoes = SECOES_SISTEMA.filter(s => s.grupo === grupo)
+                return (
+                  <div key={grupo}>
+                    <p className="text-[10px] uppercase tracking-widest font-bold text-gray-400 mb-2">{grupo}</p>
+                    <div className="space-y-1">
+                      {secoes.map(s => (
+                        <label key={s.key} className="flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={permSelecionadas.includes(s.key)}
+                            onChange={() => togglePerm(s.key)}
+                            className="rounded text-brand-700"
+                          />
+                          <span className="text-sm text-gray-700">{s.label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="flex items-center gap-2 mt-5 pt-4 border-t border-gray-100">
+              <button
+                onClick={() => setPermSelecionadas(SECOES_SISTEMA.map(s => s.key))}
+                className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
+              >
+                Marcar tudo
+              </button>
+              <button
+                onClick={() => setPermSelecionadas([])}
+                className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100"
+              >
+                Desmarcar tudo
+              </button>
+              <div className="flex-1" />
+              <button onClick={() => setPermModal(null)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+              <button
+                onClick={salvarPermissoes}
+                disabled={savingPerm}
+                className="px-4 py-2 text-sm bg-brand-700 hover:bg-brand-600 disabled:opacity-50 text-white rounded-lg font-medium flex items-center gap-2"
+              >
+                {savingPerm ? <Loader2 size={14} className="animate-spin" /> : <Lock size={14} />}
+                Salvar acesso
               </button>
             </div>
           </div>

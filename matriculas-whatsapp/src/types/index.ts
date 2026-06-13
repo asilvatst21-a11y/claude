@@ -5,8 +5,27 @@ export interface Usuario {
   senha: string
   nome: string | null
   admin: boolean
+  permissoes: string[] | null  // null = sem restrição; [] = bloqueado; ['gsdpq','dto'] = só essas
   created_at: string
 }
+
+/** Todas as seções configuráveis por permissão */
+export const SECOES_SISTEMA = [
+  { key: 'dashboard',       label: 'Dashboard',       grupo: 'Segurança'    },
+  { key: 'matriculas',      label: 'Matrículas',      grupo: 'Segurança'    },
+  { key: 'clientes',        label: 'Clientes',        grupo: 'Segurança'    },
+  { key: 'historico',       label: 'Histórico',       grupo: 'Segurança'    },
+  { key: 'gsdpq',           label: 'GSDPQ',           grupo: 'Segurança'    },
+  { key: 'dto',             label: 'DTO',              grupo: 'Segurança'    },
+  { key: 'dto-gerenciador', label: 'Gerenciador DTO', grupo: 'Segurança'    },
+  { key: 'prontuario',      label: 'Prontuário',      grupo: 'Segurança'    },
+  { key: 'relatos',         label: 'Relatos',         grupo: 'Segurança'    },
+  { key: 'telemetria',      label: 'Telemetria',      grupo: 'Segurança'    },
+  { key: 'jornada',         label: 'Jornada',         grupo: 'Gente'        },
+  { key: 'fluxo',           label: 'Fluxo Punitivo',  grupo: 'Admin'        },
+  { key: 'vales',           label: 'Vales',           grupo: 'Financeiro'   },
+  { key: 'financeiro',      label: 'Financeiro',      grupo: 'Financeiro'   },
+] as const
 
 export interface Filial {
   id: string
