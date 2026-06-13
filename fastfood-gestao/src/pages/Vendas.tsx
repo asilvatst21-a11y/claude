@@ -804,7 +804,61 @@ export default function Vendas() {
             </div>
           ) : (
             <div className="space-y-3 max-w-xl mx-auto">
-              <p className="text-sm text-gray-500 font-medium">{queue.length} pedido{queue.length !== 1 ? 's' : ''} aguardando</p>
+
+              {/* Pedidos online (delivery) */}
+              {onlineOrders.length > 0 && (
+                <>
+                  <p className="text-sm font-bold text-gray-700 flex items-center gap-2">
+                    <Bike size={15} className="text-[#F5C542]" /> Delivery · {onlineOrders.length} pedido{onlineOrders.length !== 1 ? 's' : ''}
+                  </p>
+                  {onlineOrders.map(o => (
+                    <div key={o.id} className="bg-white rounded-xl border-2 border-[#F5C542]/40 shadow-sm overflow-hidden">
+                      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100 bg-yellow-50/50">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="inline-flex items-center gap-1 bg-[#F5C542] text-[#0F0F0F] text-xs font-bold px-2 py-0.5 rounded-full shrink-0"><Bike size={10} /> Delivery</span>
+                          <span className="font-semibold text-gray-800 truncate">{o.customerName}</span>
+                        </div>
+                        <span className="font-bold text-[#F5C542] shrink-0">{fmt(o.total)}</span>
+                      </div>
+                      <div className="px-4 py-3 space-y-1">
+                        <p className="text-sm text-gray-600 leading-relaxed">
+                          {o.items.map(i => `${i.quantity}× ${i.productName}`).join(' · ')}
+                        </p>
+                        {o.address && (
+                        <p className="text-xs text-gray-500 flex items-start gap-1">
+                          <MapPin size={11} className="text-gray-400 mt-0.5 shrink-0" />
+                          {o.address.street}, {o.address.number} — {o.address.neighborhood}
+                          {o.address.complement ? ` (${o.address.complement})` : ''}
+                        </p>
+                        )}
+                        <a href={`https://wa.me/55${o.customerPhone}`} target="_blank" rel="noopener noreferrer"
+                          className="text-xs text-green-600 inline-flex items-center gap-1"><User size={11} />{o.customerPhone}</a>
+                        <p className="text-xs text-gray-400">
+                          {o.payment === 'pix' ? 'PIX' : o.payment === 'dinheiro' ? `Dinheiro${o.trocoPara ? ` · troco p/ ${fmt(o.trocoPara)}` : ''}` : 'Cartão na entrega'}
+                          {o.notes ? ` · ${o.notes}` : ''}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 border-t border-gray-100">
+                        <button onClick={() => rejectOnlineOrder(o)}
+                          className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-gray-500 hover:bg-gray-50 transition-colors border-r border-gray-100">
+                          <X size={14} /> Cancelar
+                        </button>
+                        <button onClick={() => finalizeOnlineOrder(o)}
+                          className="flex items-center justify-center gap-2 py-3 text-sm font-semibold text-green-600 hover:bg-green-50 transition-colors">
+                          <Check size={14} /> Concluir venda
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </>
+              )}
+
+              {/* Fila manual (balcão) */}
+              {queue.length > 0 && (
+                <p className="text-sm font-bold text-gray-700 flex items-center gap-2 pt-1">
+                  <Clock size={15} className="text-gray-400" /> Balcão · {queue.length} pedido{queue.length !== 1 ? 's' : ''}
+                </p>
+              )}
               {queue.map((order, idx) => (
                 <div key={order.qid} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">

@@ -131,3 +131,49 @@ export interface CashSession {
   status: 'open' | 'closed'
   notes: string
 }
+
+// ----- Delivery / Pedido online -----
+
+export interface DeliveryZone {
+  id: string
+  neighborhood: string
+  fee: number
+}
+
+export interface DeliveryConfig {
+  enabled: boolean
+  storeName: string
+  slug: string            // URL amigável: ex. "macarrao-na-chapa"
+  whatsapp: string        // número do estabelecimento (só dígitos, com DDD)
+  pixKey: string
+  pixName: string
+  pixCity: string
+  zones: DeliveryZone[]
+  minOrder: number
+  notice: string          // aviso opcional exibido no topo (ex: "Entregamos das 18h às 23h")
+}
+
+export interface OnlineOrderAddress {
+  street: string
+  number: string
+  neighborhood: string
+  complement?: string
+  reference?: string
+}
+
+export interface OnlineOrder {
+  id: string
+  createdAt: string       // ISO
+  status: 'pending' | 'accepted'
+  orderType: 'delivery' | 'pickup'
+  customerName: string
+  customerPhone: string   // só dígitos
+  address?: OnlineOrderAddress
+  items: SaleItem[]
+  subtotal: number
+  deliveryFee: number
+  total: number
+  payment: 'pix' | 'dinheiro' | 'cartao'
+  trocoPara?: number
+  notes?: string
+}
