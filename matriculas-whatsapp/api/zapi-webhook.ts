@@ -90,10 +90,14 @@ function extrairResposta(body: any): 'sim' | 'nao' | null {
   return null
 }
 
-// Extrai o conteúdo textual da mensagem — texto digitado OU transcrição de áudio (Z-API)
+// Extrai o conteúdo textual da mensagem — texto digitado, legenda de imagem/vídeo
+// OU transcrição de áudio (Z-API)
 function extrairTexto(body: any): string {
   return String(
     body?.text?.message ??
+    body?.image?.caption ??
+    body?.video?.caption ??
+    body?.document?.caption ??
     body?.audio?.transcription ??
     body?.audio?.transcriptionText ??
     body?.transcription ??
@@ -185,10 +189,15 @@ interface ReposicaoIA {
   produto: string
   quantidade: string
   tipo_reposicao: 'falta' | 'inversao' | 'avaria' | 'troca' | 'indefinido'
+  embalagem: 'unidade' | 'fardo' | 'indefinido'
 }
 
 const TIPO_LABEL: Record<string, string> = {
   falta: 'Falta', inversao: 'Inversão', avaria: 'Avaria', troca: 'Troca', indefinido: 'Não informado',
+}
+
+const EMBALAGEM_LABEL: Record<string, string> = {
+  unidade: 'Unidade', fardo: 'Fardo', indefinido: 'Não informado',
 }
 
 async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
@@ -215,7 +224,9 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
           'Campos não informados devem ficar como string vazia. ' +
           'tipo_reposicao: "falta" (produto não entregue/faltou), "inversao" (veio o item errado na carga/separação), ' +
           '"avaria" (produto quebrado/amassado/vazado/estragado), "troca" (cliente pediu troca/devolução do produto), ' +
-          'ou "indefinido" se não der pra saber.',
+          'ou "indefinido" se não der pra saber. ' +
+          'embalagem: "unidade" (produto avulso, unidade, garrafa/lata solta) ou "fardo" (fardo, pacote, caixa fechada, engradado); ' +
+          'use "indefinido" se a mensagem não deixar claro se é unidade ou fardo.',
         messages: [{ role: 'user', content: texto }],
         output_config: {
           format: {
@@ -229,8 +240,9 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
                 produto:        { type: 'string' },
                 quantidade:     { type: 'string' },
                 tipo_reposicao: { type: 'string', enum: ['falta', 'inversao', 'avaria', 'troca', 'indefinido'] },
+                embalagem:      { type: 'string', enum: ['unidade', 'fardo', 'indefinido'] },
               },
-              required: ['eh_reposicao', 'codigo_pdv', 'mapa', 'produto', 'quantidade', 'tipo_reposicao'],
+              required: ['eh_reposicao', 'codigo_pdv', 'mapa', 'produto', 'quantidade', 'tipo_reposicao', 'embalagem'],
               additionalProperties: false,
             },
           },
@@ -252,13 +264,15 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
   }
 }
 
-function resumoReposicao(p: ReposicaoIA, nome: string): string {
-  const linhas = [`📦 *Confirmação de Reposição*`, `👤 ${nome}`]
-  linhas.push(`🔁 Tipo: ${TIPO_LABEL[p.tipo_reposicao] ?? 'Não informado'}`)
-  if (p.codigo_pdv)  linhas.push(`🏪 PDV: ${p.codigo_pdv}`)
-  if (p.mapa)        linhas.push(`🗺️ Mapa: ${p.mapa}`)
-  if (p.produto)     linhas.push(`📋 Produto: ${p.produto}`)
-  if (p.quantidade)  linhas.push(`📊 Qtde: ${p.quantidade}`)
+// Resumo a partir do registro pendente (já com embalagem definida).
+function resumoConfirmacao(pend: any): string {
+  const linhas = [`📦 *Confirmação de Reposição*`, `👤 ${pend.motorista_nome ?? 'Motorista'}`]
+  linhas.push(`🔁 Tipo: ${TIPO_LABEL[pend.tipo_reposicao ?? 'indefinido'] ?? 'Não informado'}`)
+  linhas.push(`📦 Embalagem: ${EMBALAGEM_LABEL[pend.embalagem ?? 'indefinido'] ?? 'Não informado'}`)
+  if (pend.codigo_pdv)  linhas.push(`🏪 PDV: ${pend.codigo_pdv}`)
+  if (pend.mapa)        linhas.push(`🗺️ Mapa: ${pend.mapa}`)
+  if (pend.produto)     linhas.push(`📋 Produto: ${pend.produto}`)
+  if (pend.quantidade)  linhas.push(`📊 Qtde: ${pend.quantidade}`)
   linhas.push('\nEstá correto? Toque em *Sim* / *Não* ou responda *SIM* para confirmar ou *NÃO* para cancelar.')
   return linhas.join('\n')
 }
@@ -267,6 +281,7 @@ function resumoReposicao(p: ReposicaoIA, nome: string): string {
 function resumoValidacao(numero: string, pend: any): string {
   const linhas = [`🔎 *Validação de Reposição* — ${numero}`]
   linhas.push(`🔁 Tipo: ${TIPO_LABEL[pend.tipo_reposicao ?? 'indefinido'] ?? 'Não informado'}`)
+  linhas.push(`📦 Embalagem: ${EMBALAGEM_LABEL[pend.embalagem ?? 'indefinido'] ?? 'Não informado'}`)
   if (pend.motorista_nome) linhas.push(`👤 Motorista: ${pend.motorista_nome}`)
   if (pend.codigo_pdv)     linhas.push(`🏪 PDV: ${pend.codigo_pdv}`)
   if (pend.mapa)           linhas.push(`🗺️ Mapa: ${pend.mapa}`)
@@ -289,6 +304,17 @@ function extrairValidacao(body: any): { decisao: 'ok' | 'nok'; repId: string | n
   return null
 }
 
+// Resposta do motorista à pergunta "Unidade ou Fardo?" (botão ou texto).
+function extrairEmbalagem(body: any): 'unidade' | 'fardo' | null {
+  const btn = norm(String(body?.buttonsResponseMessage?.buttonId ?? ''))
+  if (btn === 'unidade') return 'unidade'
+  if (btn === 'fardo') return 'fardo'
+  const t = norm(extrairTexto(body))
+  if (/^(unidade|unid|und?|uni)$/.test(t)) return 'unidade'
+  if (/^(fardo|fd|pacote|caixa|cx|engradado)$/.test(t)) return 'fardo'
+  return null
+}
+
 async function gerarNumeroReposicao(): Promise<string> {
   const hoje = new Date().toISOString().slice(0, 10).replace(/-/g, '')
   const { count } = await supabase
@@ -305,6 +331,37 @@ async function tratarReposicao(
   body: any, grupoId: string, filial: string, texto: string,
   senderName: string, participante: string, grupoValidacao: string,
 ): Promise<{ ok: boolean; action: string }> {
+  const limitePend = () => new Date(Date.now() - CONFIRM_TTL_MIN * 60_000).toISOString()
+
+  // 0) Resposta "Unidade/Fardo" a uma pergunta de embalagem pendente
+  const emb = extrairEmbalagem(body)
+  if (emb) {
+    const { data: pendEmb } = await supabase
+      .from('reposicao_confirmacoes')
+      .select('*')
+      .eq('grupo_id', grupoId)
+      .eq('motorista_telefone', participante)
+      .eq('status', 'aguardando_embalagem')
+      .gte('created_at', limitePend())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (pendEmb) {
+      const { data: upd } = await supabase
+        .from('reposicao_confirmacoes')
+        .update({ embalagem: emb, status: 'aguardando' })
+        .eq('id', pendEmb.id)
+        .select('*')
+        .single()
+      await enviarBotoes(grupoId, resumoConfirmacao(upd ?? { ...pendEmb, embalagem: emb }), [
+        { id: 'sim', label: '✅ Sim' },
+        { id: 'nao', label: '❌ Não' },
+      ])
+      return { ok: true, action: 'repos-embalagem-definida' }
+    }
+    // sem pendência de embalagem → ignora e segue o fluxo normal
+  }
+
   // 1) Resposta SIM / NÃO a uma confirmação pendente deste motorista
   const resposta = extrairResposta(body)
   if (resposta) {
@@ -332,6 +389,7 @@ async function tratarReposicao(
     const tipo = pend.tipo_reposicao ?? 'indefinido'
     const { data: novaRep, error: insErr } = await supabase.from('reposicoes').insert({
       numero,
+      filial,
       motorista_nome: pend.motorista_nome,
       motorista_telefone: participante,
       codigo_pdv: pend.codigo_pdv || null,
@@ -340,6 +398,7 @@ async function tratarReposicao(
       produto: pend.produto || null,
       quantidade: pend.quantidade || null,
       tipo_reposicao: tipo,
+      embalagem: pend.embalagem || null,
       motivo: TIPO_LABEL[tipo] ?? null,
       mensagem_original: pend.mensagem_original,
       status: 'pendente',
@@ -387,7 +446,8 @@ async function tratarReposicao(
   }
 
   const nome = senderName || 'Motorista'
-  await supabase.from('reposicao_confirmacoes').insert({
+  const precisaEmbalagem = ia.embalagem === 'indefinido'
+  const { data: pendRow } = await supabase.from('reposicao_confirmacoes').insert({
     filial,
     grupo_id: grupoId,
     motorista_telefone: participante,
@@ -398,9 +458,19 @@ async function tratarReposicao(
     produto: ia.produto || null,
     quantidade: ia.quantidade || null,
     tipo_reposicao: ia.tipo_reposicao,
-    status: 'aguardando',
-  })
-  await enviarBotoes(grupoId, resumoReposicao(ia, nome), [
+    embalagem: ia.embalagem,
+    status: precisaEmbalagem ? 'aguardando_embalagem' : 'aguardando',
+  }).select('*').single()
+
+  // Não deu pra saber a embalagem → pergunta antes de confirmar
+  if (precisaEmbalagem) {
+    await enviarBotoes(grupoId,
+      `📦 ${nome}, esse produto é *Unidade* ou *Fardo*?\nToque na opção ou responda *Unidade* ou *Fardo*.`,
+      [{ id: 'unidade', label: '📦 Unidade' }, { id: 'fardo', label: '📦 Fardo' }])
+    return { ok: true, action: 'repos-aguardando-embalagem' }
+  }
+
+  await enviarBotoes(grupoId, resumoConfirmacao(pendRow ?? { ...ia, motorista_nome: nome }), [
     { id: 'sim', label: '✅ Sim' },
     { id: 'nao', label: '❌ Não' },
   ])

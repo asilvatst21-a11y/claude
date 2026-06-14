@@ -1,13 +1,16 @@
 import { useEffect, useState, useCallback } from "react";
-import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, Download, ChevronDown, ChevronUp } from "lucide-react";
+import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, Download, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp } from "lucide-react";
+import * as XLSX from "xlsx";
 import { formatCurrency } from "@/lib/valesUtils";
 import { valesSupabase } from "@/lib/valesSupabase";
+import { enviarBotoesGrupo } from "@/lib/zapi";
 
-type Status = "pendente" | "validado" | "negado" | "quebra";
+type Status = "pendente" | "validado" | "negado" | "quebra" | "registrado";
 
 interface Reposicao {
   id: string;
   numero: string;
+  filial: string | null;
   motorista_nome: string | null;
   motorista_telefone: string | null;
   mapa: string | null;
@@ -16,6 +19,7 @@ interface Reposicao {
   produto: string | null;
   quantidade: string | null;
   tipo_reposicao: string | null;
+  embalagem: string | null;
   motivo: string | null;
   mensagem_original: string | null;
   status: Status;
@@ -32,17 +36,25 @@ const TIPO_REPOSICAO_LABEL: Record<string, string> = {
   indefinido: "Não informado",
 };
 
+const EMBALAGEM_LABEL: Record<string, string> = {
+  unidade: "Unidade",
+  fardo: "Fardo",
+  indefinido: "Não informado",
+};
+
 const STATUS_CONFIG: Record<Status, { label: string; color: string; icon: React.ElementType }> = {
   pendente: { label: "Pendente", color: "text-yellow-600 bg-yellow-50", icon: Clock },
   validado: { label: "Validado", color: "text-green-600 bg-green-50", icon: CheckCircle },
   negado: { label: "Negado", color: "text-red-600 bg-red-50", icon: XCircle },
   quebra: { label: "Quebra", color: "text-orange-600 bg-orange-50", icon: AlertTriangle },
+  registrado: { label: "Registrado no sistema", color: "text-blue-600 bg-blue-50", icon: ClipboardCheck },
 };
 
 const TABS: { value: "todos" | Status; label: string }[] = [
   { value: "todos", label: "Todos" },
   { value: "pendente", label: "Pendentes" },
   { value: "validado", label: "Validados" },
+  { value: "registrado", label: "Registrados" },
   { value: "negado", label: "Negados" },
   { value: "quebra", label: "Quebras" },
 ];
@@ -99,6 +111,82 @@ export default function ReposicoesPage() {
     await fetchData();
   }
 
+  // Marca como "Registrado no sistema" (registrado no sistema Ambev p/ envio do produto)
+  async function marcarRegistrado(rep: Reposicao) {
+    setActionLoading(rep.id + "registrado");
+    await valesSupabase.from("reposicoes").update({ status: "registrado" }).eq("id", rep.id);
+    setActionLoading(null);
+    await fetchData();
+  }
+
+  // Reenvia a reposição para o grupo de validação no WhatsApp (controle responde OK/NOK)
+  async function enviarParaValidacao(rep: Reposicao) {
+    if (!rep.filial) {
+      alert("Esta reposição não tem filial registrada, não dá para localizar o grupo de validação.");
+      return;
+    }
+    setActionLoading(rep.id + "envio-validacao");
+    const { data: f } = await valesSupabase
+      .from("filiais")
+      .select("grupo_validacao_whatsapp")
+      .eq("nome", rep.filial)
+      .maybeSingle();
+    const grupo = (f as { grupo_validacao_whatsapp?: string | null } | null)?.grupo_validacao_whatsapp;
+    if (!grupo) {
+      setActionLoading(null);
+      alert(`Nenhum grupo de validação configurado para a filial "${rep.filial}". Configure em Config. WhatsApp.`);
+      return;
+    }
+    const linhas = [
+      `🔎 *Validação de Reposição* — ${rep.numero}`,
+      `🔁 Tipo: ${TIPO_REPOSICAO_LABEL[rep.tipo_reposicao ?? "indefinido"] ?? "Não informado"}`,
+      `📦 Embalagem: ${EMBALAGEM_LABEL[rep.embalagem ?? "indefinido"] ?? "Não informado"}`,
+    ];
+    if (rep.motorista_nome) linhas.push(`👤 Motorista: ${rep.motorista_nome}`);
+    if (rep.codigo_pdv) linhas.push(`🏪 PDV: ${rep.codigo_pdv}`);
+    if (rep.mapa) linhas.push(`🗺️ Mapa: ${rep.mapa}`);
+    if (rep.produto) linhas.push(`📋 Produto: ${rep.produto}`);
+    if (rep.quantidade) linhas.push(`📊 Qtde: ${rep.quantidade}`);
+    linhas.push("\nValidar? Toque em *OK* / *NOK* ou responda *OK* para aprovar ou *NOK* para negar.");
+    const { sucesso, erro } = await enviarBotoesGrupo(grupo, linhas.join("\n"), [
+      { id: `vok:${rep.id}`, label: "✅ OK" },
+      { id: `vnok:${rep.id}`, label: "❌ NOK" },
+    ]);
+    if (sucesso && rep.status !== "pendente") {
+      await valesSupabase.from("reposicoes").update({ status: "pendente" }).eq("id", rep.id);
+    }
+    setActionLoading(null);
+    if (!sucesso) { alert(`Falha ao enviar para o grupo de validação:\n${erro ?? ""}`); return; }
+    await fetchData();
+    alert("Enviado para o grupo de validação no WhatsApp.");
+  }
+
+  function exportExcel() {
+    if (!reposicoes.length) return;
+    const rows = reposicoes.map((r) => ({
+      "Número": r.numero,
+      "Data": formatDate(r.created_at),
+      "Filial": r.filial ?? "",
+      "Motorista": r.motorista_nome ?? "",
+      "Telefone": r.motorista_telefone ?? "",
+      "Tipo": TIPO_REPOSICAO_LABEL[r.tipo_reposicao ?? ""] ?? r.tipo_reposicao ?? "",
+      "Embalagem": EMBALAGEM_LABEL[r.embalagem ?? ""] ?? r.embalagem ?? "",
+      "PDV": r.codigo_pdv ?? "",
+      "Cliente": r.cliente ?? "",
+      "Mapa": r.mapa ?? "",
+      "Produto": r.produto ?? "",
+      "Quantidade": r.quantidade ?? "",
+      "Status": STATUS_CONFIG[r.status]?.label ?? r.status,
+      "Validado em": r.validado_em ? formatDate(r.validado_em) : "",
+      "Resposta": r.validador_resposta ?? "",
+      "Mensagem original": r.mensagem_original ?? "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Reposições");
+    XLSX.writeFile(wb, `reposicoes_${new Date().toISOString().split("T")[0]}.xlsx`);
+  }
+
   const stats = {
     total: reposicoes.length,
     pendente: reposicoes.filter((r) => r.status === "pendente").length,
@@ -136,6 +224,9 @@ export default function ReposicoesPage() {
         <div className="flex gap-2">
           <button onClick={fetchData} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <RefreshCw className="h-4 w-4" />Atualizar
+          </button>
+          <button onClick={exportExcel} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
+            <FileSpreadsheet className="h-4 w-4" />Exportar Excel
           </button>
           <button onClick={exportQuebras} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <Download className="h-4 w-4" />Exportar Quebras
@@ -217,6 +308,9 @@ export default function ReposicoesPage() {
                           {TIPO_REPOSICAO_LABEL[r.tipo_reposicao] ?? r.tipo_reposicao}
                         </span>
                       ) : "—"}
+                      {r.embalagem && r.embalagem !== "indefinido" && (
+                        <div className="text-xs text-muted-foreground mt-0.5">{EMBALAGEM_LABEL[r.embalagem] ?? r.embalagem}</div>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <div>{r.produto ?? "—"}</div>
@@ -226,7 +320,7 @@ export default function ReposicoesPage() {
                     <td className="px-4 py-3">{r.mapa ?? "—"}</td>
                     <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         {r.status === "pendente" && (
                           <>
                             <button onClick={() => handleAction(r.id, "validado")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-50 transition-colors">
@@ -236,6 +330,16 @@ export default function ReposicoesPage() {
                               {actionLoading === r.id + "negado" ? "..." : "Negar"}
                             </button>
                           </>
+                        )}
+                        {(r.status === "pendente" || r.status === "negado") && (
+                          <button onClick={() => enviarParaValidacao(r)} disabled={!!actionLoading} title="Reenvia para o grupo de validação no WhatsApp" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 disabled:opacity-50 transition-colors">
+                            <Send className="h-3 w-3" />{actionLoading === r.id + "envio-validacao" ? "..." : "Enviar p/ validação"}
+                          </button>
+                        )}
+                        {(r.status === "pendente" || r.status === "validado") && (
+                          <button onClick={() => marcarRegistrado(r)} disabled={!!actionLoading} title="Registrado no sistema Ambev para envio do produto" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50 transition-colors">
+                            <ClipboardCheck className="h-3 w-3" />{actionLoading === r.id + "registrado" ? "..." : "Registrado"}
+                          </button>
                         )}
                         {r.status === "negado" && (
                           <button onClick={() => handleAction(r.id, "quebra")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-orange-100 text-orange-700 hover:bg-orange-200 disabled:opacity-50 transition-colors">
