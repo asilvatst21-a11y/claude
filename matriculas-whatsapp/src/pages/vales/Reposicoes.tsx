@@ -12,8 +12,10 @@ interface Reposicao {
   motorista_telefone: string | null;
   mapa: string | null;
   cliente: string | null;
+  codigo_pdv: string | null;
   produto: string | null;
   quantidade: string | null;
+  tipo_reposicao: string | null;
   motivo: string | null;
   mensagem_original: string | null;
   status: Status;
@@ -21,6 +23,13 @@ interface Reposicao {
   validado_em: string | null;
   created_at: string;
 }
+
+const TIPO_REPOSICAO_LABEL: Record<string, string> = {
+  falta: "Falta",
+  inversao: "Inversão",
+  avaria: "Avaria",
+  indefinido: "Não informado",
+};
 
 const STATUS_CONFIG: Record<Status, { label: string; color: string; icon: React.ElementType }> = {
   pendente: { label: "Pendente", color: "text-yellow-600 bg-yellow-50", icon: Clock },
@@ -183,7 +192,9 @@ export default function ReposicoesPage() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Número</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Data</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Motorista</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Tipo</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Produto</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">PDV</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mapa</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Ações</th>
@@ -200,9 +211,17 @@ export default function ReposicoesPage() {
                       {r.motorista_telefone && <div className="text-xs text-muted-foreground">{r.motorista_telefone}</div>}
                     </td>
                     <td className="px-4 py-3">
+                      {r.tipo_reposicao ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                          {TIPO_REPOSICAO_LABEL[r.tipo_reposicao] ?? r.tipo_reposicao}
+                        </span>
+                      ) : "—"}
+                    </td>
+                    <td className="px-4 py-3">
                       <div>{r.produto ?? "—"}</div>
                       {r.quantidade && <div className="text-xs text-muted-foreground">{r.quantidade}</div>}
                     </td>
+                    <td className="px-4 py-3">{r.codigo_pdv ?? r.cliente ?? "—"}</td>
                     <td className="px-4 py-3">{r.mapa ?? "—"}</td>
                     <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
                     <td className="px-4 py-3">
@@ -230,7 +249,7 @@ export default function ReposicoesPage() {
                   </tr>
                   {expanded === r.id && (
                     <tr key={r.id + "-detail"} className="bg-muted/20">
-                      <td colSpan={7} className="px-4 py-4">
+                      <td colSpan={9} className="px-4 py-4">
                         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
                           <div><span className="text-xs text-muted-foreground block mb-0.5">Cliente</span><span className="font-medium">{r.cliente ?? "—"}</span></div>
                           <div><span className="text-xs text-muted-foreground block mb-0.5">Motivo</span><span className="font-medium">{r.motivo ?? "—"}</span></div>

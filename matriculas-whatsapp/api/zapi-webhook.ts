@@ -10,6 +10,9 @@ const ZAPI_CLIENT_TOKEN = process.env.ZAPI_CLIENT_TOKEN ?? process.env.VITE_ZAPI
 
 const WEBHOOK_SECRET = process.env.ZAPI_WEBHOOK_SECRET ?? ''
 
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? ''
+const ANTHROPIC_MODEL   = 'claude-haiku-4-5'
+
 const ZAPI_BASE = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}`
 
 const CONFIRM_TTL_MIN = 60
@@ -34,7 +37,6 @@ async function enviar(destino: string, message: string): Promise<void> {
   }
 }
 
-/** @deprecated use enviar */
 const enviarGrupo = enviar
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
@@ -54,13 +56,31 @@ function extrairResposta(body: any): 'sim' | 'nao' | null {
   if (buttonId === 'nao') return 'nao'
 
   const texto = norm(String(body?.text?.message ?? '').trim())
-  if (texto === 'sim') return 'sim'
-  if (/^n[aã]o$/.test(texto) || texto === 'nao') return 'nao'
+  if (texto === 'sim' || texto === 'ok' || texto === 'confirmar') return 'sim'
+  if (/^n[ao]+$/.test(texto) || texto === 'cancelar') return 'nao'
 
   return null
 }
 
-// Extrai colaborador + motivo + data opcional do formato multi-linha
+// Extrai o conteúdo textual da mensagem — texto digitado OU transcrição de áudio (Z-API)
+function extrairTexto(body: any): string {
+  return String(
+    body?.text?.message ??
+    body?.audio?.transcription ??
+    body?.audio?.transcriptionText ??
+    body?.transcription ??
+    body?.message ??
+    body?.body ??
+    ''
+  ).trim()
+}
+
+function temAudioSemTexto(body: any): boolean {
+  const ehAudio = !!(body?.audio?.audioUrl || body?.audio?.url || body?.type === 'AudioMessage')
+  return ehAudio && !extrairTexto(body)
+}
+
+// Extrai colaborador + motivo + data opcional do formato multi-linha (fluxo punitivo)
 function parseComando(texto: string): { nome: string; motivo: string; data?: string } | null {
   const linhas = texto.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
   let nome = ''
@@ -87,33 +107,88 @@ function parseComando(texto: string): { nome: string; motivo: string; data?: str
   return { nome, motivo, ...(data ? { data } : {}) }
 }
 
-// Parseia uma solicitação de reposição com campos chave:valor
-function parseReposicao(texto: string): { mapa: string; produto: string; quantidade: string; cliente: string; motivo: string } {
-  const linhas = texto.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
-  const result: Record<string, string> = { mapa: '', produto: '', quantidade: '', cliente: '', motivo: '' }
+// ── Extração de reposição via IA (Claude Haiku + structured outputs) ──────────────
 
-  for (const linha of linhas) {
-    const sep = linha.match(/^([^:\-–]+)[\:\-–]\s*(.+)$/)
-    if (!sep) continue
-    const chave = norm(sep[1])
-    const valor = sep[2].trim()
-    if (/mapa/.test(chave))             result.mapa = valor
-    else if (/produto/.test(chave))     result.produto = valor
-    else if (/qtd|quant/.test(chave))   result.quantidade = valor
-    else if (/cliente/.test(chave))     result.cliente = valor
-    else if (/motivo|razao/.test(chave))result.motivo = valor
-  }
-
-  return result as { mapa: string; produto: string; quantidade: string; cliente: string; motivo: string }
+interface ReposicaoIA {
+  eh_reposicao: boolean
+  codigo_pdv: string
+  mapa: string
+  produto: string
+  quantidade: string
+  tipo_reposicao: 'falta' | 'inversao' | 'avaria' | 'indefinido'
 }
 
-function buildResumoReposicao(p: ReturnType<typeof parseReposicao>, nome: string): string {
-  const linhas = [`📦 *Confirmação de Reposição*\n👤 Motorista: ${nome}`]
-  if (p.mapa)       linhas.push(`🗺️ Mapa: ${p.mapa}`)
-  if (p.produto)    linhas.push(`📋 Produto: ${p.produto}`)
-  if (p.quantidade) linhas.push(`📊 Qtde: ${p.quantidade}`)
-  if (p.cliente)    linhas.push(`🏪 Cliente: ${p.cliente}`)
-  if (p.motivo)     linhas.push(`⚠️ Motivo: ${p.motivo}`)
+const TIPO_LABEL: Record<string, string> = {
+  falta: 'Falta', inversao: 'Inversão', avaria: 'Avaria', indefinido: 'Não informado',
+}
+
+async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
+  if (!ANTHROPIC_API_KEY) {
+    console.error('ANTHROPIC_API_KEY não configurada')
+    return null
+  }
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 400,
+        system:
+          'Você analisa mensagens de motoristas de entrega enviadas em um grupo de WhatsApp. ' +
+          'A mensagem pode ser uma solicitação de reposição de produto (falta, inversão ou avaria) ' +
+          'ou apenas uma conversa qualquer. Extraia os campos solicitados. ' +
+          'Se a mensagem NÃO for uma solicitação de reposição, defina eh_reposicao=false. ' +
+          'Campos não informados devem ficar como string vazia. ' +
+          'tipo_reposicao: "falta" (produto não entregue/faltou), "inversao" (produto trocado/errado), ' +
+          '"avaria" (produto quebrado/amassado/vazado/estragado), ou "indefinido" se não der pra saber.',
+        messages: [{ role: 'user', content: texto }],
+        output_config: {
+          format: {
+            type: 'json_schema',
+            schema: {
+              type: 'object',
+              properties: {
+                eh_reposicao:   { type: 'boolean' },
+                codigo_pdv:     { type: 'string' },
+                mapa:           { type: 'string' },
+                produto:        { type: 'string' },
+                quantidade:     { type: 'string' },
+                tipo_reposicao: { type: 'string', enum: ['falta', 'inversao', 'avaria', 'indefinido'] },
+              },
+              required: ['eh_reposicao', 'codigo_pdv', 'mapa', 'produto', 'quantidade', 'tipo_reposicao'],
+              additionalProperties: false,
+            },
+          },
+        },
+      }),
+    })
+    if (!resp.ok) {
+      console.error('Claude HTTP error:', resp.status, await resp.text().catch(() => ''))
+      return null
+    }
+    const data: any = await resp.json()
+    if (data.stop_reason === 'refusal') { console.error('Claude refusal'); return null }
+    const bloco = (data.content ?? []).find((b: any) => b.type === 'text')
+    if (!bloco?.text) return null
+    return JSON.parse(bloco.text) as ReposicaoIA
+  } catch (e) {
+    console.error('extrairReposicaoIA exception:', e)
+    return null
+  }
+}
+
+function resumoReposicao(p: ReposicaoIA, nome: string): string {
+  const linhas = [`📦 *Confirmação de Reposição*`, `👤 ${nome}`]
+  linhas.push(`🔁 Tipo: ${TIPO_LABEL[p.tipo_reposicao] ?? 'Não informado'}`)
+  if (p.codigo_pdv)  linhas.push(`🏪 PDV: ${p.codigo_pdv}`)
+  if (p.mapa)        linhas.push(`🗺️ Mapa: ${p.mapa}`)
+  if (p.produto)     linhas.push(`📋 Produto: ${p.produto}`)
+  if (p.quantidade)  linhas.push(`📊 Qtde: ${p.quantidade}`)
   linhas.push('\nEstá correto? Responda *SIM* para confirmar ou *NÃO* para cancelar.')
   return linhas.join('\n')
 }
@@ -128,6 +203,157 @@ async function gerarNumeroReposicao(): Promise<string> {
   return `REP-${hoje}-${seq}`
 }
 
+// ── Fluxo de reposição (grupo de motoristas) ──────────────────────────────────────
+
+async function tratarReposicao(
+  body: any, grupoId: string, filial: string, texto: string,
+  senderName: string, participante: string,
+): Promise<{ ok: boolean; action: string }> {
+  // 1) Resposta SIM / NÃO a uma confirmação pendente deste motorista
+  const resposta = extrairResposta(body)
+  if (resposta) {
+    const limite = new Date(Date.now() - CONFIRM_TTL_MIN * 60_000).toISOString()
+    const { data: pend } = await supabase
+      .from('reposicao_confirmacoes')
+      .select('*')
+      .eq('grupo_id', grupoId)
+      .eq('motorista_telefone', participante)
+      .eq('status', 'aguardando')
+      .gte('created_at', limite)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    if (!pend) return { ok: true, action: 'repos-sem-pendencia' }
+
+    if (resposta === 'nao') {
+      await supabase.from('reposicao_confirmacoes').update({ status: 'cancelado' }).eq('id', pend.id)
+      await enviar(grupoId, `❌ ${pend.motorista_nome ?? ''}, solicitação cancelada. Pode enviar novamente.`)
+      return { ok: true, action: 'repos-cancelado' }
+    }
+
+    const numero = await gerarNumeroReposicao()
+    const { error: insErr } = await supabase.from('reposicoes').insert({
+      numero,
+      motorista_nome: pend.motorista_nome,
+      motorista_telefone: participante,
+      codigo_pdv: pend.codigo_pdv || null,
+      cliente: pend.codigo_pdv || null,
+      mapa: pend.mapa || null,
+      produto: pend.produto || null,
+      quantidade: pend.quantidade || null,
+      tipo_reposicao: pend.tipo_reposicao || null,
+      motivo: TIPO_LABEL[pend.tipo_reposicao ?? 'indefinido'] ?? null,
+      mensagem_original: pend.mensagem_original,
+      status: 'pendente',
+    })
+    if (insErr) {
+      console.error('Erro ao inserir reposição:', insErr)
+      await enviar(grupoId, '❌ Erro ao registrar. Tente novamente.')
+      return { ok: false, action: 'repos-erro' }
+    }
+    await supabase.from('reposicao_confirmacoes').update({ status: 'confirmado' }).eq('id', pend.id)
+    await enviar(grupoId,
+      `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nAguardando validação do financeiro.`)
+    return { ok: true, action: 'repos-confirmado' }
+  }
+
+  // 2) Mensagem nova — se for áudio sem transcrição, orienta
+  if (temAudioSemTexto(body)) {
+    await enviar(grupoId, '🎤 Recebi um áudio mas não consegui transcrever. Pode mandar por texto ou reenviar o áudio?')
+    return { ok: true, action: 'repos-audio-sem-texto' }
+  }
+  if (!texto) return { ok: true, action: 'repos-vazio' }
+
+  // 3) IA interpreta a mensagem livre
+  const ia = await extrairReposicaoIA(texto)
+  if (!ia || !ia.eh_reposicao) {
+    // Não é solicitação de reposição → bot fica em silêncio (evita poluir o grupo)
+    return { ok: true, action: 'repos-nao-aplicavel' }
+  }
+
+  const nome = senderName || 'Motorista'
+  await supabase.from('reposicao_confirmacoes').insert({
+    filial,
+    grupo_id: grupoId,
+    motorista_telefone: participante,
+    motorista_nome: nome,
+    mensagem_original: texto,
+    codigo_pdv: ia.codigo_pdv || null,
+    mapa: ia.mapa || null,
+    produto: ia.produto || null,
+    quantidade: ia.quantidade || null,
+    tipo_reposicao: ia.tipo_reposicao,
+    status: 'aguardando',
+  })
+  await enviar(grupoId, resumoReposicao(ia, nome))
+  return { ok: true, action: 'repos-aguardando' }
+}
+
+// ── Fluxo punitivo (grupo de gestão) ──────────────────────────────────────────────
+
+async function tratarFluxo(
+  body: any, grupoId: string, filial: string, texto: string,
+  senderName: string, participante: string,
+): Promise<{ ok: boolean; action: string }> {
+  const n = norm(texto)
+
+  if (n.startsWith('fluxo:') || n.startsWith('#fluxo')) {
+    const parsed = parseComando(texto)
+    if (!parsed) {
+      await enviarGrupo(grupoId,
+        '⚠️ Formato inválido.\nUse o padrão:\n\n*Fluxo: NOME DO COLABORADOR*\n*Motivo - MOTIVO*\n*Data: DD/MM* _(opcional)_\n\nEx:\nFluxo: João Silva\nMotivo - Falta\nData: 09/06')
+      return { ok: true, action: 'usage' }
+    }
+    const { data: conf } = await supabase.from('fluxo_confirmacoes').insert({
+      filial, grupo_id: grupoId,
+      colaborador_nome: parsed.nome, motivo: parsed.motivo,
+      data_acao: parsed.data ?? null,
+      solicitante_nome: senderName || null, solicitante_telefone: participante || null,
+      status: 'aguardando',
+    }).select('id').single()
+
+    const dataInfo = parsed.data ? `\n📅 Data: ${parsed.data.split('-').reverse().join('/')}` : ''
+    await enviarGrupo(grupoId,
+      `📋 *Confirmação de Fluxo*\n👤 Colaborador: ${parsed.nome}\n⚠️ Motivo: ${parsed.motivo}${dataInfo}\n\nResponda *SIM* para confirmar ou *NÃO* para cancelar.`)
+    return { ok: true, action: 'aguardando' }
+  }
+
+  const resposta = extrairResposta(body)
+  if (resposta) {
+    const limite = new Date(Date.now() - CONFIRM_TTL_MIN * 60_000).toISOString()
+    const { data: pend } = await supabase
+      .from('fluxo_confirmacoes').select('*')
+      .eq('grupo_id', grupoId).eq('status', 'aguardando')
+      .gte('created_at', limite).order('created_at', { ascending: false }).limit(1).maybeSingle()
+
+    if (!pend) return { ok: true, action: 'no-pending-confirmation' }
+
+    if (resposta === 'nao') {
+      await supabase.from('fluxo_confirmacoes').update({ status: 'cancelado' }).eq('id', pend.id)
+      await enviarGrupo(grupoId, `❌ Solicitação cancelada para *${pend.colaborador_nome}*.`)
+      return { ok: true, action: 'cancelado' }
+    }
+
+    const hoje = new Date().toISOString().slice(0, 10)
+    const { data: fluxo } = await supabase.from('fluxo_punitivo').insert({
+      filial, colaborador_nome: pend.colaborador_nome,
+      origem: 'Grupo', tipo_acao: null, status: 'Solicitado',
+      motivo: pend.motivo, data_acao: pend.data_acao ?? hoje, observacao: null,
+      registrado_por: pend.solicitante_nome ? `${pend.solicitante_nome} (via grupo)` : 'WhatsApp (grupo)',
+      source_id: pend.id,
+    }).select('id').single()
+
+    await supabase.from('fluxo_confirmacoes')
+      .update({ status: 'confirmado', fluxo_id: fluxo?.id ?? null }).eq('id', pend.id)
+    await enviarGrupo(grupoId,
+      `✅ Fluxo criado para *${pend.colaborador_nome}* (${pend.motivo}).\nJá está como *pendente* no sistema para o responsável definir a ação.`)
+    return { ok: true, action: 'confirmado' }
+  }
+
+  return { ok: true, action: 'no-command' }
+}
+
 // ── Handler ──────────────────────────────────────────────────────────────────────
 
 export default async function handler(req: any, res: any) {
@@ -135,14 +361,12 @@ export default async function handler(req: any, res: any) {
     res.status(200).json({ ok: true, ignored: 'method' })
     return
   }
-
   if (WEBHOOK_SECRET && req.query?.token !== WEBHOOK_SECRET) {
     res.status(401).json({ ok: false, error: 'invalid token' })
     return
   }
 
   const body = typeof req.body === 'string' ? safeJson(req.body) : (req.body ?? {})
-
   console.log('WEBHOOK type:', body.type, '| fromMe:', body.fromMe, '| isGroup:', body.isGroup, '| phone:', body.phone)
 
   try {
@@ -151,250 +375,44 @@ export default async function handler(req: any, res: any) {
     const isGroup: boolean =
       body.isGroup === true || body.isGroup === 'true' ||
       grupoId.endsWith('-group') || grupoId.endsWith('@g.us')
-    const texto: string = String(
-      body?.text?.message ??
-      body?.message ??
-      body?.body ??
-      ''
-    ).trim()
-    const temConteudo = texto || body?.buttonsResponseMessage || body?.listResponse
+    const texto = extrairTexto(body)
+    const temConteudo = texto || body?.buttonsResponseMessage || body?.listResponse || temAudioSemTexto(body)
     const senderName: string = String(body.senderName ?? body.chatName ?? body.pushName ?? '')
     const participante: string = String(body.participantPhone ?? body.participant ?? '')
 
-    if (fromMe || !grupoId || !temConteudo) {
-      res.status(200).json({ ok: true, ignored: 'fromMe-or-empty' })
+    if (fromMe || !isGroup || !grupoId || !temConteudo) {
+      res.status(200).json({ ok: true, ignored: 'not-applicable' })
       return
     }
 
-    // ════════════════════════════════════════════════════════════════════════════
-    // MENSAGENS DIRETAS — fluxo de reposição do motorista
-    // ════════════════════════════════════════════════════════════════════════════
-    if (!isGroup) {
-      const telefone = grupoId
+    // Descobre a qual fluxo este grupo pertence
+    const { data: filialRow } = await supabase
+      .from('filiais')
+      .select('nome, grupo_fluxo_whatsapp, grupo_reposicoes_whatsapp')
+      .or(`grupo_fluxo_whatsapp.eq.${grupoId},grupo_reposicoes_whatsapp.eq.${grupoId}`)
+      .maybeSingle()
 
-      // 1) SIM / NÃO para confirmação pendente de reposição
-      const resposta = extrairResposta(body)
-      if (resposta) {
-        const limite = new Date(Date.now() - CONFIRM_TTL_MIN * 60_000).toISOString()
-        const { data: pend } = await supabase
-          .from('reposicao_confirmacoes')
-          .select('*')
-          .eq('motorista_telefone', telefone)
-          .eq('status', 'aguardando')
-          .gte('created_at', limite)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle()
-
-        if (!pend) {
-          res.status(200).json({ ok: true, ignored: 'no-pending-repos' })
-          return
-        }
-
-        if (resposta === 'nao') {
-          await supabase.from('reposicao_confirmacoes').update({ status: 'cancelado' }).eq('id', pend.id)
-          await enviar(telefone, '❌ Solicitação cancelada. Envie uma nova mensagem quando quiser.')
-          res.status(200).json({ ok: true, action: 'repos-cancelado' })
-          return
-        }
-
-        // SIM → salva a reposição e avisa o grupo
-        const numero = await gerarNumeroReposicao()
-        const { error: insErr } = await supabase.from('reposicoes').insert({
-          numero,
-          motorista_nome: pend.motorista_nome,
-          motorista_telefone: telefone,
-          mapa: pend.mapa || null,
-          cliente: pend.cliente || null,
-          produto: pend.produto || null,
-          quantidade: pend.quantidade || null,
-          motivo: pend.motivo || null,
-          mensagem_original: pend.mensagem_original,
-          status: 'pendente',
-        })
-
-        if (insErr) {
-          console.error('Erro ao inserir reposição:', insErr)
-          await enviar(telefone, '❌ Erro ao registrar a solicitação. Tente novamente.')
-          res.status(200).json({ ok: false, error: insErr.message })
-          return
-        }
-
-        await supabase.from('reposicao_confirmacoes').update({ status: 'confirmado' }).eq('id', pend.id)
-
-        // Avisa o motorista
-        await enviar(telefone,
-          `✅ Solicitação *${numero}* registrada!\nO financeiro irá analisar em breve.`)
-
-        // Envia ao grupo da filial para validação
-        const { data: filialRow } = await supabase
-          .from('filiais').select('grupo_fluxo_whatsapp').eq('nome', pend.filial).single()
-        const grupo = filialRow?.grupo_fluxo_whatsapp ?? null
-        if (grupo) {
-          const grupoMsg =
-            `📦 *Nova Solicitação de Reposição*\n` +
-            `🔢 Ref: ${numero}\n` +
-            `📍 Filial: ${pend.filial}\n` +
-            `👤 Motorista: ${pend.motorista_nome ?? 'N/I'}\n` +
-            (pend.mapa      ? `🗺️ Mapa: ${pend.mapa}\n`         : '') +
-            (pend.produto   ? `📋 Produto: ${pend.produto}\n`    : '') +
-            (pend.quantidade? `📊 Qtde: ${pend.quantidade}\n`    : '') +
-            (pend.cliente   ? `🏪 Cliente: ${pend.cliente}\n`    : '') +
-            (pend.motivo    ? `⚠️ Motivo: ${pend.motivo}\n`      : '') +
-            `\n_Acesse Vales → Reposições para validar._`
-          await enviar(grupo, grupoMsg)
-          await supabase.from('disparos').insert({
-            filial: pend.filial, whatsapp: grupo, mensagem: grupoMsg,
-            status: 'enviado', erro: null,
-          })
-        }
-
-        res.status(200).json({ ok: true, action: 'repos-confirmado', numero })
-        return
-      }
-
-      // 2) Nova solicitação de reposição
-      const n = norm(texto)
-      const ehReposicao = /^rep[o]?s|^reposi/i.test(n)
-
-      if (!ehReposicao) {
-        // Mensagem direta sem trigger — envia ajuda
-        await enviar(telefone,
-          '📦 Para solicitar uma *reposição*, envie:\n\n' +
-          '*Reposição*\n' +
-          '*Mapa: [número]*\n' +
-          '*Produto: [produto]*\n' +
-          '*Qtde: [quantidade]*\n' +
-          '*Cliente: [cliente]*\n' +
-          '*Motivo: [motivo]*\n\n' +
-          '_Exemplo:_\n' +
-          'Reposição\nMapa: 12345\nProduto: Cerveja 350ml\nQtde: 2 caixas\nCliente: Supermercado XYZ\nMotivo: produto quebrado')
-        res.status(200).json({ ok: true, action: 'repos-help' })
-        return
-      }
-
-      // Busca o motorista pelo telefone na tabela de matrículas
-      const { data: matricula } = await supabase
-        .from('matriculas')
-        .select('nome, filial')
-        .eq('whatsapp', telefone)
-        .eq('ativo', true)
-        .maybeSingle()
-
-      if (!matricula) {
-        await enviar(telefone,
-          '⚠️ Número não cadastrado no sistema.\nEntre em contato com o financeiro.')
-        res.status(200).json({ ok: true, ignored: 'motorista-not-found' })
-        return
-      }
-
-      const parsed = parseReposicao(texto)
-
-      await supabase.from('reposicao_confirmacoes').insert({
-        filial: matricula.filial,
-        motorista_telefone: telefone,
-        motorista_nome: matricula.nome,
-        mensagem_original: texto,
-        mapa: parsed.mapa || null,
-        cliente: parsed.cliente || null,
-        produto: parsed.produto || null,
-        quantidade: parsed.quantidade || null,
-        motivo: parsed.motivo || null,
-        status: 'aguardando',
-      })
-
-      await enviar(telefone, buildResumoReposicao(parsed, matricula.nome))
-      res.status(200).json({ ok: true, action: 'repos-aguardando' })
-      return
-    }
-
-    // ════════════════════════════════════════════════════════════════════════════
-    // MENSAGENS DE GRUPO — fluxo punitivo
-    // ════════════════════════════════════════════════════════════════════════════
-
-    const { data: filialRow, error: filialErr } = await supabase
-      .from('filiais').select('nome').eq('grupo_fluxo_whatsapp', grupoId).maybeSingle()
-    if (filialErr) console.error('Erro ao buscar filial:', filialErr)
     if (!filialRow) {
       console.log('Grupo não configurado em filiais:', grupoId)
       res.status(200).json({ ok: true, ignored: 'group-not-configured' })
       return
     }
+
     const filial: string = filialRow.nome
-    const n = norm(texto)
 
-    // ── 1) Novo comando: inicia com "Fluxo:" ────────────────────────────────────
-    if (n.startsWith('fluxo:') || n.startsWith('#fluxo')) {
-      const parsed = parseComando(texto)
-      if (!parsed) {
-        await enviarGrupo(grupoId,
-          '⚠️ Formato inválido.\nUse o padrão:\n\n*Fluxo: NOME DO COLABORADOR*\n*Motivo - MOTIVO*\n*Data: DD/MM* _(opcional)_\n\nEx:\nFluxo: João Silva\nMotivo - Falta\nData: 09/06')
-        res.status(200).json({ ok: true, action: 'usage' })
-        return
-      }
-
-      const { data: conf } = await supabase.from('fluxo_confirmacoes').insert({
-        filial, grupo_id: grupoId,
-        colaborador_nome: parsed.nome, motivo: parsed.motivo,
-        data_acao: parsed.data ?? null,
-        solicitante_nome: senderName || null, solicitante_telefone: participante || null,
-        status: 'aguardando',
-      }).select('id').single()
-
-      const dataInfo = parsed.data ? `\n📅 Data: ${parsed.data.split('-').reverse().join('/')}` : ''
-      await enviarGrupo(grupoId,
-        `📋 *Confirmação de Fluxo*\n👤 Colaborador: ${parsed.nome}\n⚠️ Motivo: ${parsed.motivo}${dataInfo}\n\nResponda *SIM* para confirmar ou *NÃO* para cancelar.`)
-
-      res.status(200).json({ ok: true, action: 'aguardando', id: conf?.id })
+    if (filialRow.grupo_reposicoes_whatsapp === grupoId) {
+      const r = await tratarReposicao(body, grupoId, filial, texto, senderName, participante)
+      res.status(200).json(r)
       return
     }
 
-    // ── 2) Confirmação: SIM / NÃO ───────────────────────────────────────────────
-    const resposta = extrairResposta(body)
-    if (resposta) {
-      const limite = new Date(Date.now() - CONFIRM_TTL_MIN * 60_000).toISOString()
-      const { data: pend } = await supabase
-        .from('fluxo_confirmacoes')
-        .select('*')
-        .eq('grupo_id', grupoId)
-        .eq('status', 'aguardando')
-        .gte('created_at', limite)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-
-      if (!pend) {
-        res.status(200).json({ ok: true, ignored: 'no-pending-confirmation' })
-        return
-      }
-
-      if (resposta === 'nao') {
-        await supabase.from('fluxo_confirmacoes').update({ status: 'cancelado' }).eq('id', pend.id)
-        await enviarGrupo(grupoId, `❌ Solicitação cancelada para *${pend.colaborador_nome}*.`)
-        res.status(200).json({ ok: true, action: 'cancelado' })
-        return
-      }
-
-      const hoje = new Date().toISOString().slice(0, 10)
-      const { data: fluxo } = await supabase.from('fluxo_punitivo').insert({
-        filial, colaborador_nome: pend.colaborador_nome,
-        origem: 'Grupo', tipo_acao: null, status: 'Solicitado',
-        motivo: pend.motivo, data_acao: pend.data_acao ?? hoje, observacao: null,
-        registrado_por: pend.solicitante_nome ? `${pend.solicitante_nome} (via grupo)` : 'WhatsApp (grupo)',
-        source_id: pend.id,
-      }).select('id').single()
-
-      await supabase.from('fluxo_confirmacoes')
-        .update({ status: 'confirmado', fluxo_id: fluxo?.id ?? null }).eq('id', pend.id)
-
-      await enviarGrupo(grupoId,
-        `✅ Fluxo criado para *${pend.colaborador_nome}* (${pend.motivo}).\nJá está como *pendente* no sistema para o responsável definir a ação.`)
-
-      res.status(200).json({ ok: true, action: 'confirmado', fluxo_id: fluxo?.id })
+    if (filialRow.grupo_fluxo_whatsapp === grupoId) {
+      const r = await tratarFluxo(body, grupoId, filial, texto, senderName, participante)
+      res.status(200).json(r)
       return
     }
 
-    res.status(200).json({ ok: true, ignored: 'no-command' })
+    res.status(200).json({ ok: true, ignored: 'no-route' })
   } catch (e) {
     console.error('Erro no webhook:', e)
     res.status(200).json({ ok: false, error: String(e) })
