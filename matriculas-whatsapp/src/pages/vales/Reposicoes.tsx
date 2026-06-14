@@ -28,6 +28,7 @@ const TIPO_REPOSICAO_LABEL: Record<string, string> = {
   falta: "Falta",
   inversao: "Inversão",
   avaria: "Avaria",
+  troca: "Troca",
   indefinido: "Não informado",
 };
 

@@ -45,6 +45,28 @@ async function enviar(destino: string, message: string): Promise<void> {
 
 const enviarGrupo = enviar
 
+// Envia mensagem com botões interativos (send-button-list). Como botões andam
+// instáveis em grupos no WhatsApp, o próprio texto da mensagem já instrui a
+// resposta (SIM/NÃO, OK/NOK) e, se a API falhar, caímos para texto puro.
+interface BotaoZ { id: string; label: string }
+async function enviarBotoes(destino: string, message: string, botoes: BotaoZ[]): Promise<void> {
+  try {
+    const resp = await fetch(`${ZAPI_BASE}/send-button-list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Client-Token': ZAPI_CLIENT_TOKEN },
+      body: JSON.stringify({ phone: destino, message, buttonList: { buttons: botoes } }),
+    })
+    if (!resp.ok) {
+      console.error('send-button-list error:', resp.status, await resp.text().catch(() => ''))
+      await enviar(destino, message) // fallback: texto (instruções já estão na mensagem)
+    }
+  } catch (e) {
+    console.error('enviarBotoes exception:', e)
+    await enviar(destino, message)
+  }
+}
+
+
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
 function norm(s: string): string {
@@ -162,11 +184,11 @@ interface ReposicaoIA {
   mapa: string
   produto: string
   quantidade: string
-  tipo_reposicao: 'falta' | 'inversao' | 'avaria' | 'indefinido'
+  tipo_reposicao: 'falta' | 'inversao' | 'avaria' | 'troca' | 'indefinido'
 }
 
 const TIPO_LABEL: Record<string, string> = {
-  falta: 'Falta', inversao: 'Inversão', avaria: 'Avaria', indefinido: 'Não informado',
+  falta: 'Falta', inversao: 'Inversão', avaria: 'Avaria', troca: 'Troca', indefinido: 'Não informado',
 }
 
 async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
@@ -187,12 +209,13 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
         max_tokens: 400,
         system:
           'Você analisa mensagens de motoristas de entrega enviadas em um grupo de WhatsApp. ' +
-          'A mensagem pode ser uma solicitação de reposição de produto (falta, inversão ou avaria) ' +
+          'A mensagem pode ser uma solicitação de reposição de produto (falta, inversão, avaria ou troca) ' +
           'ou apenas uma conversa qualquer. Extraia os campos solicitados. ' +
           'Se a mensagem NÃO for uma solicitação de reposição, defina eh_reposicao=false. ' +
           'Campos não informados devem ficar como string vazia. ' +
-          'tipo_reposicao: "falta" (produto não entregue/faltou), "inversao" (produto trocado/errado), ' +
-          '"avaria" (produto quebrado/amassado/vazado/estragado), ou "indefinido" se não der pra saber.',
+          'tipo_reposicao: "falta" (produto não entregue/faltou), "inversao" (veio o item errado na carga/separação), ' +
+          '"avaria" (produto quebrado/amassado/vazado/estragado), "troca" (cliente pediu troca/devolução do produto), ' +
+          'ou "indefinido" se não der pra saber.',
         messages: [{ role: 'user', content: texto }],
         output_config: {
           format: {
@@ -205,7 +228,7 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
                 mapa:           { type: 'string' },
                 produto:        { type: 'string' },
                 quantidade:     { type: 'string' },
-                tipo_reposicao: { type: 'string', enum: ['falta', 'inversao', 'avaria', 'indefinido'] },
+                tipo_reposicao: { type: 'string', enum: ['falta', 'inversao', 'avaria', 'troca', 'indefinido'] },
               },
               required: ['eh_reposicao', 'codigo_pdv', 'mapa', 'produto', 'quantidade', 'tipo_reposicao'],
               additionalProperties: false,
@@ -236,8 +259,34 @@ function resumoReposicao(p: ReposicaoIA, nome: string): string {
   if (p.mapa)        linhas.push(`🗺️ Mapa: ${p.mapa}`)
   if (p.produto)     linhas.push(`📋 Produto: ${p.produto}`)
   if (p.quantidade)  linhas.push(`📊 Qtde: ${p.quantidade}`)
-  linhas.push('\nEstá correto? Responda *SIM* para confirmar ou *NÃO* para cancelar.')
+  linhas.push('\nEstá correto? Toque em *Sim* / *Não* ou responda *SIM* para confirmar ou *NÃO* para cancelar.')
   return linhas.join('\n')
+}
+
+// Mensagem enviada ao grupo de validação (controle) para Falta/Inversão.
+function resumoValidacao(numero: string, pend: any): string {
+  const linhas = [`🔎 *Validação de Reposição* — ${numero}`]
+  linhas.push(`🔁 Tipo: ${TIPO_LABEL[pend.tipo_reposicao ?? 'indefinido'] ?? 'Não informado'}`)
+  if (pend.motorista_nome) linhas.push(`👤 Motorista: ${pend.motorista_nome}`)
+  if (pend.codigo_pdv)     linhas.push(`🏪 PDV: ${pend.codigo_pdv}`)
+  if (pend.mapa)           linhas.push(`🗺️ Mapa: ${pend.mapa}`)
+  if (pend.produto)        linhas.push(`📋 Produto: ${pend.produto}`)
+  if (pend.quantidade)     linhas.push(`📊 Qtde: ${pend.quantidade}`)
+  linhas.push('\nValidar? Toque em *OK* / *NOK* ou responda *OK* para aprovar ou *NOK* para negar.')
+  return linhas.join('\n')
+}
+
+// Resposta do controle no grupo de validação: OK/NOK (botão ou texto).
+// O id da reposição pode vir embutido no buttonId (vok:<id> / vnok:<id>).
+function extrairValidacao(body: any): { decisao: 'ok' | 'nok'; repId: string | null } | null {
+  const rawBtn = String(body?.buttonsResponseMessage?.buttonId ?? '')
+  if (rawBtn.startsWith('vok:'))  return { decisao: 'ok',  repId: rawBtn.slice(4) || null }
+  if (rawBtn.startsWith('vnok:')) return { decisao: 'nok', repId: rawBtn.slice(5) || null }
+
+  const t = norm(rawBtn) || norm(extrairTexto(body))
+  if (t === 'ok' || t === 'sim' || t === 'valido' || t === 'validar' || t === 'aprovado' || t === 'aprovar') return { decisao: 'ok', repId: null }
+  if (t === 'nok' || t === 'nao' || t === 'negar' || t === 'negado' || t === 'reprovado' || t === 'reprovar') return { decisao: 'nok', repId: null }
+  return null
 }
 
 async function gerarNumeroReposicao(): Promise<string> {
@@ -254,7 +303,7 @@ async function gerarNumeroReposicao(): Promise<string> {
 
 async function tratarReposicao(
   body: any, grupoId: string, filial: string, texto: string,
-  senderName: string, participante: string,
+  senderName: string, participante: string, grupoValidacao: string,
 ): Promise<{ ok: boolean; action: string }> {
   // 1) Resposta SIM / NÃO a uma confirmação pendente deste motorista
   const resposta = extrairResposta(body)
@@ -280,7 +329,8 @@ async function tratarReposicao(
     }
 
     const numero = await gerarNumeroReposicao()
-    const { error: insErr } = await supabase.from('reposicoes').insert({
+    const tipo = pend.tipo_reposicao ?? 'indefinido'
+    const { data: novaRep, error: insErr } = await supabase.from('reposicoes').insert({
       numero,
       motorista_nome: pend.motorista_nome,
       motorista_telefone: participante,
@@ -289,19 +339,31 @@ async function tratarReposicao(
       mapa: pend.mapa || null,
       produto: pend.produto || null,
       quantidade: pend.quantidade || null,
-      tipo_reposicao: pend.tipo_reposicao || null,
-      motivo: TIPO_LABEL[pend.tipo_reposicao ?? 'indefinido'] ?? null,
+      tipo_reposicao: tipo,
+      motivo: TIPO_LABEL[tipo] ?? null,
       mensagem_original: pend.mensagem_original,
       status: 'pendente',
-    })
-    if (insErr) {
+    }).select('id, numero').single()
+    if (insErr || !novaRep) {
       console.error('Erro ao inserir reposição:', insErr)
       await enviar(grupoId, '❌ Erro ao registrar. Tente novamente.')
       return { ok: false, action: 'repos-erro' }
     }
     await supabase.from('reposicao_confirmacoes').update({ status: 'confirmado' }).eq('id', pend.id)
-    await enviar(grupoId,
-      `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nAguardando validação do financeiro.`)
+
+    // Falta/Inversão (e indefinido) vão para validação do controle.
+    // Avaria/Troca só registram no banco.
+    const precisaValidacao = tipo === 'falta' || tipo === 'inversao' || tipo === 'indefinido'
+    if (precisaValidacao && grupoValidacao) {
+      await enviar(grupoId,
+        `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nEnviada para validação do controle.`)
+      await enviarBotoes(grupoValidacao, resumoValidacao(numero, pend), [
+        { id: `vok:${novaRep.id}`,  label: '✅ OK' },
+        { id: `vnok:${novaRep.id}`, label: '❌ NOK' },
+      ])
+    } else {
+      await enviar(grupoId, `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!`)
+    }
     return { ok: true, action: 'repos-confirmado' }
   }
 
@@ -338,8 +400,53 @@ async function tratarReposicao(
     tipo_reposicao: ia.tipo_reposicao,
     status: 'aguardando',
   })
-  await enviar(grupoId, resumoReposicao(ia, nome))
+  await enviarBotoes(grupoId, resumoReposicao(ia, nome), [
+    { id: 'sim', label: '✅ Sim' },
+    { id: 'nao', label: '❌ Não' },
+  ])
   return { ok: true, action: 'repos-aguardando' }
+}
+
+// ── Fluxo de validação (grupo de controle) ────────────────────────────────────────
+// O controle responde OK/NOK e isso atualiza o status da reposição no painel.
+async function tratarValidacao(body: any, grupoId: string): Promise<{ ok: boolean; action: string }> {
+  const v = extrairValidacao(body)
+  if (!v) return { ok: true, action: 'validacao-sem-resposta' }
+
+  // Localiza a reposição: por id (vindo do botão) ou a pendente de validação
+  // mais recente (fallback quando a resposta veio por texto).
+  let rep: any = null
+  if (v.repId) {
+    const { data } = await supabase.from('reposicoes').select('*').eq('id', v.repId).maybeSingle()
+    rep = data
+  } else {
+    const { data } = await supabase.from('reposicoes')
+      .select('*')
+      .eq('status', 'pendente')
+      .in('tipo_reposicao', ['falta', 'inversao', 'indefinido'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    rep = data
+  }
+
+  if (!rep) return { ok: true, action: 'validacao-sem-pendencia' }
+  if (rep.status !== 'pendente') {
+    await enviar(grupoId, `⚠️ *${rep.numero}* já estava como *${rep.status}*.`)
+    return { ok: true, action: 'validacao-ja-resolvida' }
+  }
+
+  const novoStatus = v.decisao === 'ok' ? 'validado' : 'negado'
+  await supabase.from('reposicoes').update({
+    status: novoStatus,
+    validador_resposta: v.decisao === 'ok' ? 'Controle: OK (WhatsApp)' : 'Controle: NOK (WhatsApp)',
+    validado_em: new Date().toISOString(),
+  }).eq('id', rep.id)
+
+  await enviar(grupoId, v.decisao === 'ok'
+    ? `✅ *${rep.numero}* validada pelo controle.`
+    : `❌ *${rep.numero}* negada pelo controle.`)
+  return { ok: true, action: `validacao-${novoStatus}` }
 }
 
 // ── Fluxo punitivo (grupo de gestão) ──────────────────────────────────────────────
@@ -440,8 +547,8 @@ export default async function handler(req: any, res: any) {
     // Descobre a qual fluxo este grupo pertence
     const { data: filialRow } = await supabase
       .from('filiais')
-      .select('nome, grupo_fluxo_whatsapp, grupo_reposicoes_whatsapp')
-      .or(`grupo_fluxo_whatsapp.eq.${grupoId},grupo_reposicoes_whatsapp.eq.${grupoId}`)
+      .select('nome, grupo_fluxo_whatsapp, grupo_reposicoes_whatsapp, grupo_solicitacao_2_whatsapp, grupo_validacao_whatsapp')
+      .or(`grupo_fluxo_whatsapp.eq.${grupoId},grupo_reposicoes_whatsapp.eq.${grupoId},grupo_solicitacao_2_whatsapp.eq.${grupoId},grupo_validacao_whatsapp.eq.${grupoId}`)
       .maybeSingle()
 
     if (!filialRow) {
@@ -451,9 +558,18 @@ export default async function handler(req: any, res: any) {
     }
 
     const filial: string = filialRow.nome
+    const grupoValidacao: string = filialRow.grupo_validacao_whatsapp ?? ''
 
-    if (filialRow.grupo_reposicoes_whatsapp === grupoId) {
-      const r = await tratarReposicao(body, grupoId, filial, texto, senderName, participante)
+    // Grupo de validação (controle): responde OK/NOK e atualiza o painel
+    if (grupoValidacao && grupoValidacao === grupoId) {
+      const r = await tratarValidacao(body, grupoId)
+      res.status(200).json(r)
+      return
+    }
+
+    // Grupos de solicitação (1 e 2): motorista envia e confirma
+    if (filialRow.grupo_reposicoes_whatsapp === grupoId || filialRow.grupo_solicitacao_2_whatsapp === grupoId) {
+      const r = await tratarReposicao(body, grupoId, filial, texto, senderName, participante, grupoValidacao)
       res.status(200).json(r)
       return
     }
