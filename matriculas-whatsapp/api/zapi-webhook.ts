@@ -13,6 +13,12 @@ const WEBHOOK_SECRET = process.env.ZAPI_WEBHOOK_SECRET ?? ''
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? ''
 const ANTHROPIC_MODEL   = 'claude-haiku-4-5'
 
+// Transcrição de áudio — o Z-API não transcreve nativamente, então baixamos o
+// áudio e usamos o Whisper da Groq (tier gratuito). Se GROQ_API_KEY não estiver
+// configurada, o bot pede para o motorista mandar por texto.
+const GROQ_API_KEY          = process.env.GROQ_API_KEY ?? ''
+const GROQ_TRANSCRIBE_MODEL = process.env.GROQ_TRANSCRIBE_MODEL ?? 'whisper-large-v3-turbo'
+
 const ZAPI_BASE = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}`
 
 const CONFIRM_TTL_MIN = 60
@@ -78,6 +84,47 @@ function extrairTexto(body: any): string {
 function temAudioSemTexto(body: any): boolean {
   const ehAudio = !!(body?.audio?.audioUrl || body?.audio?.url || body?.type === 'AudioMessage')
   return ehAudio && !extrairTexto(body)
+}
+
+function extrairAudioUrl(body: any): string {
+  return String(body?.audio?.audioUrl ?? body?.audio?.url ?? '').trim()
+}
+
+// Baixa o áudio do Z-API e transcreve via Whisper da Groq (endpoint compatível
+// com a OpenAI). Retorna o texto transcrito ou null se falhar / sem chave.
+async function transcreverAudio(url: string): Promise<string | null> {
+  if (!GROQ_API_KEY || !url) return null
+  try {
+    const audioResp = await fetch(url)
+    if (!audioResp.ok) {
+      console.error('Falha ao baixar áudio:', audioResp.status)
+      return null
+    }
+    const buf = await audioResp.arrayBuffer()
+    const blob = new Blob([buf], { type: audioResp.headers.get('content-type') ?? 'audio/ogg' })
+
+    const form = new FormData()
+    form.append('file', blob, 'audio.ogg')
+    form.append('model', GROQ_TRANSCRIBE_MODEL)
+    form.append('language', 'pt')
+    form.append('response_format', 'json')
+
+    const resp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
+      body: form,
+    })
+    if (!resp.ok) {
+      console.error('Groq transcribe error:', resp.status, await resp.text().catch(() => ''))
+      return null
+    }
+    const data: any = await resp.json()
+    const texto = String(data?.text ?? '').trim()
+    return texto || null
+  } catch (e) {
+    console.error('transcreverAudio exception:', e)
+    return null
+  }
 }
 
 // Extrai colaborador + motivo + data opcional do formato multi-linha (fluxo punitivo)
@@ -258,15 +305,20 @@ async function tratarReposicao(
     return { ok: true, action: 'repos-confirmado' }
   }
 
-  // 2) Mensagem nova — se for áudio sem transcrição, orienta
-  if (temAudioSemTexto(body)) {
-    await enviar(grupoId, '🎤 Recebi um áudio mas não consegui transcrever. Pode mandar por texto ou reenviar o áudio?')
-    return { ok: true, action: 'repos-audio-sem-texto' }
+  // 2) Mensagem nova — se for áudio sem texto, tenta transcrever (Groq Whisper)
+  let conteudo = texto
+  if (!conteudo && temAudioSemTexto(body)) {
+    const transcrito = await transcreverAudio(extrairAudioUrl(body))
+    if (!transcrito) {
+      await enviar(grupoId, '🎤 Recebi um áudio mas não consegui transcrever. Pode mandar por texto ou reenviar o áudio?')
+      return { ok: true, action: 'repos-audio-sem-texto' }
+    }
+    conteudo = transcrito
   }
-  if (!texto) return { ok: true, action: 'repos-vazio' }
+  if (!conteudo) return { ok: true, action: 'repos-vazio' }
 
   // 3) IA interpreta a mensagem livre
-  const ia = await extrairReposicaoIA(texto)
+  const ia = await extrairReposicaoIA(conteudo)
   if (!ia || !ia.eh_reposicao) {
     // Não é solicitação de reposição → bot fica em silêncio (evita poluir o grupo)
     return { ok: true, action: 'repos-nao-aplicavel' }
@@ -278,7 +330,7 @@ async function tratarReposicao(
     grupo_id: grupoId,
     motorista_telefone: participante,
     motorista_nome: nome,
-    mensagem_original: texto,
+    mensagem_original: conteudo,
     codigo_pdv: ia.codigo_pdv || null,
     mapa: ia.mapa || null,
     produto: ia.produto || null,

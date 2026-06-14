@@ -31,6 +31,7 @@ const financeiroItems = [
   { permKey: 'financeiro', to: '/vales/importar',      label: 'Importar Planilha', icon: Upload                  },
   { permKey: 'financeiro', to: '/vales/importacoes',   label: 'Importações',       icon: FileSpreadsheet         },
   { permKey: 'financeiro', to: '/vales/reposicoes',    label: 'Reposições',        icon: Package                 },
+  { permKey: 'financeiro', to: '/vales/whatsapp',      label: 'Config. WhatsApp',  icon: MessageSquare           },
   { permKey: 'financeiro', to: '/vales/configuracoes', label: 'Config. Vales',     icon: Settings                },
 ]
 
