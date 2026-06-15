@@ -22,6 +22,7 @@ import ImportacoesPage from './pages/vales/Importacoes'
 import ReposicoesPage from './pages/vales/Reposicoes'
 import ValesConfiguracoesPage from './pages/vales/Configuracoes'
 import WhatsappConfigPage from './pages/vales/WhatsappConfig'
+import ImportCatalogoPage from './pages/vales/ImportCatalogo'
 
 function ProtectedRoutes() {
   const { usuario, loading } = useAuth()
@@ -70,6 +71,7 @@ export default function App() {
             <Route path="/vales/importacoes" element={<ImportacoesPage />} />
             <Route path="/vales/reposicoes" element={<ReposicoesPage />} />
             <Route path="/vales/whatsapp" element={<WhatsappConfigPage />} />
+            <Route path="/vales/catalogo" element={<ImportCatalogoPage />} />
             <Route path="/vales/configuracoes" element={<ValesConfiguracoesPage />} />
           </Route>
         </Routes>

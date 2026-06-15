@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
-import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, Download, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp } from "lucide-react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, Download, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatCurrency } from "@/lib/valesUtils";
 import { valesSupabase } from "@/lib/valesSupabase";
@@ -76,6 +76,76 @@ function formatDate(str: string | null) {
     day: "2-digit", month: "2-digit", year: "numeric",
     hour: "2-digit", minute: "2-digit",
   });
+}
+
+interface VendaDia {
+  produto_codigo: number | null;
+  produto_nome: string | null;
+  quantidade: number | null;
+  unidade: string | null;
+}
+
+// Extrai o código numérico do campo de produto ou PDV (ex: "8919 - GUARANA..." → 8919)
+function extrairCodigo(campo: string | null): number | null {
+  if (!campo) return null;
+  const m = campo.match(/^\s*(\d+)/);
+  return m ? parseInt(m[1]) : null;
+}
+
+function VendasConfronto({ rep }: { rep: Reposicao }) {
+  const [vendas, setVendas] = useState<VendaDia[] | null>(null);
+  const [carregando, setCarregando] = useState(false);
+  const buscouRef = useRef(false);
+
+  useEffect(() => {
+    if (buscouRef.current) return;
+    buscouRef.current = true;
+    const pdvCod = extrairCodigo(rep.codigo_pdv ?? rep.cliente);
+    if (!pdvCod) { setVendas([]); return; }
+    const data = rep.created_at.slice(0, 10);
+    setCarregando(true);
+    valesSupabase
+      .from("vendas_dia")
+      .select("produto_codigo, produto_nome, quantidade, unidade")
+      .eq("data", data)
+      .eq("pdv_codigo", pdvCod)
+      .order("produto_codigo")
+      .then(({ data: rows }) => {
+        setVendas(rows ?? []);
+        setCarregando(false);
+      });
+  }, [rep]);
+
+  const prodCod = extrairCodigo(rep.produto);
+  const temProduto = prodCod && vendas?.some(v => v.produto_codigo === prodCod);
+
+  if (carregando) return <div className="text-xs text-muted-foreground mt-2">Buscando vendas do dia…</div>;
+  if (!vendas || vendas.length === 0) {
+    const pdvCod = extrairCodigo(rep.codigo_pdv ?? rep.cliente);
+    if (!pdvCod) return null;
+    return <div className="text-xs text-muted-foreground mt-2">Nenhuma venda encontrada para o PDV {pdvCod} em {rep.created_at.slice(0, 10)}.</div>;
+  }
+
+  return (
+    <div className="mt-3 space-y-1.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <ShoppingCart className="h-3.5 w-3.5" />
+        Vendas do dia para este PDV — {rep.created_at.slice(0, 10)}
+        {temProduto
+          ? <span className="ml-1 px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">produto confirmado no pedido ✓</span>
+          : prodCod
+          ? <span className="ml-1 px-1.5 py-0.5 rounded-full bg-yellow-100 text-yellow-700 font-medium">produto NÃO encontrado no pedido ⚠</span>
+          : null}
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-1">
+        {vendas.map((v, i) => (
+          <div key={i} className={`text-xs px-2 py-1 rounded border ${v.produto_codigo === prodCod ? "border-green-300 bg-green-50 font-medium text-green-800" : "border-transparent bg-muted/30 text-muted-foreground"}`}>
+            {v.produto_codigo} — {v.produto_nome ?? "?"} {v.quantidade ? `(${v.quantidade} ${v.unidade ?? ""})` : ""}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function ReposicoesPage() {
@@ -364,6 +434,7 @@ export default function ReposicoesPage() {
                         {r.mensagem_original && r.mensagem_original !== "[áudio]" && (
                           <div className="text-xs text-muted-foreground border-l-2 pl-3 italic">&ldquo;{r.mensagem_original}&rdquo;</div>
                         )}
+                        <VendasConfronto rep={r} />
                         {r.status === "pendente" && (
                           <div className="mt-3 flex items-center gap-2">
                             <input

@@ -200,12 +200,59 @@ const EMBALAGEM_LABEL: Record<string, string> = {
   unidade: 'Unidade', fardo: 'Fardo', indefinido: 'Não informado',
 }
 
+// Busca os 40 produtos mais recentes do catálogo para enriquecer o prompt da IA.
+// Se a tabela estiver vazia (antes da primeira importação), retorna lista vazia.
+async function buscarProdutosContexto(): Promise<string> {
+  try {
+    const { data } = await supabase
+      .from('produtos')
+      .select('codigo, descricao, embalagem')
+      .order('codigo')
+      .limit(80)
+    if (!data || data.length === 0) return ''
+    const lista = data.map(p => `${p.codigo} - ${p.descricao}${p.embalagem ? ` (${p.embalagem})` : ''}`).join('\n')
+    return `\n\nCatálogo de referência (produtos desta distribuidora):\n${lista}`
+  } catch {
+    return ''
+  }
+}
+
+// Tenta buscar o nome canônico do produto no catálogo pelo código ou por nome parcial.
+async function canonicalizarProduto(termo: string): Promise<string> {
+  if (!termo) return termo
+  // Se parece um código numérico
+  const cod = parseInt(termo.replace(/\D/g, ''))
+  if (cod > 0 && /^\d+$/.test(termo.trim())) {
+    const { data } = await supabase.from('produtos').select('descricao').eq('codigo', cod).maybeSingle()
+    if (data?.descricao) return `${cod} - ${data.descricao}`
+  }
+  // Busca por nome parcial (ignora caso)
+  const { data } = await supabase
+    .from('produtos')
+    .select('codigo, descricao')
+    .ilike('descricao', `%${termo.replace(/%/g, '')}%`)
+    .limit(1)
+    .maybeSingle()
+  if (data?.descricao) return `${data.codigo} - ${data.descricao}`
+  return termo
+}
+
+// Busca o nome fantasia do PDV no catálogo.
+async function buscarNomePdv(codigo: string): Promise<string | null> {
+  if (!codigo) return null
+  const cod = parseInt(codigo.replace(/\D/g, ''))
+  if (!cod) return null
+  const { data } = await supabase.from('pdvs').select('nome_fantasia').eq('codigo', cod).maybeSingle()
+  return data?.nome_fantasia?.trim() || null
+}
+
 async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
   if (!ANTHROPIC_API_KEY) {
     console.error('ANTHROPIC_API_KEY não configurada')
     return null
   }
   try {
+    const catalogo = await buscarProdutosContexto()
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -226,7 +273,9 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
           '"avaria" (produto quebrado/amassado/vazado/estragado), "troca" (cliente pediu troca/devolução do produto), ' +
           'ou "indefinido" se não der pra saber. ' +
           'embalagem: "unidade" (produto avulso, unidade, garrafa/lata solta) ou "fardo" (fardo, pacote, caixa fechada, engradado); ' +
-          'use "indefinido" se a mensagem não deixar claro se é unidade ou fardo.',
+          'use "indefinido" se a mensagem não deixar claro se é unidade ou fardo. ' +
+          'Para o campo "produto", use o nome padronizado do catálogo se conseguir identificar, ' +
+          'incluindo o código numérico se mencionado.' + catalogo,
         messages: [{ role: 'user', content: texto }],
         output_config: {
           format: {
@@ -443,6 +492,15 @@ async function tratarReposicao(
   if (!ia || !ia.eh_reposicao) {
     // Não é solicitação de reposição → bot fica em silêncio (evita poluir o grupo)
     return { ok: true, action: 'repos-nao-aplicavel' }
+  }
+
+  // Enriquece produto e PDV com nomes canônicos do catálogo
+  const produtoCanon = await canonicalizarProduto(ia.produto)
+  const nomePdv = await buscarNomePdv(ia.codigo_pdv)
+  if (produtoCanon !== ia.produto) ia.produto = produtoCanon
+  // Adiciona nome fantasia do PDV no campo codigo_pdv se disponível
+  if (nomePdv && ia.codigo_pdv && !ia.codigo_pdv.includes(nomePdv)) {
+    ia.codigo_pdv = `${ia.codigo_pdv} - ${nomePdv}`
   }
 
   const nome = senderName || 'Motorista'
