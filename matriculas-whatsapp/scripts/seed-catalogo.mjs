@@ -1,21 +1,17 @@
 /**
- * Seed: popula as tabelas `produtos` e `pdvs` no Supabase.
+ * Seed: popula as tabelas `produtos` e `pdvs` no Supabase via REST API.
  *
- * Uso (uma única vez):
- *   SUPABASE_URL=https://xxx.supabase.co SUPABASE_SERVICE_ROLE=eyJ... node scripts/seed-catalogo.mjs
- *
- * Ou crie um arquivo .env na raiz do projeto com as variáveis acima e rode:
+ * Uso:
  *   node --env-file=.env scripts/seed-catalogo.mjs
  */
 
 import { readFileSync } from 'fs'
-import { createClient } from '@supabase/supabase-js'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 
 const __dir = dirname(fileURLToPath(import.meta.url))
 
-const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? ''
+const SUPABASE_URL = (process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? '').replace(/\/$/, '').replace(/\/rest\/v1$/, '')
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE ?? process.env.VITE_SUPABASE_SERVICE_KEY ?? ''
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
@@ -23,18 +19,30 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
   process.exit(1)
 }
 
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
+const BASE = `${SUPABASE_URL}/rest/v1`
+const HEADERS = {
+  'apikey': SUPABASE_KEY,
+  'Authorization': `Bearer ${SUPABASE_KEY}`,
+  'Content-Type': 'application/json',
+  'Prefer': 'resolution=merge-duplicates',
+}
 
 async function upsert(tabela, rows) {
   const BATCH = 500
   let total = 0
   for (let i = 0; i < rows.length; i += BATCH) {
-    const { error } = await supabase.from(tabela).upsert(rows.slice(i, i + BATCH))
-    if (error) {
-      console.error(`❌  Erro em ${tabela} (lote ${i}):`, error.message)
+    const chunk = rows.slice(i, i + BATCH)
+    const res = await fetch(`${BASE}/${tabela}`, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify(chunk),
+    })
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '')
+      console.error(`\n❌  Erro em ${tabela} (lote ${i}): ${res.status} ${txt}`)
       process.exit(1)
     }
-    total += Math.min(BATCH, rows.length - i)
+    total += chunk.length
     process.stdout.write(`\r   ${tabela}: ${total}/${rows.length}`)
   }
   console.log(`\r   ✅ ${tabela}: ${total} registros inseridos/atualizados`)
