@@ -217,6 +217,28 @@ async function buscarProdutosContexto(): Promise<string> {
   }
 }
 
+// Verifica se o produto consta nas vendas do dia para o PDV informado.
+// Retorna null se não houver dados de vendas cadastrados (sem CSV importado).
+async function verificarVendasDia(pdvCodigo: string, produtoCodigo: string): Promise<boolean | null> {
+  const pdvCod = parseInt(pdvCodigo.replace(/\D/g, ''))
+  const prodCod = parseInt(produtoCodigo.replace(/\D/g, ''))
+  if (!pdvCod || !prodCod) return null
+  const hoje = new Date().toISOString().slice(0, 10)
+  const { count } = await supabase
+    .from('vendas_dia')
+    .select('*', { count: 'exact', head: true })
+    .eq('data', hoje)
+    .eq('pdv_codigo', pdvCod)
+  if (count === 0) return null // sem dados do dia → não sabemos
+  const { count: c2 } = await supabase
+    .from('vendas_dia')
+    .select('*', { count: 'exact', head: true })
+    .eq('data', hoje)
+    .eq('pdv_codigo', pdvCod)
+    .eq('produto_codigo', prodCod)
+  return (c2 ?? 0) > 0
+}
+
 // Tenta buscar o nome canônico do produto no catálogo pelo código ou por nome parcial.
 async function canonicalizarProduto(termo: string): Promise<string> {
   if (!termo) return termo
@@ -495,13 +517,19 @@ async function tratarReposicao(
   }
 
   // Enriquece produto e PDV com nomes canônicos do catálogo
-  const produtoCanon = await canonicalizarProduto(ia.produto)
-  const nomePdv = await buscarNomePdv(ia.codigo_pdv)
+  const [produtoCanon, nomePdv] = await Promise.all([
+    canonicalizarProduto(ia.produto),
+    buscarNomePdv(ia.codigo_pdv),
+  ])
   if (produtoCanon !== ia.produto) ia.produto = produtoCanon
-  // Adiciona nome fantasia do PDV no campo codigo_pdv se disponível
+  const pdvOriginal = ia.codigo_pdv
   if (nomePdv && ia.codigo_pdv && !ia.codigo_pdv.includes(nomePdv)) {
     ia.codigo_pdv = `${ia.codigo_pdv} - ${nomePdv}`
   }
+
+  // Verifica se o produto consta nas vendas do dia para este PDV
+  const prodCodExtract = produtoCanon.match(/^\s*(\d+)/)?.[1] ?? ia.produto
+  const vendaOk = await verificarVendasDia(pdvOriginal, prodCodExtract)
 
   const nome = senderName || 'Motorista'
   const precisaEmbalagem = ia.embalagem === 'indefinido'
@@ -526,6 +554,13 @@ async function tratarReposicao(
       `📦 ${nome}, esse produto é *Unidade* ou *Fardo*?\nToque na opção ou responda *Unidade* ou *Fardo*.`,
       [{ id: 'unidade', label: '📦 Unidade' }, { id: 'fardo', label: '📦 Fardo' }])
     return { ok: true, action: 'repos-aguardando-embalagem' }
+  }
+
+  // Avisa o motorista se o produto não consta nas vendas do PDV hoje
+  if (vendaOk === false) {
+    await enviar(grupoId,
+      `⚠️ Atenção ${nome}: o produto *${ia.produto}* não consta nas vendas de hoje para o PDV *${pdvOriginal}*. ` +
+      `Verifique se o PDV e o produto estão corretos antes de confirmar.`)
   }
 
   await enviarBotoes(grupoId, resumoConfirmacao(pendRow ?? { ...ia, motorista_nome: nome }), [
