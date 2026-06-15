@@ -211,8 +211,15 @@ function semAcento(s: string): string {
 // nomes (catálogo/faturamento). Ex.: "litro" aparece como "1l"; "litrao" idem.
 function expandirSinonimos(palavra: string): string[] {
   const SIN: Record<string, string[]> = {
+    ap:        ['ap', 'antarctica'],     // Antárctica
+    antartica: ['antartica', 'antarctica'],
+    bc:        ['bc', 'brahma chopp'],   // Brahma Chopp
+    sk:        ['sk', 'skol'],           // Skol
+    gca:       ['gca', 'guarana'],       // Guaraná Antarctica
     litro:  ['litro', '1l'],
     litrao: ['litrao', '1l'],
+    latao:  ['latao', '473'],         // latão = 473ml
+    lata:   ['lata', '350'],          // lata = 350ml
   }
   return SIN[palavra] ?? [palavra]
 }
@@ -515,6 +522,26 @@ async function finalizarColeta(pend: any, grupoId: string, nome: string): Promis
     avaliarVendas(pdvOriginal, String(pend.produto ?? '')),
     buscarNomePdv(pdvOriginal),
   ])
+  const dataBR = (d: string) => d.split('-').reverse().join('/')
+
+  // BLOQUEIO: PDV não está no faturamento do dia → não confirma, pede correção.
+  if (vendas.situacao === 'pdv-sem-venda') {
+    await supabase.from('reposicao_confirmacoes').update({ status: 'rejeitado' }).eq('id', pend.id)
+    await enviar(grupoId,
+      `⛔ ${nome}, o PDV *${pdvOriginal || '?'}* não tem venda registrada no faturamento de ${dataBR(vendas.data)}.\n` +
+      `Corrija o número do PDV e *reenvie a solicitação*, ou entre em contato com o *monitoramento*.`)
+    return
+  }
+  // BLOQUEIO: produto não consta no pedido do PDV → não confirma, pede correção.
+  if (vendas.situacao === 'ok' && !vendas.produtoNoPedido) {
+    await supabase.from('reposicao_confirmacoes').update({ status: 'rejeitado' }).eq('id', pend.id)
+    await enviar(grupoId,
+      `⛔ ${nome}, o produto *${pend.produto}* não consta no pedido do PDV *${pdvOriginal}* em ${dataBR(vendas.data)}.\n` +
+      `Corrija o produto e *reenvie a solicitação*, ou entre em contato com o *monitoramento*.`)
+    return
+  }
+
+  // OK (ou sem faturamento importado): padroniza e mostra a confirmação.
   let produto = pend.produto
   if (vendas.situacao === 'ok' && vendas.produtoCanon) produto = vendas.produtoCanon
   let codigoPdv = pdvOriginal
@@ -527,17 +554,6 @@ async function finalizarColeta(pend: any, grupoId: string, nome: string): Promis
     .select('*')
     .single()
   const reg = upd ?? { ...pend, produto, codigo_pdv: codigoPdv }
-
-  const dataBR = (d: string) => d.split('-').reverse().join('/')
-  if (vendas.situacao === 'pdv-sem-venda') {
-    await enviar(grupoId,
-      `⚠️ Atenção ${nome}: o PDV *${pdvOriginal || '?'}* não tem venda registrada no faturamento de ${dataBR(vendas.data)}. ` +
-      `Confira se o número do PDV está correto antes de confirmar.`)
-  } else if (vendas.situacao === 'ok' && !vendas.produtoNoPedido) {
-    await enviar(grupoId,
-      `⚠️ Atenção ${nome}: o produto *${produto}* não consta no pedido do PDV *${pdvOriginal}* em ${dataBR(vendas.data)}. ` +
-      `Verifique se o produto está correto antes de confirmar.`)
-  }
 
   await enviarBotoes(grupoId, resumoConfirmacao(reg), [
     { id: 'sim', label: '✅ Sim' },
