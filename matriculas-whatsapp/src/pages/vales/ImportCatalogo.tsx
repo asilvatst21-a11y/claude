@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { Upload, CheckCircle2, AlertTriangle, Loader2, PackageSearch, MapPin, ShoppingCart } from 'lucide-react'
-import { supabase } from '@/lib/supabase'
+import { valesSupabase as supabase } from '@/lib/valesSupabase'
 
 type Fase = 'idle' | 'lendo' | 'importando' | 'ok' | 'erro'
 
