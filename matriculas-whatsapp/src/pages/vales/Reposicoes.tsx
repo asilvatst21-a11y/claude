@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, Download, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatCurrency } from "@/lib/valesUtils";
@@ -291,27 +291,92 @@ export default function ReposicoesPage() {
     URL.revokeObjectURL(url);
   }
 
+  // Botões de ação (reutilizados na tabela e nos cartões do mobile)
+  function Acoes({ r }: { r: Reposicao }) {
+    return (
+      <div className="flex flex-wrap items-center gap-1.5">
+        {r.status === "pendente" && (
+          <>
+            <button onClick={() => handleAction(r.id, "validado")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-50 transition-colors">
+              {actionLoading === r.id + "validado" ? "..." : "Validar"}
+            </button>
+            <button onClick={() => handleAction(r.id, "negado")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50 transition-colors">
+              {actionLoading === r.id + "negado" ? "..." : "Negar"}
+            </button>
+          </>
+        )}
+        {(r.status === "pendente" || r.status === "negado") && (
+          <button onClick={() => enviarParaValidacao(r)} disabled={!!actionLoading} title="Reenvia para o grupo de validação no WhatsApp" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 disabled:opacity-50 transition-colors">
+            <Send className="h-3 w-3" />{actionLoading === r.id + "envio-validacao" ? "..." : "Enviar p/ validação"}
+          </button>
+        )}
+        {(r.status === "pendente" || r.status === "validado") && (
+          <button onClick={() => marcarRegistrado(r)} disabled={!!actionLoading} title="Registrado no sistema Ambev para envio do produto" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50 transition-colors">
+            <ClipboardCheck className="h-3 w-3" />{actionLoading === r.id + "registrado" ? "..." : "Registrado"}
+          </button>
+        )}
+        {r.status === "negado" && (
+          <button onClick={() => handleAction(r.id, "quebra")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-orange-100 text-orange-700 hover:bg-orange-200 disabled:opacity-50 transition-colors">
+            {actionLoading === r.id + "quebra" ? "..." : "Marcar Quebra"}
+          </button>
+        )}
+        <button onClick={() => setExpanded(expanded === r.id ? null : r.id)} className="p-1 rounded hover:bg-accent transition-colors">
+          {expanded === r.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </button>
+      </div>
+    );
+  }
+
+  // Detalhe expandido (reutilizado na tabela e nos cartões do mobile)
+  function Detalhe({ r }: { r: Reposicao }) {
+    return (
+      <>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
+          <div><span className="text-xs text-muted-foreground block mb-0.5">Cliente</span><span className="font-medium">{r.cliente ?? "—"}</span></div>
+          <div><span className="text-xs text-muted-foreground block mb-0.5">Motivo</span><span className="font-medium">{r.motivo ?? "—"}</span></div>
+          {r.validado_em && <div><span className="text-xs text-muted-foreground block mb-0.5">Validado em</span><span className="font-medium">{formatDate(r.validado_em)}</span></div>}
+          {r.validador_resposta && <div><span className="text-xs text-muted-foreground block mb-0.5">Resposta</span><span className="font-medium">{r.validador_resposta}</span></div>}
+        </div>
+        {r.mensagem_original && r.mensagem_original !== "[áudio]" && (
+          <div className="text-xs text-muted-foreground border-l-2 pl-3 italic">&ldquo;{r.mensagem_original}&rdquo;</div>
+        )}
+        <VendasConfronto rep={r} />
+        {r.status === "pendente" && (
+          <div className="mt-3 flex items-center gap-2">
+            <input
+              type="text"
+              placeholder="Observação (opcional)"
+              value={observacao[r.id] ?? ""}
+              onChange={(e) => setObservacao((o) => ({ ...o, [r.id]: e.target.value }))}
+              className="flex-1 max-w-xs px-3 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+        )}
+      </>
+    );
+  }
+
   return (
-    <div className="p-6 space-y-6 max-w-7xl mx-auto">
-      <div className="flex items-center justify-between">
+    <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-w-7xl mx-auto">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Reposições</h1>
+          <h1 className="text-xl sm:text-2xl font-bold">Reposições</h1>
           <p className="text-sm text-muted-foreground">Solicitações via WhatsApp normalizadas por IA</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={fetchData} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
-            <RefreshCw className="h-4 w-4" />Atualizar
+            <RefreshCw className="h-4 w-4" /><span className="hidden sm:inline">Atualizar</span>
           </button>
           <button onClick={exportExcel} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
-            <FileSpreadsheet className="h-4 w-4" />Exportar Excel
+            <FileSpreadsheet className="h-4 w-4" />Excel
           </button>
           <button onClick={exportQuebras} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
-            <Download className="h-4 w-4" />Exportar Quebras
+            <Download className="h-4 w-4" />Quebras
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
         {[
           { label: "Total", value: stats.total, icon: Package, color: "text-primary" },
           { label: "Pendentes", value: stats.pendente, icon: Clock, color: "text-yellow-600" },
@@ -321,23 +386,23 @@ export default function ReposicoesPage() {
         ].map((s) => {
           const Icon = s.icon;
           return (
-            <div key={s.label} className="rounded-xl border bg-white p-4">
+            <div key={s.label} className="rounded-xl border bg-white p-3 sm:p-4">
               <div className="flex items-center gap-2 mb-1">
                 <Icon className={`h-4 w-4 ${s.color}`} />
                 <span className="text-xs text-muted-foreground">{s.label}</span>
               </div>
-              <p className="text-2xl font-bold">{s.value}</p>
+              <p className="text-xl sm:text-2xl font-bold">{s.value}</p>
             </div>
           );
         })}
       </div>
 
-      <div className="flex gap-1 border-b">
+      <div className="flex gap-1 border-b overflow-x-auto">
         {TABS.map((t) => (
           <button
             key={t.value}
             onClick={() => setTab(t.value)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+            className={`px-3 sm:px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px whitespace-nowrap ${
               tab === t.value ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
             }`}
           >
@@ -354,7 +419,9 @@ export default function ReposicoesPage() {
           <p>Nenhuma reposição encontrada</p>
         </div>
       ) : (
-        <div className="border rounded-lg overflow-hidden">
+        <>
+        {/* Desktop: tabela */}
+        <div className="border rounded-lg overflow-hidden hidden md:block">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
@@ -371,8 +438,8 @@ export default function ReposicoesPage() {
             </thead>
             <tbody className="divide-y">
               {reposicoes.map((r) => (
-                <>
-                  <tr key={r.id} className="hover:bg-muted/30 transition-colors">
+                <React.Fragment key={r.id}>
+                  <tr className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs font-medium">{r.numero}</td>
                     <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{formatDate(r.created_at)}</td>
                     <td className="px-4 py-3">
@@ -396,71 +463,48 @@ export default function ReposicoesPage() {
                     <td className="px-4 py-3">{r.codigo_pdv ?? r.cliente ?? "—"}</td>
                     <td className="px-4 py-3">{r.mapa ?? "—"}</td>
                     <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        {r.status === "pendente" && (
-                          <>
-                            <button onClick={() => handleAction(r.id, "validado")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-50 transition-colors">
-                              {actionLoading === r.id + "validado" ? "..." : "Validar"}
-                            </button>
-                            <button onClick={() => handleAction(r.id, "negado")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50 transition-colors">
-                              {actionLoading === r.id + "negado" ? "..." : "Negar"}
-                            </button>
-                          </>
-                        )}
-                        {(r.status === "pendente" || r.status === "negado") && (
-                          <button onClick={() => enviarParaValidacao(r)} disabled={!!actionLoading} title="Reenvia para o grupo de validação no WhatsApp" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 disabled:opacity-50 transition-colors">
-                            <Send className="h-3 w-3" />{actionLoading === r.id + "envio-validacao" ? "..." : "Enviar p/ validação"}
-                          </button>
-                        )}
-                        {(r.status === "pendente" || r.status === "validado") && (
-                          <button onClick={() => marcarRegistrado(r)} disabled={!!actionLoading} title="Registrado no sistema Ambev para envio do produto" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50 transition-colors">
-                            <ClipboardCheck className="h-3 w-3" />{actionLoading === r.id + "registrado" ? "..." : "Registrado"}
-                          </button>
-                        )}
-                        {r.status === "negado" && (
-                          <button onClick={() => handleAction(r.id, "quebra")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-orange-100 text-orange-700 hover:bg-orange-200 disabled:opacity-50 transition-colors">
-                            {actionLoading === r.id + "quebra" ? "..." : "Marcar Quebra"}
-                          </button>
-                        )}
-                        <button onClick={() => setExpanded(expanded === r.id ? null : r.id)} className="p-1 rounded hover:bg-accent transition-colors">
-                          {expanded === r.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                        </button>
-                      </div>
-                    </td>
+                    <td className="px-4 py-3"><Acoes r={r} /></td>
                   </tr>
                   {expanded === r.id && (
-                    <tr key={r.id + "-detail"} className="bg-muted/20">
-                      <td colSpan={9} className="px-4 py-4">
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
-                          <div><span className="text-xs text-muted-foreground block mb-0.5">Cliente</span><span className="font-medium">{r.cliente ?? "—"}</span></div>
-                          <div><span className="text-xs text-muted-foreground block mb-0.5">Motivo</span><span className="font-medium">{r.motivo ?? "—"}</span></div>
-                          {r.validado_em && <div><span className="text-xs text-muted-foreground block mb-0.5">Validado em</span><span className="font-medium">{formatDate(r.validado_em)}</span></div>}
-                          {r.validador_resposta && <div><span className="text-xs text-muted-foreground block mb-0.5">Resposta</span><span className="font-medium">{r.validador_resposta}</span></div>}
-                        </div>
-                        {r.mensagem_original && r.mensagem_original !== "[áudio]" && (
-                          <div className="text-xs text-muted-foreground border-l-2 pl-3 italic">&ldquo;{r.mensagem_original}&rdquo;</div>
-                        )}
-                        <VendasConfronto rep={r} />
-                        {r.status === "pendente" && (
-                          <div className="mt-3 flex items-center gap-2">
-                            <input
-                              type="text"
-                              placeholder="Observação (opcional)"
-                              value={observacao[r.id] ?? ""}
-                              onChange={(e) => setObservacao((o) => ({ ...o, [r.id]: e.target.value }))}
-                              className="flex-1 max-w-xs px-3 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
-                            />
-                          </div>
-                        )}
-                      </td>
+                    <tr className="bg-muted/20">
+                      <td colSpan={9} className="px-4 py-4"><Detalhe r={r} /></td>
                     </tr>
                   )}
-                </>
+                </React.Fragment>
               ))}
             </tbody>
           </table>
         </div>
+
+        {/* Mobile: cartões */}
+        <div className="md:hidden space-y-3">
+          {reposicoes.map((r) => (
+            <div key={r.id} className="border rounded-lg bg-white p-3 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-mono text-xs font-medium">{r.numero}</span>
+                <StatusBadge status={r.status} />
+              </div>
+              <div className="text-xs text-muted-foreground">{formatDate(r.created_at)}</div>
+              <div className="font-medium text-sm">{r.produto ?? "—"}{r.quantidade ? ` · ${r.quantidade}` : ""}</div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+                {r.tipo_reposicao && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
+                    {TIPO_REPOSICAO_LABEL[r.tipo_reposicao] ?? r.tipo_reposicao}
+                    {r.embalagem && r.embalagem !== "indefinido" ? ` · ${EMBALAGEM_LABEL[r.embalagem] ?? r.embalagem}` : ""}
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                <div><span className="text-xs text-muted-foreground block">PDV</span>{r.codigo_pdv ?? r.cliente ?? "—"}</div>
+                <div><span className="text-xs text-muted-foreground block">Mapa</span>{r.mapa ?? "—"}</div>
+                <div className="col-span-2"><span className="text-xs text-muted-foreground block">Motorista</span>{r.motorista_nome ?? "—"}</div>
+              </div>
+              <div className="pt-1 border-t"><Acoes r={r} /></div>
+              {expanded === r.id && <div className="pt-1 border-t"><Detalhe r={r} /></div>}
+            </div>
+          ))}
+        </div>
+        </>
       )}
     </div>
   );
