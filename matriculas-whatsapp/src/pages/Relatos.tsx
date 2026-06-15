@@ -32,9 +32,10 @@ interface RelatoAcao {
 
 // ── Constants ─────────────────────────────────────────────────────────────────────────────
 
-const TIPOS_ACAO = ['Reciclagem', 'Advertência Verbal', 'Advertência Escrita', 'Suspensão']
+const TIPOS_ACAO = ['Orientação Verbal', 'Reciclagem', 'Advertência Verbal', 'Advertência Escrita', 'Suspensão']
 
 const COR_ACAO: Record<string, string> = {
+  'Orientação Verbal':    'bg-slate-50 text-slate-600 border-slate-200',
   'Reciclagem':           'bg-blue-50 text-blue-700 border-blue-200',
   'Advertência Verbal':   'bg-yellow-50 text-yellow-700 border-yellow-200',
   'Advertência Escrita':  'bg-orange-50 text-orange-700 border-orange-200',

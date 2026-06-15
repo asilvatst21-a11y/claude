@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import {
   FileSpreadsheet, Upload, Loader2, Building2, RefreshCw, Download,
-  AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, ClipboardList, Send, Check
+  AlertTriangle, CheckCircle, XCircle, ChevronDown, ChevronUp, ClipboardList, Send, Check, MessageSquare
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -116,6 +116,7 @@ export default function Dto() {
   const [filtroStatus, setFiltroStatus] = useState<StatusAcao | 'Todos'>('Todos')
   const [expandedAtividade, setExpandedAtividade] = useState<string | null>(null)
   const [solicitados, setSolicitados] = useState<Set<string>>(new Set())
+  const [orientados, setOrientados] = useState<Set<string>>(new Set())
 
   async function carregarDados() {
     if (!usuario) return
@@ -288,6 +289,22 @@ export default function Dto() {
     }
 
     setSolicitados(prev => new Set([...prev, ...obs.map(o => o.id)]))
+  }
+
+  // Orientação Verbal: registra a tratativa (responsável) e conclui o(s) desvio(s),
+  // sem notificar o grupo de WhatsApp (alternativa mais leve ao Fluxo Punitivo).
+  async function orientacaoVerbal(obs: DtoObservacao[]) {
+    if (!usuario || obs.length === 0) return
+    const registradoPor = usuario.nome ?? usuario.login
+    const ids = obs.map(o => o.id)
+    const responsavel = `Orientação Verbal (${registradoPor})`
+    await supabase.from('dto_observacoes')
+      .update({ status_acao: 'Concluído', responsavel_acao: responsavel })
+      .in('id', ids)
+    setObservacoes(prev => prev.map(o => ids.includes(o.id)
+      ? { ...o, status_acao: 'Concluído', responsavel_acao: responsavel }
+      : o))
+    setOrientados(prev => new Set([...prev, ...ids]))
   }
 
   function exportarExcel() {
@@ -567,22 +584,33 @@ export default function Dto() {
                                         const o0 = g[0]
                                         const ids = g.map(o => o.id)
                                         const jaSolic = ids.every(id => solicitados.has(id))
+                                        const jaOrient = ids.every(id => orientados.has(id))
                                         return (
                                           <div key={o0.id} className="bg-red-50 rounded p-2.5 text-xs border border-red-100">
-                                            <div className="flex justify-between items-center mb-1">
+                                            <div className="flex justify-between items-center mb-1 gap-2">
                                               <span className="font-semibold text-red-800">{o0.colaborador}</span>
-                                              <div className="flex items-center gap-2">
+                                              <div className="flex items-center gap-2 flex-wrap justify-end">
                                                 <span className="text-gray-500">{o0.data_aplicacao}</span>
                                                 {g.length > 1 && <span className="text-orange-700 font-semibold">{g.length} desvios</span>}
                                                 {jaSolic ? (
                                                   <span className="flex items-center gap-0.5 text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">
                                                     <Check size={10} /> Solicitado
                                                   </span>
+                                                ) : jaOrient ? (
+                                                  <span className="flex items-center gap-0.5 text-xs text-slate-600 bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded">
+                                                    <Check size={10} /> Orientado
+                                                  </span>
                                                 ) : (
-                                                  <button onClick={() => solicitarFluxo(g)}
-                                                    className="flex items-center gap-0.5 text-xs text-orange-700 bg-white border border-orange-200 px-1.5 py-0.5 rounded hover:bg-orange-50">
-                                                    <Send size={10} /> Solicitar Fluxo{g.length > 1 ? ` (${g.length})` : ''}
-                                                  </button>
+                                                  <>
+                                                    <button onClick={() => orientacaoVerbal(g)}
+                                                      className="flex items-center gap-0.5 text-xs text-slate-600 bg-white border border-slate-200 px-1.5 py-0.5 rounded hover:bg-slate-50">
+                                                      <MessageSquare size={10} /> Orientação Verbal{g.length > 1 ? ` (${g.length})` : ''}
+                                                    </button>
+                                                    <button onClick={() => solicitarFluxo(g)}
+                                                      className="flex items-center gap-0.5 text-xs text-orange-700 bg-white border border-orange-200 px-1.5 py-0.5 rounded hover:bg-orange-50">
+                                                      <Send size={10} /> Solicitar Fluxo{g.length > 1 ? ` (${g.length})` : ''}
+                                                    </button>
+                                                  </>
                                                 )}
                                               </div>
                                             </div>
