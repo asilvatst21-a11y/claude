@@ -207,6 +207,23 @@ function semAcento(s: string): string {
   return s.normalize('NFD').replace(/\p{Mn}/gu, '').toLowerCase().trim()
 }
 
+// Expande sinônimos/abreviações comuns dos motoristas para os tokens usados nos
+// nomes (catálogo/faturamento). Ex.: "litro" aparece como "1l"; "litrao" idem.
+function expandirSinonimos(palavra: string): string[] {
+  const SIN: Record<string, string[]> = {
+    ap:        ['ap', 'antarctica'],     // Antárctica
+    antartica: ['antartica', 'antarctica'],
+    bc:        ['bc', 'brahma chopp'],   // Brahma Chopp
+    sk:        ['sk', 'skol'],           // Skol
+    gca:       ['gca', 'guarana'],       // Guaraná Antarctica
+    litro:  ['litro', '1l'],
+    litrao: ['litrao', '1l'],
+    latao:  ['latao', '473'],         // latão = 473ml
+    lata:   ['lata', '350'],          // lata = 350ml
+  }
+  return SIN[palavra] ?? [palavra]
+}
+
 // Descobre a data mais recente de vendas importadas (o CSV diário traz a data do arquivo).
 async function ultimaDataVendas(): Promise<string | null> {
   const { data } = await supabase
@@ -218,8 +235,10 @@ async function ultimaDataVendas(): Promise<string | null> {
   return data?.data ?? null
 }
 
-// Retorna os produtos vendidos para um PDV na última data importada (com nome do catálogo).
-async function produtosVendidosPdv(pdvCod: number, data: string): Promise<{ codigo: number; descricao: string }[]> {
+// Retorna os produtos vendidos para um PDV na última data importada.
+// Inclui o nome completo do catálogo (descricao) e o nome abreviado do
+// faturamento (nomeCsv), que costuma usar a mesma sigla do motorista (ex: "BC").
+async function produtosVendidosPdv(pdvCod: number, data: string): Promise<{ codigo: number; descricao: string; nomeCsv: string }[]> {
   const { data: vendas } = await supabase
     .from('vendas_dia')
     .select('produto_codigo, produto_nome')
@@ -230,10 +249,14 @@ async function produtosVendidosPdv(pdvCod: number, data: string): Promise<{ codi
   // Busca o nome canônico no catálogo
   const { data: cat } = await supabase.from('produtos').select('codigo, descricao').in('codigo', codigos)
   const mapa = new Map((cat ?? []).map((p: any) => [p.codigo, p.descricao]))
-  return codigos.map((c: any) => ({
-    codigo: c,
-    descricao: mapa.get(c) ?? (vendas.find((v: any) => v.produto_codigo === c)?.produto_nome ?? ''),
-  }))
+  return codigos.map((c: any) => {
+    const nomeCsv = String(vendas.find((v: any) => v.produto_codigo === c)?.produto_nome ?? '')
+    return {
+      codigo: c,
+      descricao: mapa.get(c) ?? nomeCsv,
+      nomeCsv,
+    }
+  })
 }
 
 // Monta um pequeno catálogo de referência pra IA, priorizando o que o PDV comprou.
@@ -271,20 +294,23 @@ async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<V
   if (vendidos.length === 0) return { situacao: 'pdv-sem-venda', data }
 
   // Casa o termo do motorista com algum produto comprado pelo PDV.
-  // Busca por PALAVRAS (todas presentes), não contígua: "brahma zero" casa com
-  // "BRAHMA CHOPP ZERO LATA...". Como o pedido do PDV é pequeno, é preciso.
+  // Busca por PALAVRAS (todas presentes), comparando contra o nome completo do
+  // catálogo E o nome abreviado do faturamento (que usa a mesma sigla do
+  // motorista, ex: "BC"). Sinônimos comuns são expandidos (ex.: "litro" → "1l").
   const codTermo = parseInt(termoProduto.replace(/\D/g, ''))
   const palavras = semAcento(termoProduto).split(/\s+/).filter(p => p.length >= 2)
+  const hay = (v: { descricao: string; nomeCsv: string }) => semAcento(`${v.descricao} ${v.nomeCsv}`)
+  const casa = (palavra: string, h: string) => expandirSinonimos(palavra).some(syn => h.includes(syn))
+
   let matches = vendidos.filter(v => {
     if (codTermo && v.codigo === codTermo) return true
     if (palavras.length === 0) return false
-    const d = semAcento(v.descricao)
-    return palavras.every(p => d.includes(p))
+    const h = hay(v)
+    return palavras.every(p => casa(p, h))
   })
-  // Fallback: se nenhuma casou com todas as palavras, tenta com a 1ª palavra
-  // (ex.: "guaranazinho" → "guarana"), ainda restrito ao pedido do PDV.
+  // Fallback: se nenhuma casou com todas as palavras, tenta com a 1ª palavra.
   if (matches.length === 0 && palavras.length > 1) {
-    matches = vendidos.filter(v => semAcento(v.descricao).includes(palavras[0]))
+    matches = vendidos.filter(v => casa(palavras[0], hay(v)))
   }
 
   const produtoNoPedido = matches.length > 0
@@ -496,6 +522,26 @@ async function finalizarColeta(pend: any, grupoId: string, nome: string): Promis
     avaliarVendas(pdvOriginal, String(pend.produto ?? '')),
     buscarNomePdv(pdvOriginal),
   ])
+  const dataBR = (d: string) => d.split('-').reverse().join('/')
+
+  // BLOQUEIO: PDV não está no faturamento do dia → não confirma, pede correção.
+  if (vendas.situacao === 'pdv-sem-venda') {
+    await supabase.from('reposicao_confirmacoes').update({ status: 'rejeitado' }).eq('id', pend.id)
+    await enviar(grupoId,
+      `⛔ ${nome}, o PDV *${pdvOriginal || '?'}* não tem venda registrada no faturamento de ${dataBR(vendas.data)}.\n` +
+      `Corrija o número do PDV e *reenvie a solicitação*, ou entre em contato com o *monitoramento*.`)
+    return
+  }
+  // BLOQUEIO: produto não consta no pedido do PDV → não confirma, pede correção.
+  if (vendas.situacao === 'ok' && !vendas.produtoNoPedido) {
+    await supabase.from('reposicao_confirmacoes').update({ status: 'rejeitado' }).eq('id', pend.id)
+    await enviar(grupoId,
+      `⛔ ${nome}, o produto *${pend.produto}* não consta no pedido do PDV *${pdvOriginal}* em ${dataBR(vendas.data)}.\n` +
+      `Corrija o produto e *reenvie a solicitação*, ou entre em contato com o *monitoramento*.`)
+    return
+  }
+
+  // OK (ou sem faturamento importado): padroniza e mostra a confirmação.
   let produto = pend.produto
   if (vendas.situacao === 'ok' && vendas.produtoCanon) produto = vendas.produtoCanon
   let codigoPdv = pdvOriginal
@@ -508,17 +554,6 @@ async function finalizarColeta(pend: any, grupoId: string, nome: string): Promis
     .select('*')
     .single()
   const reg = upd ?? { ...pend, produto, codigo_pdv: codigoPdv }
-
-  const dataBR = (d: string) => d.split('-').reverse().join('/')
-  if (vendas.situacao === 'pdv-sem-venda') {
-    await enviar(grupoId,
-      `⚠️ Atenção ${nome}: o PDV *${pdvOriginal || '?'}* não tem venda registrada no faturamento de ${dataBR(vendas.data)}. ` +
-      `Confira se o número do PDV está correto antes de confirmar.`)
-  } else if (vendas.situacao === 'ok' && !vendas.produtoNoPedido) {
-    await enviar(grupoId,
-      `⚠️ Atenção ${nome}: o produto *${produto}* não consta no pedido do PDV *${pdvOriginal}* em ${dataBR(vendas.data)}. ` +
-      `Verifique se o produto está correto antes de confirmar.`)
-  }
 
   await enviarBotoes(grupoId, resumoConfirmacao(reg), [
     { id: 'sim', label: '✅ Sim' },
