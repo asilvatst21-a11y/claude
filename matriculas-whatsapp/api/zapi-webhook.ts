@@ -434,6 +434,110 @@ async function gerarNumeroReposicao(): Promise<string> {
   return `REP-${hoje}-${seq}`
 }
 
+// ── Campos obrigatórios da reposição ──────────────────────────────────────────────
+// Antes de montar a confirmação, o bot exige os 6 campos. Os que faltarem são
+// pedidos ao motorista numa única mensagem.
+const CAMPO_LABEL: Record<string, string> = {
+  tipo_reposicao: 'Tipo (Falta, Inversão, Avaria ou Troca)',
+  embalagem:      'Embalagem (Unidade ou Fardo)',
+  codigo_pdv:     'PDV (código do cliente)',
+  produto:        'Produto',
+  mapa:           'Mapa',
+  quantidade:     'Quantidade',
+}
+
+function camposFaltantes(pend: any): string[] {
+  const falta: string[] = []
+  if (!pend.tipo_reposicao || pend.tipo_reposicao === 'indefinido') falta.push('tipo_reposicao')
+  if (!pend.embalagem || pend.embalagem === 'indefinido')           falta.push('embalagem')
+  if (!pend.codigo_pdv)  falta.push('codigo_pdv')
+  if (!pend.produto)     falta.push('produto')
+  if (!pend.mapa)        falta.push('mapa')
+  if (!pend.quantidade)  falta.push('quantidade')
+  return falta
+}
+
+function textoPedido(nome: string, falta: string[]): string {
+  if (falta.length === 1) {
+    return `📝 ${nome}, para registrar a reposição ainda falta informar:\n• *${CAMPO_LABEL[falta[0]]}*\n\nPor favor, envie essa informação.`
+  }
+  const lista = falta.map(c => `• *${CAMPO_LABEL[c]}*`).join('\n')
+  return `📝 ${nome}, para registrar a reposição ainda faltam estas informações:\n${lista}\n\n` +
+    `Por favor, envie todas numa única mensagem.\nEx: *PDV 11509, Mapa 277834, Qtde 5, Fardo, Falta*.`
+}
+
+// Detecta o tipo de reposição em texto livre (usado ao coletar campos faltantes).
+function extrairTipo(texto: string): ReposicaoIA['tipo_reposicao'] | null {
+  const t = norm(texto)
+  if (/\b(falta|faltou|faltando|nao veio|n veio)\b/.test(t)) return 'falta'
+  if (/\b(invers|trocad[oa] na carga|veio errad|item errad)\b/.test(t)) return 'inversao'
+  if (/\b(avaria|quebrad|amassad|vazad|estragad|estourad)\b/.test(t)) return 'avaria'
+  if (/\b(troca|devoluc|devolv)\b/.test(t)) return 'troca'
+  return null
+}
+
+// Mescla nos campos AINDA faltantes do pendente os valores recém-extraídos.
+function mesclarCampos(pend: any, novo: Partial<ReposicaoIA>): Record<string, any> {
+  const upd: Record<string, any> = {}
+  if ((!pend.tipo_reposicao || pend.tipo_reposicao === 'indefinido') && novo.tipo_reposicao && novo.tipo_reposicao !== 'indefinido') upd.tipo_reposicao = novo.tipo_reposicao
+  if ((!pend.embalagem || pend.embalagem === 'indefinido') && novo.embalagem && novo.embalagem !== 'indefinido') upd.embalagem = novo.embalagem
+  if (!pend.codigo_pdv && novo.codigo_pdv) upd.codigo_pdv = novo.codigo_pdv
+  if (!pend.produto    && novo.produto)    upd.produto    = novo.produto
+  if (!pend.mapa       && novo.mapa)       upd.mapa       = novo.mapa
+  if (!pend.quantidade && novo.quantidade) upd.quantidade = novo.quantidade
+  return upd
+}
+
+// Com todos os campos presentes: identifica produto/PDV, avisa do confronto e
+// mostra a confirmação (Sim/Não). Atualiza o registro com os nomes padronizados.
+async function finalizarColeta(pend: any, grupoId: string, nome: string): Promise<void> {
+  const pdvOriginal = String(pend.codigo_pdv ?? '')
+  const [vendas, nomePdv] = await Promise.all([
+    avaliarVendas(pdvOriginal, String(pend.produto ?? '')),
+    buscarNomePdv(pdvOriginal),
+  ])
+  let produto = pend.produto
+  if (vendas.situacao === 'ok' && vendas.produtoCanon) produto = vendas.produtoCanon
+  let codigoPdv = pdvOriginal
+  if (nomePdv && !codigoPdv.includes(nomePdv)) codigoPdv = `${pdvOriginal} - ${nomePdv}`
+
+  const { data: upd } = await supabase
+    .from('reposicao_confirmacoes')
+    .update({ produto, codigo_pdv: codigoPdv, status: 'aguardando' })
+    .eq('id', pend.id)
+    .select('*')
+    .single()
+  const reg = upd ?? { ...pend, produto, codigo_pdv: codigoPdv }
+
+  const dataBR = (d: string) => d.split('-').reverse().join('/')
+  if (vendas.situacao === 'pdv-sem-venda') {
+    await enviar(grupoId,
+      `⚠️ Atenção ${nome}: o PDV *${pdvOriginal || '?'}* não tem venda registrada no faturamento de ${dataBR(vendas.data)}. ` +
+      `Confira se o número do PDV está correto antes de confirmar.`)
+  } else if (vendas.situacao === 'ok' && !vendas.produtoNoPedido) {
+    await enviar(grupoId,
+      `⚠️ Atenção ${nome}: o produto *${produto}* não consta no pedido do PDV *${pdvOriginal}* em ${dataBR(vendas.data)}. ` +
+      `Verifique se o produto está correto antes de confirmar.`)
+  }
+
+  await enviarBotoes(grupoId, resumoConfirmacao(reg), [
+    { id: 'sim', label: '✅ Sim' },
+    { id: 'nao', label: '❌ Não' },
+  ])
+}
+
+// Pergunta os campos faltantes (botões quando só falta a embalagem) e salva como 'coletando'.
+async function pedirCampos(pendId: string, grupoId: string, nome: string, falta: string[]): Promise<void> {
+  await supabase.from('reposicao_confirmacoes').update({ status: 'coletando' }).eq('id', pendId)
+  if (falta.length === 1 && falta[0] === 'embalagem') {
+    await enviarBotoes(grupoId,
+      `📦 ${nome}, esse produto é *Unidade* ou *Fardo*?\nToque na opção ou responda *Unidade* ou *Fardo*.`,
+      [{ id: 'unidade', label: '📦 Unidade' }, { id: 'fardo', label: '📦 Fardo' }])
+  } else {
+    await enviar(grupoId, textoPedido(nome, falta))
+  }
+}
+
 // ── Fluxo de reposição (grupo de motoristas) ──────────────────────────────────────
 
 async function tratarReposicao(
@@ -442,33 +546,65 @@ async function tratarReposicao(
 ): Promise<{ ok: boolean; action: string }> {
   const limitePend = () => new Date(Date.now() - CONFIRM_TTL_MIN * 60_000).toISOString()
 
-  // 0) Resposta "Unidade/Fardo" a uma pergunta de embalagem pendente
-  const emb = extrairEmbalagem(body)
-  if (emb) {
-    const { data: pendEmb } = await supabase
-      .from('reposicao_confirmacoes')
-      .select('*')
-      .eq('grupo_id', grupoId)
-      .eq('motorista_telefone', participante)
-      .eq('status', 'aguardando_embalagem')
-      .gte('created_at', limitePend())
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle()
-    if (pendEmb) {
-      const { data: upd } = await supabase
-        .from('reposicao_confirmacoes')
-        .update({ embalagem: emb, status: 'aguardando' })
-        .eq('id', pendEmb.id)
-        .select('*')
-        .single()
-      await enviarBotoes(grupoId, resumoConfirmacao(upd ?? { ...pendEmb, embalagem: emb }), [
-        { id: 'sim', label: '✅ Sim' },
-        { id: 'nao', label: '❌ Não' },
-      ])
-      return { ok: true, action: 'repos-embalagem-definida' }
+  // Conteúdo textual da mensagem (transcreve áudio se necessário)
+  let conteudo = texto
+  if (!conteudo && temAudioSemTexto(body)) {
+    const transcrito = await transcreverAudio(extrairAudioUrl(body))
+    if (transcrito) conteudo = transcrito
+  }
+
+  // 0) Coleta de campos faltantes: existe um pendente 'coletando' deste motorista?
+  const { data: pendColeta } = await supabase
+    .from('reposicao_confirmacoes')
+    .select('*')
+    .eq('grupo_id', grupoId)
+    .eq('motorista_telefone', participante)
+    .eq('status', 'coletando')
+    .gte('created_at', limitePend())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (pendColeta) {
+    // Cancelamento explícito
+    if (extrairResposta(body) === 'nao') {
+      await supabase.from('reposicao_confirmacoes').update({ status: 'cancelado' }).eq('id', pendColeta.id)
+      await enviar(grupoId, `❌ ${pendColeta.motorista_nome ?? ''}, solicitação cancelada. Pode enviar novamente.`)
+      return { ok: true, action: 'repos-coleta-cancelada' }
     }
-    // sem pendência de embalagem → ignora e segue o fluxo normal
+
+    // Extrai valores da resposta: botão/texto de embalagem e tipo + IA para o resto
+    const novo: Partial<ReposicaoIA> = {}
+    const emb = extrairEmbalagem(body)
+    if (emb) novo.embalagem = emb
+    const tip = extrairTipo(conteudo)
+    if (tip) novo.tipo_reposicao = tip
+    if (conteudo) {
+      const iaResp = await extrairReposicaoIA(conteudo)
+      if (iaResp) {
+        novo.codigo_pdv = novo.codigo_pdv || iaResp.codigo_pdv
+        novo.produto    = novo.produto    || iaResp.produto
+        novo.mapa       = novo.mapa       || iaResp.mapa
+        novo.quantidade = novo.quantidade || iaResp.quantidade
+        if (!novo.tipo_reposicao && iaResp.tipo_reposicao !== 'indefinido') novo.tipo_reposicao = iaResp.tipo_reposicao
+        if (!novo.embalagem && iaResp.embalagem !== 'indefinido') novo.embalagem = iaResp.embalagem
+      }
+    }
+
+    const upd = mesclarCampos(pendColeta, novo)
+    const merged = { ...pendColeta, ...upd }
+    if (Object.keys(upd).length > 0) {
+      await supabase.from('reposicao_confirmacoes').update(upd).eq('id', pendColeta.id)
+    }
+
+    const falta = camposFaltantes(merged)
+    const nome = pendColeta.motorista_nome || senderName || 'Motorista'
+    if (falta.length > 0) {
+      await pedirCampos(pendColeta.id, grupoId, nome, falta)
+      return { ok: true, action: 'repos-coletando' }
+    }
+    await finalizarColeta(merged, grupoId, nome)
+    return { ok: true, action: 'repos-coleta-completa' }
   }
 
   // 1) Resposta SIM / NÃO a uma confirmação pendente deste motorista
@@ -535,15 +671,10 @@ async function tratarReposicao(
     return { ok: true, action: 'repos-confirmado' }
   }
 
-  // 2) Mensagem nova — se for áudio sem texto, tenta transcrever (Groq Whisper)
-  let conteudo = texto
+  // 2) Mensagem nova — exige áudio transcrito
   if (!conteudo && temAudioSemTexto(body)) {
-    const transcrito = await transcreverAudio(extrairAudioUrl(body))
-    if (!transcrito) {
-      await enviar(grupoId, '🎤 Recebi um áudio mas não consegui transcrever. Pode mandar por texto ou reenviar o áudio?')
-      return { ok: true, action: 'repos-audio-sem-texto' }
-    }
-    conteudo = transcrito
+    await enviar(grupoId, '🎤 Recebi um áudio mas não consegui transcrever. Pode mandar por texto ou reenviar o áudio?')
+    return { ok: true, action: 'repos-audio-sem-texto' }
   }
   if (!conteudo) return { ok: true, action: 'repos-vazio' }
 
@@ -554,21 +685,9 @@ async function tratarReposicao(
     return { ok: true, action: 'repos-nao-aplicavel' }
   }
 
-  // Identifica produto/PDV contra o faturamento do dia + nome fantasia do catálogo
-  const pdvOriginal = ia.codigo_pdv
-  const [vendas, nomePdv] = await Promise.all([
-    avaliarVendas(ia.codigo_pdv, ia.produto),
-    buscarNomePdv(ia.codigo_pdv),
-  ])
-  // Padroniza o produto somente quando a identificação pelo pedido do PDV for inequívoca
-  if (vendas.situacao === 'ok' && vendas.produtoCanon) ia.produto = vendas.produtoCanon
-  // Enriquece o PDV com o nome fantasia
-  if (nomePdv && ia.codigo_pdv && !ia.codigo_pdv.includes(nomePdv)) {
-    ia.codigo_pdv = `${ia.codigo_pdv} - ${nomePdv}`
-  }
-
+  // Cria o registro com os campos crus (sem padronizar ainda — isso ocorre na
+  // finalização, quando todos os campos obrigatórios estiverem presentes).
   const nome = senderName || 'Motorista'
-  const precisaEmbalagem = ia.embalagem === 'indefinido'
   const { data: pendRow } = await supabase.from('reposicao_confirmacoes').insert({
     filial,
     grupo_id: grupoId,
@@ -579,35 +698,21 @@ async function tratarReposicao(
     mapa: ia.mapa || null,
     produto: ia.produto || null,
     quantidade: ia.quantidade || null,
-    tipo_reposicao: ia.tipo_reposicao,
-    embalagem: ia.embalagem,
-    status: precisaEmbalagem ? 'aguardando_embalagem' : 'aguardando',
+    tipo_reposicao: ia.tipo_reposicao === 'indefinido' ? null : ia.tipo_reposicao,
+    embalagem: ia.embalagem === 'indefinido' ? null : ia.embalagem,
+    status: 'coletando',
   }).select('*').single()
+  if (!pendRow) return { ok: false, action: 'repos-erro-insert' }
 
-  // Não deu pra saber a embalagem → pergunta antes de confirmar
-  if (precisaEmbalagem) {
-    await enviarBotoes(grupoId,
-      `📦 ${nome}, esse produto é *Unidade* ou *Fardo*?\nToque na opção ou responda *Unidade* ou *Fardo*.`,
-      [{ id: 'unidade', label: '📦 Unidade' }, { id: 'fardo', label: '📦 Fardo' }])
-    return { ok: true, action: 'repos-aguardando-embalagem' }
+  // Falta algum dos 6 campos obrigatórios? Pede todos numa única mensagem.
+  const falta = camposFaltantes(pendRow)
+  if (falta.length > 0) {
+    await pedirCampos(pendRow.id, grupoId, nome, falta)
+    return { ok: true, action: 'repos-coletando' }
   }
 
-  // Avisos do confronto com o faturamento do dia
-  const dataBR = (d: string) => d.split('-').reverse().join('/')
-  if (vendas.situacao === 'pdv-sem-venda') {
-    await enviar(grupoId,
-      `⚠️ Atenção ${nome}: o PDV *${pdvOriginal || '?'}* não tem venda registrada no faturamento de ${dataBR(vendas.data)}. ` +
-      `Confira se o número do PDV está correto antes de confirmar.`)
-  } else if (vendas.situacao === 'ok' && !vendas.produtoNoPedido) {
-    await enviar(grupoId,
-      `⚠️ Atenção ${nome}: o produto *${ia.produto}* não consta no pedido do PDV *${pdvOriginal}* em ${dataBR(vendas.data)}. ` +
-      `Verifique se o produto está correto antes de confirmar.`)
-  }
-
-  await enviarBotoes(grupoId, resumoConfirmacao(pendRow ?? { ...ia, motorista_nome: nome }), [
-    { id: 'sim', label: '✅ Sim' },
-    { id: 'nao', label: '❌ Não' },
-  ])
+  // Tudo presente → identifica, avisa e mostra confirmação
+  await finalizarColeta(pendRow, grupoId, nome)
   return { ok: true, action: 'repos-aguardando' }
 }
 
