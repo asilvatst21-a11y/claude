@@ -4,7 +4,7 @@ import {
   Users, CreditCard, MessageSquare, BarChart2, LogOut, Building2,
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
-  Wallet,
+  Wallet, Menu, X,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -49,11 +49,12 @@ function temAcesso(permissoes: string[] | null | undefined, permKey: string): bo
 type NavItemDef = { to: string; label: string; icon: React.ElementType; end?: boolean }
 type NavItemWithPerm = NavItemDef & { permKey: string }
 
-function NavItem({ to, label, icon: Icon, end, collapsed }: NavItemDef & { collapsed: boolean }) {
+function NavItem({ to, label, icon: Icon, end, collapsed, onNavigate }: NavItemDef & { collapsed: boolean; onNavigate?: () => void }) {
   return (
     <NavLink
       to={to}
       end={end}
+      onClick={onNavigate}
       title={collapsed ? label : undefined}
       className={({ isActive }) =>
         `flex items-center gap-3 rounded-lg text-sm font-medium transition-colors
@@ -74,9 +75,10 @@ interface SectionProps {
   open: boolean
   onToggle: () => void
   collapsed: boolean
+  onNavigate?: () => void
 }
 
-function Section({ label, icon: SectionIcon, items, open, onToggle, collapsed }: SectionProps) {
+function Section({ label, icon: SectionIcon, items, open, onToggle, collapsed, onNavigate }: SectionProps) {
   const { pathname } = useLocation()
   const hasActive = items.some(item =>
     item.end ? pathname === item.to : pathname.startsWith(item.to)
@@ -87,7 +89,7 @@ function Section({ label, icon: SectionIcon, items, open, onToggle, collapsed }:
       <div className="flex flex-col items-center gap-0.5 pt-3">
         <div className="w-8 border-t border-brand-600 mb-1" />
         {items.map(({ to, label: l, icon, end }) => (
-          <NavItem key={to} to={to} label={l} icon={icon} end={end} collapsed />
+          <NavItem key={to} to={to} label={l} icon={icon} end={end} collapsed onNavigate={onNavigate} />
         ))}
       </div>
     )
@@ -113,7 +115,7 @@ function Section({ label, icon: SectionIcon, items, open, onToggle, collapsed }:
       {open && (
         <div className="mt-0.5 space-y-0.5">
           {items.map(({ to, label: l, icon, end }) => (
-            <NavItem key={to} to={to} label={l} icon={icon} end={end} collapsed={false} />
+            <NavItem key={to} to={to} label={l} icon={icon} end={end} collapsed={false} onNavigate={onNavigate} />
           ))}
         </div>
       )}
@@ -125,7 +127,9 @@ export default function Layout() {
   const { usuario, sair } = useAuth()
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [mobileOpen, setMobileOpen] = useState(false)
   const [sections, setSections] = useState({ seguranca: true, gente: true, financeiro: true, admin: true })
+  const fecharMobile = () => setMobileOpen(false)
 
   function toggleSection(key: keyof typeof sections) {
     setSections(s => ({ ...s, [key]: !s[key] }))
@@ -143,9 +147,16 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen flex bg-gray-50">
+      {/* Overlay do drawer no mobile */}
+      {mobileOpen && (
+        <div className="fixed inset-0 bg-black/40 z-30 md:hidden" onClick={fecharMobile} />
+      )}
+
       <aside
-        className={`bg-brand-700 flex flex-col h-screen sticky top-0 shrink-0 transition-all duration-200
-          ${sidebarOpen ? 'w-64' : 'w-16'}`}
+        className={`bg-brand-700 flex flex-col z-40 transition-transform duration-200
+          fixed inset-y-0 left-0 h-screen md:sticky md:top-0 shrink-0
+          ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0
+          ${sidebarOpen ? 'w-64' : 'w-64 md:w-16'}`}
       >
         {/* Header */}
         <div className={`border-b border-brand-600 bg-white flex items-center ${sidebarOpen ? 'px-6 py-5' : 'px-2 py-4 justify-center'}`}>
@@ -163,10 +174,19 @@ export default function Layout() {
         {/* Toggle button */}
         <button
           onClick={() => setSidebarOpen(o => !o)}
-          className="absolute -right-3 top-16 z-10 bg-brand-700 border border-brand-500 rounded-full p-0.5 text-brand-200 hover:text-white transition-colors"
+          className="hidden md:block absolute -right-3 top-16 z-10 bg-brand-700 border border-brand-500 rounded-full p-0.5 text-brand-200 hover:text-white transition-colors"
           title={sidebarOpen ? 'Recolher menu' : 'Expandir menu'}
         >
           {sidebarOpen ? <ChevronLeft size={14} /> : <ChevronRight size={14} />}
+        </button>
+
+        {/* Fechar drawer no mobile */}
+        <button
+          onClick={fecharMobile}
+          className="md:hidden absolute right-2 top-2 z-10 text-brand-200 hover:text-white p-1"
+          title="Fechar menu"
+        >
+          <X size={20} />
         </button>
 
         {/* Nav */}
@@ -179,6 +199,7 @@ export default function Layout() {
               open={sections.seguranca}
               onToggle={() => toggleSection('seguranca')}
               collapsed={!sidebarOpen}
+              onNavigate={fecharMobile}
             />
           )}
           {gente.length > 0 && (
@@ -189,6 +210,7 @@ export default function Layout() {
               open={sections.gente}
               onToggle={() => toggleSection('gente')}
               collapsed={!sidebarOpen}
+              onNavigate={fecharMobile}
             />
           )}
           {financeiro.length > 0 && (
@@ -199,6 +221,7 @@ export default function Layout() {
               open={sections.financeiro}
               onToggle={() => toggleSection('financeiro')}
               collapsed={!sidebarOpen}
+              onNavigate={fecharMobile}
             />
           )}
           {usuario?.admin && (
@@ -209,6 +232,7 @@ export default function Layout() {
               open={sections.admin}
               onToggle={() => toggleSection('admin')}
               collapsed={!sidebarOpen}
+              onNavigate={fecharMobile}
             />
           )}
         </nav>
@@ -235,9 +259,20 @@ export default function Layout() {
         </div>
       </aside>
 
-      <main className="flex-1 overflow-auto">
-        <Outlet />
-      </main>
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Barra superior (somente mobile) */}
+        <header className="md:hidden sticky top-0 z-20 flex items-center gap-3 border-b bg-white px-4 py-3">
+          <button onClick={() => setMobileOpen(true)} className="p-1 -ml-1 text-brand-700" title="Abrir menu">
+            <Menu size={22} />
+          </button>
+          <img src="/logo.png" alt="LOG20" className="h-7 object-contain" />
+          <span className="text-brand-700 font-semibold text-sm truncate">Painel Analítico</span>
+        </header>
+
+        <main className="flex-1 overflow-auto">
+          <Outlet />
+        </main>
+      </div>
     </div>
   )
 }

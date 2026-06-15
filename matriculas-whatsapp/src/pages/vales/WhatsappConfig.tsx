@@ -175,9 +175,9 @@ export default function WhatsappConfigPage() {
     validacao.trim() !== original.validacao;
 
   return (
-    <div className="p-6 space-y-6 max-w-4xl mx-auto">
+    <div className="p-4 sm:p-6 space-y-6 max-w-4xl mx-auto">
       <div>
-        <h1 className="text-2xl font-bold flex items-center gap-2">
+        <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
           <MessageSquare className="h-6 w-6 text-primary" /> Configuração do WhatsApp
         </h1>
         <p className="text-sm text-muted-foreground">
