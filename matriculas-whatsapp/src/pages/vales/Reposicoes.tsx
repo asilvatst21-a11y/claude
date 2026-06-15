@@ -102,18 +102,25 @@ function VendasConfronto({ rep }: { rep: Reposicao }) {
     buscouRef.current = true;
     const pdvCod = extrairCodigo(rep.codigo_pdv ?? rep.cliente);
     if (!pdvCod) { setVendas([]); return; }
-    const data = rep.created_at.slice(0, 10);
     setCarregando(true);
-    valesSupabase
-      .from("vendas_dia")
-      .select("produto_codigo, produto_nome, quantidade, unidade")
-      .eq("data", data)
-      .eq("pdv_codigo", pdvCod)
-      .order("produto_codigo")
-      .then(({ data: rows }) => {
-        setVendas(rows ?? []);
-        setCarregando(false);
-      });
+    // Usa a data mais recente importada (o CSV diário traz a data do arquivo)
+    (async () => {
+      const { data: ultima } = await valesSupabase
+        .from("vendas_dia")
+        .select("data")
+        .order("data", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!ultima?.data) { setVendas([]); setCarregando(false); return; }
+      const { data: rows } = await valesSupabase
+        .from("vendas_dia")
+        .select("produto_codigo, produto_nome, quantidade, unidade")
+        .eq("data", ultima.data)
+        .eq("pdv_codigo", pdvCod)
+        .order("produto_codigo");
+      setVendas(rows ?? []);
+      setCarregando(false);
+    })();
   }, [rep]);
 
   const prodCod = extrairCodigo(rep.produto);

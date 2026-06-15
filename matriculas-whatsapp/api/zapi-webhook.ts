@@ -217,23 +217,34 @@ async function buscarProdutosContexto(): Promise<string> {
   }
 }
 
-// Verifica se o produto consta nas vendas do dia para o PDV informado.
-// Retorna null se não houver dados de vendas cadastrados (sem CSV importado).
+// Verifica se o produto consta nas vendas do PDV informado.
+// Usa a data mais recente importada (não "hoje"), pois o CSV diário é importado
+// manualmente e sua data vem do arquivo. Retorna null se não houver dados de
+// vendas cadastrados (sem CSV importado) ou se o PDV não aparecer.
 async function verificarVendasDia(pdvCodigo: string, produtoCodigo: string): Promise<boolean | null> {
   const pdvCod = parseInt(pdvCodigo.replace(/\D/g, ''))
   const prodCod = parseInt(produtoCodigo.replace(/\D/g, ''))
   if (!pdvCod || !prodCod) return null
-  const hoje = new Date().toISOString().slice(0, 10)
+
+  // Descobre a data mais recente de vendas importadas
+  const { data: ultima } = await supabase
+    .from('vendas_dia')
+    .select('data')
+    .order('data', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!ultima?.data) return null // nenhum CSV importado ainda
+
   const { count } = await supabase
     .from('vendas_dia')
     .select('*', { count: 'exact', head: true })
-    .eq('data', hoje)
+    .eq('data', ultima.data)
     .eq('pdv_codigo', pdvCod)
-  if (count === 0) return null // sem dados do dia → não sabemos
+  if (count === 0) return null // PDV não está no faturamento → não sabemos
   const { count: c2 } = await supabase
     .from('vendas_dia')
     .select('*', { count: 'exact', head: true })
-    .eq('data', hoje)
+    .eq('data', ultima.data)
     .eq('pdv_codigo', pdvCod)
     .eq('produto_codigo', prodCod)
   return (c2 ?? 0) > 0
