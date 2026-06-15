@@ -13,6 +13,12 @@ const WEBHOOK_SECRET = process.env.ZAPI_WEBHOOK_SECRET ?? ''
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? ''
 const ANTHROPIC_MODEL   = 'claude-haiku-4-5'
 
+// Transcrição de áudio — o Z-API não transcreve nativamente, então baixamos o
+// áudio e usamos o Whisper da Groq (tier gratuito). Se GROQ_API_KEY não estiver
+// configurada, o bot pede para o motorista mandar por texto.
+const GROQ_API_KEY          = process.env.GROQ_API_KEY ?? ''
+const GROQ_TRANSCRIBE_MODEL = process.env.GROQ_TRANSCRIBE_MODEL ?? 'whisper-large-v3-turbo'
+
 const ZAPI_BASE = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}`
 
 const CONFIRM_TTL_MIN = 60
@@ -39,6 +45,28 @@ async function enviar(destino: string, message: string): Promise<void> {
 
 const enviarGrupo = enviar
 
+// Envia mensagem com botões interativos (send-button-list). Como botões andam
+// instáveis em grupos no WhatsApp, o próprio texto da mensagem já instrui a
+// resposta (SIM/NÃO, OK/NOK) e, se a API falhar, caímos para texto puro.
+interface BotaoZ { id: string; label: string }
+async function enviarBotoes(destino: string, message: string, botoes: BotaoZ[]): Promise<void> {
+  try {
+    const resp = await fetch(`${ZAPI_BASE}/send-button-list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Client-Token': ZAPI_CLIENT_TOKEN },
+      body: JSON.stringify({ phone: destino, message, buttonList: { buttons: botoes } }),
+    })
+    if (!resp.ok) {
+      console.error('send-button-list error:', resp.status, await resp.text().catch(() => ''))
+      await enviar(destino, message) // fallback: texto (instruções já estão na mensagem)
+    }
+  } catch (e) {
+    console.error('enviarBotoes exception:', e)
+    await enviar(destino, message)
+  }
+}
+
+
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
 function norm(s: string): string {
@@ -62,10 +90,14 @@ function extrairResposta(body: any): 'sim' | 'nao' | null {
   return null
 }
 
-// Extrai o conteúdo textual da mensagem — texto digitado OU transcrição de áudio (Z-API)
+// Extrai o conteúdo textual da mensagem — texto digitado, legenda de imagem/vídeo
+// OU transcrição de áudio (Z-API)
 function extrairTexto(body: any): string {
   return String(
     body?.text?.message ??
+    body?.image?.caption ??
+    body?.video?.caption ??
+    body?.document?.caption ??
     body?.audio?.transcription ??
     body?.audio?.transcriptionText ??
     body?.transcription ??
@@ -78,6 +110,47 @@ function extrairTexto(body: any): string {
 function temAudioSemTexto(body: any): boolean {
   const ehAudio = !!(body?.audio?.audioUrl || body?.audio?.url || body?.type === 'AudioMessage')
   return ehAudio && !extrairTexto(body)
+}
+
+function extrairAudioUrl(body: any): string {
+  return String(body?.audio?.audioUrl ?? body?.audio?.url ?? '').trim()
+}
+
+// Baixa o áudio do Z-API e transcreve via Whisper da Groq (endpoint compatível
+// com a OpenAI). Retorna o texto transcrito ou null se falhar / sem chave.
+async function transcreverAudio(url: string): Promise<string | null> {
+  if (!GROQ_API_KEY || !url) return null
+  try {
+    const audioResp = await fetch(url)
+    if (!audioResp.ok) {
+      console.error('Falha ao baixar áudio:', audioResp.status)
+      return null
+    }
+    const buf = await audioResp.arrayBuffer()
+    const blob = new Blob([buf], { type: audioResp.headers.get('content-type') ?? 'audio/ogg' })
+
+    const form = new FormData()
+    form.append('file', blob, 'audio.ogg')
+    form.append('model', GROQ_TRANSCRIBE_MODEL)
+    form.append('language', 'pt')
+    form.append('response_format', 'json')
+
+    const resp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${GROQ_API_KEY}` },
+      body: form,
+    })
+    if (!resp.ok) {
+      console.error('Groq transcribe error:', resp.status, await resp.text().catch(() => ''))
+      return null
+    }
+    const data: any = await resp.json()
+    const texto = String(data?.text ?? '').trim()
+    return texto || null
+  } catch (e) {
+    console.error('transcreverAudio exception:', e)
+    return null
+  }
 }
 
 // Extrai colaborador + motivo + data opcional do formato multi-linha (fluxo punitivo)
@@ -115,11 +188,95 @@ interface ReposicaoIA {
   mapa: string
   produto: string
   quantidade: string
-  tipo_reposicao: 'falta' | 'inversao' | 'avaria' | 'indefinido'
+  tipo_reposicao: 'falta' | 'inversao' | 'avaria' | 'troca' | 'indefinido'
+  embalagem: 'unidade' | 'fardo' | 'indefinido'
 }
 
 const TIPO_LABEL: Record<string, string> = {
-  falta: 'Falta', inversao: 'Inversão', avaria: 'Avaria', indefinido: 'Não informado',
+  falta: 'Falta', inversao: 'Inversão', avaria: 'Avaria', troca: 'Troca', indefinido: 'Não informado',
+}
+
+const EMBALAGEM_LABEL: Record<string, string> = {
+  unidade: 'Unidade', fardo: 'Fardo', indefinido: 'Não informado',
+}
+
+// Busca os 40 produtos mais recentes do catálogo para enriquecer o prompt da IA.
+// Se a tabela estiver vazia (antes da primeira importação), retorna lista vazia.
+async function buscarProdutosContexto(): Promise<string> {
+  try {
+    const { data } = await supabase
+      .from('produtos')
+      .select('codigo, descricao, embalagem')
+      .order('codigo')
+      .limit(80)
+    if (!data || data.length === 0) return ''
+    const lista = data.map(p => `${p.codigo} - ${p.descricao}${p.embalagem ? ` (${p.embalagem})` : ''}`).join('\n')
+    return `\n\nCatálogo de referência (produtos desta distribuidora):\n${lista}`
+  } catch {
+    return ''
+  }
+}
+
+// Verifica se o produto consta nas vendas do PDV informado.
+// Usa a data mais recente importada (não "hoje"), pois o CSV diário é importado
+// manualmente e sua data vem do arquivo. Retorna null se não houver dados de
+// vendas cadastrados (sem CSV importado) ou se o PDV não aparecer.
+async function verificarVendasDia(pdvCodigo: string, produtoCodigo: string): Promise<boolean | null> {
+  const pdvCod = parseInt(pdvCodigo.replace(/\D/g, ''))
+  const prodCod = parseInt(produtoCodigo.replace(/\D/g, ''))
+  if (!pdvCod || !prodCod) return null
+
+  // Descobre a data mais recente de vendas importadas
+  const { data: ultima } = await supabase
+    .from('vendas_dia')
+    .select('data')
+    .order('data', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!ultima?.data) return null // nenhum CSV importado ainda
+
+  const { count } = await supabase
+    .from('vendas_dia')
+    .select('*', { count: 'exact', head: true })
+    .eq('data', ultima.data)
+    .eq('pdv_codigo', pdvCod)
+  if (count === 0) return null // PDV não está no faturamento → não sabemos
+  const { count: c2 } = await supabase
+    .from('vendas_dia')
+    .select('*', { count: 'exact', head: true })
+    .eq('data', ultima.data)
+    .eq('pdv_codigo', pdvCod)
+    .eq('produto_codigo', prodCod)
+  return (c2 ?? 0) > 0
+}
+
+// Tenta buscar o nome canônico do produto no catálogo pelo código ou por nome parcial.
+async function canonicalizarProduto(termo: string): Promise<string> {
+  if (!termo) return termo
+  // Se parece um código numérico
+  const cod = parseInt(termo.replace(/\D/g, ''))
+  if (cod > 0 && /^\d+$/.test(termo.trim())) {
+    const { data } = await supabase.from('produtos').select('descricao').eq('codigo', cod).maybeSingle()
+    if (data?.descricao) return `${cod} - ${data.descricao}`
+  }
+  // Busca por nome parcial (ignora caso)
+  const { data } = await supabase
+    .from('produtos')
+    .select('codigo, descricao')
+    .ilike('descricao', `%${termo.replace(/%/g, '')}%`)
+    .limit(1)
+    .maybeSingle()
+  if (data?.descricao) return `${data.codigo} - ${data.descricao}`
+  return termo
+}
+
+// Busca o nome fantasia do PDV no catálogo.
+async function buscarNomePdv(codigo: string): Promise<string | null> {
+  if (!codigo) return null
+  const cod = parseInt(codigo.replace(/\D/g, ''))
+  if (!cod) return null
+  const { data } = await supabase.from('pdvs').select('nome_fantasia').eq('codigo', cod).maybeSingle()
+  return data?.nome_fantasia?.trim() || null
 }
 
 async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
@@ -128,6 +285,7 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
     return null
   }
   try {
+    const catalogo = await buscarProdutosContexto()
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -140,12 +298,17 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
         max_tokens: 400,
         system:
           'Você analisa mensagens de motoristas de entrega enviadas em um grupo de WhatsApp. ' +
-          'A mensagem pode ser uma solicitação de reposição de produto (falta, inversão ou avaria) ' +
+          'A mensagem pode ser uma solicitação de reposição de produto (falta, inversão, avaria ou troca) ' +
           'ou apenas uma conversa qualquer. Extraia os campos solicitados. ' +
           'Se a mensagem NÃO for uma solicitação de reposição, defina eh_reposicao=false. ' +
           'Campos não informados devem ficar como string vazia. ' +
-          'tipo_reposicao: "falta" (produto não entregue/faltou), "inversao" (produto trocado/errado), ' +
-          '"avaria" (produto quebrado/amassado/vazado/estragado), ou "indefinido" se não der pra saber.',
+          'tipo_reposicao: "falta" (produto não entregue/faltou), "inversao" (veio o item errado na carga/separação), ' +
+          '"avaria" (produto quebrado/amassado/vazado/estragado), "troca" (cliente pediu troca/devolução do produto), ' +
+          'ou "indefinido" se não der pra saber. ' +
+          'embalagem: "unidade" (produto avulso, unidade, garrafa/lata solta) ou "fardo" (fardo, pacote, caixa fechada, engradado); ' +
+          'use "indefinido" se a mensagem não deixar claro se é unidade ou fardo. ' +
+          'Para o campo "produto", use o nome padronizado do catálogo se conseguir identificar, ' +
+          'incluindo o código numérico se mencionado.' + catalogo,
         messages: [{ role: 'user', content: texto }],
         output_config: {
           format: {
@@ -158,9 +321,10 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
                 mapa:           { type: 'string' },
                 produto:        { type: 'string' },
                 quantidade:     { type: 'string' },
-                tipo_reposicao: { type: 'string', enum: ['falta', 'inversao', 'avaria', 'indefinido'] },
+                tipo_reposicao: { type: 'string', enum: ['falta', 'inversao', 'avaria', 'troca', 'indefinido'] },
+                embalagem:      { type: 'string', enum: ['unidade', 'fardo', 'indefinido'] },
               },
-              required: ['eh_reposicao', 'codigo_pdv', 'mapa', 'produto', 'quantidade', 'tipo_reposicao'],
+              required: ['eh_reposicao', 'codigo_pdv', 'mapa', 'produto', 'quantidade', 'tipo_reposicao', 'embalagem'],
               additionalProperties: false,
             },
           },
@@ -182,15 +346,55 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
   }
 }
 
-function resumoReposicao(p: ReposicaoIA, nome: string): string {
-  const linhas = [`📦 *Confirmação de Reposição*`, `👤 ${nome}`]
-  linhas.push(`🔁 Tipo: ${TIPO_LABEL[p.tipo_reposicao] ?? 'Não informado'}`)
-  if (p.codigo_pdv)  linhas.push(`🏪 PDV: ${p.codigo_pdv}`)
-  if (p.mapa)        linhas.push(`🗺️ Mapa: ${p.mapa}`)
-  if (p.produto)     linhas.push(`📋 Produto: ${p.produto}`)
-  if (p.quantidade)  linhas.push(`📊 Qtde: ${p.quantidade}`)
-  linhas.push('\nEstá correto? Responda *SIM* para confirmar ou *NÃO* para cancelar.')
+// Resumo a partir do registro pendente (já com embalagem definida).
+function resumoConfirmacao(pend: any): string {
+  const linhas = [`📦 *Confirmação de Reposição*`, `👤 ${pend.motorista_nome ?? 'Motorista'}`]
+  linhas.push(`🔁 Tipo: ${TIPO_LABEL[pend.tipo_reposicao ?? 'indefinido'] ?? 'Não informado'}`)
+  linhas.push(`📦 Embalagem: ${EMBALAGEM_LABEL[pend.embalagem ?? 'indefinido'] ?? 'Não informado'}`)
+  if (pend.codigo_pdv)  linhas.push(`🏪 PDV: ${pend.codigo_pdv}`)
+  if (pend.mapa)        linhas.push(`🗺️ Mapa: ${pend.mapa}`)
+  if (pend.produto)     linhas.push(`📋 Produto: ${pend.produto}`)
+  if (pend.quantidade)  linhas.push(`📊 Qtde: ${pend.quantidade}`)
+  linhas.push('\nEstá correto? Toque em *Sim* / *Não* ou responda *SIM* para confirmar ou *NÃO* para cancelar.')
   return linhas.join('\n')
+}
+
+// Mensagem enviada ao grupo de validação (controle) para Falta/Inversão.
+function resumoValidacao(numero: string, pend: any): string {
+  const linhas = [`🔎 *Validação de Reposição* — ${numero}`]
+  linhas.push(`🔁 Tipo: ${TIPO_LABEL[pend.tipo_reposicao ?? 'indefinido'] ?? 'Não informado'}`)
+  linhas.push(`📦 Embalagem: ${EMBALAGEM_LABEL[pend.embalagem ?? 'indefinido'] ?? 'Não informado'}`)
+  if (pend.motorista_nome) linhas.push(`👤 Motorista: ${pend.motorista_nome}`)
+  if (pend.codigo_pdv)     linhas.push(`🏪 PDV: ${pend.codigo_pdv}`)
+  if (pend.mapa)           linhas.push(`🗺️ Mapa: ${pend.mapa}`)
+  if (pend.produto)        linhas.push(`📋 Produto: ${pend.produto}`)
+  if (pend.quantidade)     linhas.push(`📊 Qtde: ${pend.quantidade}`)
+  linhas.push('\nValidar? Toque em *OK* / *NOK* ou responda *OK* para aprovar ou *NOK* para negar.')
+  return linhas.join('\n')
+}
+
+// Resposta do controle no grupo de validação: OK/NOK (botão ou texto).
+// O id da reposição pode vir embutido no buttonId (vok:<id> / vnok:<id>).
+function extrairValidacao(body: any): { decisao: 'ok' | 'nok'; repId: string | null } | null {
+  const rawBtn = String(body?.buttonsResponseMessage?.buttonId ?? '')
+  if (rawBtn.startsWith('vok:'))  return { decisao: 'ok',  repId: rawBtn.slice(4) || null }
+  if (rawBtn.startsWith('vnok:')) return { decisao: 'nok', repId: rawBtn.slice(5) || null }
+
+  const t = norm(rawBtn) || norm(extrairTexto(body))
+  if (t === 'ok' || t === 'sim' || t === 'valido' || t === 'validar' || t === 'aprovado' || t === 'aprovar') return { decisao: 'ok', repId: null }
+  if (t === 'nok' || t === 'nao' || t === 'negar' || t === 'negado' || t === 'reprovado' || t === 'reprovar') return { decisao: 'nok', repId: null }
+  return null
+}
+
+// Resposta do motorista à pergunta "Unidade ou Fardo?" (botão ou texto).
+function extrairEmbalagem(body: any): 'unidade' | 'fardo' | null {
+  const btn = norm(String(body?.buttonsResponseMessage?.buttonId ?? ''))
+  if (btn === 'unidade') return 'unidade'
+  if (btn === 'fardo') return 'fardo'
+  const t = norm(extrairTexto(body))
+  if (/^(unidade|unid|und?|uni)$/.test(t)) return 'unidade'
+  if (/^(fardo|fd|pacote|caixa|cx|engradado)$/.test(t)) return 'fardo'
+  return null
 }
 
 async function gerarNumeroReposicao(): Promise<string> {
@@ -207,8 +411,39 @@ async function gerarNumeroReposicao(): Promise<string> {
 
 async function tratarReposicao(
   body: any, grupoId: string, filial: string, texto: string,
-  senderName: string, participante: string,
+  senderName: string, participante: string, grupoValidacao: string,
 ): Promise<{ ok: boolean; action: string }> {
+  const limitePend = () => new Date(Date.now() - CONFIRM_TTL_MIN * 60_000).toISOString()
+
+  // 0) Resposta "Unidade/Fardo" a uma pergunta de embalagem pendente
+  const emb = extrairEmbalagem(body)
+  if (emb) {
+    const { data: pendEmb } = await supabase
+      .from('reposicao_confirmacoes')
+      .select('*')
+      .eq('grupo_id', grupoId)
+      .eq('motorista_telefone', participante)
+      .eq('status', 'aguardando_embalagem')
+      .gte('created_at', limitePend())
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (pendEmb) {
+      const { data: upd } = await supabase
+        .from('reposicao_confirmacoes')
+        .update({ embalagem: emb, status: 'aguardando' })
+        .eq('id', pendEmb.id)
+        .select('*')
+        .single()
+      await enviarBotoes(grupoId, resumoConfirmacao(upd ?? { ...pendEmb, embalagem: emb }), [
+        { id: 'sim', label: '✅ Sim' },
+        { id: 'nao', label: '❌ Não' },
+      ])
+      return { ok: true, action: 'repos-embalagem-definida' }
+    }
+    // sem pendência de embalagem → ignora e segue o fluxo normal
+  }
+
   // 1) Resposta SIM / NÃO a uma confirmação pendente deste motorista
   const resposta = extrairResposta(body)
   if (resposta) {
@@ -233,8 +468,10 @@ async function tratarReposicao(
     }
 
     const numero = await gerarNumeroReposicao()
-    const { error: insErr } = await supabase.from('reposicoes').insert({
+    const tipo = pend.tipo_reposicao ?? 'indefinido'
+    const { data: novaRep, error: insErr } = await supabase.from('reposicoes').insert({
       numero,
+      filial,
       motorista_nome: pend.motorista_nome,
       motorista_telefone: participante,
       codigo_pdv: pend.codigo_pdv || null,
@@ -242,52 +479,148 @@ async function tratarReposicao(
       mapa: pend.mapa || null,
       produto: pend.produto || null,
       quantidade: pend.quantidade || null,
-      tipo_reposicao: pend.tipo_reposicao || null,
-      motivo: TIPO_LABEL[pend.tipo_reposicao ?? 'indefinido'] ?? null,
+      tipo_reposicao: tipo,
+      embalagem: pend.embalagem || null,
+      motivo: TIPO_LABEL[tipo] ?? null,
       mensagem_original: pend.mensagem_original,
       status: 'pendente',
-    })
-    if (insErr) {
+    }).select('id, numero').single()
+    if (insErr || !novaRep) {
       console.error('Erro ao inserir reposição:', insErr)
       await enviar(grupoId, '❌ Erro ao registrar. Tente novamente.')
       return { ok: false, action: 'repos-erro' }
     }
     await supabase.from('reposicao_confirmacoes').update({ status: 'confirmado' }).eq('id', pend.id)
-    await enviar(grupoId,
-      `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nAguardando validação do financeiro.`)
+
+    // Falta/Inversão (e indefinido) vão para validação do controle.
+    // Avaria/Troca só registram no banco.
+    const precisaValidacao = tipo === 'falta' || tipo === 'inversao' || tipo === 'indefinido'
+    if (precisaValidacao && grupoValidacao) {
+      await enviar(grupoId,
+        `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nEnviada para validação do controle.`)
+      await enviarBotoes(grupoValidacao, resumoValidacao(numero, pend), [
+        { id: `vok:${novaRep.id}`,  label: '✅ OK' },
+        { id: `vnok:${novaRep.id}`, label: '❌ NOK' },
+      ])
+    } else {
+      await enviar(grupoId, `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!`)
+    }
     return { ok: true, action: 'repos-confirmado' }
   }
 
-  // 2) Mensagem nova — se for áudio sem transcrição, orienta
-  if (temAudioSemTexto(body)) {
-    await enviar(grupoId, '🎤 Recebi um áudio mas não consegui transcrever. Pode mandar por texto ou reenviar o áudio?')
-    return { ok: true, action: 'repos-audio-sem-texto' }
+  // 2) Mensagem nova — se for áudio sem texto, tenta transcrever (Groq Whisper)
+  let conteudo = texto
+  if (!conteudo && temAudioSemTexto(body)) {
+    const transcrito = await transcreverAudio(extrairAudioUrl(body))
+    if (!transcrito) {
+      await enviar(grupoId, '🎤 Recebi um áudio mas não consegui transcrever. Pode mandar por texto ou reenviar o áudio?')
+      return { ok: true, action: 'repos-audio-sem-texto' }
+    }
+    conteudo = transcrito
   }
-  if (!texto) return { ok: true, action: 'repos-vazio' }
+  if (!conteudo) return { ok: true, action: 'repos-vazio' }
 
   // 3) IA interpreta a mensagem livre
-  const ia = await extrairReposicaoIA(texto)
+  const ia = await extrairReposicaoIA(conteudo)
   if (!ia || !ia.eh_reposicao) {
     // Não é solicitação de reposição → bot fica em silêncio (evita poluir o grupo)
     return { ok: true, action: 'repos-nao-aplicavel' }
   }
 
+  // Enriquece produto e PDV com nomes canônicos do catálogo
+  const [produtoCanon, nomePdv] = await Promise.all([
+    canonicalizarProduto(ia.produto),
+    buscarNomePdv(ia.codigo_pdv),
+  ])
+  if (produtoCanon !== ia.produto) ia.produto = produtoCanon
+  const pdvOriginal = ia.codigo_pdv
+  if (nomePdv && ia.codigo_pdv && !ia.codigo_pdv.includes(nomePdv)) {
+    ia.codigo_pdv = `${ia.codigo_pdv} - ${nomePdv}`
+  }
+
+  // Verifica se o produto consta nas vendas do dia para este PDV
+  const prodCodExtract = produtoCanon.match(/^\s*(\d+)/)?.[1] ?? ia.produto
+  const vendaOk = await verificarVendasDia(pdvOriginal, prodCodExtract)
+
   const nome = senderName || 'Motorista'
-  await supabase.from('reposicao_confirmacoes').insert({
+  const precisaEmbalagem = ia.embalagem === 'indefinido'
+  const { data: pendRow } = await supabase.from('reposicao_confirmacoes').insert({
     filial,
     grupo_id: grupoId,
     motorista_telefone: participante,
     motorista_nome: nome,
-    mensagem_original: texto,
+    mensagem_original: conteudo,
     codigo_pdv: ia.codigo_pdv || null,
     mapa: ia.mapa || null,
     produto: ia.produto || null,
     quantidade: ia.quantidade || null,
     tipo_reposicao: ia.tipo_reposicao,
-    status: 'aguardando',
-  })
-  await enviar(grupoId, resumoReposicao(ia, nome))
+    embalagem: ia.embalagem,
+    status: precisaEmbalagem ? 'aguardando_embalagem' : 'aguardando',
+  }).select('*').single()
+
+  // Não deu pra saber a embalagem → pergunta antes de confirmar
+  if (precisaEmbalagem) {
+    await enviarBotoes(grupoId,
+      `📦 ${nome}, esse produto é *Unidade* ou *Fardo*?\nToque na opção ou responda *Unidade* ou *Fardo*.`,
+      [{ id: 'unidade', label: '📦 Unidade' }, { id: 'fardo', label: '📦 Fardo' }])
+    return { ok: true, action: 'repos-aguardando-embalagem' }
+  }
+
+  // Avisa o motorista se o produto não consta nas vendas do PDV hoje
+  if (vendaOk === false) {
+    await enviar(grupoId,
+      `⚠️ Atenção ${nome}: o produto *${ia.produto}* não consta nas vendas de hoje para o PDV *${pdvOriginal}*. ` +
+      `Verifique se o PDV e o produto estão corretos antes de confirmar.`)
+  }
+
+  await enviarBotoes(grupoId, resumoConfirmacao(pendRow ?? { ...ia, motorista_nome: nome }), [
+    { id: 'sim', label: '✅ Sim' },
+    { id: 'nao', label: '❌ Não' },
+  ])
   return { ok: true, action: 'repos-aguardando' }
+}
+
+// ── Fluxo de validação (grupo de controle) ────────────────────────────────────────
+// O controle responde OK/NOK e isso atualiza o status da reposição no painel.
+async function tratarValidacao(body: any, grupoId: string): Promise<{ ok: boolean; action: string }> {
+  const v = extrairValidacao(body)
+  if (!v) return { ok: true, action: 'validacao-sem-resposta' }
+
+  // Localiza a reposição: por id (vindo do botão) ou a pendente de validação
+  // mais recente (fallback quando a resposta veio por texto).
+  let rep: any = null
+  if (v.repId) {
+    const { data } = await supabase.from('reposicoes').select('*').eq('id', v.repId).maybeSingle()
+    rep = data
+  } else {
+    const { data } = await supabase.from('reposicoes')
+      .select('*')
+      .eq('status', 'pendente')
+      .in('tipo_reposicao', ['falta', 'inversao', 'indefinido'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    rep = data
+  }
+
+  if (!rep) return { ok: true, action: 'validacao-sem-pendencia' }
+  if (rep.status !== 'pendente') {
+    await enviar(grupoId, `⚠️ *${rep.numero}* já estava como *${rep.status}*.`)
+    return { ok: true, action: 'validacao-ja-resolvida' }
+  }
+
+  const novoStatus = v.decisao === 'ok' ? 'validado' : 'negado'
+  await supabase.from('reposicoes').update({
+    status: novoStatus,
+    validador_resposta: v.decisao === 'ok' ? 'Controle: OK (WhatsApp)' : 'Controle: NOK (WhatsApp)',
+    validado_em: new Date().toISOString(),
+  }).eq('id', rep.id)
+
+  await enviar(grupoId, v.decisao === 'ok'
+    ? `✅ *${rep.numero}* validada pelo controle.`
+    : `❌ *${rep.numero}* negada pelo controle.`)
+  return { ok: true, action: `validacao-${novoStatus}` }
 }
 
 // ── Fluxo punitivo (grupo de gestão) ──────────────────────────────────────────────
@@ -388,8 +721,8 @@ export default async function handler(req: any, res: any) {
     // Descobre a qual fluxo este grupo pertence
     const { data: filialRow } = await supabase
       .from('filiais')
-      .select('nome, grupo_fluxo_whatsapp, grupo_reposicoes_whatsapp')
-      .or(`grupo_fluxo_whatsapp.eq.${grupoId},grupo_reposicoes_whatsapp.eq.${grupoId}`)
+      .select('nome, grupo_fluxo_whatsapp, grupo_reposicoes_whatsapp, grupo_solicitacao_2_whatsapp, grupo_validacao_whatsapp')
+      .or(`grupo_fluxo_whatsapp.eq.${grupoId},grupo_reposicoes_whatsapp.eq.${grupoId},grupo_solicitacao_2_whatsapp.eq.${grupoId},grupo_validacao_whatsapp.eq.${grupoId}`)
       .maybeSingle()
 
     if (!filialRow) {
@@ -399,9 +732,18 @@ export default async function handler(req: any, res: any) {
     }
 
     const filial: string = filialRow.nome
+    const grupoValidacao: string = filialRow.grupo_validacao_whatsapp ?? ''
 
-    if (filialRow.grupo_reposicoes_whatsapp === grupoId) {
-      const r = await tratarReposicao(body, grupoId, filial, texto, senderName, participante)
+    // Grupo de validação (controle): responde OK/NOK e atualiza o painel
+    if (grupoValidacao && grupoValidacao === grupoId) {
+      const r = await tratarValidacao(body, grupoId)
+      res.status(200).json(r)
+      return
+    }
+
+    // Grupos de solicitação (1 e 2): motorista envia e confirma
+    if (filialRow.grupo_reposicoes_whatsapp === grupoId || filialRow.grupo_solicitacao_2_whatsapp === grupoId) {
+      const r = await tratarReposicao(body, grupoId, filial, texto, senderName, participante, grupoValidacao)
       res.status(200).json(r)
       return
     }

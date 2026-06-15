@@ -49,6 +49,26 @@ export async function enviarMensagemGrupo(
   }
 }
 
+// Envio de mensagem com botões para um grupo (ex.: reenviar validação OK/NOK).
+// O ID do grupo NÃO passa por limparNumero.
+export async function enviarBotoesGrupo(
+  grupoId: string,
+  mensagem: string,
+  botoes: { id: string; label: string }[]
+): Promise<{ sucesso: boolean; erro?: string }> {
+  try {
+    const response = await fetch(`${BASE}/send-button-list`, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ phone: grupoId.trim(), message: mensagem, buttonList: { buttons: botoes } }),
+    })
+    if (!response.ok) return { sucesso: false, erro: await response.text() }
+    return { sucesso: true }
+  } catch (e) {
+    return { sucesso: false, erro: String(e) }
+  }
+}
+
 export interface GrupoZApi {
   phone: string   // ID do grupo, usado como destino do envio
   name: string

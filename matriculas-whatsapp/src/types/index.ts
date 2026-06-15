@@ -31,6 +31,9 @@ export interface Filial {
   id: string
   nome: string
   grupo_fluxo_whatsapp: string | null
+  grupo_reposicoes_whatsapp: string | null
+  grupo_solicitacao_2_whatsapp: string | null
+  grupo_validacao_whatsapp: string | null
   created_at: string
 }
 
