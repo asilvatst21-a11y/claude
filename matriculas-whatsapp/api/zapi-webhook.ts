@@ -270,18 +270,21 @@ async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<V
   const vendidos = await produtosVendidosPdv(pdvCod, data)
   if (vendidos.length === 0) return { situacao: 'pdv-sem-venda', data }
 
-  // Tenta casar o termo do motorista com algum produto comprado pelo PDV
-  const termo = semAcento(termoProduto)
+  // Casa o termo do motorista com algum produto comprado pelo PDV.
+  // Busca por PALAVRAS (todas presentes), não contígua: "brahma zero" casa com
+  // "BRAHMA CHOPP ZERO LATA...". Como o pedido do PDV é pequeno, é preciso.
   const codTermo = parseInt(termoProduto.replace(/\D/g, ''))
-  let matches = vendidos.filter(v =>
-    (codTermo && v.codigo === codTermo) ||
-    (termo && semAcento(v.descricao).includes(termo))
-  )
-  // Se o termo tem várias palavras, exige que todas apareçam (busca mais precisa)
-  if (matches.length > 1 && termo.includes(' ')) {
-    const palavras = termo.split(/\s+/).filter(Boolean)
-    const refinado = vendidos.filter(v => palavras.every(p => semAcento(v.descricao).includes(p)))
-    if (refinado.length > 0) matches = refinado
+  const palavras = semAcento(termoProduto).split(/\s+/).filter(p => p.length >= 2)
+  let matches = vendidos.filter(v => {
+    if (codTermo && v.codigo === codTermo) return true
+    if (palavras.length === 0) return false
+    const d = semAcento(v.descricao)
+    return palavras.every(p => d.includes(p))
+  })
+  // Fallback: se nenhuma casou com todas as palavras, tenta com a 1ª palavra
+  // (ex.: "guaranazinho" → "guarana"), ainda restrito ao pedido do PDV.
+  if (matches.length === 0 && palavras.length > 1) {
+    matches = vendidos.filter(v => semAcento(v.descricao).includes(palavras[0]))
   }
 
   const produtoNoPedido = matches.length > 0
