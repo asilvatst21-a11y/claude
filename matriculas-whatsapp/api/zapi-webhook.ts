@@ -202,72 +202,92 @@ const EMBALAGEM_LABEL: Record<string, string> = {
 
 // Busca os 40 produtos mais recentes do catálogo para enriquecer o prompt da IA.
 // Se a tabela estiver vazia (antes da primeira importação), retorna lista vazia.
-async function buscarProdutosContexto(): Promise<string> {
-  try {
-    const { data } = await supabase
-      .from('produtos')
-      .select('codigo, descricao, embalagem')
-      .order('codigo')
-      .limit(80)
-    if (!data || data.length === 0) return ''
-    const lista = data.map(p => `${p.codigo} - ${p.descricao}${p.embalagem ? ` (${p.embalagem})` : ''}`).join('\n')
-    return `\n\nCatálogo de referência (produtos desta distribuidora):\n${lista}`
-  } catch {
-    return ''
-  }
+// Remove acentos e baixa caixa, para casar com o catálogo (que é todo sem acento).
+function semAcento(s: string): string {
+  return s.normalize('NFD').replace(/\p{Mn}/gu, '').toLowerCase().trim()
 }
 
-// Verifica se o produto consta nas vendas do PDV informado.
-// Usa a data mais recente importada (não "hoje"), pois o CSV diário é importado
-// manualmente e sua data vem do arquivo. Retorna null se não houver dados de
-// vendas cadastrados (sem CSV importado) ou se o PDV não aparecer.
-async function verificarVendasDia(pdvCodigo: string, produtoCodigo: string): Promise<boolean | null> {
-  const pdvCod = parseInt(pdvCodigo.replace(/\D/g, ''))
-  const prodCod = parseInt(produtoCodigo.replace(/\D/g, ''))
-  if (!pdvCod || !prodCod) return null
-
-  // Descobre a data mais recente de vendas importadas
-  const { data: ultima } = await supabase
+// Descobre a data mais recente de vendas importadas (o CSV diário traz a data do arquivo).
+async function ultimaDataVendas(): Promise<string | null> {
+  const { data } = await supabase
     .from('vendas_dia')
     .select('data')
     .order('data', { ascending: false })
     .limit(1)
     .maybeSingle()
-  if (!ultima?.data) return null // nenhum CSV importado ainda
-
-  const { count } = await supabase
-    .from('vendas_dia')
-    .select('*', { count: 'exact', head: true })
-    .eq('data', ultima.data)
-    .eq('pdv_codigo', pdvCod)
-  if (count === 0) return null // PDV não está no faturamento → não sabemos
-  const { count: c2 } = await supabase
-    .from('vendas_dia')
-    .select('*', { count: 'exact', head: true })
-    .eq('data', ultima.data)
-    .eq('pdv_codigo', pdvCod)
-    .eq('produto_codigo', prodCod)
-  return (c2 ?? 0) > 0
+  return data?.data ?? null
 }
 
-// Tenta buscar o nome canônico do produto no catálogo pelo código ou por nome parcial.
-async function canonicalizarProduto(termo: string): Promise<string> {
-  if (!termo) return termo
-  // Se parece um código numérico
-  const cod = parseInt(termo.replace(/\D/g, ''))
-  if (cod > 0 && /^\d+$/.test(termo.trim())) {
-    const { data } = await supabase.from('produtos').select('descricao').eq('codigo', cod).maybeSingle()
-    if (data?.descricao) return `${cod} - ${data.descricao}`
+// Retorna os produtos vendidos para um PDV na última data importada (com nome do catálogo).
+async function produtosVendidosPdv(pdvCod: number, data: string): Promise<{ codigo: number; descricao: string }[]> {
+  const { data: vendas } = await supabase
+    .from('vendas_dia')
+    .select('produto_codigo, produto_nome')
+    .eq('data', data)
+    .eq('pdv_codigo', pdvCod)
+  if (!vendas || vendas.length === 0) return []
+  const codigos = [...new Set(vendas.map((v: any) => v.produto_codigo).filter(Boolean))]
+  // Busca o nome canônico no catálogo
+  const { data: cat } = await supabase.from('produtos').select('codigo, descricao').in('codigo', codigos)
+  const mapa = new Map((cat ?? []).map((p: any) => [p.codigo, p.descricao]))
+  return codigos.map((c: any) => ({
+    codigo: c,
+    descricao: mapa.get(c) ?? (vendas.find((v: any) => v.produto_codigo === c)?.produto_nome ?? ''),
+  }))
+}
+
+// Monta um pequeno catálogo de referência pra IA, priorizando o que o PDV comprou.
+async function buscarProdutosContexto(pdvCodigo: string): Promise<string> {
+  try {
+    const data = await ultimaDataVendas()
+    const pdvCod = parseInt((pdvCodigo ?? '').replace(/\D/g, ''))
+    if (data && pdvCod) {
+      const vendidos = await produtosVendidosPdv(pdvCod, data)
+      if (vendidos.length > 0) {
+        const lista = vendidos.filter(v => v.descricao).map(v => `${v.codigo} - ${v.descricao}`).join('\n')
+        return `\n\nProdutos que ESTE PDV (${pdvCod}) comprou no pedido. Use estes nomes ao identificar o produto:\n${lista}`
+      }
+    }
+    return ''
+  } catch {
+    return ''
   }
-  // Busca por nome parcial (ignora caso)
-  const { data } = await supabase
-    .from('produtos')
-    .select('codigo, descricao')
-    .ilike('descricao', `%${termo.replace(/%/g, '')}%`)
-    .limit(1)
-    .maybeSingle()
-  if (data?.descricao) return `${data.codigo} - ${data.descricao}`
-  return termo
+}
+
+type VendasInfo =
+  | { situacao: 'sem-csv' }                       // nenhum CSV importado
+  | { situacao: 'pdv-sem-venda'; data: string }   // PDV não está no faturamento do dia
+  | { situacao: 'ok'; data: string; produtoNoPedido: boolean; produtoCanon: string | null }
+
+// Avalia o PDV/produto contra o faturamento do dia e já tenta identificar o produto.
+async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<VendasInfo> {
+  const data = await ultimaDataVendas()
+  if (!data) return { situacao: 'sem-csv' }
+
+  const pdvCod = parseInt((pdvCodigo ?? '').replace(/\D/g, ''))
+  if (!pdvCod) return { situacao: 'pdv-sem-venda', data }
+
+  const vendidos = await produtosVendidosPdv(pdvCod, data)
+  if (vendidos.length === 0) return { situacao: 'pdv-sem-venda', data }
+
+  // Tenta casar o termo do motorista com algum produto comprado pelo PDV
+  const termo = semAcento(termoProduto)
+  const codTermo = parseInt(termoProduto.replace(/\D/g, ''))
+  let matches = vendidos.filter(v =>
+    (codTermo && v.codigo === codTermo) ||
+    (termo && semAcento(v.descricao).includes(termo))
+  )
+  // Se o termo tem várias palavras, exige que todas apareçam (busca mais precisa)
+  if (matches.length > 1 && termo.includes(' ')) {
+    const palavras = termo.split(/\s+/).filter(Boolean)
+    const refinado = vendidos.filter(v => palavras.every(p => semAcento(v.descricao).includes(p)))
+    if (refinado.length > 0) matches = refinado
+  }
+
+  const produtoNoPedido = matches.length > 0
+  // Só padroniza se a identificação for inequívoca (exatamente 1 produto compatível)
+  const produtoCanon = matches.length === 1 ? `${matches[0].codigo} - ${matches[0].descricao}` : null
+  return { situacao: 'ok', data, produtoNoPedido, produtoCanon }
 }
 
 // Busca o nome fantasia do PDV no catálogo.
@@ -285,7 +305,11 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
     return null
   }
   try {
-    const catalogo = await buscarProdutosContexto()
+    // Pré-extrai um possível código de PDV do texto bruto para buscar os produtos
+    // que esse PDV comprou e dar à IA o vocabulário certo de produtos.
+    const pdvMatch = texto.match(/\b(?:pdv|cliente|loja|cli)\D{0,3}(\d{3,6})\b/i)?.[1]
+      ?? texto.match(/\b(\d{4,6})\b/)?.[1] ?? ''
+    const catalogo = await buscarProdutosContexto(pdvMatch)
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -527,20 +551,18 @@ async function tratarReposicao(
     return { ok: true, action: 'repos-nao-aplicavel' }
   }
 
-  // Enriquece produto e PDV com nomes canônicos do catálogo
-  const [produtoCanon, nomePdv] = await Promise.all([
-    canonicalizarProduto(ia.produto),
+  // Identifica produto/PDV contra o faturamento do dia + nome fantasia do catálogo
+  const pdvOriginal = ia.codigo_pdv
+  const [vendas, nomePdv] = await Promise.all([
+    avaliarVendas(ia.codigo_pdv, ia.produto),
     buscarNomePdv(ia.codigo_pdv),
   ])
-  if (produtoCanon !== ia.produto) ia.produto = produtoCanon
-  const pdvOriginal = ia.codigo_pdv
+  // Padroniza o produto somente quando a identificação pelo pedido do PDV for inequívoca
+  if (vendas.situacao === 'ok' && vendas.produtoCanon) ia.produto = vendas.produtoCanon
+  // Enriquece o PDV com o nome fantasia
   if (nomePdv && ia.codigo_pdv && !ia.codigo_pdv.includes(nomePdv)) {
     ia.codigo_pdv = `${ia.codigo_pdv} - ${nomePdv}`
   }
-
-  // Verifica se o produto consta nas vendas do dia para este PDV
-  const prodCodExtract = produtoCanon.match(/^\s*(\d+)/)?.[1] ?? ia.produto
-  const vendaOk = await verificarVendasDia(pdvOriginal, prodCodExtract)
 
   const nome = senderName || 'Motorista'
   const precisaEmbalagem = ia.embalagem === 'indefinido'
@@ -567,11 +589,16 @@ async function tratarReposicao(
     return { ok: true, action: 'repos-aguardando-embalagem' }
   }
 
-  // Avisa o motorista se o produto não consta nas vendas do PDV hoje
-  if (vendaOk === false) {
+  // Avisos do confronto com o faturamento do dia
+  const dataBR = (d: string) => d.split('-').reverse().join('/')
+  if (vendas.situacao === 'pdv-sem-venda') {
     await enviar(grupoId,
-      `⚠️ Atenção ${nome}: o produto *${ia.produto}* não consta nas vendas de hoje para o PDV *${pdvOriginal}*. ` +
-      `Verifique se o PDV e o produto estão corretos antes de confirmar.`)
+      `⚠️ Atenção ${nome}: o PDV *${pdvOriginal || '?'}* não tem venda registrada no faturamento de ${dataBR(vendas.data)}. ` +
+      `Confira se o número do PDV está correto antes de confirmar.`)
+  } else if (vendas.situacao === 'ok' && !vendas.produtoNoPedido) {
+    await enviar(grupoId,
+      `⚠️ Atenção ${nome}: o produto *${ia.produto}* não consta no pedido do PDV *${pdvOriginal}* em ${dataBR(vendas.data)}. ` +
+      `Verifique se o produto está correto antes de confirmar.`)
   }
 
   await enviarBotoes(grupoId, resumoConfirmacao(pendRow ?? { ...ia, motorista_nome: nome }), [
