@@ -353,6 +353,21 @@ async function buscarEquipeMapa(mapa: string | null): Promise<string | null> {
   return linhas.length ? linhas.join('\n') : null
 }
 
+// Valida se o mapa informado existe na base (mapa_equipe) importada mais recente.
+//  'sem_base'       → tabela vazia / planilha do dia não importada → NÃO bloqueia
+//  'nao_encontrado' → há base, mas o mapa não casa → bloqueia e pede correção
+//  'ok'             → mapa encontrado
+async function validarMapaBase(mapa: string | null): Promise<'sem_base' | 'nao_encontrado' | 'ok'> {
+  const { data: ult } = await supabase
+    .from('mapa_equipe').select('data').order('data', { ascending: false }).limit(1).maybeSingle()
+  if (!ult?.data) return 'sem_base'
+  const alvo = normMapa(mapa)
+  if (!alvo) return 'nao_encontrado'
+  const { data: rows } = await supabase.from('mapa_equipe').select('mapa').eq('data', ult.data)
+  const achou = (rows ?? []).some((r: any) => normMapa(r.mapa) === alvo)
+  return achou ? 'ok' : 'nao_encontrado'
+}
+
 // Busca o nome fantasia do PDV no catálogo.
 async function buscarNomePdv(codigo: string): Promise<string | null> {
   if (!codigo) return null
@@ -590,6 +605,17 @@ async function finalizarColeta(pend: any, grupoId: string, nome: string): Promis
     await enviar(grupoId,
       `⛔ ${nome}, o produto *${pend.produto}* não consta no pedido do PDV *${pdvOriginal}* em ${dataBR(vendas.data)}.\n` +
       `Corrija o produto e *reenvie a solicitação*, ou entre em contato com o *monitoramento*.`)
+    return
+  }
+
+  // BLOQUEIO: mapa informado não existe na base do dia → não confirma, pede correção.
+  // (Só bloqueia quando há base importada; se a planilha do dia não foi subida, segue.)
+  const mapaStatus = await validarMapaBase(pend.mapa)
+  if (mapaStatus === 'nao_encontrado') {
+    await supabase.from('reposicao_confirmacoes').update({ status: 'rejeitado' }).eq('id', pend.id)
+    await enviar(grupoId,
+      `⛔ ${nome}, o mapa *${pend.mapa ?? '?'}* não foi encontrado na base de hoje.\n` +
+      `Confira o número do mapa e *reenvie a solicitação*, ou entre em contato com o *monitoramento*.`)
     return
   }
 
