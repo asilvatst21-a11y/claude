@@ -184,6 +184,7 @@ function parseComando(texto: string): { nome: string; motivo: string; data?: str
 
 interface ReposicaoIA {
   eh_reposicao: boolean
+  multiplos_itens: boolean
   codigo_pdv: string
   mapa: string
   produto: string
@@ -387,6 +388,9 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
           'A mensagem pode ser uma solicitação de reposição de produto (falta, inversão, avaria ou troca) ' +
           'ou apenas uma conversa qualquer. Extraia os campos solicitados. ' +
           'Se a mensagem NÃO for uma solicitação de reposição, defina eh_reposicao=false. ' +
+          'multiplos_itens: defina true SOMENTE quando a mensagem pedir reposição de mais de um produto DISTINTO ' +
+          '(ex: "falta 2 cx de H2OH e 3 fardos de Skol"). Quantidade alta de um mesmo produto NÃO conta como múltiplos itens. ' +
+          'Quando multiplos_itens=true, preencha os demais campos apenas com o primeiro item (ou deixe vazios se ambíguo). ' +
           'Campos não informados devem ficar como string vazia. ' +
           'tipo_reposicao: "falta" (produto não entregue/faltou), "inversao" (veio o item errado na carga/separação), ' +
           '"avaria" (produto quebrado/amassado/vazado/estragado), "troca" (cliente pediu troca/devolução do produto), ' +
@@ -402,15 +406,16 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
             schema: {
               type: 'object',
               properties: {
-                eh_reposicao:   { type: 'boolean' },
-                codigo_pdv:     { type: 'string' },
-                mapa:           { type: 'string' },
-                produto:        { type: 'string' },
-                quantidade:     { type: 'string' },
-                tipo_reposicao: { type: 'string', enum: ['falta', 'inversao', 'avaria', 'troca', 'indefinido'] },
-                embalagem:      { type: 'string', enum: ['unidade', 'fardo', 'indefinido'] },
+                eh_reposicao:    { type: 'boolean' },
+                multiplos_itens: { type: 'boolean' },
+                codigo_pdv:      { type: 'string' },
+                mapa:            { type: 'string' },
+                produto:         { type: 'string' },
+                quantidade:      { type: 'string' },
+                tipo_reposicao:  { type: 'string', enum: ['falta', 'inversao', 'avaria', 'troca', 'indefinido'] },
+                embalagem:       { type: 'string', enum: ['unidade', 'fardo', 'indefinido'] },
               },
-              required: ['eh_reposicao', 'codigo_pdv', 'mapa', 'produto', 'quantidade', 'tipo_reposicao', 'embalagem'],
+              required: ['eh_reposicao', 'multiplos_itens', 'codigo_pdv', 'mapa', 'produto', 'quantidade', 'tipo_reposicao', 'embalagem'],
               additionalProperties: false,
             },
           },
@@ -772,6 +777,15 @@ async function tratarReposicao(
   if (!ia || !ia.eh_reposicao) {
     // Não é solicitação de reposição → bot fica em silêncio (evita poluir o grupo)
     return { ok: true, action: 'repos-nao-aplicavel' }
+  }
+
+  // O fluxo trabalha com um item por vez. Se a mensagem trouxer mais de um
+  // produto, pede que o motorista reenvie uma solicitação por mensagem.
+  if (ia.multiplos_itens) {
+    const nomeMot = senderName || 'Motorista'
+    await enviar(grupoId,
+      `⚠️ ${nomeMot}, identifiquei mais de um item nessa mensagem.\nPor favor, envie *uma solicitação por vez* (um produto por mensagem) para que cada reposição seja registrada corretamente.`)
+    return { ok: true, action: 'repos-multiplos-itens' }
   }
 
   // Cria o registro com os campos crus (sem padronizar ainda — isso ocorre na
