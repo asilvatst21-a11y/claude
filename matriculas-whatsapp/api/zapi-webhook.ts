@@ -447,13 +447,14 @@ function resumoConfirmacao(pend: any, equipe?: string | null): string {
 }
 
 // Mensagem enviada ao grupo de validação (controle) para Falta/Inversão.
-function resumoValidacao(numero: string, pend: any): string {
+function resumoValidacao(numero: string, pend: any, equipe?: string | null): string {
   const linhas = [`🔎 *Validação de Reposição* — ${numero}`]
   linhas.push(`🔁 Tipo: ${TIPO_LABEL[pend.tipo_reposicao ?? 'indefinido'] ?? 'Não informado'}`)
   linhas.push(`📦 Embalagem: ${EMBALAGEM_LABEL[pend.embalagem ?? 'indefinido'] ?? 'Não informado'}`)
   if (pend.motorista_nome) linhas.push(`👤 Motorista: ${pend.motorista_nome}`)
   if (pend.codigo_pdv)     linhas.push(`🏪 PDV: ${pend.codigo_pdv}`)
   if (pend.mapa)           linhas.push(`🗺️ Mapa: ${pend.mapa}`)
+  if (equipe)              linhas.push(equipe)
   if (pend.produto)        linhas.push(`📋 Produto: ${pend.produto}`)
   if (pend.quantidade)     linhas.push(`📊 Qtde: ${pend.quantidade}`)
   linhas.push('\nValidar? Toque em *OK* / *NOK* ou responda *OK* para aprovar ou *NOK* para negar.')
@@ -748,7 +749,8 @@ async function tratarReposicao(
     if (precisaValidacao && grupoValidacao) {
       await enviar(grupoId,
         `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nEnviada para validação do controle.`)
-      await enviarBotoes(grupoValidacao, resumoValidacao(numero, pend), [
+      const equipeValidacao = await buscarEquipeMapa(pend.mapa)
+      await enviarBotoes(grupoValidacao, resumoValidacao(numero, pend, equipeValidacao), [
         { id: `vok:${novaRep.id}`,  label: '✅ OK' },
         { id: `vnok:${novaRep.id}`, label: '❌ NOK' },
       ])
