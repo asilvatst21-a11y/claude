@@ -502,6 +502,18 @@ function extrairTipo(texto: string): ReposicaoIA['tipo_reposicao'] | null {
   return null
 }
 
+// Detecta a quantidade em texto livre (usado ao coletar campos faltantes).
+// Cobre "1 cx", "2 caixas", "5 fardos", "3 un", "1cx", e número isolado ("5").
+function extrairQuantidade(texto: string): string | null {
+  const t = norm(texto)
+  const m = t.match(/\b(\d+)\s*(cx|caixas?|fd|fardos?|un|und|unid|unidades?|pc|pct|pacotes?|dz|duzias?|grades?|fardo|caixa)\b/)
+  if (m) return `${m[1]} ${m[2]}`
+  // Número isolado (resposta direta a "qual a quantidade?")
+  const soNum = t.match(/^(\d{1,4})$/)
+  if (soNum) return soNum[1]
+  return null
+}
+
 // Mescla nos campos AINDA faltantes do pendente os valores recém-extraídos.
 function mesclarCampos(pend: any, novo: Partial<ReposicaoIA>): Record<string, any> {
   const upd: Record<string, any> = {}
@@ -614,8 +626,13 @@ async function tratarReposicao(
     if (emb) novo.embalagem = emb
     const tip = extrairTipo(conteudo)
     if (tip) novo.tipo_reposicao = tip
+    const qtd = extrairQuantidade(conteudo)
+    if (qtd) novo.quantidade = qtd
     if (conteudo) {
-      const iaResp = await extrairReposicaoIA(conteudo)
+      // Roda a IA no texto ACUMULADO (mensagem original + resposta atual) para dar
+      // contexto — um fragmento isolado como "1 cx" sozinho é ambíguo.
+      const contexto = [pendColeta.mensagem_original, conteudo].filter(Boolean).join('. ')
+      const iaResp = await extrairReposicaoIA(contexto)
       if (iaResp) {
         novo.codigo_pdv = novo.codigo_pdv || iaResp.codigo_pdv
         novo.produto    = novo.produto    || iaResp.produto
