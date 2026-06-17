@@ -848,7 +848,8 @@ async function tratarValidacao(body: any, grupoId: string): Promise<{ ok: boolea
     return { ok: true, action: 'validacao-ja-resolvida' }
   }
 
-  const novoStatus = v.decisao === 'ok' ? 'validado' : 'negado'
+  // Controle negou (NOK) → já registra como quebra direto, sem passo manual.
+  const novoStatus = v.decisao === 'ok' ? 'validado' : 'quebra'
   await supabase.from('reposicoes').update({
     status: novoStatus,
     validador_resposta: v.decisao === 'ok' ? 'Controle: OK (WhatsApp)' : 'Controle: NOK (WhatsApp)',
@@ -857,7 +858,7 @@ async function tratarValidacao(body: any, grupoId: string): Promise<{ ok: boolea
 
   await enviar(grupoId, v.decisao === 'ok'
     ? `✅ *${rep.numero}* validada pelo controle.`
-    : `❌ *${rep.numero}* negada pelo controle.`)
+    : `❌ *${rep.numero}* negada pelo controle e registrada como *quebra*.`)
   return { ok: true, action: `validacao-${novoStatus}` }
 }
 

@@ -300,12 +300,12 @@ export default function ReposicoesPage() {
             <button onClick={() => handleAction(r.id, "validado")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-50 transition-colors">
               {actionLoading === r.id + "validado" ? "..." : "Validar"}
             </button>
-            <button onClick={() => handleAction(r.id, "negado")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50 transition-colors">
-              {actionLoading === r.id + "negado" ? "..." : "Negar"}
+            <button onClick={() => handleAction(r.id, "quebra")} disabled={!!actionLoading} title="Negar a reposição (registra como quebra)" className="px-2 py-1 rounded text-xs bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50 transition-colors">
+              {actionLoading === r.id + "quebra" ? "..." : "Negar (quebra)"}
             </button>
           </>
         )}
-        {(r.status === "pendente" || r.status === "negado") && (
+        {(r.status === "pendente" || r.status === "negado" || r.status === "quebra") && (
           <button onClick={() => enviarParaValidacao(r)} disabled={!!actionLoading} title="Reenvia para o grupo de validação no WhatsApp" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 disabled:opacity-50 transition-colors">
             <Send className="h-3 w-3" />{actionLoading === r.id + "envio-validacao" ? "..." : "Enviar p/ validação"}
           </button>
@@ -313,11 +313,6 @@ export default function ReposicoesPage() {
         {(r.status === "pendente" || r.status === "validado") && (
           <button onClick={() => marcarRegistrado(r)} disabled={!!actionLoading} title="Confirma que foi registrado no sistema Ambev para envio do produto" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50 transition-colors">
             <ClipboardCheck className="h-3 w-3" />{actionLoading === r.id + "registrado" ? "..." : "Confirmar registro"}
-          </button>
-        )}
-        {r.status === "negado" && (
-          <button onClick={() => handleAction(r.id, "quebra")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-orange-100 text-orange-700 hover:bg-orange-200 disabled:opacity-50 transition-colors">
-            {actionLoading === r.id + "quebra" ? "..." : "Marcar Quebra"}
           </button>
         )}
         <button onClick={() => setExpanded(expanded === r.id ? null : r.id)} className="p-1 rounded hover:bg-accent transition-colors">
