@@ -162,8 +162,8 @@ export default function ImportCatalogoPage() {
             <div>
               <p className="text-sm font-medium text-blue-900">1) CSV do dia (vendas)</p>
               <p className="text-sm text-blue-800">
-                No sistema, exporte o relatório do dia com <strong>quebra 1: Mapa</strong> e <strong>quebra 2: Cliente</strong>.
-                Salve o CSV com o nome no formato da data de exportação, ex: <code className="text-xs bg-white/60 px-1 rounded">03.05.19.csv</code> (ou <code className="text-xs bg-white/60 px-1 rounded">030519.csv</code>),
+                No Promax, puxe o relatório <code className="text-xs bg-white/60 px-1 rounded">03.05.19</code> do dia com <strong>quebra 1: Mapa</strong> e <strong>quebra 2: Cliente</strong>.
+                Salve o CSV com o nome no formato da data de exportação, ex: <code className="text-xs bg-white/60 px-1 rounded">16.06.25.csv</code> (ou <code className="text-xs bg-white/60 px-1 rounded">160625.csv</code>),
                 e suba no quadro <strong>"Importar CSV do dia"</strong> abaixo.
               </p>
             </div>
