@@ -25,6 +25,7 @@ export const SECOES_SISTEMA = [
   { key: 'fluxo',           label: 'Fluxo Punitivo',  grupo: 'Admin'        },
   { key: 'vales',           label: 'Vales',           grupo: 'Financeiro'   },
   { key: 'financeiro',      label: 'Financeiro',      grupo: 'Financeiro'   },
+  { key: 'reposicoes',      label: 'Reposições (monitoramento)', grupo: 'Financeiro' },
 ] as const
 
 export interface Filial {

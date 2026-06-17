@@ -25,14 +25,18 @@ const genteItems = [
   { permKey: 'jornada', to: '/jornada', label: 'Controle de Jornada', icon: Clock },
 ]
 
+// Os itens de monitoramento de reposições (Reposições, Catálogo/Vendas e
+// Config. WhatsApp) também são liberados pela permissão 'reposicoes', usada
+// para perfis que só acompanham o fluxo de reposições (ex.: monitpet).
+const REPOS = ['financeiro', 'reposicoes']
 const financeiroItems = [
   { permKey: 'financeiro', to: '/vales',               label: 'Vales',             icon: FileText,      end: true },
   { permKey: 'financeiro', to: '/vales/ajudantes',     label: 'Ajudantes',         icon: UserCheck               },
   { permKey: 'financeiro', to: '/vales/importar',      label: 'Importar Planilha', icon: Upload                  },
   { permKey: 'financeiro', to: '/vales/importacoes',   label: 'Importações',       icon: FileSpreadsheet         },
-  { permKey: 'financeiro', to: '/vales/reposicoes',    label: 'Reposições',        icon: Package                 },
-  { permKey: 'financeiro', to: '/vales/catalogo',      label: 'Catálogo / Vendas', icon: FileSpreadsheet         },
-  { permKey: 'financeiro', to: '/vales/whatsapp',      label: 'Config. WhatsApp',  icon: MessageSquare           },
+  { permKey: REPOS,        to: '/vales/reposicoes',    label: 'Reposições',        icon: Package                 },
+  { permKey: REPOS,        to: '/vales/catalogo',      label: 'Catálogo / Vendas', icon: FileSpreadsheet         },
+  { permKey: REPOS,        to: '/vales/whatsapp',      label: 'Config. WhatsApp',  icon: MessageSquare           },
   { permKey: 'financeiro', to: '/vales/configuracoes', label: 'Config. Vales',     icon: Settings                },
 ]
 
@@ -41,13 +45,14 @@ const adminItems = [
   { permKey: 'admin', to: '/admin', label: 'Administração',  icon: Shield    },
 ]
 
-function temAcesso(permissoes: string[] | null | undefined, permKey: string): boolean {
+function temAcesso(permissoes: string[] | null | undefined, permKey: string | string[]): boolean {
   if (!permissoes) return true
-  return permissoes.includes(permKey)
+  const keys = Array.isArray(permKey) ? permKey : [permKey]
+  return keys.some(k => permissoes.includes(k))
 }
 
 type NavItemDef = { to: string; label: string; icon: React.ElementType; end?: boolean }
-type NavItemWithPerm = NavItemDef & { permKey: string }
+type NavItemWithPerm = NavItemDef & { permKey: string | string[] }
 
 function NavItem({ to, label, icon: Icon, end, collapsed, onNavigate }: NavItemDef & { collapsed: boolean; onNavigate?: () => void }) {
   return (

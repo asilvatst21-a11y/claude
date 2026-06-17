@@ -329,6 +329,29 @@ async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<V
   return { situacao: 'ok', data, produtoNoPedido, produtoCanon }
 }
 
+// Normaliza um número de mapa para comparação (só dígitos, sem zeros à esquerda).
+function normMapa(s: string | null | undefined): string {
+  return String(s ?? '').replace(/\D/g, '').replace(/^0+/, '')
+}
+
+// Busca a equipe (motorista + ajudantes) do mapa na Base importada mais recente
+// e monta as linhas para a confirmação. Retorna null se não houver correspondência.
+async function buscarEquipeMapa(mapa: string | null): Promise<string | null> {
+  const alvo = normMapa(mapa)
+  if (!alvo) return null
+  const { data: ult } = await supabase
+    .from('mapa_equipe').select('data').order('data', { ascending: false }).limit(1).maybeSingle()
+  if (!ult?.data) return null
+  const { data: rows } = await supabase.from('mapa_equipe').select('*').eq('data', ult.data)
+  const row = (rows ?? []).find((r: any) => normMapa(r.mapa) === alvo)
+  if (!row) return null
+  const linhas: string[] = []
+  if (row.motorista_nome) linhas.push(`🚚 Motorista: ${row.motorista_nome}`)
+  const ajs = [row.ajudante1_nome, row.ajudante2_nome].filter(Boolean)
+  if (ajs.length) linhas.push(`🧑‍🔧 Ajudante${ajs.length > 1 ? 's' : ''}: ${ajs.join(', ')}`)
+  return linhas.length ? linhas.join('\n') : null
+}
+
 // Busca o nome fantasia do PDV no catálogo.
 async function buscarNomePdv(codigo: string): Promise<string | null> {
   if (!codigo) return null
@@ -410,12 +433,13 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
 }
 
 // Resumo a partir do registro pendente (já com embalagem definida).
-function resumoConfirmacao(pend: any): string {
+function resumoConfirmacao(pend: any, equipe?: string | null): string {
   const linhas = [`📦 *Confirmação de Reposição*`, `👤 ${pend.motorista_nome ?? 'Motorista'}`]
   linhas.push(`🔁 Tipo: ${TIPO_LABEL[pend.tipo_reposicao ?? 'indefinido'] ?? 'Não informado'}`)
   linhas.push(`📦 Embalagem: ${EMBALAGEM_LABEL[pend.embalagem ?? 'indefinido'] ?? 'Não informado'}`)
   if (pend.codigo_pdv)  linhas.push(`🏪 PDV: ${pend.codigo_pdv}`)
   if (pend.mapa)        linhas.push(`🗺️ Mapa: ${pend.mapa}`)
+  if (equipe)           linhas.push(equipe)
   if (pend.produto)     linhas.push(`📋 Produto: ${pend.produto}`)
   if (pend.quantidade)  linhas.push(`📊 Qtde: ${pend.quantidade}`)
   linhas.push('\nEstá correto? Toque em *Sim* / *Não* ou responda *SIM* para confirmar ou *NÃO* para cancelar.')
@@ -577,7 +601,8 @@ async function finalizarColeta(pend: any, grupoId: string, nome: string): Promis
     .single()
   const reg = upd ?? { ...pend, produto, codigo_pdv: codigoPdv }
 
-  await enviarBotoes(grupoId, resumoConfirmacao(reg), [
+  const equipe = await buscarEquipeMapa(reg.mapa)
+  await enviarBotoes(grupoId, resumoConfirmacao(reg, equipe), [
     { id: 'sim', label: '✅ Sim' },
     { id: 'nao', label: '❌ Não' },
   ])
