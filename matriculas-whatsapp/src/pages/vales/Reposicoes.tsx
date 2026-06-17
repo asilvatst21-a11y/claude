@@ -311,8 +311,8 @@ export default function ReposicoesPage() {
           </button>
         )}
         {(r.status === "pendente" || r.status === "validado") && (
-          <button onClick={() => marcarRegistrado(r)} disabled={!!actionLoading} title="Registrado no sistema Ambev para envio do produto" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50 transition-colors">
-            <ClipboardCheck className="h-3 w-3" />{actionLoading === r.id + "registrado" ? "..." : "Registrado"}
+          <button onClick={() => marcarRegistrado(r)} disabled={!!actionLoading} title="Confirma que foi registrado no sistema Ambev para envio do produto" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-100 text-blue-700 hover:bg-blue-200 disabled:opacity-50 transition-colors">
+            <ClipboardCheck className="h-3 w-3" />{actionLoading === r.id + "registrado" ? "..." : "Confirmar registro"}
           </button>
         )}
         {r.status === "negado" && (
