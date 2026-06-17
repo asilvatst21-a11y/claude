@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   GitBranch, Plus, X, Loader2, RefreshCw, Building2,
-  ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Clock, Check, Trash2, BookOpen, Printer, RotateCcw,
+  ChevronDown, ChevronUp, AlertTriangle, CheckCircle2, Clock, Check, Trash2, BookOpen, Printer, RotateCcw, ClipboardCopy,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -80,6 +80,21 @@ function fmtDate(s: string | null) {
 /** Registros reais (em fluxo_punitivo) podem ser reabertos. Legacy (gsdpq_/relato_/tel_) não. */
 function registroEditavel(h: FluxoPunitivo): boolean {
   return !/^(gsdpq_|relato_|tel_)/.test(h.id)
+}
+
+/** Rótulo da origem para o GINFO */
+const ORIGEM_GINFO: Record<string, string> = {
+  GSDPQ: 'GSDPQ', Relatos: 'RELATO', Telemetria: 'TELEMETRIA', DTO: 'DTO', Grupo: 'GRUPO',
+}
+
+/** Monta o texto da ação para colar no GINFO: origem + data + texto já montado. */
+function montarTextoGinfo(h: { origem: string | null; colaborador_nome: string; tipo_acao: string | null; dias_suspensao: number | null; data_acao: string | null; data_infracao: string | null; motivo: string | null; observacao: string | null }): string {
+  const origem = ORIGEM_GINFO[h.origem ?? ''] ?? (h.origem ?? '—').toUpperCase()
+  const data = fmtDate(h.data_infracao ?? h.data_acao)
+  const acao = h.tipo_acao ? `${h.tipo_acao}${h.dias_suspensao ? ` (${h.dias_suspensao} dias)` : ''}` : 'Ação disciplinar'
+  const motivo = (h.motivo || h.observacao || '').replace(/\s+/g, ' ').trim()
+  const frase = `${h.colaborador_nome} — ${acao}${motivo ? `. Motivo: ${motivo}` : ''}.`
+  return `Origem: ${origem}\nData: ${data}\n\n${frase}`
 }
 
 /** Normaliza uma data (ISO ou DD/MM/AAAA) para chave YYYY-MM-DD comparável */
@@ -515,6 +530,14 @@ function ModalNovaAcao({ filial, colaboradores, registradoPor, onClose, onSalvar
 
 function ColabRow({ nome, historico, filial, onReabrir, onExcluir }: { nome: string; historico: FluxoPunitivo[]; filial: string; onReabrir: (h: FluxoPunitivo) => void; onExcluir: (h: FluxoPunitivo) => void }) {
   const [open, setOpen] = useState(false)
+  const [copiado, setCopiado] = useState<string | null>(null)
+  async function copiarGinfo(h: FluxoPunitivo) {
+    try {
+      await navigator.clipboard.writeText(montarTextoGinfo(h))
+      setCopiado(h.id)
+      setTimeout(() => setCopiado(c => (c === h.id ? null : c)), 1500)
+    } catch { /* clipboard indisponível */ }
+  }
   const proxima = calcProxima(historico)
   const concluidos = historico.filter(h => h.status === 'Concluido' && h.tipo_acao)
   const sorted = [...concluidos].sort((a, b) => (a.data_acao ?? a.created_at).localeCompare(b.data_acao ?? b.created_at))
@@ -563,6 +586,12 @@ function ColabRow({ nome, historico, filial, onReabrir, onExcluir }: { nome: str
                     {h.observacao && <p className="text-gray-400 italic truncate">{h.observacao}</p>}
                   </div>
                   {h.registrado_por && <span className="text-gray-400 shrink-0 ml-auto">{h.registrado_por}</span>}
+                  <button
+                    onClick={() => copiarGinfo(h)}
+                    title="Copiar texto para o GINFO"
+                    className={`shrink-0 transition-colors ${h.registrado_por ? '' : 'ml-auto'} ${copiado === h.id ? 'text-green-600' : 'text-gray-300 hover:text-brand-700'}`}>
+                    {copiado === h.id ? <Check size={14} /> : <ClipboardCopy size={14} />}
+                  </button>
                   {geraDocumento(h.tipo_acao) && (
                     <button
                       onClick={() => imprimirDocumentoFluxo({
@@ -615,6 +644,14 @@ export default function FluxoPunitivo() {
   const [colabList,     setColabList]     = useState<ColaboradorBase[]>([])
   const [novoMotivo,    setNovoMotivo]    = useState('')
   const [savingMotivo,  setSavingMotivo]  = useState(false)
+  const [copiadoGinfo,  setCopiadoGinfo]  = useState<string | null>(null)
+  async function copiarGinfoPend(sol: FluxoPunitivo, motivo: string) {
+    try {
+      await navigator.clipboard.writeText(montarTextoGinfo({ ...sol, motivo: motivo || sol.motivo }))
+      setCopiadoGinfo(sol.id)
+      setTimeout(() => setCopiadoGinfo(c => (c === sol.id ? null : c)), 1500)
+    } catch { /* clipboard indisponível */ }
+  }
 
   async function carregarMotivos() {
     if (!usuario) return
@@ -1013,6 +1050,13 @@ export default function FluxoPunitivo() {
                           onClick={() => setModalDefinir(grupo)}
                           className="flex items-center gap-1.5 text-sm bg-brand-700 text-white px-3 py-2 rounded-lg hover:bg-brand-600 font-medium">
                           <CheckCircle2 size={14} /> Definir ação
+                        </button>
+                        <button
+                          onClick={() => copiarGinfoPend(sol, motivoExibido)}
+                          title="Copiar texto para o GINFO"
+                          className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${copiadoGinfo === sol.id ? 'text-green-600 border-green-200 bg-green-50' : 'text-gray-500 border-gray-200 hover:bg-gray-50'}`}>
+                          {copiadoGinfo === sol.id ? <Check size={12} /> : <ClipboardCopy size={12} />}
+                          {copiadoGinfo === sol.id ? 'Copiado' : 'Copiar p/ GINFO'}
                         </button>
                         <button
                           onClick={() => handleExcluirFluxo(grupo)}
