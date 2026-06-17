@@ -886,8 +886,9 @@ async function tratarFluxo(
     }).select('id').single()
 
     const dataInfo = parsed.data ? `\n📅 Data: ${parsed.data.split('-').reverse().join('/')}` : ''
-    await enviarGrupo(grupoId,
-      `📋 *Confirmação de Fluxo*\n👤 Colaborador: ${parsed.nome}\n⚠️ Motivo: ${parsed.motivo}${dataInfo}\n\nResponda *SIM* para confirmar ou *NÃO* para cancelar.`)
+    await enviarBotoes(grupoId,
+      `📋 *Confirmação de Fluxo*\n👤 Colaborador: ${parsed.nome}\n⚠️ Motivo: ${parsed.motivo}${dataInfo}\n\nToque em *SIM* / *NÃO* ou responda *SIM* para confirmar ou *NÃO* para cancelar.`,
+      [{ id: 'sim', label: '✅ SIM' }, { id: 'nao', label: '❌ NÃO' }])
     return { ok: true, action: 'aguardando' }
   }
 
