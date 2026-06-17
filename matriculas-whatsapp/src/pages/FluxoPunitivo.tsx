@@ -823,12 +823,27 @@ export default function FluxoPunitivo() {
     carregar()
   }
 
+  // Quando um fluxo vem do GSDPQ, ao solicitar a tela do GSDPQ trava os itens
+  // gravando uma marca em gsdpq_acoes (tipo_acao: 'Fluxo Punitivo') — sem essa
+  // marca removida, o item nunca reaparece no GSDPQ para o usuário escolher de
+  // novo entre Fluxo ou Orientação Verbal. Libera a marca ao excluir o fluxo.
+  async function liberarMarcaGsdpq(h: { filial: string; colaborador_nome: string; origem: string | null; data_infracao: string | null }) {
+    if ((h.origem ?? '').toUpperCase() !== 'GSDPQ' || !h.colaborador_nome || !h.data_infracao) return
+    const { data: marcas } = await supabase.from('gsdpq_acoes')
+      .select('id, data_avaliacao')
+      .eq('filial', h.filial)
+      .eq('colaborador_nome', h.colaborador_nome)
+      .eq('tipo_acao', 'Fluxo Punitivo')
+    const ids = (marcas ?? []).filter((m: any) => diaKey(m.data_avaliacao) === h.data_infracao).map((m: any) => m.id)
+    if (ids.length > 0) await supabase.from('gsdpq_acoes').delete().in('id', ids)
+  }
+
   async function handleExcluirFluxo(grupo: FluxoPunitivo[]) {
     const nome = grupo[0].colaborador_nome
     const n = grupo.length
     const msg = n > 1
-      ? `Excluir ${n} registros de fluxo de ${nome}? Esta ação não pode ser desfeita.`
-      : `Excluir o fluxo pendente de ${nome}? Esta ação não pode ser desfeita.`
+      ? `Excluir ${n} registros de fluxo de ${nome}? O colaborador volta a poder ser solicitado novamente (Fluxo ou Orientação).`
+      : `Excluir o fluxo pendente de ${nome}? O colaborador volta a poder ser solicitado novamente (Fluxo ou Orientação).`
     if (!window.confirm(msg)) return
     const ids = grupo.map(g => g.id).filter(id => registroEditavel({ id } as FluxoPunitivo))
     if (ids.length === 0) {
@@ -837,6 +852,7 @@ export default function FluxoPunitivo() {
     }
     const { error } = await supabase.from('fluxo_punitivo').delete().in('id', ids)
     if (error) { alert('Erro ao excluir o fluxo:\n' + error.message); return }
+    await liberarMarcaGsdpq(grupo[0])
     carregar()
   }
 
@@ -853,7 +869,7 @@ export default function FluxoPunitivo() {
       alert('Este registro vem de Telemetria e deve ser removido na tela de origem.')
       return
     }
-    if (!window.confirm(`Excluir este fluxo de ${h.colaborador_nome}? Esta ação não pode ser desfeita.`)) return
+    if (!window.confirm(`Excluir este fluxo de ${h.colaborador_nome}? O colaborador volta a poder ser solicitado novamente (Fluxo ou Orientação).`)) return
     const { error } = await supabase.from(tabela).delete().eq('id', realId)
     if (error) { alert('Erro ao excluir o fluxo:\n' + error.message); return }
     // When deleting a real fluxo_punitivo row, also remove any matching entry
@@ -865,6 +881,7 @@ export default function FluxoPunitivo() {
         await supabase.from('gsdpq_acoes').delete().eq('id', h.source_id)
       }
     }
+    if (tabela === 'fluxo_punitivo') await liberarMarcaGsdpq(h)
     carregar()
   }
 
