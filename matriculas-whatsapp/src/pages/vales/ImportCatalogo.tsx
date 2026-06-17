@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { Upload, CheckCircle2, AlertTriangle, Loader2, ShoppingCart, PackageSearch, Users } from 'lucide-react'
+import { Upload, CheckCircle2, AlertTriangle, Loader2, ShoppingCart, PackageSearch, Users, HelpCircle } from 'lucide-react'
 import { valesSupabase } from '@/lib/valesSupabase'
 
 type Fase = 'idle' | 'lendo' | 'importando' | 'ok' | 'erro'
@@ -152,6 +152,30 @@ export default function ImportCatalogoPage() {
           Importe o CSV diário de vendas para confrontar as reposições com o que foi realmente entregue.
           Quando um motorista solicitar um produto que não consta no pedido do PDV, o sistema avisa automaticamente.
         </p>
+      </div>
+
+      <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 space-y-3">
+        <div className="flex items-start gap-3">
+          <HelpCircle className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+          <div className="space-y-2">
+            <h2 className="font-semibold text-blue-900">Como gerar e subir os arquivos</h2>
+            <div>
+              <p className="text-sm font-medium text-blue-900">1) CSV do dia (vendas)</p>
+              <p className="text-sm text-blue-800">
+                No sistema, exporte o relatório do dia com <strong>quebra 1: Mapa</strong> e <strong>quebra 2: Cliente</strong>.
+                Salve o CSV com o nome no formato da data de exportação, ex: <code className="text-xs bg-white/60 px-1 rounded">03.05.19.csv</code> (ou <code className="text-xs bg-white/60 px-1 rounded">030519.csv</code>),
+                e suba no quadro <strong>"Importar CSV do dia"</strong> abaixo.
+              </p>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-blue-900">2) Planilha do PCD (mapa, motorista e ajudantes)</p>
+              <p className="text-sm text-blue-800">
+                O PCD envia a planilha atualizada completa (com a aba <strong>Base</strong>). Suba o arquivo
+                .xlsx recebido sem editar no quadro <strong>"Importar Base do Mapa"</strong> abaixo.
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="rounded-lg border p-4 space-y-3">
