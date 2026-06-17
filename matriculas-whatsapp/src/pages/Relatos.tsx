@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import * as XLSX from 'xlsx'
 import {
@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import {
   Upload, Loader2, Building2, RefreshCw, ChevronDown, ChevronUp,
-  FileSearch, Search, Users, X, CheckCircle2, Send, Check, GitBranch,
+  FileSearch, Search, Users, X, CheckCircle2, Send, Check, GitBranch, MessageSquare,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -253,11 +253,12 @@ function ModalAcaoRelato({ pessoaRelatada, tipoRelato, dataRelato, existente, on
 
 // ── Relatado Detail Panel ─────────────────────────────────────────────────────────────────
 
-function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, solicitados, fluxosGsdpq }: {
+function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, onOrientacaoVerbal, solicitados, fluxosGsdpq }: {
   nome: string
   relatos: Relato[]
   acoes: RelatoAcao[]
   onSolicitarFluxo: (relatos: Relato[]) => void
+  onOrientacaoVerbal: (relatos: Relato[]) => void
   solicitados: Set<string>
   fluxosGsdpq: Set<string>
 }) {
@@ -361,13 +362,19 @@ function RelatadoDetail({ nome, relatos, acoes, onSolicitarFluxo, solicitados, f
 
           {(gruposPendentes.length > 0 || diasBloqueadosGsd.length > 0) && (
             <div className="mt-3 pt-3 border-t border-gray-100 space-y-1.5">
-              <p className="text-[11px] font-semibold text-gray-500 uppercase">Solicitar fluxo (agrupado por dia)</p>
+              <p className="text-[11px] font-semibold text-gray-500 uppercase">Tratativa (agrupado por dia)</p>
               {gruposPendentes.map(g => (
-                <button key={g.dia} onClick={() => onSolicitarFluxo(g.lista)}
-                  className="w-full flex items-center justify-between gap-2 text-xs text-orange-700 border border-orange-200 bg-orange-50 px-3 py-1.5 rounded hover:bg-orange-100 transition-colors">
-                  <span className="flex items-center gap-1.5"><Send size={11} /> {fmtDate(g.dia)}</span>
-                  <span className="font-semibold">{g.lista.length} ocorrência{g.lista.length > 1 ? 's' : ''}</span>
-                </button>
+                <div key={g.dia} className="flex items-center gap-1.5">
+                  <span className="text-xs text-gray-500 w-12 shrink-0">{fmtDate(g.dia)}</span>
+                  <button onClick={() => onSolicitarFluxo(g.lista)}
+                    className="flex-1 flex items-center justify-center gap-1.5 text-xs text-orange-700 border border-orange-200 bg-orange-50 px-2 py-1.5 rounded hover:bg-orange-100 transition-colors">
+                    <Send size={11} /> Solicitar fluxo ({g.lista.length})
+                  </button>
+                  <button onClick={() => onOrientacaoVerbal(g.lista)}
+                    className="flex-1 flex items-center justify-center gap-1.5 text-xs text-slate-600 border border-slate-200 bg-white px-2 py-1.5 rounded hover:bg-slate-50 transition-colors">
+                    <MessageSquare size={11} /> Orientação Verbal
+                  </button>
+                </div>
               ))}
               {diasBloqueadosGsd.map(dia => (
                 <div key={dia} className="flex items-center gap-2 text-xs text-blue-600 bg-blue-50 border border-blue-100 px-3 py-1.5 rounded">
@@ -461,6 +468,17 @@ export default function Relatos() {
   const [modalAcao, setModalAcao] = useState<Relato | null>(null)
   const [solicitados, setSolicitados] = useState<Set<string>>(new Set())
   const [fluxosGsdpq, setFluxosGsdpq] = useState<Set<string>>(new Set())
+  // Modal de comentário (justificativa da Orientação Verbal)
+  const [comentarioModal, setComentarioModal] = useState(false)
+  const comentarioResolver = useRef<((v: string | null) => void) | null>(null)
+  function pedirComentario(): Promise<string | null> {
+    return new Promise(resolve => { comentarioResolver.current = resolve; setComentarioModal(true) })
+  }
+  function fecharComentario(valor: string | null) {
+    setComentarioModal(false)
+    comentarioResolver.current?.(valor)
+    comentarioResolver.current = null
+  }
 
   async function carregar() {
     if (!usuario) return
@@ -537,6 +555,28 @@ export default function Relatos() {
     }
 
     setSolicitados(prev => new Set([...prev, ...relatos.map(r => r.id)]))
+  }
+
+  // Orientação Verbal a partir da solicitação de fluxo: pede o motivo e registra
+  // a ação (relatos_acoes) sem enviar para o fluxo punitivo / WhatsApp.
+  async function orientacaoVerbalRelato(relatos: Relato[]) {
+    if (!usuario || relatos.length === 0) return
+    const comentario = await pedirComentario()
+    if (comentario === null) return // cancelado
+    const registradoPor = usuario.nome ?? usuario.login
+    await supabase.from('relatos_acoes').insert(relatos.map(r => ({
+      filial: usuario.filial,
+      relato_id: r.id,
+      pessoa_relatada: r.pessoa_relatada ?? '',
+      tipo_relato: r.tipo_relato,
+      data_relato: r.data_ocorrencia,
+      tipo_acao: 'Orientação Verbal',
+      dias_suspensao: null,
+      observacao: comentario.trim() || null,
+      registrado_por: registradoPor,
+    })))
+    const { data: updated } = await supabase.from('relatos_acoes').select('*').eq('filial', usuario.filial)
+    setAcoes(updated ?? [])
   }
 
   async function salvarAcao(tipo: string, dias: number | null, obs: string) {
@@ -994,7 +1034,7 @@ export default function Relatos() {
                               </tr>
                               {expandedRelatadoId === r.nome && (
                                 <tr><td colSpan={8} className="p-0">
-                                  <RelatadoDetail nome={r.nome} relatos={filtered} acoes={acoes} onSolicitarFluxo={solicitarFluxo} solicitados={solicitados} fluxosGsdpq={fluxosGsdpq} />
+                                  <RelatadoDetail nome={r.nome} relatos={filtered} acoes={acoes} onSolicitarFluxo={solicitarFluxo} onOrientacaoVerbal={orientacaoVerbalRelato} solicitados={solicitados} fluxosGsdpq={fluxosGsdpq} />
                                 </td></tr>
                               )}
                             </Fragment>
@@ -1172,6 +1212,47 @@ export default function Relatos() {
           onSalvar={salvarAcao}
         />
       )}
+
+      {comentarioModal && (
+        <ModalComentarioOrientacao
+          onConfirm={(txt) => fecharComentario(txt)}
+          onCancel={() => fecharComentario(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+// Modal de justificativa da Orientação Verbal (comentário obrigatório).
+function ModalComentarioOrientacao({ onConfirm, onCancel }: {
+  onConfirm: (texto: string) => void
+  onCancel: () => void
+}) {
+  const [texto, setTexto] = useState('')
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <p className="font-semibold text-gray-900">Orientação Verbal</p>
+            <p className="text-xs text-gray-500 mt-0.5">Justifique o motivo da orientação verbal</p>
+          </div>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+        </div>
+        <div className="px-6 py-4">
+          <label className="text-xs font-medium text-gray-600 block mb-1">Comentário</label>
+          <textarea rows={4} value={texto} onChange={e => setTexto(e.target.value)} autoFocus
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none"
+            placeholder="Descreva por que optou pela orientação verbal..." />
+        </div>
+        <div className="px-6 py-4 border-t border-gray-100 flex gap-3 justify-end">
+          <button onClick={onCancel} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+          <button onClick={() => onConfirm(texto.trim())} disabled={!texto.trim()}
+            className="px-4 py-2 text-sm bg-brand-700 text-white rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50 flex items-center gap-2">
+            <CheckCircle2 size={14} /> Registrar
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
