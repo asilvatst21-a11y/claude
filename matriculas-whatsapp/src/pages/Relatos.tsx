@@ -183,8 +183,11 @@ function ModalAcaoRelato({ pessoaRelatada, tipoRelato, dataRelato, existente, on
   const [obs,    setObs]    = useState(existente?.observacao ?? '')
   const [saving, setSaving] = useState(false)
 
+  const comentarioObrigatorio = tipo === 'Orientação Verbal'
+
   async function handleSave() {
     if (!tipo) return
+    if (comentarioObrigatorio && !obs.trim()) return
     setSaving(true)
     await onSalvar(tipo, tipo === 'Suspensão' ? (parseInt(dias) || null) : null, obs)
     setSaving(false)
@@ -227,15 +230,17 @@ function ModalAcaoRelato({ pessoaRelatada, tipoRelato, dataRelato, existente, on
             </div>
           )}
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">Observação</label>
+            <label className="text-xs font-medium text-gray-600 block mb-1">
+              {comentarioObrigatorio ? 'Comentário (obrigatório)' : 'Observação'}
+            </label>
             <textarea rows={3} value={obs} onChange={e => setObs(e.target.value)}
               className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none"
-              placeholder="Detalhes da ação disciplinar..." />
+              placeholder={comentarioObrigatorio ? 'Justifique o motivo da orientação verbal...' : 'Detalhes da ação disciplinar...'} />
           </div>
         </div>
         <div className="px-6 py-4 border-t border-gray-100 flex gap-3 justify-end">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
-          <button onClick={handleSave} disabled={saving || !tipo || (tipo === 'Suspensão' && !dias)}
+          <button onClick={handleSave} disabled={saving || !tipo || (tipo === 'Suspensão' && !dias) || (comentarioObrigatorio && !obs.trim())}
             className="px-4 py-2 text-sm bg-brand-700 text-white rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50 flex items-center gap-2">
             {saving ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
             {existente ? 'Atualizar' : 'Registrar'}

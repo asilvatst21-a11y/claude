@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useRef } from 'react'
 import { useDropzone } from 'react-dropzone'
 import * as XLSX from 'xlsx'
 import {
@@ -415,13 +415,15 @@ function ColaboradorRow({
   onRegistrarAcao,
   onEnviarFluxo,
   onOrientacaoVerbal,
+  onPedirComentario,
 }: {
   r: ResumoColaborador
   avaliacoes: GsdpqAvaliacao[]
   acoes: GsdpqAcao[]
   onRegistrarAcao: (modal: ModalAcao) => void
   onEnviarFluxo: (colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[]) => Promise<void>
-  onOrientacaoVerbal: (colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[]) => Promise<void>
+  onOrientacaoVerbal: (colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[], comentario: string) => Promise<void>
+  onPedirComentario: () => Promise<string | null>
 }) {
   const [open, setOpen] = useState(false)
   const [selectedNOs, setSelectedNOs] = useState<Record<string, Set<string>>>({})
@@ -592,8 +594,10 @@ function ColaboradorRow({
                                           return { questao: q, avaliacaoId: av?.id ?? '' }
                                         }).filter(x => x.avaliacaoId)
                                         if (!items.length) return
+                                        const comentario = await onPedirComentario()
+                                        if (comentario === null) return // cancelado
                                         setSubmitting(data)
-                                        await onOrientacaoVerbal(r.nome, data, items)
+                                        await onOrientacaoVerbal(r.nome, data, items, comentario)
                                         setSelectedNOs(prev => ({ ...prev, [data]: new Set() }))
                                         setSubmitting(null)
                                       }}
@@ -663,6 +667,17 @@ function ColaboradorRow({
 
 export default function Gsdpq() {
   const { usuario } = useAuth()
+  // Modal de comentário (justificativa da Orientação Verbal)
+  const [comentarioModal, setComentarioModal] = useState(false)
+  const comentarioResolver = useRef<((v: string | null) => void) | null>(null)
+  function pedirComentario(): Promise<string | null> {
+    return new Promise(resolve => { comentarioResolver.current = resolve; setComentarioModal(true) })
+  }
+  function fecharComentario(valor: string | null) {
+    setComentarioModal(false)
+    comentarioResolver.current?.(valor)
+    comentarioResolver.current = null
+  }
   const [avaliacoes, setAvaliacoes] = useState<GsdpqAvaliacao[]>([])
   const [acoes, setAcoes] = useState<GsdpqAcao[]>([])
   const [questoes, setQuestoes] = useState<string[]>([])
@@ -752,14 +767,14 @@ export default function Gsdpq() {
     await carregarDados()
   }
 
-  async function orientacaoVerbalDia(colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[]) {
+  async function orientacaoVerbalDia(colaboradorNome: string, dataAvaliacao: string, items: SelectedItem[], comentario: string) {
     if (!usuario || items.length === 0) return
     const registradoPor = usuario.nome ?? usuario.login
     await registrarAcoesGsd(items.map(it => ({
       filial: usuario.filial, colaborador_nome: colaboradorNome,
       avaliacao_id: it.avaliacaoId, questao: it.questao,
       data_avaliacao: dataAvaliacao, tipo_acao: 'Orientação Verbal',
-      dias_suspensao: null, observacao: null, registrado_por: registradoPor,
+      dias_suspensao: null, observacao: comentario?.trim() || null, registrado_por: registradoPor,
     })))
     await carregarDados()
   }
@@ -1222,7 +1237,7 @@ export default function Gsdpq() {
                 <tbody>
                   {resumos.length === 0 && <tr><td colSpan={6} className="text-center py-10 text-gray-400">Nenhum dado</td></tr>}
                   {resumos.map(r => (
-                    <ColaboradorRow key={r.nome} r={r} avaliacoes={avaliacoesFiltradas} acoes={acoes} onRegistrarAcao={setModalAcao} onEnviarFluxo={enviarFluxoDia} onOrientacaoVerbal={orientacaoVerbalDia} />
+                    <ColaboradorRow key={r.nome} r={r} avaliacoes={avaliacoesFiltradas} acoes={acoes} onRegistrarAcao={setModalAcao} onEnviarFluxo={enviarFluxoDia} onOrientacaoVerbal={orientacaoVerbalDia} onPedirComentario={pedirComentario} />
                   ))}
                 </tbody>
               </table>
@@ -1519,6 +1534,47 @@ export default function Gsdpq() {
         />
       )}
 
+      {comentarioModal && (
+        <ModalComentarioOrientacao
+          onConfirm={(txt) => fecharComentario(txt)}
+          onCancel={() => fecharComentario(null)}
+        />
+      )}
+
+    </div>
+  )
+}
+
+// Modal de justificativa da Orientação Verbal (comentário obrigatório).
+function ModalComentarioOrientacao({ onConfirm, onCancel }: {
+  onConfirm: (texto: string) => void
+  onCancel: () => void
+}) {
+  const [texto, setTexto] = useState('')
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <p className="font-semibold text-gray-900">Orientação Verbal</p>
+            <p className="text-xs text-gray-500 mt-0.5">Justifique o motivo da orientação verbal</p>
+          </div>
+          <button onClick={onCancel} className="text-gray-400 hover:text-gray-600"><XCircle size={18} /></button>
+        </div>
+        <div className="px-6 py-4">
+          <label className="text-xs font-medium text-gray-600 block mb-1">Comentário</label>
+          <textarea rows={4} value={texto} onChange={e => setTexto(e.target.value)} autoFocus
+            className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400 resize-none"
+            placeholder="Descreva por que optou pela orientação verbal..." />
+        </div>
+        <div className="px-6 py-4 border-t border-gray-100 flex gap-3 justify-end">
+          <button onClick={onCancel} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+          <button onClick={() => onConfirm(texto.trim())} disabled={!texto.trim()}
+            className="px-4 py-2 text-sm bg-brand-700 text-white rounded-lg font-medium hover:bg-brand-600 disabled:opacity-50 flex items-center gap-2">
+            <CheckCircle size={14} /> Registrar
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
