@@ -297,8 +297,18 @@ async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<V
   // Busca por PALAVRAS (todas presentes), comparando contra o nome completo do
   // catálogo E o nome abreviado do faturamento (que usa a mesma sigla do
   // motorista, ex: "BC"). Sinônimos comuns são expandidos (ex.: "litro" → "1l").
-  const codTermo = parseInt(termoProduto.replace(/\D/g, ''))
-  const palavras = semAcento(termoProduto).split(/\s+/).filter(p => p.length >= 2)
+  //
+  // O termo pode chegar como código puro ("8793"), no formato já padronizado
+  // pelo próprio sistema ("8793 - H2OH LIMAO...") ou só com palavras
+  // ("h2oh litro"). Extrai o código APENAS quando ele aparece no início, isolado
+  // ou seguido de "-". NÃO usa replace(/\D/g) porque isso concatenaria dígitos
+  // soltos do nome (o "2" de H2OH, o "1,5" de 1,5L) gerando um código inválido,
+  // e o código não pode entrar em `palavras` (nenhum nome de produto o contém,
+  // o que faria o `every` abaixo falhar sempre).
+  const mCod = termoProduto.match(/^\s*0*(\d{2,7})\s*(?:-|$)/)
+  const codTermo = mCod ? parseInt(mCod[1]) : NaN
+  const termoTexto = mCod ? termoProduto.slice(mCod[0].length) : termoProduto
+  const palavras = semAcento(termoTexto).split(/\s+/).filter(p => p.length >= 2)
   const hay = (v: { descricao: string; nomeCsv: string }) => semAcento(`${v.descricao} ${v.nomeCsv}`)
   const casa = (palavra: string, h: string) => expandirSinonimos(palavra).some(syn => h.includes(syn))
 
