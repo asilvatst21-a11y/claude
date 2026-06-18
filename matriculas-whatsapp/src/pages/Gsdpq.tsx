@@ -12,6 +12,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { enviarMensagemGrupo } from '../lib/zapi'
+import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
 import type { GsdpqAvaliacao, GsdpqAcao } from '../types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -776,6 +777,17 @@ export default function Gsdpq() {
       data_avaliacao: dataAvaliacao, tipo_acao: 'Orientação Verbal',
       dias_suspensao: null, observacao: comentario?.trim() || null, registrado_por: registradoPor,
     })))
+
+    const frases = items.map(it => fraseGsd(it.questao))
+    const motivo = frases.length === 1
+      ? frases[0]
+      : `${frases.length} ocorrências de segurança:\n${frases.map((f, i) => `${i + 1}. ${f}`).join('\n')}`
+    await registrarOrientacaoVerbalFluxo({
+      filial: usuario.filial, colaboradorNome, origem: 'GSDPQ', motivo,
+      dataInfracao: diaKeyGsd(dataAvaliacao) || null,
+      observacao: comentario?.trim() || null, registradoPor,
+    })
+
     await carregarDados()
   }
 
