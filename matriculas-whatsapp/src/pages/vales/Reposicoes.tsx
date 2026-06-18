@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, Download, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart } from "lucide-react";
+import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, Download, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart, Upload, Loader2, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatCurrency } from "@/lib/valesUtils";
 import { valesSupabase } from "@/lib/valesSupabase";
@@ -26,6 +26,13 @@ interface Reposicao {
   validador_resposta: string | null;
   validado_em: string | null;
   created_at: string;
+  cora_solicitacao_id: string | null;
+  cora_status: string | null;
+  cora_motivo_reprovacao: string | null;
+  cora_pedido_reposicao: string | null;
+  cora_nf: string | null;
+  cora_data_acao: string | null;
+  cora_importado_em: string | null;
 }
 
 const TIPO_REPOSICAO_LABEL: Record<string, string> = {
@@ -90,6 +97,172 @@ function extrairCodigo(campo: string | null): number | null {
   if (!campo) return null;
   const m = campo.match(/^\s*(\d+)/);
   return m ? parseInt(m[1]) : null;
+}
+
+// ── Importação do arquivo do CORA (Ambev) ──────────────────────────────────────
+// Normaliza um número de mapa para comparação (só dígitos, sem zeros à esquerda).
+function normMapa(s: string | null | undefined): string {
+  return String(s ?? "").replace(/\D/g, "").replace(/^0+/, "");
+}
+
+// Remove acentos/pontuação e baixa caixa, para casar nomes de coluna mesmo que
+// o arquivo do CORA venha com encoding ou espaçamento levemente diferente.
+function normalizarCabecalho(s: string): string {
+  return s.normalize("NFD").replace(/\p{Mn}/gu, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+interface CoraRow {
+  solicitacaoId: string;
+  status: string;
+  mapa: string;
+  produtoCodigo: string;
+  quantidade: string;
+  motivoReprovacao: string;
+  pedidoReposicao: string;
+  nf: string;
+  dataAcao: string;
+}
+
+const CORA_COLUNAS: Record<string, keyof CoraRow> = {
+  "solicitacao reposicao": "solicitacaoId",
+  "status solicitacao": "status",
+  "mapa origem": "mapa",
+  "produto": "produtoCodigo",
+  "quantidade": "quantidade",
+  "motivo da reprovacao": "motivoReprovacao",
+  "nr pedido reposicao": "pedidoReposicao",
+  "nf": "nf",
+  "data acao": "dataAcao",
+};
+
+// Lê o arquivo do CORA — aceita .csv (separado por ";", padrão da exportação)
+// ou .xlsx/.xls (mesmas colunas, planilha).
+async function parseArquivoCora(file: File): Promise<string[][]> {
+  if (/\.(xlsx|xls)$/i.test(file.name)) {
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array" });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json<string[]>(ws, { header: 1, raw: false, defval: "" });
+    return rows.filter((r) => r.some((c) => String(c).trim() !== ""));
+  }
+  const text = await file.text();
+  return text
+    .split(/\r?\n/)
+    .filter((l) => l.trim().length > 0)
+    .map((l) => l.split(";"));
+}
+
+function parseCoraRows(linhas: string[][]): CoraRow[] {
+  if (linhas.length < 2) return [];
+  const idxPorCampo: Partial<Record<keyof CoraRow, number>> = {};
+  linhas[0].forEach((cabecalho, i) => {
+    const campo = CORA_COLUNAS[normalizarCabecalho(cabecalho)];
+    if (campo) idxPorCampo[campo] = i;
+  });
+  const get = (row: string[], campo: keyof CoraRow): string => {
+    const i = idxPorCampo[campo];
+    return i == null ? "" : String(row[i] ?? "").trim();
+  };
+  return linhas
+    .slice(1)
+    .map((row) => ({
+      solicitacaoId: get(row, "solicitacaoId"),
+      status: get(row, "status"),
+      mapa: get(row, "mapa"),
+      produtoCodigo: get(row, "produtoCodigo"),
+      quantidade: get(row, "quantidade"),
+      motivoReprovacao: get(row, "motivoReprovacao"),
+      pedidoReposicao: get(row, "pedidoReposicao"),
+      nf: get(row, "nf"),
+      dataAcao: get(row, "dataAcao"),
+    }))
+    .filter((r) => r.solicitacaoId);
+}
+
+interface ImportCoraResumo {
+  vinculadas: number;
+  atualizadas: number;
+  naoEncontradas: { solicitacaoId: string; mapa: string; produto: string }[];
+}
+
+// Casa cada linha do CORA com uma reposição nossa (por Mapa + código do Produto).
+// Reimportações do mesmo arquivo (ou de um arquivo mais novo) atualizam o status
+// do CORA nas reposições já vinculadas em vez de tentar casar de novo.
+async function importarArquivoCora(file: File): Promise<ImportCoraResumo> {
+  const linhas = await parseArquivoCora(file);
+  const coraRows = parseCoraRows(linhas);
+  if (coraRows.length === 0) {
+    throw new Error("Nenhuma linha reconhecida no arquivo. Verifique se é a exportação do CORA.");
+  }
+
+  const { data: todas, error } = await valesSupabase
+    .from("reposicoes")
+    .select("id, mapa, produto, status, cora_solicitacao_id");
+  if (error) throw new Error(error.message);
+  const reps = todas ?? [];
+
+  const linkadas = new Map<string, (typeof reps)[number]>();
+  for (const r of reps) {
+    if (!r.cora_solicitacao_id) continue;
+    linkadas.set(`${r.cora_solicitacao_id}::${extrairCodigo(r.produto) ?? ""}`, r);
+  }
+  const naoLinkadas = reps.filter((r) => !r.cora_solicitacao_id);
+
+  let vinculadas = 0;
+  let atualizadas = 0;
+  const naoEncontradas: ImportCoraResumo["naoEncontradas"] = [];
+  const agora = new Date().toISOString();
+
+  for (const linha of coraRows) {
+    const codigoProduto = parseInt(linha.produtoCodigo.replace(/\D/g, "")) || null;
+    const camposCora = {
+      cora_status: linha.status || null,
+      cora_motivo_reprovacao: linha.motivoReprovacao || null,
+      cora_pedido_reposicao: linha.pedidoReposicao || null,
+      cora_nf: linha.nf || null,
+      cora_data_acao: linha.dataAcao || null,
+      cora_importado_em: agora,
+    };
+
+    const jaLinkada = linkadas.get(`${linha.solicitacaoId}::${codigoProduto ?? ""}`);
+    if (jaLinkada) {
+      await valesSupabase.from("reposicoes").update(camposCora).eq("id", jaLinkada.id);
+      atualizadas++;
+      continue;
+    }
+
+    const mapaAlvo = normMapa(linha.mapa);
+    const candidatos = mapaAlvo
+      ? naoLinkadas.filter((r) => normMapa(r.mapa) === mapaAlvo && codigoProduto != null && extrairCodigo(r.produto) === codigoProduto)
+      : [];
+
+    if (candidatos.length === 1) {
+      const rep = candidatos[0];
+      const novoStatus = rep.status === "pendente" || rep.status === "validado" ? "registrado" : rep.status;
+      await valesSupabase
+        .from("reposicoes")
+        .update({ ...camposCora, status: novoStatus, cora_solicitacao_id: linha.solicitacaoId })
+        .eq("id", rep.id);
+      naoLinkadas.splice(naoLinkadas.indexOf(rep), 1);
+      vinculadas++;
+    } else {
+      naoEncontradas.push({ solicitacaoId: linha.solicitacaoId, mapa: linha.mapa, produto: linha.produtoCodigo });
+    }
+  }
+
+  return { vinculadas, atualizadas, naoEncontradas };
+}
+
+const CORA_STATUS_COLOR: Record<string, string> = {
+  Pendente: "text-yellow-600 bg-yellow-50",
+  Aprovada: "text-green-600 bg-green-50",
+  Reprovada: "text-red-600 bg-red-50",
+};
+
+function CoraStatusBadge({ status }: { status: string | null }) {
+  if (!status) return <span className="text-xs text-muted-foreground">—</span>;
+  const color = CORA_STATUS_COLOR[status] ?? "text-gray-600 bg-gray-50";
+  return <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${color}`}>{status}</span>;
 }
 
 function VendasConfronto({ rep }: { rep: Reposicao }) {
@@ -162,6 +335,12 @@ export default function ReposicoesPage() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [observacao, setObservacao] = useState<Record<string, string>>({});
+
+  const [coraModalOpen, setCoraModalOpen] = useState(false);
+  const [coraImportando, setCoraImportando] = useState(false);
+  const [coraResumo, setCoraResumo] = useState<ImportCoraResumo | null>(null);
+  const [coraErro, setCoraErro] = useState<string | null>(null);
+  const coraFileInputRef = useRef<HTMLInputElement>(null);
 
   // suppress unused import warning
   void formatCurrency;
@@ -238,6 +417,28 @@ export default function ReposicoesPage() {
     alert("Enviado para o grupo de validação no WhatsApp.");
   }
 
+  async function handleArquivoCora(file: File) {
+    setCoraImportando(true);
+    setCoraErro(null);
+    setCoraResumo(null);
+    try {
+      const resumo = await importarArquivoCora(file);
+      setCoraResumo(resumo);
+      await fetchData();
+    } catch (err) {
+      setCoraErro(err instanceof Error ? err.message : "Erro ao importar o arquivo");
+    } finally {
+      setCoraImportando(false);
+      if (coraFileInputRef.current) coraFileInputRef.current.value = "";
+    }
+  }
+
+  function fecharModalCora() {
+    setCoraModalOpen(false);
+    setCoraResumo(null);
+    setCoraErro(null);
+  }
+
   function exportExcel() {
     if (!reposicoes.length) return;
     const rows = reposicoes.map((r) => ({
@@ -256,6 +457,9 @@ export default function ReposicoesPage() {
       "Status": STATUS_CONFIG[r.status]?.label ?? r.status,
       "Validado em": r.validado_em ? formatDate(r.validado_em) : "",
       "Resposta": r.validador_resposta ?? "",
+      "Solicitação CORA": r.cora_solicitacao_id ?? "",
+      "Status CORA": r.cora_status ?? "",
+      "Motivo Reprovação CORA": r.cora_motivo_reprovacao ?? "",
       "Mensagem original": r.mensagem_original ?? "",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -331,6 +535,8 @@ export default function ReposicoesPage() {
           <div><span className="text-xs text-muted-foreground block mb-0.5">Motivo</span><span className="font-medium">{r.motivo ?? "—"}</span></div>
           {r.validado_em && <div><span className="text-xs text-muted-foreground block mb-0.5">Validado em</span><span className="font-medium">{formatDate(r.validado_em)}</span></div>}
           {r.validador_resposta && <div><span className="text-xs text-muted-foreground block mb-0.5">Resposta</span><span className="font-medium">{r.validador_resposta}</span></div>}
+          {r.cora_solicitacao_id && <div><span className="text-xs text-muted-foreground block mb-0.5">Solicitação CORA</span><span className="font-medium">{r.cora_solicitacao_id}</span></div>}
+          {r.cora_motivo_reprovacao && <div><span className="text-xs text-muted-foreground block mb-0.5">Motivo Reprovação CORA</span><span className="font-medium">{r.cora_motivo_reprovacao}</span></div>}
         </div>
         {r.mensagem_original && r.mensagem_original !== "[áudio]" && (
           <div className="text-xs text-muted-foreground border-l-2 pl-3 italic">&ldquo;{r.mensagem_original}&rdquo;</div>
@@ -367,6 +573,9 @@ export default function ReposicoesPage() {
           </button>
           <button onClick={exportQuebras} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <Download className="h-4 w-4" />Quebras
+          </button>
+          <button onClick={() => setCoraModalOpen(true)} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
+            <Upload className="h-4 w-4" />Importar CORA
           </button>
         </div>
       </div>
@@ -428,6 +637,7 @@ export default function ReposicoesPage() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">PDV</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mapa</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status CORA</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Ações</th>
               </tr>
             </thead>
@@ -458,11 +668,12 @@ export default function ReposicoesPage() {
                     <td className="px-4 py-3">{r.codigo_pdv ?? r.cliente ?? "—"}</td>
                     <td className="px-4 py-3">{r.mapa ?? "—"}</td>
                     <td className="px-4 py-3"><StatusBadge status={r.status} /></td>
+                    <td className="px-4 py-3"><CoraStatusBadge status={r.cora_status} /></td>
                     <td className="px-4 py-3"><Acoes r={r} /></td>
                   </tr>
                   {expanded === r.id && (
                     <tr className="bg-muted/20">
-                      <td colSpan={9} className="px-4 py-4"><Detalhe r={r} /></td>
+                      <td colSpan={10} className="px-4 py-4"><Detalhe r={r} /></td>
                     </tr>
                   )}
                 </React.Fragment>
@@ -477,7 +688,10 @@ export default function ReposicoesPage() {
             <div key={r.id} className="border rounded-lg bg-white p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-xs font-medium">{r.numero}</span>
-                <StatusBadge status={r.status} />
+                <div className="flex items-center gap-1.5">
+                  <StatusBadge status={r.status} />
+                  {r.cora_status && <CoraStatusBadge status={r.cora_status} />}
+                </div>
               </div>
               <div className="text-xs text-muted-foreground">{formatDate(r.created_at)}</div>
               <div className="font-medium text-sm">{r.produto ?? "—"}{r.quantidade ? ` · ${r.quantidade}` : ""}</div>
@@ -500,6 +714,93 @@ export default function ReposicoesPage() {
           ))}
         </div>
         </>
+      )}
+
+      {coraModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Importar arquivo do CORA</h2>
+              <button onClick={fecharModalCora} className="text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-muted-foreground">
+              Selecione o arquivo exportado do CORA (.csv, .xlsx ou .xls). As solicitações serão
+              comparadas com as reposições pendentes e os registros correspondentes serão
+              confirmados automaticamente, além de terem o status do CORA atualizado.
+            </p>
+
+            <input
+              ref={coraFileInputRef}
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) handleArquivoCora(file);
+              }}
+            />
+
+            <button
+              onClick={() => coraFileInputRef.current?.click()}
+              disabled={coraImportando}
+              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-md border-2 border-dashed text-sm hover:bg-accent transition-colors disabled:opacity-60"
+            >
+              {coraImportando ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />Importando...
+                </>
+              ) : (
+                <>
+                  <Upload className="h-4 w-4" />Selecionar arquivo
+                </>
+              )}
+            </button>
+
+            {coraErro && (
+              <div className="rounded-md bg-red-50 text-red-700 text-sm px-3 py-2">{coraErro}</div>
+            )}
+
+            {coraResumo && (
+              <div className="space-y-3 text-sm">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded-md bg-green-50 px-3 py-2">
+                    <div className="text-xs text-muted-foreground">Vinculadas agora</div>
+                    <div className="text-lg font-semibold text-green-700">{coraResumo.vinculadas}</div>
+                  </div>
+                  <div className="rounded-md bg-blue-50 px-3 py-2">
+                    <div className="text-xs text-muted-foreground">Status atualizados</div>
+                    <div className="text-lg font-semibold text-blue-700">{coraResumo.atualizadas}</div>
+                  </div>
+                </div>
+
+                {coraResumo.naoEncontradas.length > 0 && (
+                  <div>
+                    <div className="font-medium mb-1">
+                      Não encontradas no sistema ({coraResumo.naoEncontradas.length})
+                    </div>
+                    <div className="border rounded-md divide-y max-h-48 overflow-y-auto">
+                      {coraResumo.naoEncontradas.map((n, i) => (
+                        <div key={`${n.solicitacaoId}-${i}`} className="px-3 py-1.5 text-xs flex justify-between gap-2">
+                          <span className="font-mono">{n.solicitacaoId}</span>
+                          <span className="text-muted-foreground">Mapa {n.mapa || "—"} · Produto {n.produto || "—"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex justify-end">
+              <button onClick={fecharModalCora} className="px-4 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
