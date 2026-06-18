@@ -333,7 +333,7 @@ function AbaUsuarios({
             </p>
 
             <div className="space-y-4">
-              {(['Segurança', 'Gente', 'Financeiro', 'Admin'] as const).map(grupo => {
+              {(['Segurança', 'Gente', 'Financeiro', 'Distribuição', 'Admin'] as const).map(grupo => {
                 const secoes = SECOES_SISTEMA.filter(s => s.grupo === grupo)
                 return (
                   <div key={grupo}>

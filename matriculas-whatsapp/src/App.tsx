@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { AuthProvider, useAuth } from './lib/auth'
 import Layout from './components/Layout'
 import Login from './pages/Login'
+import SolicitarExtra from './pages/SolicitarExtra'
+import Distribuicao from './pages/Distribuicao'
 import Dashboard from './pages/Dashboard'
 import Matriculas from './pages/Matriculas'
 import Clientes from './pages/Clientes'
@@ -50,6 +52,7 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<PublicLogin />} />
+          <Route path="/solicitar-extra" element={<SolicitarExtra />} />
           <Route element={<ProtectedRoutes />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/matriculas" element={<Matriculas />} />
@@ -64,6 +67,7 @@ export default function App() {
             <Route path="/relatos" element={<Relatos />} />
             <Route path="/telemetria" element={<Telemetria />} />
             <Route path="/jornada" element={<Jornada />} />
+            <Route path="/distribuicao" element={<Distribuicao />} />
             {/* Vales LOG20 */}
             <Route path="/vales" element={<ValesPage />} />
             <Route path="/vales/ajudantes" element={<AjudantesPage />} />

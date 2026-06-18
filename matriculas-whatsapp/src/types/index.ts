@@ -26,6 +26,7 @@ export const SECOES_SISTEMA = [
   { key: 'vales',           label: 'Vales',           grupo: 'Financeiro'   },
   { key: 'financeiro',      label: 'Financeiro',      grupo: 'Financeiro'   },
   { key: 'reposicoes',      label: 'Reposições (monitoramento)', grupo: 'Financeiro' },
+  { key: 'distribuicao',    label: 'Distribuição',    grupo: 'Distribuição' },
 ] as const
 
 export interface Filial {
@@ -240,6 +241,23 @@ export interface FluxoPunitivo {
   source_id: string | null
   status: 'Solicitado' | 'Concluido'
   motivo: string | null
+  created_at: string
+}
+
+export interface SolicitacaoExtra {
+  id: string
+  filial: string
+  nome_solicitante: string
+  data_solicitacao: string
+  tipo_solicitacao: 'Finalizar Rota' | 'Entrega/Recolha de Materiais' | 'Outros'
+  descricao: string | null
+  mapa: string | null
+  local: string | null
+  solicitante_ambev: string | null
+  motorista_nome: string | null
+  ajudante1_nome: string | null
+  ajudante2_nome: string | null
+  valor_acordado: number | null
   created_at: string
 }
 
