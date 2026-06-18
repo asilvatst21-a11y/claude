@@ -774,9 +774,9 @@ async function tratarReposicao(
     }
     await supabase.from('reposicao_confirmacoes').update({ status: 'confirmado' }).eq('id', pend.id)
 
-    // Falta/Inversão (e indefinido) vão para validação do controle.
-    // Avaria/Troca só registram no banco.
-    const precisaValidacao = tipo === 'falta' || tipo === 'inversao' || tipo === 'indefinido'
+    // Falta/Inversão (e indefinido) vão para validação do controle — mas só
+    // quando a embalagem for Fardo. Unidade fica só registrada, sem validação.
+    const precisaValidacao = (tipo === 'falta' || tipo === 'inversao' || tipo === 'indefinido') && pend.embalagem === 'fardo'
     if (precisaValidacao && grupoValidacao) {
       await enviar(grupoId,
         `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nEnviada para validação do controle.`)
