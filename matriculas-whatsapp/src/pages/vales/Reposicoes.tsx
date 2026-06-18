@@ -226,7 +226,8 @@ async function importarArquivoCora(file: File): Promise<ImportCoraResumo> {
 
     const jaLinkada = linkadas.get(`${linha.solicitacaoId}::${codigoProduto ?? ""}`);
     if (jaLinkada) {
-      await valesSupabase.from("reposicoes").update(camposCora).eq("id", jaLinkada.id);
+      const { error: errAtualiza } = await valesSupabase.from("reposicoes").update(camposCora).eq("id", jaLinkada.id);
+      if (errAtualiza) throw new Error(`Falha ao atualizar a solicitação ${linha.solicitacaoId}: ${errAtualiza.message}`);
       atualizadas++;
       continue;
     }
@@ -239,10 +240,11 @@ async function importarArquivoCora(file: File): Promise<ImportCoraResumo> {
     if (candidatos.length === 1) {
       const rep = candidatos[0];
       const novoStatus = rep.status === "pendente" || rep.status === "validado" ? "registrado" : rep.status;
-      await valesSupabase
+      const { error: errVincula } = await valesSupabase
         .from("reposicoes")
         .update({ ...camposCora, status: novoStatus, cora_solicitacao_id: linha.solicitacaoId })
         .eq("id", rep.id);
+      if (errVincula) throw new Error(`Falha ao vincular a solicitação ${linha.solicitacaoId}: ${errVincula.message}`);
       naoLinkadas.splice(naoLinkadas.indexOf(rep), 1);
       vinculadas++;
     } else {
@@ -412,7 +414,15 @@ export default function ReposicoesPage() {
     try {
       const resumo = await importarArquivoCora(file);
       setCoraResumo(resumo);
-      await fetchData();
+      // Itens confirmados podem ter saído do status da aba atual (ex.: de
+      // Pendente para Registrado), então troca para "Todos" e busca os dados
+      // direto, sem depender do filtro de aba que estava ativo antes do import.
+      setTab("todos");
+      const { data } = await valesSupabase
+        .from("reposicoes")
+        .select("*")
+        .order("created_at", { ascending: false });
+      setReposicoes(Array.isArray(data) ? data : []);
     } catch (err) {
       setCoraErro(err instanceof Error ? err.message : "Erro ao importar o arquivo");
     } finally {
