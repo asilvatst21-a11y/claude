@@ -132,14 +132,15 @@ function findTie<T extends { userId: string; name: string; current: number }>(
   return best;
 }
 
-export async function maybeGenerateRoundSummaries(affectedRounds: string[]) {
+export async function maybeGenerateRoundSummaries(affectedRounds: string[], options?: { notify?: boolean }) {
+  const notify = options?.notify ?? true;
   const rounds = Array.from(new Set(affectedRounds.filter(Boolean)));
   for (const round of rounds) {
-    await generateRoundSummaryIfComplete(round);
+    await generateRoundSummaryIfComplete(round, notify);
   }
 }
 
-async function generateRoundSummaryIfComplete(round: string) {
+async function generateRoundSummaryIfComplete(round: string, notify: boolean) {
   const matches = await prisma.match.findMany({ where: { round } });
   if (matches.length === 0) return;
   if (!matches.every((m) => DONE_STATUSES.includes(m.status))) return;
@@ -167,7 +168,7 @@ async function generateRoundSummaryIfComplete(round: string) {
     if (!text) continue;
 
     await prisma.roundSummary.create({ data: { leagueId: league.id, round, text } });
-    await notifyMembers(league.id, league.name, round);
+    if (notify) await notifyMembers(league.id, league.name, round);
   }
 }
 
