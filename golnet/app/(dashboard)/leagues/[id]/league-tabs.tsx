@@ -54,10 +54,19 @@ interface LeagueTabsProps {
   userPlan: string;
   userId: string;
   scoring: LeagueScoring;
+  initialTab?: string;
 }
 
 const TABS = ["Jogos", "Ranking", "Rodadas", "H2H", "Regras"] as const;
 type Tab = (typeof TABS)[number];
+
+function shareSummary(text: string) {
+  if (typeof navigator !== "undefined" && navigator.share) {
+    navigator.share({ text }).catch(() => {});
+    return;
+  }
+  window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, "_blank");
+}
 
 export function LeagueTabs({
   leagueId,
@@ -67,8 +76,10 @@ export function LeagueTabs({
   userPlan,
   userId,
   scoring,
+  initialTab,
 }: LeagueTabsProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("Jogos");
+  const defaultTab = (TABS as readonly string[]).includes(initialTab ?? "") ? (initialTab as Tab) : "Jogos";
+  const [activeTab, setActiveTab] = useState<Tab>(defaultTab);
   const isPro = userPlan !== "FREE";
 
   const hasBonus = scoring.championPredictionEnabled;
@@ -230,8 +241,14 @@ export function LeagueTabs({
                     <h3 className="font-semibold text-white">Rodada {group.round}</h3>
                   </div>
                   {group.summary && (
-                    <div className="px-4 py-3 bg-green-500/5 border-b border-zinc-800 text-sm text-zinc-300 whitespace-pre-wrap">
-                      {group.summary}
+                    <div className="px-4 py-3 bg-green-500/5 border-b border-zinc-800">
+                      <p className="text-sm text-zinc-300 whitespace-pre-wrap">{group.summary}</p>
+                      <button
+                        onClick={() => shareSummary(group.summary!)}
+                        className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-green-400 hover:text-green-300 transition-colors"
+                      >
+                        📤 Compartilhar no WhatsApp
+                      </button>
                     </div>
                   )}
                   <div className="divide-y divide-zinc-800">
