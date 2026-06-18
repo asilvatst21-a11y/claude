@@ -336,14 +336,14 @@ function normMapa(s: string | null | undefined): string {
 }
 
 // Busca a equipe (motorista + ajudantes) do mapa na Base importada mais recente
-// e monta as linhas para a confirmação. Retorna null se não houver correspondência.
-async function buscarEquipeMapa(mapa: string | null): Promise<string | null> {
+// da filial e monta as linhas para a confirmação. Retorna null se não houver correspondência.
+async function buscarEquipeMapa(mapa: string | null, filial: string): Promise<string | null> {
   const alvo = normMapa(mapa)
   if (!alvo) return null
   const { data: ult } = await supabase
-    .from('mapa_equipe').select('data').order('data', { ascending: false }).limit(1).maybeSingle()
+    .from('mapa_equipe').select('data').eq('filial', filial).order('data', { ascending: false }).limit(1).maybeSingle()
   if (!ult?.data) return null
-  const { data: rows } = await supabase.from('mapa_equipe').select('*').eq('data', ult.data)
+  const { data: rows } = await supabase.from('mapa_equipe').select('*').eq('data', ult.data).eq('filial', filial)
   const row = (rows ?? []).find((r: any) => normMapa(r.mapa) === alvo)
   if (!row) return null
   const linhas: string[] = []
@@ -353,17 +353,17 @@ async function buscarEquipeMapa(mapa: string | null): Promise<string | null> {
   return linhas.length ? linhas.join('\n') : null
 }
 
-// Valida se o mapa informado existe na base (mapa_equipe) importada mais recente.
+// Valida se o mapa informado existe na base (mapa_equipe) importada mais recente da filial.
 //  'sem_base'       → tabela vazia / planilha do dia não importada → NÃO bloqueia
 //  'nao_encontrado' → há base, mas o mapa não casa → bloqueia e pede correção
 //  'ok'             → mapa encontrado
-async function validarMapaBase(mapa: string | null): Promise<'sem_base' | 'nao_encontrado' | 'ok'> {
+async function validarMapaBase(mapa: string | null, filial: string): Promise<'sem_base' | 'nao_encontrado' | 'ok'> {
   const { data: ult } = await supabase
-    .from('mapa_equipe').select('data').order('data', { ascending: false }).limit(1).maybeSingle()
+    .from('mapa_equipe').select('data').eq('filial', filial).order('data', { ascending: false }).limit(1).maybeSingle()
   if (!ult?.data) return 'sem_base'
   const alvo = normMapa(mapa)
   if (!alvo) return 'nao_encontrado'
-  const { data: rows } = await supabase.from('mapa_equipe').select('mapa').eq('data', ult.data)
+  const { data: rows } = await supabase.from('mapa_equipe').select('mapa').eq('data', ult.data).eq('filial', filial)
   const achou = (rows ?? []).some((r: any) => normMapa(r.mapa) === alvo)
   return achou ? 'ok' : 'nao_encontrado'
 }
@@ -610,7 +610,7 @@ async function finalizarColeta(pend: any, grupoId: string, nome: string): Promis
 
   // BLOQUEIO: mapa informado não existe na base do dia → não confirma, pede correção.
   // (Só bloqueia quando há base importada; se a planilha do dia não foi subida, segue.)
-  const mapaStatus = await validarMapaBase(pend.mapa)
+  const mapaStatus = await validarMapaBase(pend.mapa, pend.filial)
   if (mapaStatus === 'nao_encontrado') {
     await supabase.from('reposicao_confirmacoes').update({ status: 'rejeitado' }).eq('id', pend.id)
     await enviar(grupoId,
@@ -633,7 +633,7 @@ async function finalizarColeta(pend: any, grupoId: string, nome: string): Promis
     .single()
   const reg = upd ?? { ...pend, produto, codigo_pdv: codigoPdv }
 
-  const equipe = await buscarEquipeMapa(reg.mapa)
+  const equipe = await buscarEquipeMapa(reg.mapa, reg.filial)
   await enviarBotoes(grupoId, resumoConfirmacao(reg, equipe), [
     { id: 'sim', label: '✅ Sim' },
     { id: 'nao', label: '❌ Não' },
@@ -780,7 +780,7 @@ async function tratarReposicao(
     if (precisaValidacao && grupoValidacao) {
       await enviar(grupoId,
         `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nEnviada para validação do controle.`)
-      const equipeValidacao = await buscarEquipeMapa(pend.mapa)
+      const equipeValidacao = await buscarEquipeMapa(pend.mapa, pend.filial)
       await enviarBotoes(grupoValidacao, resumoValidacao(numero, pend, equipeValidacao), [
         { id: `vok:${novaRep.id}`,  label: '✅ OK' },
         { id: `vnok:${novaRep.id}`, label: '❌ NOK' },

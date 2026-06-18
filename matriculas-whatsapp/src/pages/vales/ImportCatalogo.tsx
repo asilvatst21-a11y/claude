@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { Upload, CheckCircle2, AlertTriangle, Loader2, ShoppingCart, PackageSearch, Users, HelpCircle } from 'lucide-react'
 import { valesSupabase } from '@/lib/valesSupabase'
+import { useAuth } from '@/lib/auth'
 
 type Fase = 'idle' | 'lendo' | 'importando' | 'ok' | 'erro'
 interface Log { tipo: 'ok' | 'erro' | 'info'; msg: string }
@@ -59,7 +60,7 @@ async function importarVendasDia(file: File): Promise<{ contagem: number; mensag
 // Importa a aba "Base" da planilha diária: por mapa (col M), o motorista
 // (col V/W) e os ajudantes (col Y/Z e AB/AC). Usado para anexar os nomes da
 // equipe na confirmação de reposição enviada ao motorista no WhatsApp.
-async function importarBaseMapa(file: File): Promise<{ contagem: number; mensagem: string }> {
+async function importarBaseMapa(file: File, filial: string): Promise<{ contagem: number; mensagem: string }> {
   const buf = await file.arrayBuffer()
   const wb = XLSX.read(buf)
   const ws = wb.Sheets['Base']
@@ -79,7 +80,7 @@ async function importarBaseMapa(file: File): Promise<{ contagem: number; mensage
       const mapa = String(r[12] ?? '').trim()
       if (!mapa || !/\d/.test(mapa)) return null
       return {
-        data, mapa,
+        data, filial, mapa,
         motorista_matricula: limpa(r[21]),  // V
         motorista_nome:      limpa(r[22]),  // W
         ajudante1_matricula: limpa(r[24]),  // Y
@@ -92,8 +93,9 @@ async function importarBaseMapa(file: File): Promise<{ contagem: number; mensage
 
   if (equipe.length === 0) throw new Error('Nenhum mapa encontrado na aba Base.')
 
-  // Substitui os dados do dia (idempotente)
-  const { error: delErr } = await valesSupabase.from('mapa_equipe').delete().eq('data', data)
+  // Substitui os dados do dia (idempotente) — só desta filial, para não apagar
+  // a base de outra filial importada no mesmo dia.
+  const { error: delErr } = await valesSupabase.from('mapa_equipe').delete().eq('data', data).eq('filial', filial)
   if (delErr) throw new Error(`Erro ao limpar equipe do mapa: ${delErr.message}`)
 
   const BATCH = 500
@@ -107,6 +109,7 @@ async function importarBaseMapa(file: File): Promise<{ contagem: number; mensage
 }
 
 export default function ImportCatalogoPage() {
+  const { usuario } = useAuth()
   const ref = useRef<HTMLInputElement>(null)
   const refBase = useRef<HTMLInputElement>(null)
   const [fase, setFase] = useState<Fase>('idle')
@@ -129,11 +132,12 @@ export default function ImportCatalogoPage() {
   }
 
   async function handleFileBase(file: File) {
+    if (!usuario) return
     setFaseBase('lendo')
     setLogsBase([{ tipo: 'info', msg: `Lendo ${file.name}…` }])
     try {
       setFaseBase('importando')
-      const { contagem, mensagem } = await importarBaseMapa(file)
+      const { contagem, mensagem } = await importarBaseMapa(file, usuario.filial)
       setLogsBase(prev => [...prev, { tipo: 'ok', msg: `✅ ${contagem} mapas importados. ${mensagem}` }])
       setFaseBase('ok')
     } catch (e) {
