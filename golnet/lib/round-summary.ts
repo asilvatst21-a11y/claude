@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/push";
+import type { PredictionResult } from "@prisma/client";
 
 const INTROS = [
   "Fechou a rodada e o bagulho ficou doido! 🔥",
@@ -7,6 +8,34 @@ const INTROS = [
   "Mais uma rodada no bolso, vamos à resenha! 🍿",
   "Apitou o fim, agora é hora de falar quem mandou bem e quem se escondeu. 🎙️",
 ];
+
+const LEADER_VERBS = [
+  "disparou na liderança",
+  "segue confortável na liderança",
+  "mandou ver e ampliou a liderança",
+];
+
+const LEADER_FLAVORS = [
+  "Tá jogando xadrez enquanto o resto joga dama.",
+  "Time que tá ganhando não se mexe.",
+  "Quem vai parar esse time?",
+  "Tá sobrando esse campeonato.",
+];
+
+const DRAW_ADJECTIVES = ["chato", "movimentado", "nervoso", "travado"];
+
+const FEMININE_TEAMS = new Set([
+  "argentina", "frança", "franca", "france", "alemanha", "germany",
+  "inglaterra", "england", "bélgica", "belgica", "belgium",
+  "colômbia", "colombia", "coreia do sul", "coreia", "south korea", "korea republic", "korea",
+  "croácia", "croacia", "croatia", "suíça", "suica", "switzerland",
+  "itália", "italia", "italy", "espanha", "spain", "hungria", "hungary",
+  "escócia", "escocia", "scotland", "polônia", "polonia", "poland",
+  "irlanda", "ireland", "áustria", "austria", "romênia", "romania",
+  "dinamarca", "denmark", "suécia", "suecia", "sweden", "noruega", "norway",
+  "tunísia", "tunisia", "nova zelândia", "new zealand", "costa rica",
+  "arábia saudita", "saudi arabia", "jamaica", "holanda",
+]);
 
 const DONE_STATUSES = ["FINISHED", "POSTPONED", "CANCELLED"];
 
@@ -16,6 +45,91 @@ function displayName(user: { name: string | null; username: string | null }) {
 
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function article(team: string): string {
+  const t = team.trim().toLowerCase();
+  if (t === "eua" || t === "usa" || t === "united states" || t.startsWith("estados unidos")) return "dos";
+  return FEMININE_TEAMS.has(t) ? "da" : "do";
+}
+
+function joinNames(names: string[]): string {
+  if (names.length === 0) return "";
+  if (names.length === 1) return names[0];
+  if (names.length === 2) return `${names[0]} e ${names[1]}`;
+  return `${names.slice(0, -1).join(", ")} e ${names[names.length - 1]}`;
+}
+
+type MatchInfo = { id: string; homeTeam: string; awayTeam: string };
+type PredRow = { userId: string; matchId: string; homeScore: number; awayScore: number; result: PredictionResult };
+
+const PICK_PRIORITY: Record<string, number> = {
+  EXACT_SCORE: 0,
+  CORRECT_DRAW: 1,
+  CORRECT_RESULT_AND_DIFF: 2,
+  CORRECT_WINNER: 3,
+};
+
+function describePick(pred: PredRow, match: MatchInfo): string | null {
+  const team = match.homeTeam;
+  const art = article(team);
+  switch (pred.result) {
+    case "EXACT_SCORE":
+      return `cravou o ${pred.homeScore}x${pred.awayScore} ${art} ${team}`;
+    case "CORRECT_DRAW":
+      return `acertou o empate ${pick(DRAW_ADJECTIVES)} ${art} ${team}`;
+    case "CORRECT_RESULT_AND_DIFF":
+      return `acertou o resultado e o saldo ${art} ${team}`;
+    case "CORRECT_WINNER":
+      return `acertou o vencedor ${art} ${team}`;
+    default:
+      return null;
+  }
+}
+
+function topPicks(preds: PredRow[], matchById: Record<string, MatchInfo>, limit: number): string[] {
+  const candidates = preds
+    .filter((p) => p.result in PICK_PRIORITY && matchById[p.matchId])
+    .sort((a, b) => PICK_PRIORITY[a.result] - PICK_PRIORITY[b.result]);
+
+  const phrases: string[] = [];
+  for (const p of candidates) {
+    const phrase = describePick(p, matchById[p.matchId]);
+    if (phrase) phrases.push(phrase);
+    if (phrases.length >= limit) break;
+  }
+  return phrases;
+}
+
+function joinPicks(phrases: string[]): string {
+  if (phrases.length === 0) return "";
+  if (phrases.length === 1) return phrases[0];
+  return `${phrases[0]} e ainda ${phrases.slice(1).join(" e ainda ")}`;
+}
+
+function climbPositionPhrase(rank: number): string {
+  if (rank === 1) return "chegou à liderança!";
+  if (rank <= 3) return "chegou ao top 3";
+  return `chegou à ${rank}ª posição`;
+}
+
+function findTie<T extends { userId: string; name: string; current: number }>(
+  rows: T[],
+  currentRank: Record<string, number>
+): { names: string[]; rank: number } | null {
+  const groups = new Map<number, T[]>();
+  for (const r of rows) {
+    if (!groups.has(r.current)) groups.set(r.current, []);
+    groups.get(r.current)!.push(r);
+  }
+
+  let best: { names: string[]; rank: number } | null = null;
+  for (const group of Array.from(groups.values())) {
+    if (group.length < 2) continue;
+    const rank = Math.min(...group.map((g) => currentRank[g.userId]));
+    if (!best || rank < best.rank) best = { names: group.map((g) => g.name), rank };
+  }
+  return best;
 }
 
 export async function maybeGenerateRoundSummaries(affectedRounds: string[]) {
@@ -83,16 +197,26 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
 
   const memberIds = members.map((m) => m.userId);
 
-  const [roundRankings, exactScores] = await Promise.all([
+  const [roundRankings, preds, matches] = await Promise.all([
     prisma.roundRanking.findMany({ where: { leagueId, round } }),
     prisma.prediction.findMany({
-      where: { matchId: { in: matchIds }, userId: { in: memberIds }, result: "EXACT_SCORE" },
-      select: { userId: true },
+      where: { matchId: { in: matchIds }, userId: { in: memberIds }, result: { not: null } },
+      select: { userId: true, matchId: true, homeScore: true, awayScore: true, result: true },
+    }),
+    prisma.match.findMany({
+      where: { id: { in: matchIds } },
+      select: { id: true, homeTeam: true, awayTeam: true },
     }),
   ]);
 
+  const matchById = Object.fromEntries(matches.map((m) => [m.id, m]));
   const roundPoints = Object.fromEntries(roundRankings.map((r) => [r.userId, r.points]));
-  const exactScoreUserIds = new Set(exactScores.map((p) => p.userId));
+
+  const predsByUser: Record<string, PredRow[]> = {};
+  for (const p of preds) {
+    if (!p.result) continue;
+    (predsByUser[p.userId] ??= []).push({ ...p, result: p.result });
+  }
 
   const rows = members.map((m) => {
     const thisRound = roundPoints[m.userId] ?? 0;
@@ -111,46 +235,81 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
   const leader = byCurrent[0];
   const biggestClimber = [...withClimb].sort((a, b) => b.climb - a.climb)[0];
   const biggestFaller = [...withClimb].sort((a, b) => a.climb - b.climb)[0];
-  const roundStar = [...rows].sort((a, b) => b.thisRound - a.thisRound)[0];
-  const zeros = rows.filter((r) => r.thisRound === 0);
 
   const lines: string[] = [];
   lines.push(`🏆 Resenha da Rodada ${round}`);
   lines.push("");
   lines.push(pick(INTROS));
   lines.push("");
-  lines.push(`🥇 ${leader.name} segue na liderança com ${leader.current} pontos.`);
 
-  if (roundStar.thisRound > 0 && roundStar.userId !== leader.userId) {
-    lines.push(`🔥 Mas o destaque da rodada foi ${roundStar.name}, que fez ${roundStar.thisRound} pontos e deu um show.`);
-  } else if (roundStar.thisRound > 0) {
-    lines.push(`🔥 E ainda mandou bem na rodada, somando mais ${roundStar.thisRound} pontos.`);
-  }
+  // Leader
+  const leaderPicks = topPicks(predsByUser[leader.userId] ?? [], matchById, 2);
+  const leaderPickText = joinPicks(leaderPicks);
+  lines.push(
+    `🥇 ${leader.name} ${pick(LEADER_VERBS)} com ${leader.current} pontos${leaderPickText ? ` — ${leaderPickText}` : ""}. ${pick(LEADER_FLAVORS)}`
+  );
 
+  // Biggest climber
   if (biggestClimber.climb > 0) {
+    const rank = currentRank[biggestClimber.userId];
+    const partial = (predsByUser[biggestClimber.userId] ?? []).filter((p) => p.result === "CORRECT_RESULT_AND_DIFF").length;
+    const tail = partial > 0
+      ? `Bateu na trave ${partial > 1 ? `${partial} vezes` : "uma vez"} (placar parcial), mas o que importa é que ${biggestClimber.name} tá vindo com tudo.`
+      : `${biggestClimber.name} tá vindo com tudo.`;
     lines.push(
-      `📈 ${biggestClimber.name} subiu ${biggestClimber.climb} posiç${biggestClimber.climb > 1 ? "ões" : "ão"} na tabela. Tá vindo com tudo!`
+      `📈 ${biggestClimber.name} foi a sensação da rodada: subiu ${biggestClimber.climb} posiç${biggestClimber.climb > 1 ? "ões" : "ão"} e ${climbPositionPhrase(rank)} ${tail}`
     );
   }
 
+  // Biggest faller
   if (biggestFaller.climb < 0 && biggestFaller.userId !== biggestClimber.userId) {
+    const rank = currentRank[biggestFaller.userId];
+    const isLast = rank === rows.length;
+    const zeroed = biggestFaller.thisRound === 0;
+    const fallPhrase = isLast ? "Caiu pra última posição" : `Caiu pra ${rank}ª posição`;
+    const tail = isLast
+      ? "e agora tá numa zona de rebaixamento imaginária que só existe no nosso grupo do WhatsApp. 💀"
+      : "na tabela.";
     lines.push(
-      `📉 Já ${biggestFaller.name} não teve a mesma sorte e caiu ${Math.abs(biggestFaller.climb)} posiç${Math.abs(biggestFaller.climb) > 1 ? "ões" : "ão"}.`
+      `📉 Já ${biggestFaller.name}… migo, foram ${biggestFaller.thisRound} ponto${biggestFaller.thisRound === 1 ? "" : "s"} na rodada.${zeroed ? " Zerou tudo." : ""} ${fallPhrase} ${tail}`
     );
   }
 
-  if (exactScoreUserIds.size > 0) {
-    const names = rows.filter((r) => exactScoreUserIds.has(r.userId)).map((r) => r.name);
-    lines.push(`🎯 Cravaram o placar exato nessa rodada: ${names.join(", ")}. Tiro certeiro!`);
+  // Exact scores this round
+  const exactRows = rows.filter((r) => (predsByUser[r.userId] ?? []).some((p) => p.result === "EXACT_SCORE"));
+  if (exactRows.length > 0) {
+    const names = exactRows.map((r) => r.name);
+    const underdog = exactRows.find((r) => r.userId !== leader.userId);
+    let underdogText = "";
+    if (underdog) {
+      const exactPred = predsByUser[underdog.userId]!.find((p) => p.result === "EXACT_SCORE")!;
+      const match = matchById[exactPred.matchId];
+      if (match) {
+        underdogText = ` — ${underdog.name} pregou o ${exactPred.homeScore}x${exactPred.awayScore} ${article(match.homeTeam)} ${match.homeTeam} que ninguém via vindo`;
+      }
+    }
+    const verb = names.length > 1 ? "acertaram" : "acertou";
+    lines.push(`🎯 Placar exato da rodada: só ${joinNames(names)} ${verb} um cravado${underdogText}.`);
   }
 
-  if (zeros.length > 0 && zeros.length < rows.length) {
-    const names = zeros.map((r) => r.name).slice(0, 3);
-    lines.push(`💀 Rodada de zerar pra ${names.join(", ")}${zeros.length > 3 ? " e mais gente" : ""}. Bola pra frente!`);
+  // Tie for a position
+  const tie = findTie(rows, currentRank);
+  if (tie) {
+    lines.push(`🤝 Empate geral entre ${joinNames(tie.names)} na ${tie.rank}ª posição — vai ser briga de foice na próxima rodada.`);
   }
+
+  // Closing
+  const roundNum = Number(round);
+  const isNumericRound = round.trim() !== "" && Number.isFinite(roundNum);
+  const summaryParts = [`${leader.name} reina`];
+  if (biggestClimber.climb > 0) summaryParts.push(`${biggestClimber.name} sobe igual foguete`);
+  if (biggestFaller.climb < 0 && biggestFaller.userId !== biggestClimber.userId) {
+    summaryParts.push(`${biggestFaller.name} precisa rever a vida (ou pelo menos os palpites)`);
+  }
+  const nextRoundText = isNumericRound ? `Bora pra rodada ${roundNum + 1}! ⚽️` : "Bora pra próxima rodada! ⚽️";
 
   lines.push("");
-  lines.push("Bora pra próxima rodada! ⚽️");
+  lines.push(`Resumindo: ${summaryParts.join(", ")}. ${nextRoundText}`);
 
   return lines.join("\n");
 }
