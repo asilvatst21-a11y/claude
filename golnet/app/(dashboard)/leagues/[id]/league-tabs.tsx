@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
+import { toBlob } from "html-to-image";
 import { LeagueMatches } from "./league-matches";
 
 type Member = {
@@ -68,6 +69,29 @@ function shareSummary(text: string) {
   window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, "_blank");
 }
 
+async function shareNodeAsImage(node: HTMLElement, filename: string, title: string) {
+  try {
+    const bg = getComputedStyle(document.body).backgroundColor || "#18181b";
+    const blob = await toBlob(node, { backgroundColor: bg, pixelRatio: 2 });
+    if (!blob) return;
+
+    const file = new File([blob], filename, { type: "image/png" });
+    if (typeof navigator !== "undefined" && navigator.canShare?.({ files: [file] })) {
+      await navigator.share({ files: [file], title });
+      return;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    // ignore — capture failed silently, user can still screenshot manually
+  }
+}
+
 export function LeagueTabs({
   leagueId,
   members,
@@ -80,6 +104,7 @@ export function LeagueTabs({
 }: LeagueTabsProps) {
   const defaultTab = (TABS as readonly string[]).includes(initialTab ?? "") ? (initialTab as Tab) : "Jogos";
   const [activeTab, setActiveTab] = useState<Tab>(defaultTab);
+  const rankingRef = useRef<HTMLDivElement>(null);
   const isPro = userPlan !== "FREE";
 
   const hasBonus = scoring.championPredictionEnabled;
@@ -143,13 +168,25 @@ export function LeagueTabs({
 
       {/* Tab: Ranking */}
       {activeTab === "Ranking" && (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
-          <div className="p-4 border-b border-zinc-800">
-            <h2 className="font-semibold text-white">Ranking da Liga</h2>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              {STAT_COLUMNS.map((c) => `${c.icon} ${c.label}`).join(" · ")}
-            </p>
+        <div>
+          <div className="flex items-center justify-end mb-3">
+            <button
+              onClick={() =>
+                rankingRef.current &&
+                shareNodeAsImage(rankingRef.current, "ranking-palpitai.png", "Ranking da Liga — PalpitaAí")
+              }
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-green-400 hover:text-green-300 transition-colors whitespace-nowrap"
+            >
+              📤 Compartilhar imagem
+            </button>
           </div>
+          <div ref={rankingRef} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
+            <div className="p-4 border-b border-zinc-800">
+              <h2 className="font-semibold text-white">Ranking da Liga</h2>
+              <p className="text-xs text-zinc-500 mt-0.5">
+                {STAT_COLUMNS.map((c) => `${c.icon} ${c.label}`).join(" · ")}
+              </p>
+            </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
@@ -210,6 +247,7 @@ export function LeagueTabs({
                 })}
               </tbody>
             </table>
+          </div>
           </div>
         </div>
       )}
