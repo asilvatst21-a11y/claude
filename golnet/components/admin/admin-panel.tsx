@@ -103,6 +103,7 @@ const LEAGUES_BY_COUNTRY: Country[] = [
 
 type ImportResult = { imported: number; updated: number; season?: number; error?: string };
 type SyncResult = { synced: number; at: string; durationMs?: number };
+type RegenSummariesResult = { deleted: number; regenerated: number };
 type MatchStats = { total: number; lastSyncedAt: string | null };
 type MatchSyncResult = {
   match: string;
@@ -725,6 +726,8 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
   const [importResults, setImportResults] = useState<Record<number, ImportResult>>({});
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [regenSummaries, setRegenSummaries] = useState(false);
+  const [regenSummariesResult, setRegenSummariesResult] = useState<RegenSummariesResult | null>(null);
 
   async function handleImport(league: League) {
     setImportingId(league.id);
@@ -754,6 +757,20 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
       // silently handle
     } finally {
       setSyncing(false);
+    }
+  }
+
+  async function handleRegenerateSummaries() {
+    setRegenSummaries(true);
+    setRegenSummariesResult(null);
+    try {
+      const res = await fetch("/api/admin/regenerate-summaries", { method: "POST" });
+      const data = await res.json() as RegenSummariesResult;
+      setRegenSummariesResult(data);
+    } catch {
+      // silently handle
+    } finally {
+      setRegenSummaries(false);
     }
   }
 
@@ -932,6 +949,28 @@ export function AdminPanel({ matchStats }: { matchStats: MatchStats }) {
                       — {new Date(syncResult.at).toLocaleTimeString("pt-BR")}
                     </span>
                   )}
+                </span>
+              )}
+            </div>
+          </section>
+
+          {/* Section 2b: Regenerate round summaries */}
+          <section className="bg-zinc-900 border border-zinc-800 rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-white mb-2">Regenerar Resenha das Rodadas</h2>
+            <p className="text-sm text-zinc-400 mb-4">
+              Apaga as resenhas já geradas e recria todas com o texto mais recente (útil depois de mudar o formato do resumo). Não envia notificação push.
+            </p>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={handleRegenerateSummaries}
+                disabled={regenSummaries}
+                className="px-5 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-zinc-700 disabled:text-zinc-500 text-white text-sm font-medium rounded-lg transition-colors"
+              >
+                {regenSummaries ? "Regenerando..." : "Regenerar agora"}
+              </button>
+              {regenSummariesResult && (
+                <span className="text-sm text-green-400">
+                  {regenSummariesResult.deleted} apagadas · {regenSummariesResult.regenerated} recriadas
                 </span>
               )}
             </div>
