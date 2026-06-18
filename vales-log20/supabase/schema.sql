@@ -111,3 +111,9 @@ CREATE TRIGGER update_vales_updated_at
 -- ALTER TABLE vales ADD COLUMN IF NOT EXISTS usuario_primeiro_nivel TEXT;
 -- ALTER TABLE vales ADD COLUMN IF NOT EXISTS motivo_primeiro_nivel TEXT;
 -- ALTER TABLE vales ADD COLUMN IF NOT EXISTS justificativa_primeiro_nivel TEXT;
+
+-- Migration: Contestação de vales faturados (para cobrança junto à Ambev)
+ALTER TABLE vales ADD COLUMN IF NOT EXISTS contestado BOOLEAN DEFAULT FALSE;
+ALTER TABLE vales ADD COLUMN IF NOT EXISTS motivo_contestacao TEXT;
+ALTER TABLE vales ADD COLUMN IF NOT EXISTS contestado_em TIMESTAMPTZ;
+CREATE INDEX IF NOT EXISTS idx_vales_contestado ON vales(contestado);

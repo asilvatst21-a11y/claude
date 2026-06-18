@@ -51,6 +51,9 @@ export interface ValeDetalhes {
   acao_primeiro_nivel: string | null;
   justificativa_primeiro_nivel: string | null;
   valor_total: number;
+  contestado: boolean;
+  motivo_contestacao: string | null;
+  contestado_em: string | null;
   ajudantes: { id: string; nome: string; codigo: number; telefone: string | null }[];
   itens: ValeItem[];
 }
@@ -250,6 +253,21 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
               <p className="text-sm text-muted-foreground italic">Pendente de tratativa Ambev</p>
             )}
           </section>
+
+          {vale.contestado && (
+            <>
+              <Separator />
+              <section>
+                <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground mb-2">
+                  Contestação
+                </h3>
+                <div className="space-y-1.5">
+                  <InfoRow label="Motivo da Contestação" value={vale.motivo_contestacao} />
+                  <InfoRow label="Contestado em" value={vale.contestado_em ? formatNotaDate(vale.contestado_em) : null} />
+                </div>
+              </section>
+            </>
+          )}
 
           <Separator />
 
