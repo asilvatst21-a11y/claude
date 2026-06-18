@@ -4,7 +4,7 @@ import {
   Users, CreditCard, MessageSquare, BarChart2, LogOut, Building2,
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
-  Wallet, Menu, X,
+  Wallet, Menu, X, Truck,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -38,6 +38,10 @@ const financeiroItems = [
   { permKey: REPOS,        to: '/vales/catalogo',      label: 'Catálogo / Vendas', icon: FileSpreadsheet         },
   { permKey: REPOS,        to: '/vales/whatsapp',      label: 'Config. WhatsApp',  icon: MessageSquare           },
   { permKey: 'financeiro', to: '/vales/configuracoes', label: 'Config. Vales',     icon: Settings                },
+]
+
+const distribuicaoItems = [
+  { permKey: 'distribuicao', to: '/distribuicao', label: 'Distribuição', icon: Truck, end: true },
 ]
 
 const adminItems = [
@@ -133,7 +137,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [sections, setSections] = useState({ seguranca: true, gente: true, financeiro: true, admin: true })
+  const [sections, setSections] = useState({ seguranca: true, gente: true, financeiro: true, distribuicao: true, admin: true })
   const fecharMobile = () => setMobileOpen(false)
 
   function toggleSection(key: keyof typeof sections) {
@@ -149,6 +153,7 @@ export default function Layout() {
   const seg = segItems.filter(i => temAcesso(p, i.permKey))
   const gente = genteItems.filter(i => temAcesso(p, i.permKey))
   const financeiro = financeiroItems.filter(i => temAcesso(p, i.permKey))
+  const distribuicao = distribuicaoItems.filter(i => temAcesso(p, i.permKey))
 
   return (
     <div className="min-h-screen flex bg-gray-50">
@@ -225,6 +230,17 @@ export default function Layout() {
               items={financeiro}
               open={sections.financeiro}
               onToggle={() => toggleSection('financeiro')}
+              collapsed={!sidebarOpen}
+              onNavigate={fecharMobile}
+            />
+          )}
+          {distribuicao.length > 0 && (
+            <Section
+              label="Distribuição"
+              icon={Truck}
+              items={distribuicao}
+              open={sections.distribuicao}
+              onToggle={() => toggleSection('distribuicao')}
               collapsed={!sidebarOpen}
               onNavigate={fecharMobile}
             />

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { Lock, Building2, User, Loader2 } from 'lucide-react'
+import { Lock, Building2, User, Loader2, Truck } from 'lucide-react'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -104,6 +104,13 @@ export default function Login() {
               : 'Entrar'
             }
           </button>
+
+          <Link
+            to="/solicitar-extra"
+            className="w-full flex items-center justify-center gap-2 text-sm text-brand-600 hover:text-brand-800 py-2"
+          >
+            <Truck size={16} /> Registrar Solicitação Extra
+          </Link>
         </form>
 
         <div className="bg-gray-50 px-8 py-4 text-center border-t border-gray-100">
