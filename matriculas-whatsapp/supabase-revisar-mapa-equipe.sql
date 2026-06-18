@@ -1,6 +1,14 @@
 -- Revisão da base de mapa_equipe importada ANTES da correção do filtro por filial.
 -- Execute no SQL Editor do Supabase.
 
+-- 0) Ver todas as datas que têm linhas com filial vazia (escopo do problema,
+--    não só hoje).
+select data, count(*) as linhas_sem_filial
+from mapa_equipe
+where filial is null
+group by data
+order by data desc;
+
 -- 1) Ver o que está importado hoje e se a coluna "filial" está vazia
 --    (sinal de que foi importado antes da correção).
 select data, filial, mapa, motorista_nome, ajudante1_nome, ajudante2_nome
