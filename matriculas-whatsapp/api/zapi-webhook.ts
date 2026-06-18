@@ -831,6 +831,14 @@ async function tratarReposicao(
 
     const numero = await gerarNumeroReposicao()
     const tipo = pend.tipo_reposicao ?? 'indefinido'
+
+    // Falta/Inversão (e indefinido) vão para validação do controle — mas só
+    // quando a embalagem for Fardo. Unidade fica só registrada, sem validação.
+    // O que não passa pelo grupo de validação já entra direto como "registrado",
+    // já que não há mais confirmação manual de registro pelo painel.
+    const precisaValidacao = (tipo === 'falta' || tipo === 'inversao' || tipo === 'indefinido') && pend.embalagem === 'fardo'
+    const enviaParaValidacao = precisaValidacao && !!grupoValidacao
+
     const { data: novaRep, error: insErr } = await supabase.from('reposicoes').insert({
       numero,
       filial,
@@ -845,7 +853,7 @@ async function tratarReposicao(
       embalagem: pend.embalagem || null,
       motivo: TIPO_LABEL[tipo] ?? null,
       mensagem_original: pend.mensagem_original,
-      status: 'pendente',
+      status: enviaParaValidacao ? 'pendente' : 'registrado',
     }).select('id, numero').single()
     if (insErr || !novaRep) {
       console.error('Erro ao inserir reposição:', insErr)
@@ -854,10 +862,7 @@ async function tratarReposicao(
     }
     await supabase.from('reposicao_confirmacoes').update({ status: 'confirmado' }).eq('id', pend.id)
 
-    // Falta/Inversão (e indefinido) vão para validação do controle — mas só
-    // quando a embalagem for Fardo. Unidade fica só registrada, sem validação.
-    const precisaValidacao = (tipo === 'falta' || tipo === 'inversao' || tipo === 'indefinido') && pend.embalagem === 'fardo'
-    if (precisaValidacao && grupoValidacao) {
+    if (enviaParaValidacao) {
       await enviar(grupoId,
         `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nEnviada para validação do controle.`)
       const equipeValidacao = await buscarEquipeMapa(pend.mapa, pend.filial)
@@ -954,8 +959,8 @@ async function tratarValidacao(body: any, grupoId: string): Promise<{ ok: boolea
     return { ok: true, action: 'validacao-ja-resolvida' }
   }
 
-  // Controle negou (NOK) → já registra como quebra direto, sem passo manual.
-  const novoStatus = v.decisao === 'ok' ? 'validado' : 'quebra'
+  // Controle negou (NOK) → registra como negado direto, sem passo manual.
+  const novoStatus = v.decisao === 'ok' ? 'validado' : 'negado'
   await supabase.from('reposicoes').update({
     status: novoStatus,
     validador_resposta: v.decisao === 'ok' ? 'Controle: OK (WhatsApp)' : 'Controle: NOK (WhatsApp)',
@@ -964,7 +969,7 @@ async function tratarValidacao(body: any, grupoId: string): Promise<{ ok: boolea
 
   await enviar(grupoId, v.decisao === 'ok'
     ? `✅ *${rep.numero}* validada pelo controle.`
-    : `❌ *${rep.numero}* negada pelo controle e registrada como *quebra*.`)
+    : `❌ *${rep.numero}* negada pelo controle.`)
   return { ok: true, action: `validacao-${novoStatus}` }
 }
 
