@@ -313,14 +313,17 @@ function AcaoModal({
 
 function IdentificarModal({
   alerta,
+  nomesConhecidos,
   onSalvar,
   onFechar,
 }: {
   alerta: TelemetriaAlerta
+  nomesConhecidos: string[]
   onSalvar: (nome: string) => void
   onFechar: () => void
 }) {
   const [nome, setNome] = useState(alerta.motorista_identificado ?? '')
+  const [outro, setOutro] = useState(false)
 
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
@@ -337,9 +340,28 @@ function IdentificarModal({
           </div>
           <div>
             <label className="block text-xs font-medium text-gray-600 mb-1">Nome do Motorista</label>
-            <input type="text" value={nome} onChange={e => setNome(e.target.value)}
-              placeholder="Nome completo"
-              className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2" />
+            {!outro && nomesConhecidos.length > 0 ? (
+              <select
+                value={nomesConhecidos.includes(nome) ? nome : ''}
+                onChange={e => {
+                  if (e.target.value === '__outro__') { setOutro(true); setNome(''); return }
+                  setNome(e.target.value)
+                }}
+                className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 bg-white">
+                <option value="" disabled>Selecione um motorista</option>
+                {nomesConhecidos.map(n => <option key={n} value={n}>{n}</option>)}
+                <option value="__outro__">Outro (digitar nome)…</option>
+              </select>
+            ) : (
+              <input type="text" value={nome} onChange={e => setNome(e.target.value)}
+                placeholder="Nome completo"
+                className="w-full text-sm border border-gray-300 rounded-lg px-3 py-2" />
+            )}
+            {outro && nomesConhecidos.length > 0 && (
+              <button onClick={() => setOutro(false)} className="text-xs text-brand-700 hover:underline mt-1">
+                Escolher da lista
+              </button>
+            )}
           </div>
         </div>
         <div className="flex gap-2 p-4 border-t">
@@ -573,6 +595,16 @@ export default function Telemetria() {
     veiculos:      new Set(filtered.map(a => a.placa)).size,
     comAcao:       filtered.filter(a => acoes.some(x => x.alerta_id === a.id)).length,
   }), [filtered, acoes])
+
+  // Nomes de motoristas já conhecidos na base importada (para sugerir na identificação)
+  const motoristasConhecidos = useMemo(() => {
+    const nomes = new Set<string>()
+    alertas.forEach(a => {
+      if (a.motorista_identificado?.trim()) nomes.add(a.motorista_identificado.trim())
+      if (a.motorista && !semId(a.motorista)) nomes.add(a.motorista.trim())
+    })
+    return [...nomes].sort((a, b) => a.localeCompare(b))
+  }, [alertas])
 
   const tiposData = useMemo(() => TIPOS_LISTA.map(t => ({
     name: TIPO_LABEL[t],
@@ -1324,6 +1356,7 @@ export default function Telemetria() {
       {modalId && (
         <IdentificarModal
           alerta={modalId}
+          nomesConhecidos={motoristasConhecidos}
           onSalvar={salvarIdentificacao}
           onFechar={() => setModalId(null)}
         />
