@@ -26,7 +26,16 @@ type RoundGroup = {
     username: string | null;
     points: number;
   }[];
+  summary?: string;
 };
+
+const STAT_COLUMNS = [
+  { key: "EXACT_SCORE", icon: "🎯", label: "Placar exato" },
+  { key: "CORRECT_RESULT_AND_DIFF", icon: "✅", label: "Placar parcial" },
+  { key: "CORRECT_WINNER", icon: "🏆", label: "Vencedor" },
+  { key: "CORRECT_DRAW", icon: "🤝", label: "Empate" },
+  { key: "WRONG", icon: "❌", label: "Errou" },
+] as const;
 
 type LeagueScoring = {
   ptsExactScore: number;
@@ -40,6 +49,7 @@ type LeagueScoring = {
 interface LeagueTabsProps {
   leagueId: string;
   members: Member[];
+  statsByUserId: Record<string, Record<string, number>>;
   roundGroups: RoundGroup[];
   userPlan: string;
   userId: string;
@@ -52,6 +62,7 @@ type Tab = (typeof TABS)[number];
 export function LeagueTabs({
   leagueId,
   members,
+  statsByUserId,
   roundGroups,
   userPlan,
   userId,
@@ -124,49 +135,70 @@ export function LeagueTabs({
         <div className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
           <div className="p-4 border-b border-zinc-800">
             <h2 className="font-semibold text-white">Ranking da Liga</h2>
+            <p className="text-xs text-zinc-500 mt-0.5">
+              {STAT_COLUMNS.map((c) => `${c.icon} ${c.label}`).join(" · ")}
+            </p>
           </div>
-          <div className="divide-y divide-zinc-800">
-            {members.map((member, index) => {
-              const rank = index + 1;
-              const isMe = member.userId === userId;
-              return (
-                <div
-                  key={member.id}
-                  className={`flex items-center gap-4 px-4 py-3 ${isMe ? "bg-green-500/5" : ""}`}
-                >
-                  <span
-                    className={`w-7 text-center font-bold text-sm ${
-                      rank === 1 ? "text-yellow-400" : rank === 2 ? "text-zinc-300" : rank === 3 ? "text-amber-600" : "text-zinc-500"
-                    }`}
-                  >
-                    {rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : rank}
-                  </span>
-
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    {member.user.image ? (
-                      <img src={member.user.image} alt="" className="w-8 h-8 rounded-full shrink-0" />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
-                        {member.user.name?.[0] ?? "?"}
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-white truncate">
-                        {member.user.name ?? "—"}
-                        {isMe && <span className="ml-2 text-xs text-green-400">(você)</span>}
-                      </p>
-                      {member.user.username && (
-                        <p className="text-xs text-zinc-500 truncate">@{member.user.username}</p>
-                      )}
-                    </div>
-                  </div>
-
-                  <span className="font-bold text-green-400 text-sm shrink-0">
-                    {member.totalPoints} pts
-                  </span>
-                </div>
-              );
-            })}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="text-xs text-zinc-500 border-b border-zinc-800">
+                  <th className="text-left font-medium px-4 py-2 sticky left-0 bg-zinc-900 z-10">Jogador</th>
+                  <th className="text-center font-medium px-2 py-2 whitespace-nowrap">Pts</th>
+                  {STAT_COLUMNS.map((c) => (
+                    <th key={c.key} title={c.label} className="text-center font-medium px-2 py-2 whitespace-nowrap">
+                      {c.icon}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800">
+                {members.map((member, index) => {
+                  const rank = index + 1;
+                  const isMe = member.userId === userId;
+                  const stats = statsByUserId[member.userId];
+                  return (
+                    <tr key={member.id} className={isMe ? "bg-green-500/5" : ""}>
+                      <td className={`px-4 py-3 sticky left-0 z-10 ${isMe ? "bg-green-500/5" : "bg-zinc-900"}`}>
+                        <div className="flex items-center gap-3 min-w-[160px]">
+                          <span
+                            className={`w-6 text-center font-bold text-sm shrink-0 ${
+                              rank === 1 ? "text-yellow-400" : rank === 2 ? "text-zinc-300" : rank === 3 ? "text-amber-600" : "text-zinc-500"
+                            }`}
+                          >
+                            {rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : rank}
+                          </span>
+                          {member.user.image ? (
+                            <img src={member.user.image} alt="" className="w-8 h-8 rounded-full shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
+                              {member.user.name?.[0] ?? "?"}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-white truncate">
+                              {member.user.name ?? "—"}
+                              {isMe && <span className="ml-2 text-xs text-green-400">(você)</span>}
+                            </p>
+                            {member.user.username && (
+                              <p className="text-xs text-zinc-500 truncate">@{member.user.username}</p>
+                            )}
+                          </div>
+                        </div>
+                      </td>
+                      <td className="text-center px-2 py-3 font-bold text-green-400 whitespace-nowrap">
+                        {member.totalPoints}
+                      </td>
+                      {STAT_COLUMNS.map((c) => (
+                        <td key={c.key} className="text-center px-2 py-3 text-zinc-300 whitespace-nowrap">
+                          {stats?.[c.key] ?? 0}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
       )}
@@ -197,6 +229,11 @@ export function LeagueTabs({
                   <div className="p-4 border-b border-zinc-800">
                     <h3 className="font-semibold text-white">Rodada {group.round}</h3>
                   </div>
+                  {group.summary && (
+                    <div className="px-4 py-3 bg-green-500/5 border-b border-zinc-800 text-sm text-zinc-300 whitespace-pre-wrap">
+                      {group.summary}
+                    </div>
+                  )}
                   <div className="divide-y divide-zinc-800">
                     {group.entries.map((entry, index) => {
                       const rank = index + 1;
