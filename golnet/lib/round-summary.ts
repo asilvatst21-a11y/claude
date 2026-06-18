@@ -272,7 +272,7 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
       ? "e agora tá numa zona de rebaixamento imaginária que só existe no nosso grupo do WhatsApp. 💀"
       : "na tabela.";
     lines.push(
-      `📉 Já ${biggestFaller.name}… migo, foram ${biggestFaller.thisRound} ponto${biggestFaller.thisRound === 1 ? "" : "s"} na rodada.${zeroed ? " Zerou tudo." : ""} ${fallPhrase} ${tail}`
+      `📉 Já ${biggestFaller.name}… amigo, foram ${biggestFaller.thisRound} ponto${biggestFaller.thisRound === 1 ? "" : "s"} na rodada.${zeroed ? " Zerou tudo." : ""} ${fallPhrase} ${tail}`
     );
   }
 
