@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
-import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, Download, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart, Upload, Loader2, X } from "lucide-react";
+import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart, Upload, Loader2, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatCurrency } from "@/lib/valesUtils";
 import { valesSupabase } from "@/lib/valesSupabase";
@@ -63,7 +63,6 @@ const TABS: { value: "todos" | Status; label: string }[] = [
   { value: "validado", label: "Validados" },
   { value: "registrado", label: "Registrados" },
   { value: "negado", label: "Negados" },
-  { value: "quebra", label: "Quebras" },
 ];
 
 function StatusBadge({ status }: { status: Status }) {
@@ -197,7 +196,8 @@ async function importarArquivoCora(file: File): Promise<ImportCoraResumo> {
 
   const { data: todas, error } = await valesSupabase
     .from("reposicoes")
-    .select("id, mapa, produto, status, cora_solicitacao_id");
+    .select("id, mapa, produto, status, cora_solicitacao_id, created_at")
+    .order("created_at", { ascending: false });
   if (error) throw new Error(error.message);
   const reps = todas ?? [];
 
@@ -237,7 +237,10 @@ async function importarArquivoCora(file: File): Promise<ImportCoraResumo> {
       ? naoLinkadas.filter((r) => normMapa(r.mapa) === mapaAlvo && codigoProduto != null && extrairCodigo(r.produto) === codigoProduto)
       : [];
 
-    if (candidatos.length === 1) {
+    // Mapa + produto pode bater com mais de uma reposição (ex.: o mesmo
+    // problema relatado mais de uma vez) — usa a mais recente ainda não
+    // vinculada em vez de descartar o casamento.
+    if (candidatos.length >= 1) {
       const rep = candidatos[0];
       const novoStatus = rep.status === "pendente" || rep.status === "validado" ? "registrado" : rep.status;
       const { error: errVincula } = await valesSupabase
@@ -471,33 +474,13 @@ export default function ReposicoesPage() {
     pendente: reposicoes.filter((r) => r.status === "pendente").length,
     validado: reposicoes.filter((r) => r.status === "validado").length,
     negado: reposicoes.filter((r) => r.status === "negado").length,
-    quebra: reposicoes.filter((r) => r.status === "quebra").length,
   };
-
-  function exportQuebras() {
-    const quebras = reposicoes.filter((r) => r.status === "quebra");
-    if (!quebras.length) return;
-    const header = "Número,Data,Motorista,Mapa,Cliente,Produto,Quantidade,Motivo";
-    const rows = quebras.map((q) =>
-      [q.numero, formatDate(q.created_at), q.motorista_nome ?? "", q.mapa ?? "", q.cliente ?? "", q.produto ?? "", q.quantidade ?? "", q.motivo ?? ""]
-        .map((v) => `"${String(v).replace(/"/g, '""')}"`)
-        .join(",")
-    );
-    const csv = [header, ...rows].join("\n");
-    const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `quebras_${new Date().toISOString().split("T")[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
 
   // Botões de ação (reutilizados na tabela e nos cartões do mobile)
   function Acoes({ r }: { r: Reposicao }) {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
-        {(r.status === "pendente" || r.status === "negado" || r.status === "quebra") && (
+        {(r.status === "pendente" || r.status === "negado") && (
           <button onClick={() => enviarParaValidacao(r)} disabled={!!actionLoading} title="Reenvia para o grupo de validação no WhatsApp" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 disabled:opacity-50 transition-colors">
             <Send className="h-3 w-3" />{actionLoading === r.id + "envio-validacao" ? "..." : "Enviar p/ validação"}
           </button>
@@ -548,22 +531,18 @@ export default function ReposicoesPage() {
           <button onClick={exportExcel} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <FileSpreadsheet className="h-4 w-4" />Excel
           </button>
-          <button onClick={exportQuebras} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
-            <Download className="h-4 w-4" />Quebras
-          </button>
           <button onClick={() => setCoraModalOpen(true)} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <Upload className="h-4 w-4" />Importar CORA
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         {[
           { label: "Total", value: stats.total, icon: Package, color: "text-primary" },
           { label: "Pendentes", value: stats.pendente, icon: Clock, color: "text-yellow-600" },
           { label: "Validados", value: stats.validado, icon: CheckCircle, color: "text-green-600" },
           { label: "Negados", value: stats.negado, icon: XCircle, color: "text-red-600" },
-          { label: "Quebras", value: stats.quebra, icon: AlertTriangle, color: "text-orange-600" },
         ].map((s) => {
           const Icon = s.icon;
           return (
