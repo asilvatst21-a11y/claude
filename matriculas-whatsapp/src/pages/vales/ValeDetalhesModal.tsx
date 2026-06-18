@@ -48,6 +48,9 @@ export interface ValeDetalhes {
   acao_transportadora: string | null;
   justificativa_transportadora: string | null;
   acao_primeiro_nivel: string | null;
+  data_primeiro_nivel: string | null;
+  usuario_primeiro_nivel: string | null;
+  motivo_primeiro_nivel: string | null;
   justificativa_primeiro_nivel: string | null;
   valor_total: number;
   contestado: boolean;

@@ -204,7 +204,8 @@ export default function ValesPage() {
         .select(`
           id, numero_vale, data_emissao, mapa, motorista, veiculo, data_rota,
           status_vale, acao_transportadora, justificativa_transportadora,
-          acao_primeiro_nivel, justificativa_primeiro_nivel, valor_total,
+          acao_primeiro_nivel, data_primeiro_nivel, usuario_primeiro_nivel,
+          motivo_primeiro_nivel, justificativa_primeiro_nivel, valor_total,
           contestado, motivo_contestacao, contestado_em,
           notificacao_pendente_enviada, notificacao_final_enviada,
           vale_ajudantes ( posicao, ajudantes ( id, codigo, nome, telefone ) ),
@@ -476,20 +477,31 @@ export default function ValesPage() {
   function exportContestados() {
     const rows = valesFiltered.filter((v) => v.contestado);
     const data = rows.map((v) => ({
-      "Mapa": v.mapa ?? "",
       "Vale #": v.numero_vale,
+      "Mapa": v.mapa ?? "",
       "Data Emissão": v.data_emissao ?? "",
+      "Data da Rota": v.data_rota ?? "",
       "Motorista": v.motorista ?? "",
+      "Veículo": v.veiculo ?? "",
       "Ajudante(s)": v.ajudantes.map((a) => a.nome).join(" / "),
       "Valor Total": v.valor_total ?? 0,
-      "Status": v.status_vale ?? "",
+      "Status do Vale": v.status_vale ?? "",
+      "Ação Transportadora": v.acao_transportadora ?? "",
+      "Justificativa Transportadora": v.justificativa_transportadora ?? "",
+      "Ação Primeiro Nível": v.acao_primeiro_nivel ?? "",
+      "Data Primeiro Nível": v.data_primeiro_nivel ?? "",
+      "Usuário Primeiro Nível": v.usuario_primeiro_nivel ?? "",
+      "Motivo Primeiro Nível": v.motivo_primeiro_nivel ?? "",
+      "Justificativa Primeiro Nível": v.justificativa_primeiro_nivel ?? "",
       "Motivo da Contestação": v.motivo_contestacao ?? "",
       "Contestado em": v.contestado_em ? new Date(v.contestado_em).toLocaleString("pt-BR") : "",
     }));
     const ws = XLSX.utils.json_to_sheet(data);
     ws["!cols"] = [
-      { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 24 },
-      { wch: 30 }, { wch: 14 }, { wch: 12 }, { wch: 50 }, { wch: 18 },
+      { wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 24 }, { wch: 12 },
+      { wch: 30 }, { wch: 14 }, { wch: 14 }, { wch: 20 }, { wch: 40 },
+      { wch: 20 }, { wch: 16 }, { wch: 20 }, { wch: 30 }, { wch: 40 },
+      { wch: 50 }, { wch: 18 },
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Vales Contestados");
