@@ -61,6 +61,7 @@ async function importarVendasDia(file: File): Promise<{ contagem: number; mensag
 // (col V/W) e os ajudantes (col Y/Z e AB/AC). Usado para anexar os nomes da
 // equipe na confirmação de reposição enviada ao motorista no WhatsApp.
 async function importarBaseMapa(file: File, filial: string): Promise<{ contagem: number; mensagem: string }> {
+  if (!filial?.trim()) throw new Error('Filial não identificada na sessão. Saia e entre novamente.')
   const buf = await file.arrayBuffer()
   const wb = XLSX.read(buf)
   const ws = wb.Sheets['Base']
@@ -133,6 +134,11 @@ export default function ImportCatalogoPage() {
 
   async function handleFileBase(file: File) {
     if (!usuario) return
+    if (!usuario.filial?.trim()) {
+      setLogsBase([{ tipo: 'erro', msg: 'Sessão sem filial definida. Saia e entre novamente antes de importar a Base.' }])
+      setFaseBase('erro')
+      return
+    }
     setFaseBase('lendo')
     setLogsBase([{ tipo: 'info', msg: `Lendo ${file.name}…` }])
     try {
