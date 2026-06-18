@@ -348,6 +348,16 @@ function normMapa(s: string | null | undefined): string {
   return String(s ?? '').replace(/\D/g, '').replace(/^0+/, '')
 }
 
+// Telefones do CME: além de quem enviou a solicitação original, esses números
+// também podem responder SIM/NÃO/embalagem/cancelar por qualquer motorista no
+// grupo de reposição (ex: confirmar em nome de um motorista que não respondeu).
+const CME_TELEFONES = ['24992356187', '24992806017']
+
+function ehTelefoneCME(telefone: string): boolean {
+  const digitos = telefone.replace(/\D/g, '')
+  return CME_TELEFONES.some(n => digitos.endsWith(n))
+}
+
 // Busca a equipe (motorista + ajudantes) do mapa na Base importada mais recente
 // da filial e monta as linhas para a confirmação. Retorna null se não houver correspondência.
 async function buscarEquipeMapa(mapa: string | null, filial: string): Promise<string | null> {
@@ -699,13 +709,16 @@ async function tratarReposicao(
 
   // 0) Confirmação de correção de mapa: o PDV está em outro mapa no faturamento
   // e perguntamos se o motorista quer corrigir a reposição para o mapa certo.
-  const { data: pendMapa } = await supabase
+  // O CME também pode responder em nome do motorista, então só filtra por
+  // telefone quando quem respondeu NÃO é um dos números do CME.
+  let queryPendMapa = supabase
     .from('reposicao_confirmacoes')
     .select('*')
     .eq('grupo_id', grupoId)
-    .eq('motorista_telefone', participante)
     .eq('status', 'confirmando_mapa')
     .gte('created_at', limitePend())
+  if (!ehTelefoneCME(participante)) queryPendMapa = queryPendMapa.eq('motorista_telefone', participante)
+  const { data: pendMapa } = await queryPendMapa
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -731,13 +744,15 @@ async function tratarReposicao(
   }
 
   // 0.1) Coleta de campos faltantes: existe um pendente 'coletando' deste motorista?
-  const { data: pendColeta } = await supabase
+  // (ou, se quem respondeu for do CME, o pendente mais recente do grupo)
+  let queryPendColeta = supabase
     .from('reposicao_confirmacoes')
     .select('*')
     .eq('grupo_id', grupoId)
-    .eq('motorista_telefone', participante)
     .eq('status', 'coletando')
     .gte('created_at', limitePend())
+  if (!ehTelefoneCME(participante)) queryPendColeta = queryPendColeta.eq('motorista_telefone', participante)
+  const { data: pendColeta } = await queryPendColeta
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
@@ -790,16 +805,18 @@ async function tratarReposicao(
   }
 
   // 1) Resposta SIM / NÃO a uma confirmação pendente deste motorista
+  // (ou, se quem respondeu for do CME, a confirmação mais recente do grupo)
   const resposta = extrairResposta(body)
   if (resposta) {
     const limite = new Date(Date.now() - CONFIRM_TTL_MIN * 60_000).toISOString()
-    const { data: pend } = await supabase
+    let queryPend = supabase
       .from('reposicao_confirmacoes')
       .select('*')
       .eq('grupo_id', grupoId)
-      .eq('motorista_telefone', participante)
       .eq('status', 'aguardando')
       .gte('created_at', limite)
+    if (!ehTelefoneCME(participante)) queryPend = queryPend.eq('motorista_telefone', participante)
+    const { data: pend } = await queryPend
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -818,7 +835,7 @@ async function tratarReposicao(
       numero,
       filial,
       motorista_nome: pend.motorista_nome,
-      motorista_telefone: participante,
+      motorista_telefone: pend.motorista_telefone || participante,
       codigo_pdv: pend.codigo_pdv || null,
       cliente: pend.codigo_pdv || null,
       mapa: pend.mapa || null,
