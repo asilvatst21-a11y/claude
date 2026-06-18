@@ -270,7 +270,7 @@ async function buscarMapaRealPdv(pdvCod: number, data: string): Promise<string |
     .eq('pdv_codigo', pdvCod)
     .not('mapa', 'is', null)
     .limit(1)
-  return rows?.[0]?.mapa?.trim() || null
+  return normMapa(rows?.[0]?.mapa) || null
 }
 
 // Monta um pequeno catálogo de referência pra IA, priorizando o que o PDV comprou.
