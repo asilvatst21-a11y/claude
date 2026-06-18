@@ -260,6 +260,19 @@ async function produtosVendidosPdv(pdvCod: number, data: string): Promise<{ codi
   })
 }
 
+// Busca o mapa real do PDV no faturamento do dia (fonte da verdade, vinda do
+// CSV importado), para confrontar com o mapa que o motorista digitou.
+async function buscarMapaRealPdv(pdvCod: number, data: string): Promise<string | null> {
+  const { data: rows } = await supabase
+    .from('vendas_dia')
+    .select('mapa')
+    .eq('data', data)
+    .eq('pdv_codigo', pdvCod)
+    .not('mapa', 'is', null)
+    .limit(1)
+  return rows?.[0]?.mapa?.trim() || null
+}
+
 // Monta um pequeno catálogo de referência pra IA, priorizando o que o PDV comprou.
 async function buscarProdutosContexto(pdvCodigo: string): Promise<string> {
   try {
@@ -608,6 +621,23 @@ async function finalizarColeta(pend: any, grupoId: string, nome: string): Promis
     return
   }
 
+  // BLOQUEIO: o PDV está no faturamento, mas com um mapa diferente do informado
+  // → o motorista provavelmente digitou o mapa errado. Em vez de só recusar,
+  // sugere o mapa correto (vindo do faturamento) e pede confirmação.
+  if (vendas.situacao === 'ok') {
+    const pdvCod = parseInt(pdvOriginal.replace(/\D/g, ''))
+    const mapaReal = pdvCod ? await buscarMapaRealPdv(pdvCod, vendas.data) : null
+    if (mapaReal && normMapa(mapaReal) !== normMapa(pend.mapa)) {
+      await supabase.from('reposicao_confirmacoes')
+        .update({ status: 'confirmando_mapa', mapa_sugerido: mapaReal }).eq('id', pend.id)
+      await enviarBotoes(grupoId,
+        `⚠️ ${nome}, o PDV *${pdvOriginal}* consta no mapa *${mapaReal}* no faturamento de hoje, não no mapa *${pend.mapa}* que você informou.\n` +
+        `Deseja corrigir a reposição para o mapa *${mapaReal}*?`,
+        [{ id: 'sim', label: '✅ Sim, corrigir' }, { id: 'nao', label: '❌ Não, está certo' }])
+      return
+    }
+  }
+
   // BLOQUEIO: mapa informado não existe na base do dia → não confirma, pede correção.
   // (Só bloqueia quando há base importada; se a planilha do dia não foi subida, segue.)
   const mapaStatus = await validarMapaBase(pend.mapa, pend.filial)
@@ -667,7 +697,40 @@ async function tratarReposicao(
     if (transcrito) conteudo = transcrito
   }
 
-  // 0) Coleta de campos faltantes: existe um pendente 'coletando' deste motorista?
+  // 0) Confirmação de correção de mapa: o PDV está em outro mapa no faturamento
+  // e perguntamos se o motorista quer corrigir a reposição para o mapa certo.
+  const { data: pendMapa } = await supabase
+    .from('reposicao_confirmacoes')
+    .select('*')
+    .eq('grupo_id', grupoId)
+    .eq('motorista_telefone', participante)
+    .eq('status', 'confirmando_mapa')
+    .gte('created_at', limitePend())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (pendMapa) {
+    const resp = extrairResposta(body)
+    const nomeMot = pendMapa.motorista_nome || senderName || 'Motorista'
+    if (resp === 'sim') {
+      await supabase.from('reposicao_confirmacoes')
+        .update({ mapa: pendMapa.mapa_sugerido, status: 'coletando' }).eq('id', pendMapa.id)
+      await finalizarColeta({ ...pendMapa, mapa: pendMapa.mapa_sugerido }, grupoId, nomeMot)
+      return { ok: true, action: 'repos-mapa-corrigido' }
+    }
+    if (resp === 'nao') {
+      await supabase.from('reposicao_confirmacoes').update({ status: 'rejeitado' }).eq('id', pendMapa.id)
+      await enviar(grupoId, `⛔ ${nomeMot}, confira o número do mapa e *reenvie a solicitação* com o mapa correto.`)
+      return { ok: true, action: 'repos-mapa-mantido' }
+    }
+    await enviarBotoes(grupoId,
+      `⚠️ Por favor, responda *Sim* para corrigir o mapa para *${pendMapa.mapa_sugerido}* ou *Não* para manter e corrigir manualmente.`,
+      [{ id: 'sim', label: '✅ Sim, corrigir' }, { id: 'nao', label: '❌ Não, está certo' }])
+    return { ok: true, action: 'repos-mapa-repetir-pergunta' }
+  }
+
+  // 0.1) Coleta de campos faltantes: existe um pendente 'coletando' deste motorista?
   const { data: pendColeta } = await supabase
     .from('reposicao_confirmacoes')
     .select('*')
