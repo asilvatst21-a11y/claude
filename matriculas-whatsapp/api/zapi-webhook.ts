@@ -260,6 +260,19 @@ async function produtosVendidosPdv(pdvCod: number, data: string): Promise<{ codi
   })
 }
 
+// Busca o mapa real do PDV no faturamento do dia (fonte da verdade, vinda do
+// CSV importado), para confrontar com o mapa que o motorista digitou.
+async function buscarMapaRealPdv(pdvCod: number, data: string): Promise<string | null> {
+  const { data: rows } = await supabase
+    .from('vendas_dia')
+    .select('mapa')
+    .eq('data', data)
+    .eq('pdv_codigo', pdvCod)
+    .not('mapa', 'is', null)
+    .limit(1)
+  return rows?.[0]?.mapa?.trim() || null
+}
+
 // Monta um pequeno catálogo de referência pra IA, priorizando o que o PDV comprou.
 async function buscarProdutosContexto(pdvCodigo: string): Promise<string> {
   try {
@@ -336,14 +349,14 @@ function normMapa(s: string | null | undefined): string {
 }
 
 // Busca a equipe (motorista + ajudantes) do mapa na Base importada mais recente
-// e monta as linhas para a confirmação. Retorna null se não houver correspondência.
-async function buscarEquipeMapa(mapa: string | null): Promise<string | null> {
+// da filial e monta as linhas para a confirmação. Retorna null se não houver correspondência.
+async function buscarEquipeMapa(mapa: string | null, filial: string): Promise<string | null> {
   const alvo = normMapa(mapa)
   if (!alvo) return null
   const { data: ult } = await supabase
-    .from('mapa_equipe').select('data').order('data', { ascending: false }).limit(1).maybeSingle()
+    .from('mapa_equipe').select('data').eq('filial', filial).order('data', { ascending: false }).limit(1).maybeSingle()
   if (!ult?.data) return null
-  const { data: rows } = await supabase.from('mapa_equipe').select('*').eq('data', ult.data)
+  const { data: rows } = await supabase.from('mapa_equipe').select('*').eq('data', ult.data).eq('filial', filial)
   const row = (rows ?? []).find((r: any) => normMapa(r.mapa) === alvo)
   if (!row) return null
   const linhas: string[] = []
@@ -353,17 +366,17 @@ async function buscarEquipeMapa(mapa: string | null): Promise<string | null> {
   return linhas.length ? linhas.join('\n') : null
 }
 
-// Valida se o mapa informado existe na base (mapa_equipe) importada mais recente.
+// Valida se o mapa informado existe na base (mapa_equipe) importada mais recente da filial.
 //  'sem_base'       → tabela vazia / planilha do dia não importada → NÃO bloqueia
 //  'nao_encontrado' → há base, mas o mapa não casa → bloqueia e pede correção
 //  'ok'             → mapa encontrado
-async function validarMapaBase(mapa: string | null): Promise<'sem_base' | 'nao_encontrado' | 'ok'> {
+async function validarMapaBase(mapa: string | null, filial: string): Promise<'sem_base' | 'nao_encontrado' | 'ok'> {
   const { data: ult } = await supabase
-    .from('mapa_equipe').select('data').order('data', { ascending: false }).limit(1).maybeSingle()
+    .from('mapa_equipe').select('data').eq('filial', filial).order('data', { ascending: false }).limit(1).maybeSingle()
   if (!ult?.data) return 'sem_base'
   const alvo = normMapa(mapa)
   if (!alvo) return 'nao_encontrado'
-  const { data: rows } = await supabase.from('mapa_equipe').select('mapa').eq('data', ult.data)
+  const { data: rows } = await supabase.from('mapa_equipe').select('mapa').eq('data', ult.data).eq('filial', filial)
   const achou = (rows ?? []).some((r: any) => normMapa(r.mapa) === alvo)
   return achou ? 'ok' : 'nao_encontrado'
 }
@@ -608,9 +621,26 @@ async function finalizarColeta(pend: any, grupoId: string, nome: string): Promis
     return
   }
 
+  // BLOQUEIO: o PDV está no faturamento, mas com um mapa diferente do informado
+  // → o motorista provavelmente digitou o mapa errado. Em vez de só recusar,
+  // sugere o mapa correto (vindo do faturamento) e pede confirmação.
+  if (vendas.situacao === 'ok') {
+    const pdvCod = parseInt(pdvOriginal.replace(/\D/g, ''))
+    const mapaReal = pdvCod ? await buscarMapaRealPdv(pdvCod, vendas.data) : null
+    if (mapaReal && normMapa(mapaReal) !== normMapa(pend.mapa)) {
+      await supabase.from('reposicao_confirmacoes')
+        .update({ status: 'confirmando_mapa', mapa_sugerido: mapaReal }).eq('id', pend.id)
+      await enviarBotoes(grupoId,
+        `⚠️ ${nome}, o PDV *${pdvOriginal}* consta no mapa *${mapaReal}* no faturamento de hoje, não no mapa *${pend.mapa}* que você informou.\n` +
+        `Deseja corrigir a reposição para o mapa *${mapaReal}*?`,
+        [{ id: 'sim', label: '✅ Sim, corrigir' }, { id: 'nao', label: '❌ Não, está certo' }])
+      return
+    }
+  }
+
   // BLOQUEIO: mapa informado não existe na base do dia → não confirma, pede correção.
   // (Só bloqueia quando há base importada; se a planilha do dia não foi subida, segue.)
-  const mapaStatus = await validarMapaBase(pend.mapa)
+  const mapaStatus = await validarMapaBase(pend.mapa, pend.filial)
   if (mapaStatus === 'nao_encontrado') {
     await supabase.from('reposicao_confirmacoes').update({ status: 'rejeitado' }).eq('id', pend.id)
     await enviar(grupoId,
@@ -633,7 +663,7 @@ async function finalizarColeta(pend: any, grupoId: string, nome: string): Promis
     .single()
   const reg = upd ?? { ...pend, produto, codigo_pdv: codigoPdv }
 
-  const equipe = await buscarEquipeMapa(reg.mapa)
+  const equipe = await buscarEquipeMapa(reg.mapa, reg.filial)
   await enviarBotoes(grupoId, resumoConfirmacao(reg, equipe), [
     { id: 'sim', label: '✅ Sim' },
     { id: 'nao', label: '❌ Não' },
@@ -667,7 +697,40 @@ async function tratarReposicao(
     if (transcrito) conteudo = transcrito
   }
 
-  // 0) Coleta de campos faltantes: existe um pendente 'coletando' deste motorista?
+  // 0) Confirmação de correção de mapa: o PDV está em outro mapa no faturamento
+  // e perguntamos se o motorista quer corrigir a reposição para o mapa certo.
+  const { data: pendMapa } = await supabase
+    .from('reposicao_confirmacoes')
+    .select('*')
+    .eq('grupo_id', grupoId)
+    .eq('motorista_telefone', participante)
+    .eq('status', 'confirmando_mapa')
+    .gte('created_at', limitePend())
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (pendMapa) {
+    const resp = extrairResposta(body)
+    const nomeMot = pendMapa.motorista_nome || senderName || 'Motorista'
+    if (resp === 'sim') {
+      await supabase.from('reposicao_confirmacoes')
+        .update({ mapa: pendMapa.mapa_sugerido, status: 'coletando' }).eq('id', pendMapa.id)
+      await finalizarColeta({ ...pendMapa, mapa: pendMapa.mapa_sugerido }, grupoId, nomeMot)
+      return { ok: true, action: 'repos-mapa-corrigido' }
+    }
+    if (resp === 'nao') {
+      await supabase.from('reposicao_confirmacoes').update({ status: 'rejeitado' }).eq('id', pendMapa.id)
+      await enviar(grupoId, `⛔ ${nomeMot}, confira o número do mapa e *reenvie a solicitação* com o mapa correto.`)
+      return { ok: true, action: 'repos-mapa-mantido' }
+    }
+    await enviarBotoes(grupoId,
+      `⚠️ Por favor, responda *Sim* para corrigir o mapa para *${pendMapa.mapa_sugerido}* ou *Não* para manter e corrigir manualmente.`,
+      [{ id: 'sim', label: '✅ Sim, corrigir' }, { id: 'nao', label: '❌ Não, está certo' }])
+    return { ok: true, action: 'repos-mapa-repetir-pergunta' }
+  }
+
+  // 0.1) Coleta de campos faltantes: existe um pendente 'coletando' deste motorista?
   const { data: pendColeta } = await supabase
     .from('reposicao_confirmacoes')
     .select('*')
@@ -780,7 +843,7 @@ async function tratarReposicao(
     if (precisaValidacao && grupoValidacao) {
       await enviar(grupoId,
         `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nEnviada para validação do controle.`)
-      const equipeValidacao = await buscarEquipeMapa(pend.mapa)
+      const equipeValidacao = await buscarEquipeMapa(pend.mapa, pend.filial)
       await enviarBotoes(grupoValidacao, resumoValidacao(numero, pend, equipeValidacao), [
         { id: `vok:${novaRep.id}`,  label: '✅ OK' },
         { id: `vnok:${novaRep.id}`, label: '❌ NOK' },
