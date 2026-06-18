@@ -363,8 +363,9 @@ export default function ReposicoesPage() {
   // Marca como "Registrado no sistema" (registrado no sistema Ambev p/ envio do produto)
   async function marcarRegistrado(rep: Reposicao) {
     setActionLoading(rep.id + "registrado");
-    await valesSupabase.from("reposicoes").update({ status: "registrado" }).eq("id", rep.id);
+    const { error } = await valesSupabase.from("reposicoes").update({ status: "registrado" }).eq("id", rep.id);
     setActionLoading(null);
+    if (error) { alert(`Falha ao confirmar o registro:\n${error.message}`); return; }
     await fetchData();
   }
 
