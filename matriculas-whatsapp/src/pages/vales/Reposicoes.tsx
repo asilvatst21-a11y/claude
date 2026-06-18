@@ -33,6 +33,10 @@ interface Reposicao {
   cora_nf: string | null;
   cora_data_acao: string | null;
   cora_importado_em: string | null;
+  cora_produto_lancado: string | null;
+  cora_mapa_lancado: string | null;
+  cora_motivo_lancado: string | null;
+  cora_quantidade_lancada: string | null;
 }
 
 const TIPO_REPOSICAO_LABEL: Record<string, string> = {
@@ -115,7 +119,9 @@ interface CoraRow {
   status: string;
   mapa: string;
   produtoCodigo: string;
+  descricaoProduto: string;
   quantidade: string;
+  motivo: string;
   motivoReprovacao: string;
   pedidoReposicao: string;
   nf: string;
@@ -127,7 +133,9 @@ const CORA_COLUNAS: Record<string, keyof CoraRow> = {
   "status solicitacao": "status",
   "mapa origem": "mapa",
   "produto": "produtoCodigo",
+  "descricao produto": "descricaoProduto",
   "quantidade": "quantidade",
+  "justificativa": "motivo",
   "motivo da reprovacao": "motivoReprovacao",
   "nr pedido reposicao": "pedidoReposicao",
   "nf": "nf",
@@ -169,7 +177,9 @@ function parseCoraRows(linhas: string[][]): CoraRow[] {
       status: get(row, "status"),
       mapa: get(row, "mapa"),
       produtoCodigo: get(row, "produtoCodigo"),
+      descricaoProduto: get(row, "descricaoProduto"),
       quantidade: get(row, "quantidade"),
+      motivo: get(row, "motivo"),
       motivoReprovacao: get(row, "motivoReprovacao"),
       pedidoReposicao: get(row, "pedidoReposicao"),
       nf: get(row, "nf"),
@@ -243,9 +253,17 @@ async function importarArquivoCora(file: File): Promise<ImportCoraResumo> {
     if (candidatos.length >= 1) {
       const rep = candidatos[0];
       const novoStatus = rep.status === "pendente" || rep.status === "validado" ? "registrado" : rep.status;
+      // Guarda o que foi de fato lançado no CORA no momento do registro, para
+      // fins de conformidade — não é sobrescrito em reimportações seguintes.
+      const lancamento = {
+        cora_produto_lancado: [linha.produtoCodigo, linha.descricaoProduto].filter(Boolean).join(" - ") || null,
+        cora_mapa_lancado: linha.mapa || null,
+        cora_motivo_lancado: linha.motivo || null,
+        cora_quantidade_lancada: linha.quantidade || null,
+      };
       const { error: errVincula } = await valesSupabase
         .from("reposicoes")
-        .update({ ...camposCora, status: novoStatus, cora_solicitacao_id: linha.solicitacaoId })
+        .update({ ...camposCora, ...lancamento, status: novoStatus, cora_solicitacao_id: linha.solicitacaoId })
         .eq("id", rep.id);
       if (errVincula) throw new Error(`Falha ao vincular a solicitação ${linha.solicitacaoId}: ${errVincula.message}`);
       naoLinkadas.splice(naoLinkadas.indexOf(rep), 1);
@@ -462,6 +480,10 @@ export default function ReposicoesPage() {
       "Solicitação CORA": r.cora_solicitacao_id ?? "",
       "Status CORA": r.cora_status ?? "",
       "Motivo Reprovação CORA": r.cora_motivo_reprovacao ?? "",
+      "Produto Lançado no CORA": r.cora_produto_lancado ?? "",
+      "Mapa Lançado no CORA": r.cora_mapa_lancado ?? "",
+      "Motivo Lançado no CORA": r.cora_motivo_lancado ?? "",
+      "Quantidade Lançada no CORA": r.cora_quantidade_lancada ?? "",
       "Mensagem original": r.mensagem_original ?? "",
     }));
     const ws = XLSX.utils.json_to_sheet(rows);
@@ -510,6 +532,15 @@ export default function ReposicoesPage() {
           {r.cora_solicitacao_id && <div><span className="text-xs text-muted-foreground block mb-0.5">Solicitação CORA</span><span className="font-medium">{r.cora_solicitacao_id}</span></div>}
           {r.cora_motivo_reprovacao && <div><span className="text-xs text-muted-foreground block mb-0.5">Motivo Reprovação CORA</span><span className="font-medium">{r.cora_motivo_reprovacao}</span></div>}
         </div>
+        {(r.cora_produto_lancado || r.cora_mapa_lancado || r.cora_motivo_lancado || r.cora_quantidade_lancada) && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3 border-t pt-3">
+            <div className="col-span-2 md:col-span-4 text-xs text-muted-foreground -mb-1">Lançado no CORA</div>
+            {r.cora_produto_lancado && <div><span className="text-xs text-muted-foreground block mb-0.5">Produto</span><span className="font-medium">{r.cora_produto_lancado}</span></div>}
+            {r.cora_mapa_lancado && <div><span className="text-xs text-muted-foreground block mb-0.5">Mapa</span><span className="font-medium">{r.cora_mapa_lancado}</span></div>}
+            {r.cora_motivo_lancado && <div><span className="text-xs text-muted-foreground block mb-0.5">Motivo</span><span className="font-medium">{r.cora_motivo_lancado}</span></div>}
+            {r.cora_quantidade_lancada && <div><span className="text-xs text-muted-foreground block mb-0.5">Quantidade</span><span className="font-medium">{r.cora_quantidade_lancada}</span></div>}
+          </div>
+        )}
         {r.mensagem_original && r.mensagem_original !== "[áudio]" && (
           <div className="text-xs text-muted-foreground border-l-2 pl-3 italic">&ldquo;{r.mensagem_original}&rdquo;</div>
         )}
