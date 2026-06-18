@@ -170,11 +170,16 @@ async function runSync(): Promise<{ synced: number }> {
 
       await prisma.duel.update({ where: { id: duel.id }, data: { status: "FINISHED", winnerId } });
     }));
-
-    // Round summaries: generate banter recap once all matches in a round are done
-    const affectedRounds = finishedMatchIds.map((id) => matchById[id]?.round ?? "Fase de Grupos");
-    await maybeGenerateRoundSummaries(affectedRounds).catch(() => {});
   }
+
+  // Round summaries: catch up on every known round, not just ones that just finished —
+  // this also covers rounds that completed before this feature was deployed.
+  const allRounds = await prisma.match.findMany({
+    where: { externalId: { not: null } },
+    select: { round: true },
+    distinct: ["round"],
+  });
+  await maybeGenerateRoundSummaries(allRounds.map((m) => m.round ?? "Fase de Grupos")).catch(() => {});
 
   // Notify users with predictions on matches starting in the next 15–30 min
   const now = new Date();
