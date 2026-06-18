@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { sendPushToUser } from "@/lib/push";
 
 const INTROS = [
   "Fechou a rodada e o bagulho ficou doido! 🔥",
@@ -52,7 +53,25 @@ async function generateRoundSummaryIfComplete(round: string) {
     if (!text) continue;
 
     await prisma.roundSummary.create({ data: { leagueId: league.id, round, text } });
+    await notifyMembers(league.id, league.name, round);
   }
+}
+
+async function notifyMembers(leagueId: string, leagueName: string, round: string) {
+  const members = await prisma.leagueMember.findMany({
+    where: { leagueId },
+    select: { userId: true },
+  });
+
+  await Promise.allSettled(
+    members.map((m) =>
+      sendPushToUser(m.userId, {
+        title: "Resumo da rodada saiu! 🍿",
+        body: `${leagueName}: a resenha da Rodada ${round} já está disponível.`,
+        url: `/leagues/${leagueId}?tab=Rodadas`,
+      })
+    )
+  );
 }
 
 async function buildSummaryText(leagueId: string, round: string, matchIds: string[]): Promise<string | null> {

@@ -54,6 +54,7 @@ interface LeagueTabsProps {
   userPlan: string;
   userId: string;
   scoring: LeagueScoring;
+  initialTab?: string;
 }
 
 const TABS = ["Jogos", "Ranking", "Rodadas", "H2H", "Regras"] as const;
@@ -67,8 +68,10 @@ export function LeagueTabs({
   userPlan,
   userId,
   scoring,
+  initialTab,
 }: LeagueTabsProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("Jogos");
+  const defaultTab = (TABS as readonly string[]).includes(initialTab ?? "") ? (initialTab as Tab) : "Jogos";
+  const [activeTab, setActiveTab] = useState<Tab>(defaultTab);
   const isPro = userPlan !== "FREE";
 
   const hasBonus = scoring.championPredictionEnabled;

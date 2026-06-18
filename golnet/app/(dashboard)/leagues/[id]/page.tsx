@@ -11,8 +11,10 @@ export const metadata = { title: "Liga — PalpitaAí" };
 
 export default async function LeagueDetailPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams: { tab?: string };
 }) {
   const session = await auth();
   const userId = session?.user?.id ?? "";
@@ -251,6 +253,7 @@ export default async function LeagueDetailPage({
         roundGroups={roundGroups}
         userPlan={userPlan}
         userId={userId}
+        initialTab={searchParams.tab}
         scoring={{
           ptsExactScore: league.ptsExactScore,
           ptsCorrectDiff: league.ptsCorrectDiff,
