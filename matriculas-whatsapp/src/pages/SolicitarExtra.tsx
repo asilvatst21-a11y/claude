@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Building2, CheckCircle2, Loader2, ArrowLeft } from 'lucide-react'
+import PessoaValorCard from '../components/PessoaValorCard'
 
 const TIPOS_SOLICITACAO = ['Finalizar Rota', 'Entrega/Recolha de Materiais', 'Outros'] as const
 const SOLICITANTES_AMBEV = ['Isabela Kimel', 'Takasi Augusto', 'Roberta Soares', 'Outro']
@@ -27,7 +28,11 @@ export default function SolicitarExtra() {
   const [motoristaNome, setMotoristaNome] = useState('')
   const [ajudante1Nome, setAjudante1Nome] = useState('')
   const [ajudante2Nome, setAjudante2Nome] = useState('')
+  const [valorUnico, setValorUnico] = useState(false)
   const [valorAcordado, setValorAcordado] = useState('')
+  const [valorMotorista, setValorMotorista] = useState('')
+  const [valorAjudante1, setValorAjudante1] = useState('')
+  const [valorAjudante2, setValorAjudante2] = useState('')
 
   useEffect(() => {
     supabase.from('filiais').select('nome').order('nome').then(({ data }) => {
@@ -58,7 +63,11 @@ export default function SolicitarExtra() {
     setMotoristaNome('')
     setAjudante1Nome('')
     setAjudante2Nome('')
+    setValorUnico(false)
     setValorAcordado('')
+    setValorMotorista('')
+    setValorAjudante1('')
+    setValorAjudante2('')
     setDataSolicitacao(new Date().toISOString().slice(0, 10))
   }
 
@@ -78,6 +87,14 @@ export default function SolicitarExtra() {
       return
     }
     setEnviando(true)
+    const vMotorista = valorUnico ? null : (valorMotorista ? Number(valorMotorista) : null)
+    const vAjudante1 = valorUnico ? null : (valorAjudante1 ? Number(valorAjudante1) : null)
+    const vAjudante2 = valorUnico ? null : (valorAjudante2 ? Number(valorAjudante2) : null)
+    const vTotal = valorUnico
+      ? (valorAcordado ? Number(valorAcordado) : null)
+      : ([vMotorista, vAjudante1, vAjudante2].some(v => v != null)
+        ? [vMotorista, vAjudante1, vAjudante2].reduce((soma: number, v) => soma + (v ?? 0), 0)
+        : null)
     const { error } = await supabase.from('solicitacoes_extra').insert({
       filial,
       nome_solicitante: nomeSolicitante.trim(),
@@ -90,7 +107,10 @@ export default function SolicitarExtra() {
       motorista_nome: motoristaNome || null,
       ajudante1_nome: ajudante1Nome || null,
       ajudante2_nome: ajudante2Nome || null,
-      valor_acordado: valorAcordado ? Number(valorAcordado) : null,
+      valor_acordado: vTotal,
+      valor_motorista: vMotorista,
+      valor_ajudante1: vAjudante1,
+      valor_ajudante2: vAjudante2,
     })
     setEnviando(false)
     if (error) {
@@ -231,52 +251,58 @@ export default function SolicitarExtra() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Motorista</label>
-              <select
-                value={motoristaNome}
-                onChange={e => setMotoristaNome(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-              >
-                <option value="">Selecione...</option>
-                {colaboradores.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Ajudante 1</label>
-              <select
-                value={ajudante1Nome}
-                onChange={e => setAjudante1Nome(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-              >
-                <option value="">Selecione...</option>
-                {colaboradores.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Ajudante 2</label>
-              <select
-                value={ajudante2Nome}
-                onChange={e => setAjudante2Nome(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 bg-white"
-              >
-                <option value="">Selecione...</option>
-                {colaboradores.map(c => <option key={c}>{c}</option>)}
-              </select>
-            </div>
-          </div>
+          <div className="space-y-3">
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={valorUnico}
+                onChange={e => setValorUnico(e.target.checked)}
+                className="rounded text-brand-700"
+              />
+              Valor único para todos
+            </label>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1.5">Valor acordado</label>
-            <input
-              type="number"
-              step="0.01"
-              value={valorAcordado}
-              onChange={e => setValorAcordado(e.target.value)}
-              placeholder="0,00"
-              className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            <PessoaValorCard
+              label="Motorista"
+              nome={motoristaNome}
+              onNomeChange={setMotoristaNome}
+              colaboradores={colaboradores}
+              valor={valorMotorista}
+              onValorChange={setValorMotorista}
+              mostrarValor={!valorUnico}
             />
+            <PessoaValorCard
+              label="Ajudante 1"
+              nome={ajudante1Nome}
+              onNomeChange={setAjudante1Nome}
+              colaboradores={colaboradores}
+              valor={valorAjudante1}
+              onValorChange={setValorAjudante1}
+              mostrarValor={!valorUnico}
+            />
+            <PessoaValorCard
+              label="Ajudante 2"
+              nome={ajudante2Nome}
+              onNomeChange={setAjudante2Nome}
+              colaboradores={colaboradores}
+              valor={valorAjudante2}
+              onValorChange={setValorAjudante2}
+              mostrarValor={!valorUnico}
+            />
+
+            {valorUnico && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Valor acordado (total)</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={valorAcordado}
+                  onChange={e => setValorAcordado(e.target.value)}
+                  placeholder="0,00"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                />
+              </div>
+            )}
           </div>
 
           {erro && (

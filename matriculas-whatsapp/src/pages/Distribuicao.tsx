@@ -4,6 +4,7 @@ import { Truck, RefreshCw, FileSpreadsheet, Plus, X, Building2 } from 'lucide-re
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import type { SolicitacaoExtra } from '../types'
+import PessoaValorCard from '../components/PessoaValorCard'
 
 const TIPOS_SOLICITACAO = ['Finalizar Rota', 'Entrega/Recolha de Materiais', 'Outros'] as const
 const SOLICITANTES_AMBEV = ['Isabela Kimel', 'Takasi Augusto', 'Roberta Soares', 'Outro']
@@ -37,7 +38,11 @@ export default function Distribuicao() {
   const [motoristaNome, setMotoristaNome] = useState('')
   const [ajudante1Nome, setAjudante1Nome] = useState('')
   const [ajudante2Nome, setAjudante2Nome] = useState('')
+  const [valorUnico, setValorUnico] = useState(false)
   const [valorAcordado, setValorAcordado] = useState('')
+  const [valorMotorista, setValorMotorista] = useState('')
+  const [valorAjudante1, setValorAjudante1] = useState('')
+  const [valorAjudante2, setValorAjudante2] = useState('')
 
   const fetchSolicitacoes = useCallback(async () => {
     if (!usuario) return
@@ -71,7 +76,11 @@ export default function Distribuicao() {
     setMotoristaNome('')
     setAjudante1Nome('')
     setAjudante2Nome('')
+    setValorUnico(false)
     setValorAcordado('')
+    setValorMotorista('')
+    setValorAjudante1('')
+    setValorAjudante2('')
     setErro('')
     setModal(true)
   }
@@ -92,6 +101,14 @@ export default function Distribuicao() {
       return
     }
     setSalvando(true)
+    const vMotorista = valorUnico ? null : (valorMotorista ? Number(valorMotorista) : null)
+    const vAjudante1 = valorUnico ? null : (valorAjudante1 ? Number(valorAjudante1) : null)
+    const vAjudante2 = valorUnico ? null : (valorAjudante2 ? Number(valorAjudante2) : null)
+    const vTotal = valorUnico
+      ? (valorAcordado ? Number(valorAcordado) : null)
+      : ([vMotorista, vAjudante1, vAjudante2].some(v => v != null)
+        ? [vMotorista, vAjudante1, vAjudante2].reduce((soma: number, v) => soma + (v ?? 0), 0)
+        : null)
     const { error } = await supabase.from('solicitacoes_extra').insert({
       filial: usuario.filial,
       nome_solicitante: nomeSolicitante.trim(),
@@ -104,7 +121,10 @@ export default function Distribuicao() {
       motorista_nome: motoristaNome || null,
       ajudante1_nome: ajudante1Nome || null,
       ajudante2_nome: ajudante2Nome || null,
-      valor_acordado: valorAcordado ? Number(valorAcordado) : null,
+      valor_acordado: vTotal,
+      valor_motorista: vMotorista,
+      valor_ajudante1: vAjudante1,
+      valor_ajudante2: vAjudante2,
     })
     setSalvando(false)
     if (error) {
@@ -126,9 +146,12 @@ export default function Distribuicao() {
       'Local': s.local ?? '',
       'Solicitante Ambev': s.solicitante_ambev ?? '',
       'Motorista': s.motorista_nome ?? '',
+      'Valor Motorista': s.valor_motorista ?? '',
       'Ajudante 1': s.ajudante1_nome ?? '',
+      'Valor Ajudante 1': s.valor_ajudante1 ?? '',
       'Ajudante 2': s.ajudante2_nome ?? '',
-      'Valor Acordado': s.valor_acordado ?? '',
+      'Valor Ajudante 2': s.valor_ajudante2 ?? '',
+      'Valor Total': s.valor_acordado ?? '',
       'Criado em': new Date(s.created_at).toLocaleString('pt-BR'),
     }))
     const ws = XLSX.utils.json_to_sheet(rows)
@@ -193,9 +216,12 @@ export default function Distribuicao() {
                   </td>
                   <td className="px-4 py-3">{s.mapa ?? s.local ?? '—'}</td>
                   <td className="px-4 py-3">
-                    <div>{s.motorista_nome ?? '—'}</div>
-                    {(s.ajudante1_nome || s.ajudante2_nome) && (
-                      <div className="text-xs text-muted-foreground">{[s.ajudante1_nome, s.ajudante2_nome].filter(Boolean).join(' / ')}</div>
+                    <div>{s.motorista_nome ?? '—'}{s.valor_motorista != null && <span className="text-xs text-muted-foreground"> ({formatCurrency(s.valor_motorista)})</span>}</div>
+                    {s.ajudante1_nome && (
+                      <div className="text-xs text-muted-foreground">{s.ajudante1_nome}{s.valor_ajudante1 != null && ` (${formatCurrency(s.valor_ajudante1)})`}</div>
+                    )}
+                    {s.ajudante2_nome && (
+                      <div className="text-xs text-muted-foreground">{s.ajudante2_nome}{s.valor_ajudante2 != null && ` (${formatCurrency(s.valor_ajudante2)})`}</div>
                     )}
                   </td>
                   <td className="px-4 py-3">{s.solicitante_ambev ?? '—'}</td>
@@ -219,9 +245,21 @@ export default function Distribuicao() {
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
                 <div><span className="text-xs text-muted-foreground block">Mapa/Local</span>{s.mapa ?? s.local ?? '—'}</div>
                 <div><span className="text-xs text-muted-foreground block">Valor</span>{formatCurrency(s.valor_acordado)}</div>
-                <div className="col-span-2"><span className="text-xs text-muted-foreground block">Motorista</span>{s.motorista_nome ?? '—'}</div>
-                {(s.ajudante1_nome || s.ajudante2_nome) && (
-                  <div className="col-span-2"><span className="text-xs text-muted-foreground block">Ajudantes</span>{[s.ajudante1_nome, s.ajudante2_nome].filter(Boolean).join(' / ')}</div>
+                <div className="col-span-2">
+                  <span className="text-xs text-muted-foreground block">Motorista</span>
+                  {s.motorista_nome ?? '—'}{s.valor_motorista != null && ` (${formatCurrency(s.valor_motorista)})`}
+                </div>
+                {s.ajudante1_nome && (
+                  <div className="col-span-2">
+                    <span className="text-xs text-muted-foreground block">Ajudante 1</span>
+                    {s.ajudante1_nome}{s.valor_ajudante1 != null && ` (${formatCurrency(s.valor_ajudante1)})`}
+                  </div>
+                )}
+                {s.ajudante2_nome && (
+                  <div className="col-span-2">
+                    <span className="text-xs text-muted-foreground block">Ajudante 2</span>
+                    {s.ajudante2_nome}{s.valor_ajudante2 != null && ` (${formatCurrency(s.valor_ajudante2)})`}
+                  </div>
                 )}
                 <div className="col-span-2"><span className="text-xs text-muted-foreground block">Solicitante Ambev</span>{s.solicitante_ambev ?? '—'}</div>
               </div>
@@ -288,33 +326,51 @@ export default function Distribuicao() {
                 )}
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Motorista</label>
-                  <select value={motoristaNome} onChange={e => setMotoristaNome(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
-                    <option value="">Selecione...</option>
-                    {colaboradores.map(c => <option key={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Ajudante 1</label>
-                  <select value={ajudante1Nome} onChange={e => setAjudante1Nome(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
-                    <option value="">Selecione...</option>
-                    {colaboradores.map(c => <option key={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Ajudante 2</label>
-                  <select value={ajudante2Nome} onChange={e => setAjudante2Nome(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
-                    <option value="">Selecione...</option>
-                    {colaboradores.map(c => <option key={c}>{c}</option>)}
-                  </select>
-                </div>
-              </div>
+              <div className="space-y-3">
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={valorUnico}
+                    onChange={e => setValorUnico(e.target.checked)}
+                    className="rounded text-brand-700"
+                  />
+                  Valor único para todos
+                </label>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Valor acordado</label>
-                <input type="number" step="0.01" value={valorAcordado} onChange={e => setValorAcordado(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                <PessoaValorCard
+                  label="Motorista"
+                  nome={motoristaNome}
+                  onNomeChange={setMotoristaNome}
+                  colaboradores={colaboradores}
+                  valor={valorMotorista}
+                  onValorChange={setValorMotorista}
+                  mostrarValor={!valorUnico}
+                />
+                <PessoaValorCard
+                  label="Ajudante 1"
+                  nome={ajudante1Nome}
+                  onNomeChange={setAjudante1Nome}
+                  colaboradores={colaboradores}
+                  valor={valorAjudante1}
+                  onValorChange={setValorAjudante1}
+                  mostrarValor={!valorUnico}
+                />
+                <PessoaValorCard
+                  label="Ajudante 2"
+                  nome={ajudante2Nome}
+                  onNomeChange={setAjudante2Nome}
+                  colaboradores={colaboradores}
+                  valor={valorAjudante2}
+                  onValorChange={setValorAjudante2}
+                  mostrarValor={!valorUnico}
+                />
+
+                {valorUnico && (
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Valor acordado (total)</label>
+                    <input type="number" step="0.01" value={valorAcordado} onChange={e => setValorAcordado(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  </div>
+                )}
               </div>
 
               {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}

@@ -258,6 +258,9 @@ export interface SolicitacaoExtra {
   ajudante1_nome: string | null
   ajudante2_nome: string | null
   valor_acordado: number | null
+  valor_motorista: number | null
+  valor_ajudante1: number | null
+  valor_ajudante2: number | null
   created_at: string
 }
 
