@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { fetchFixturesByIds, mapApiStatus, extractGoals, type GoalEvent } from "@/lib/api-football";
 import { calculatePoints } from "@/lib/scoring";
 import { sendPushToUser } from "@/lib/push";
+import { maybeGenerateRoundSummaries } from "@/lib/round-summary";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -169,6 +170,10 @@ async function runSync(): Promise<{ synced: number }> {
 
       await prisma.duel.update({ where: { id: duel.id }, data: { status: "FINISHED", winnerId } });
     }));
+
+    // Round summaries: generate banter recap once all matches in a round are done
+    const affectedRounds = finishedMatchIds.map((id) => matchById[id]?.round ?? "Fase de Grupos");
+    await maybeGenerateRoundSummaries(affectedRounds).catch(() => {});
   }
 
   // Notify users with predictions on matches starting in the next 15–30 min

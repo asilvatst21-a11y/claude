@@ -408,6 +408,18 @@ model RoundRanking {
   @@unique([leagueId, userId, round])
 }
 
+// ─── Round Summary ────────────────────────────────────────────────────────────
+
+model RoundSummary {
+  id        String   @id @default(cuid())
+  leagueId  String
+  round     String
+  text      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@unique([leagueId, round])
+}
+
 // ─── Cron Log ─────────────────────────────────────────────────────────────────
 
 model CronLog {
