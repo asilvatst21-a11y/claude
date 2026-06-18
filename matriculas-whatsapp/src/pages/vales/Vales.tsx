@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import * as XLSX from "xlsx";
 import { useSearchParams } from "react-router-dom";
-import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, AlertTriangle, Clock, ChevronUp, ChevronDown, ChevronsUpDown, Download, GitBranch } from "lucide-react";
+import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, AlertTriangle, Clock, ChevronUp, ChevronDown, ChevronsUpDown, Download, GitBranch, FileWarning, ShieldAlert } from "lucide-react";
 import { ValeDetalhesModal, type ValeDetalhes } from "./ValeDetalhesModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -192,6 +192,10 @@ export default function ValesPage() {
   const [fluxoData, setFluxoData] = useState("");
   const [solicitandoFluxo, setSolicitandoFluxo] = useState(false);
 
+  const [contestarVale, setContestarVale] = useState<ValeRow | null>(null);
+  const [motivoContestacao, setMotivoContestacao] = useState("");
+  const [contestando, setContestando] = useState(false);
+
   const fetchVales = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -201,6 +205,7 @@ export default function ValesPage() {
           id, numero_vale, data_emissao, mapa, motorista, veiculo, data_rota,
           status_vale, acao_transportadora, justificativa_transportadora,
           acao_primeiro_nivel, justificativa_primeiro_nivel, valor_total,
+          contestado, motivo_contestacao, contestado_em,
           notificacao_pendente_enviada, notificacao_final_enviada,
           vale_ajudantes ( posicao, ajudantes ( id, codigo, nome, telefone ) ),
           vale_itens ( id, tipo_item, item, unidade, qtde_diferenca, qtde_diferenca_avulsa, valor )
@@ -432,6 +437,63 @@ export default function ValesPage() {
     } finally {
       setSolicitandoFluxo(false);
     }
+  }
+
+  const openContestar = (vale: ValeRow) => {
+    setContestarVale(vale);
+    setMotivoContestacao(vale.motivo_contestacao ?? "");
+  };
+
+  const handleContestar = async () => {
+    if (!contestarVale || !motivoContestacao.trim()) return;
+    setContestando(true);
+    try {
+      const { error } = await valesSupabase
+        .from("vales")
+        .update({
+          contestado: true,
+          motivo_contestacao: motivoContestacao.trim(),
+          contestado_em: new Date().toISOString(),
+        })
+        .eq("id", contestarVale.id);
+      if (error) throw new Error(error.message);
+
+      toast({ title: "Contestação registrada", description: `Vale #${contestarVale.numero_vale} marcado como contestado.` });
+      setContestarVale(null);
+      setMotivoContestacao("");
+      await fetchVales();
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Erro",
+        description: err instanceof Error ? err.message : "Erro desconhecido",
+      });
+    } finally {
+      setContestando(false);
+    }
+  };
+
+  function exportContestados() {
+    const rows = valesFiltered.filter((v) => v.contestado);
+    const data = rows.map((v) => ({
+      "Mapa": v.mapa ?? "",
+      "Vale #": v.numero_vale,
+      "Data Emissão": v.data_emissao ?? "",
+      "Motorista": v.motorista ?? "",
+      "Ajudante(s)": v.ajudantes.map((a) => a.nome).join(" / "),
+      "Valor Total": v.valor_total ?? 0,
+      "Status": v.status_vale ?? "",
+      "Motivo da Contestação": v.motivo_contestacao ?? "",
+      "Contestado em": v.contestado_em ? new Date(v.contestado_em).toLocaleString("pt-BR") : "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws["!cols"] = [
+      { wch: 8 }, { wch: 10 }, { wch: 14 }, { wch: 24 },
+      { wch: 30 }, { wch: 14 }, { wch: 12 }, { wch: 50 }, { wch: 18 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Vales Contestados");
+    XLSX.writeFile(wb, `vales-contestados-${new Date().toISOString().slice(0, 10)}.xlsx`);
   }
 
   const hasFilters = busca || dataInicio || dataFim || ajudanteFiltro !== "todos";
@@ -732,6 +794,42 @@ export default function ValesPage() {
         </Dialog>
       )}
 
+      {/* Contestar Vale Modal */}
+      {contestarVale && (
+        <Dialog open={!!contestarVale} onOpenChange={(o) => { if (!o) { setContestarVale(null); setMotivoContestacao(""); } }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-orange-600" />
+                Contestar Vale
+              </DialogTitle>
+              <DialogDescription>
+                Vale #{contestarVale.numero_vale} — descreva o motivo pelo qual este vale faturado
+                deveria ter sido abonado, para cobrança junto à Ambev.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-2">
+              <textarea
+                className="flex min-h-[100px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                placeholder="Ex: Item foi entregue corretamente, divergência foi causada por erro de conferência..."
+                value={motivoContestacao}
+                onChange={(e) => setMotivoContestacao(e.target.value)}
+                disabled={contestando}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setContestarVale(null); setMotivoContestacao(""); }} disabled={contestando}>
+                Cancelar
+              </Button>
+              <Button onClick={handleContestar} disabled={!motivoContestacao.trim() || contestando} className="gap-2">
+                {contestando ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldAlert className="h-4 w-4" />}
+                Salvar contestação
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {/* Page Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -742,6 +840,14 @@ export default function ValesPage() {
           <Button variant="outline" onClick={exportExcel} disabled={filteredVales.length === 0}>
             <Download className="h-4 w-4 mr-2" />
             Exportar Excel
+          </Button>
+          <Button
+            variant="outline"
+            onClick={exportContestados}
+            disabled={valesFiltered.filter((v) => v.contestado).length === 0}
+          >
+            <FileWarning className="h-4 w-4 mr-2" />
+            Exportar Contestados
           </Button>
           <Button variant="outline" onClick={fetchVales} disabled={isLoading}>
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
@@ -974,6 +1080,20 @@ export default function ValesPage() {
                                 >
                                   <GitBranch className="h-4 w-4" />
                                   <span className="ml-1 hidden sm:inline">Fluxo</span>
+                                </Button>
+                              )}
+                              {(vale.status_vale === "Faturado" || vale.status_vale === "Faturar") && (
+                                <Button
+                                  variant={vale.contestado ? "secondary" : "outline"}
+                                  size="sm"
+                                  onClick={() => openContestar(vale)}
+                                  title={vale.contestado ? "Vale já contestado — ver/editar motivo" : "Contestar vale"}
+                                  className={vale.contestado ? "text-orange-700" : ""}
+                                >
+                                  <ShieldAlert className="h-4 w-4" />
+                                  <span className="ml-1 hidden sm:inline">
+                                    {vale.contestado ? "Contestado" : "Contestar"}
+                                  </span>
                                 </Button>
                               )}
                             </div>
