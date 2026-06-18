@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
 import type { TelemetriaAlerta, TelemetriaAcao } from '../types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -525,6 +526,14 @@ export default function Telemetria() {
         placa: modalAcao.placa, motorista: mot,
         tipo_acao: tipo, dias_suspensao: dias, observacao: obs || null,
         registrado_por: usuario.nome ?? usuario.login,
+      })
+    }
+    if (tipo === 'Comunicado/Orientação' && !existente) {
+      const motivo = `${TIPO_LABEL[modalAcao.tipo] ?? modalAcao.tipo} — Placa ${modalAcao.placa}`
+      await registrarOrientacaoVerbalFluxo({
+        filial: usuario.filial, colaboradorNome: mot, origem: 'Telemetria', motivo,
+        dataInfracao: modalAcao.data_hora?.slice(0, 10) ?? null,
+        observacao: obs || null, registradoPor: usuario.nome ?? usuario.login, sourceId: modalAcao.id,
       })
     }
     setModalAcao(null)

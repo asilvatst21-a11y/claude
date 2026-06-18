@@ -12,6 +12,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { enviarMensagemGrupo } from '../lib/zapi'
+import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
 import type { Relato } from '../types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────────────────
@@ -575,6 +576,19 @@ export default function Relatos() {
       observacao: comentario.trim() || null,
       registrado_por: registradoPor,
     })))
+
+    const pessoaRelatada = relatos[0].pessoa_relatada ?? ''
+    const dia = relatos[0].data_ocorrencia?.slice(0, 10) ?? null
+    const itens = relatos.map(r => [r.tipo_relato, r.detalhamento].filter(Boolean).join(' — ')).filter(Boolean)
+    const motivo = itens.length <= 1
+      ? (itens[0] ?? '')
+      : `${itens.length} ocorrência(s):\n` + itens.map((l, i) => `${i + 1}. ${l}`).join('\n')
+    await registrarOrientacaoVerbalFluxo({
+      filial: usuario.filial, colaboradorNome: pessoaRelatada, origem: 'Relatos', motivo,
+      dataInfracao: dia, observacao: comentario.trim() || null, registradoPor,
+      sourceId: relatos.map(r => r.id).join(','),
+    })
+
     const { data: updated } = await supabase.from('relatos_acoes').select('*').eq('filial', usuario.filial)
     setAcoes(updated ?? [])
   }
@@ -598,6 +612,14 @@ export default function Relatos() {
         dias_suspensao: dias,
         observacao: obs || null,
         registrado_por: usuario.nome ?? usuario.login,
+      })
+    }
+    if (tipo === 'Orientação Verbal' && !existente) {
+      await registrarOrientacaoVerbalFluxo({
+        filial: usuario.filial, colaboradorNome: modalAcao.pessoa_relatada ?? '', origem: 'Relatos',
+        motivo: [modalAcao.tipo_relato, modalAcao.detalhamento].filter(Boolean).join(' — ') || (modalAcao.tipo_relato ?? ''),
+        dataInfracao: modalAcao.data_ocorrencia?.slice(0, 10) ?? null,
+        observacao: obs || null, registradoPor: usuario.nome ?? usuario.login, sourceId: modalAcao.id,
       })
     }
     setModalAcao(null)

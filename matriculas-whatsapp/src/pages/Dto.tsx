@@ -9,6 +9,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { enviarMensagemGrupo } from '../lib/zapi'
+import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
 import type { DtoObservacao } from '../types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -305,6 +306,17 @@ export default function Dto() {
       ? { ...o, status_acao: 'Concluído', responsavel_acao: responsavel }
       : o))
     setOrientados(prev => new Set([...prev, ...ids]))
+
+    const o0 = obs[0]
+    const dia = o0.data_aplicacao ? o0.data_aplicacao.slice(0, 10) : null
+    const itens = obs.map(o => [o.qual_desvio, o.tarefa_com_desvio].filter(Boolean).join(' — ') || 'Desvio de segurança')
+    const motivo = itens.length <= 1
+      ? itens[0]
+      : `${itens.length} desvio(s):\n` + itens.map((l, i) => `${i + 1}. ${l}`).join('\n')
+    await registrarOrientacaoVerbalFluxo({
+      filial: usuario.filial, colaboradorNome: o0.colaborador, origem: 'DTO', motivo,
+      dataInfracao: dia, registradoPor, sourceId: ids.join(','),
+    })
   }
 
   function exportarExcel() {

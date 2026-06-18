@@ -10,9 +10,9 @@ import type { FluxoPunitivo } from '../types'
 
 // ─── Sequência punitiva ──────────────────────────────────────────────────
 
-type TipoAcao = 'Advertência Verbal' | 'DTO' | 'Advertência Escrita' | 'Suspensão'
+type TipoAcao = 'Orientação Verbal' | 'Advertência Verbal' | 'DTO' | 'Advertência Escrita' | 'Suspensão'
 
-const TIPOS: TipoAcao[] = ['Advertência Verbal', 'DTO', 'Advertência Escrita', 'Suspensão']
+const TIPOS: TipoAcao[] = ['Orientação Verbal', 'Advertência Verbal', 'DTO', 'Advertência Escrita', 'Suspensão']
 
 const ORIGEM_COLOR: Record<string, string> = {
   GSDPQ:      'bg-blue-50 text-blue-700 border-blue-200',
@@ -25,6 +25,7 @@ const ORIGEM_COLOR: Record<string, string> = {
 }
 
 const ACAO_COLOR: Record<string, string> = {
+  'Orientação Verbal':    'bg-slate-50 text-slate-600 border-slate-200',
   'Advertência Verbal':   'bg-yellow-50 text-yellow-800 border-yellow-200',
   'DTO':                  'bg-orange-50 text-orange-700 border-orange-200',
   'Advertência Escrita':  'bg-red-50 text-red-700 border-red-200',
@@ -40,13 +41,15 @@ interface ProximaAcao {
 }
 
 function calcProxima(historico: FluxoPunitivo[]): ProximaAcao {
-  const concluido = historico.filter(h => h.status === 'Concluido' && h.tipo_acao)
-  const verbais  = concluido.filter(h => h.tipo_acao === 'Advertência Verbal').length
-  const dtos     = concluido.filter(h => h.tipo_acao === 'DTO').length
-  const escritas = concluido.filter(h => h.tipo_acao === 'Advertência Escrita').length
-  const susps    = concluido.filter(h => h.tipo_acao === 'Suspensão').length
+  const concluido   = historico.filter(h => h.status === 'Concluido' && h.tipo_acao)
+  const orientacoes = concluido.filter(h => h.tipo_acao === 'Orientação Verbal').length
+  const verbais      = concluido.filter(h => h.tipo_acao === 'Advertência Verbal').length
+  const dtos         = concluido.filter(h => h.tipo_acao === 'DTO').length
+  const escritas     = concluido.filter(h => h.tipo_acao === 'Advertência Escrita').length
+  const susps        = concluido.filter(h => h.tipo_acao === 'Suspensão').length
 
-  if (verbais < 2) return { tipo: 'Advertência Verbal', descricao: `${verbais + 1}ª Advertência Verbal`, nivel: 'baixo' }
+  if (orientacoes < 3) return { tipo: 'Orientação Verbal', descricao: `${orientacoes + 1}ª Orientação Verbal`, nivel: 'baixo' }
+  if (verbais < 3) return { tipo: 'Advertência Verbal', descricao: `${verbais + 1}ª Advertência Verbal`, nivel: 'baixo' }
   if (dtos < 2)    return { tipo: 'DTO',                descricao: `${dtos + 1}º DTO`,                  nivel: 'medio' }
   if (escritas < 5) return { tipo: 'Advertência Escrita', descricao: `${escritas + 1}ª Advertência Escrita`, nivel: 'alto' }
   const dias = Math.min(susps + 1, 5)
@@ -63,7 +66,8 @@ function nivelStyle(nivel: string) {
 function posicaoBar(historico: FluxoPunitivo[]) {
   const concluido = historico.filter(h => h.status === 'Concluido' && h.tipo_acao)
   return {
-    verbais:  Math.min(concluido.filter(h => h.tipo_acao === 'Advertência Verbal').length, 2),
+    orientacoes: Math.min(concluido.filter(h => h.tipo_acao === 'Orientação Verbal').length, 3),
+    verbais:  Math.min(concluido.filter(h => h.tipo_acao === 'Advertência Verbal').length, 3),
     dtos:     Math.min(concluido.filter(h => h.tipo_acao === 'DTO').length, 2),
     escritas: Math.min(concluido.filter(h => h.tipo_acao === 'Advertência Escrita').length, 5),
     susps:    Math.min(concluido.filter(h => h.tipo_acao === 'Suspensão').length, 5),
@@ -158,9 +162,10 @@ function combinarMotivos(grupo: FluxoPunitivo[]): string {
 // ─── SequenciaBar ─────────────────────────────────────────────────────────────
 
 function SequenciaBar({ historico }: { historico: FluxoPunitivo[] }) {
-  const { verbais, dtos, escritas, susps } = posicaoBar(historico)
+  const { orientacoes, verbais, dtos, escritas, susps } = posicaoBar(historico)
   const steps = [
-    { label: 'Ad. Verbal', total: 2, filled: verbais, color: 'bg-yellow-400' },
+    { label: 'Orientação', total: 3, filled: orientacoes, color: 'bg-slate-400' },
+    { label: 'Ad. Verbal', total: 3, filled: verbais, color: 'bg-yellow-400' },
     { label: 'DTO',        total: 2, filled: dtos,    color: 'bg-orange-400' },
     { label: 'Ad. Escrita',total: 5, filled: escritas,color: 'bg-red-400'    },
     { label: 'Suspensão',  total: 5, filled: susps,   color: 'bg-rose-600'   },
@@ -681,37 +686,45 @@ export default function FluxoPunitivo() {
     const { data: telemetria } = await supabase
       .from('telemetria_acoes').select('*').eq('filial', usuario.filial)
 
-    const legacyGsdpq: FluxoPunitivo[] = (gsdpq ?? []).map((a: any) => ({
-      id: 'gsdpq_' + a.id, filial: a.filial,
-      colaborador_nome: a.colaborador_nome, origem: 'GSDPQ' as const,
-      tipo_acao: a.tipo_acao, dias_suspensao: a.dias_suspensao ?? null,
-      data_acao: a.data_avaliacao ?? null, data_infracao: a.data_avaliacao ?? null,
-      observacao: a.observacao ?? null,
-      registrado_por: a.registrado_por ?? null, source_id: a.id,
-      status: 'Concluido' as const, motivo: a.questao ?? null,
-      created_at: a.created_at,
-    }))
+    // Orientação Verbal já sobe direto para fluxo_punitivo (origem nativa); evita
+    // duplicar essas linhas aqui, que viriam pela projeção legada das tabelas de ações.
+    const legacyGsdpq: FluxoPunitivo[] = (gsdpq ?? [])
+      .filter((a: any) => a.tipo_acao !== 'Orientação Verbal')
+      .map((a: any) => ({
+        id: 'gsdpq_' + a.id, filial: a.filial,
+        colaborador_nome: a.colaborador_nome, origem: 'GSDPQ' as const,
+        tipo_acao: a.tipo_acao, dias_suspensao: a.dias_suspensao ?? null,
+        data_acao: a.data_avaliacao ?? null, data_infracao: a.data_avaliacao ?? null,
+        observacao: a.observacao ?? null,
+        registrado_por: a.registrado_por ?? null, source_id: a.id,
+        status: 'Concluido' as const, motivo: a.questao ?? null,
+        created_at: a.created_at,
+      }))
 
-    const legacyRelatos: FluxoPunitivo[] = (relatos ?? []).map((a: any) => ({
-      id: 'relato_' + a.id, filial: a.filial,
-      colaborador_nome: a.pessoa_relatada ?? a.colaborador_nome ?? '',
-      origem: 'Relatos' as const, tipo_acao: a.tipo_acao,
-      dias_suspensao: a.dias_suspensao ?? null, data_acao: a.data_relato ?? null,
-      data_infracao: a.data_relato ?? null,
-      observacao: a.observacao ?? null, registrado_por: a.registrado_por ?? null,
-      source_id: a.id, status: 'Concluido' as const, motivo: a.tipo_relato ?? null,
-      created_at: a.created_at,
-    })).filter((a: any) => a.colaborador_nome)
+    const legacyRelatos: FluxoPunitivo[] = (relatos ?? [])
+      .filter((a: any) => a.tipo_acao !== 'Orientação Verbal')
+      .map((a: any) => ({
+        id: 'relato_' + a.id, filial: a.filial,
+        colaborador_nome: a.pessoa_relatada ?? a.colaborador_nome ?? '',
+        origem: 'Relatos' as const, tipo_acao: a.tipo_acao,
+        dias_suspensao: a.dias_suspensao ?? null, data_acao: a.data_relato ?? null,
+        data_infracao: a.data_relato ?? null,
+        observacao: a.observacao ?? null, registrado_por: a.registrado_por ?? null,
+        source_id: a.id, status: 'Concluido' as const, motivo: a.tipo_relato ?? null,
+        created_at: a.created_at,
+      })).filter((a: any) => a.colaborador_nome)
 
-    const legacyTelemetria: FluxoPunitivo[] = (telemetria ?? []).map((a: any) => ({
-      id: 'tel_' + a.id, filial: a.filial,
-      colaborador_nome: a.motorista ?? '',
-      origem: 'Telemetria' as const, tipo_acao: a.tipo_acao,
-      dias_suspensao: a.dias_suspensao ?? null, data_acao: null, data_infracao: null,
-      observacao: a.observacao ?? null, registrado_por: a.registrado_por ?? null,
-      source_id: a.id, status: 'Concluido' as const, motivo: null,
-      created_at: a.created_at,
-    })).filter((a: any) => a.colaborador_nome)
+    const legacyTelemetria: FluxoPunitivo[] = (telemetria ?? [])
+      .filter((a: any) => a.tipo_acao !== 'Comunicado/Orientação')
+      .map((a: any) => ({
+        id: 'tel_' + a.id, filial: a.filial,
+        colaborador_nome: a.motorista ?? '',
+        origem: 'Telemetria' as const, tipo_acao: a.tipo_acao,
+        dias_suspensao: a.dias_suspensao ?? null, data_acao: null, data_infracao: null,
+        observacao: a.observacao ?? null, registrado_por: a.registrado_por ?? null,
+        source_id: a.id, status: 'Concluido' as const, motivo: null,
+        created_at: a.created_at,
+      })).filter((a: any) => a.colaborador_nome)
 
     const todos: FluxoPunitivo[] = [
       ...(manual ?? []) as FluxoPunitivo[],
