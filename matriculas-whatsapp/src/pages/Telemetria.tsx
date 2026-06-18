@@ -50,6 +50,7 @@ const COR_ACAO: Record<string, string> = {
 }
 
 const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb']
+const MESES_LABEL = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 const TIPOS_LISTA = ['CURVA_BRUSCA', 'FREADA_BRUSCA', 'EXCESSO_VELOCIDADE', 'EXCESSO_VELOCIDADE_POR_VIA'] as const
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -483,14 +484,17 @@ export default function Telemetria() {
   const [acoes, setAcoes]                 = useState<TelemetriaAcao[]>([])
   const [loading, setLoading]             = useState(true)
   const [uploading, setUploading]         = useState(false)
-  const [tab, setTab]                     = useState<'dash' | 'motoristas' | 'via' | 'semid' | 'reincidencia' | 'score' | 'serie'>('dash')
+  const [tab, setTab]                     = useState<'dash' | 'motoristas' | 'veiculos' | 'via' | 'semid' | 'reincidencia' | 'score' | 'serie'>('dash')
   const [expandedMot, setExpandedMot]     = useState<string | null>(null)
+  const [expandedPlaca, setExpandedPlaca] = useState<string | null>(null)
   const [modalAcao, setModalAcao]         = useState<TelemetriaAlerta | null>(null)
   const [modalId, setModalId]             = useState<TelemetriaAlerta | null>(null)
   const [filtroTipo, setFiltroTipo]       = useState('todos')
   const [filtroDataDe, setFiltroDataDe]   = useState('')
   const [filtroDataAte, setFiltroDataAte] = useState('')
   const [busca, setBusca]                 = useState('')
+  const [evolucaoView, setEvolucaoView]   = useState<'dia' | 'mes'>('dia')
+  const [mesDrill, setMesDrill]           = useState<string | null>(null)
 
   // ── Load data ──────────────────────────────────────────────────────────────
 
@@ -631,18 +635,36 @@ export default function Telemetria() {
     return DIAS_SEMANA.map((dia, i) => ({ dia, total: counts[i] }))
   }, [filtered])
 
-  const evolucaoData = useMemo(() => {
+  const evolucaoDiaData = useMemo(() => {
     const byDate: Record<string, number> = {}
     filtered.forEach(a => {
       if (!a.data_hora) return
       const d = a.data_hora.slice(0, 10)
       byDate[d] = (byDate[d] ?? 0) + 1
     })
-    return Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([data, total]) => {
-      const [, m, d] = data.split('-')
-      return { data: `${d}/${m}`, total }
+    return Object.entries(byDate).sort(([a], [b]) => a.localeCompare(b)).map(([chave, total]) => {
+      const [, m, d] = chave.split('-')
+      return { chave, data: `${d}/${m}`, total }
     })
   }, [filtered])
+
+  const evolucaoMesData = useMemo(() => {
+    const byMonth: Record<string, number> = {}
+    filtered.forEach(a => {
+      if (!a.data_hora) return
+      const m = a.data_hora.slice(0, 7) // YYYY-MM
+      byMonth[m] = (byMonth[m] ?? 0) + 1
+    })
+    return Object.entries(byMonth).sort(([a], [b]) => a.localeCompare(b)).map(([chave, total]) => {
+      const [ano, m] = chave.split('-')
+      return { chave, mes: `${MESES_LABEL[parseInt(m, 10) - 1]}/${ano.slice(2)}`, total }
+    })
+  }, [filtered])
+
+  const evolucaoMesDrillData = useMemo(() =>
+    mesDrill ? evolucaoDiaData.filter(d => d.chave.startsWith(mesDrill)) : [],
+    [evolucaoDiaData, mesDrill],
+  )
 
   // Top motoristas (by effective name)
   const topMotoristas = useMemo(() => {
@@ -655,6 +677,23 @@ export default function Telemetria() {
       else if (a.tipo === 'FREADA_BRUSCA')               map[mot].freada++
       else if (a.tipo === 'EXCESSO_VELOCIDADE')          map[mot].veloc++
       else if (a.tipo === 'EXCESSO_VELOCIDADE_POR_VIA')  map[mot].velocVia++
+    })
+    return Object.entries(map)
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 12)
+  }, [filtered])
+
+  // Top veículos (by placa)
+  const topVeiculos = useMemo(() => {
+    const map: Record<string, { curva: number; freada: number; veloc: number; velocVia: number; total: number }> = {}
+    filtered.forEach(a => {
+      if (!map[a.placa]) map[a.placa] = { curva: 0, freada: 0, veloc: 0, velocVia: 0, total: 0 }
+      map[a.placa].total++
+      if (a.tipo === 'CURVA_BRUSCA')                    map[a.placa].curva++
+      else if (a.tipo === 'FREADA_BRUSCA')               map[a.placa].freada++
+      else if (a.tipo === 'EXCESSO_VELOCIDADE')          map[a.placa].veloc++
+      else if (a.tipo === 'EXCESSO_VELOCIDADE_POR_VIA')  map[a.placa].velocVia++
     })
     return Object.entries(map)
       .map(([name, v]) => ({ name, ...v }))
@@ -717,6 +756,35 @@ export default function Telemetria() {
     })
     return Object.entries(map)
       .map(([mot, v]) => ({ mot, ...v }))
+      .sort((a, b) => b.alertas.length - a.alertas.length)
+  }, [filtered, acoes])
+
+  // Per-placa data for drill-down table
+  const veiculosTable = useMemo(() => {
+    const map: Record<string, {
+      alertas: TelemetriaAlerta[]
+      curva: number; freada: number; veloc: number; velocVia: number
+      qualificados: number; comAcao: number
+      sevMedia: number | null
+    }> = {}
+    filtered.forEach(a => {
+      if (!map[a.placa]) map[a.placa] = { alertas: [], curva: 0, freada: 0, veloc: 0, velocVia: 0, qualificados: 0, comAcao: 0, sevMedia: null }
+      map[a.placa].alertas.push(a)
+      if (a.tipo === 'CURVA_BRUSCA')                    map[a.placa].curva++
+      else if (a.tipo === 'FREADA_BRUSCA')               map[a.placa].freada++
+      else if (a.tipo === 'EXCESSO_VELOCIDADE')          map[a.placa].veloc++
+      else if (a.tipo === 'EXCESSO_VELOCIDADE_POR_VIA')  map[a.placa].velocVia++
+      if (a.qualifica_acao) map[a.placa].qualificados++
+      if (acoes.some(x => x.alerta_id === a.id))        map[a.placa].comAcao++
+    })
+    Object.values(map).forEach(v => {
+      const sevsVals = v.alertas
+        .filter(a => a.excesso_km !== null && a.limiar_km !== null)
+        .map(a => a.excesso_km! - a.limiar_km!)
+      v.sevMedia = sevsVals.length > 0 ? Math.round(sevsVals.reduce((s, x) => s + x, 0) / sevsVals.length) : null
+    })
+    return Object.entries(map)
+      .map(([placa, v]) => ({ placa, ...v }))
       .sort((a, b) => b.alertas.length - a.alertas.length)
   }, [filtered, acoes])
 
@@ -867,6 +935,7 @@ export default function Telemetria() {
             {([
               ['dash',          'Dashboard'],
               ['motoristas',    'Motoristas'],
+              ['veiculos',      'Veículos'],
               ['via',           'Por Via'],
               ['reincidencia',  'Reincidência'],
               ['score',         'Score de Risco'],
@@ -970,6 +1039,37 @@ export default function Telemetria() {
                 </div>
               </div>
 
+              {/* Top Veículos stacked bar */}
+              <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Top Veículos</h3>
+                <ResponsiveContainer width="100%" height={topVeiculos.length * 32 + 20}>
+                  <BarChart data={topVeiculos} layout="vertical" barSize={16} margin={{ left: 200, right: 60 }}>
+                    <XAxis type="number" tick={{ fontSize: 10 }} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 10 }} width={200} />
+                    <Tooltip />
+                    <Bar dataKey="curva"    stackId="a" fill={TIPO_HEX.CURVA_BRUSCA}               name="Curva Brusca"       />
+                    <Bar dataKey="freada"   stackId="a" fill={TIPO_HEX.FREADA_BRUSCA}              name="Freada Brusca"      />
+                    <Bar dataKey="veloc"    stackId="a" fill={TIPO_HEX.EXCESSO_VELOCIDADE}         name="Exc. Velocidade"    />
+                    <Bar dataKey="velocVia" stackId="a" fill={TIPO_HEX.EXCESSO_VELOCIDADE_POR_VIA} name="Exc. Veloc. por Via" radius={[0, 4, 4, 0]}
+                      label={{ position: 'right', fontSize: 10, fill: '#6b7280', formatter: (_: unknown, entry: { curva: number; freada: number; veloc: number; velocVia: number }) => entry ? entry.curva + entry.freada + entry.veloc + entry.velocVia : '' }}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="flex gap-4 mt-2 text-xs text-gray-500">
+                  {[
+                    { label: 'Curva Brusca',         color: TIPO_HEX.CURVA_BRUSCA },
+                    { label: 'Freada Brusca',        color: TIPO_HEX.FREADA_BRUSCA },
+                    { label: 'Exc. Velocidade',      color: TIPO_HEX.EXCESSO_VELOCIDADE },
+                    { label: 'Exc. Veloc. por Via',  color: TIPO_HEX.EXCESSO_VELOCIDADE_POR_VIA },
+                  ].map(({ label, color }) => (
+                    <span key={label} className="flex items-center gap-1">
+                      <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: color }} />
+                      {label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
               {/* Dia da semana + Evolução */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
@@ -989,16 +1089,59 @@ export default function Telemetria() {
                 </div>
 
                 <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Evolução Diária</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm font-semibold text-gray-700">
+                      Evolução {evolucaoView === 'mes' ? (mesDrill ? `— ${evolucaoMesData.find(m => m.chave === mesDrill)?.mes ?? ''}` : 'Mensal') : 'Diária'}
+                    </h3>
+                    <div className="flex items-center gap-1">
+                      {mesDrill && (
+                        <button onClick={() => setMesDrill(null)}
+                          className="text-xs text-brand-700 hover:underline mr-1">← Meses</button>
+                      )}
+                      <div className="flex border border-gray-200 rounded-lg overflow-hidden text-xs">
+                        <button
+                          onClick={() => { setEvolucaoView('dia'); setMesDrill(null) }}
+                          className={`px-2.5 py-1 ${evolucaoView === 'dia' ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                          Dia
+                        </button>
+                        <button
+                          onClick={() => setEvolucaoView('mes')}
+                          className={`px-2.5 py-1 ${evolucaoView === 'mes' ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
+                          Mês
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                   <ResponsiveContainer width="100%" height={150}>
-                    <LineChart data={evolucaoData} margin={{ left: -20, right: 10 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                      <XAxis dataKey="data" tick={{ fontSize: 9 }} />
-                      <YAxis tick={{ fontSize: 10 }} />
-                      <Tooltip formatter={(v) => [v, 'Alertas']} />
-                      <Line type="monotone" dataKey="total" stroke="#1a4451" strokeWidth={2} dot={{ r: 3 }} />
-                    </LineChart>
+                    {evolucaoView === 'dia' ? (
+                      <LineChart data={evolucaoDiaData} margin={{ left: -20, right: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="data" tick={{ fontSize: 9 }} />
+                        <YAxis tick={{ fontSize: 10 }} />
+                        <Tooltip formatter={(v) => [v, 'Alertas']} />
+                        <Line type="monotone" dataKey="total" stroke="#1a4451" strokeWidth={2} dot={{ r: 3 }} />
+                      </LineChart>
+                    ) : mesDrill ? (
+                      <LineChart data={evolucaoMesDrillData} margin={{ left: -20, right: 10 }}>
+                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                        <XAxis dataKey="data" tick={{ fontSize: 9 }} />
+                        <YAxis tick={{ fontSize: 10 }} />
+                        <Tooltip formatter={(v) => [v, 'Alertas']} />
+                        <Line type="monotone" dataKey="total" stroke="#1a4451" strokeWidth={2} dot={{ r: 3 }} />
+                      </LineChart>
+                    ) : (
+                      <BarChart data={evolucaoMesData} barSize={24} margin={{ left: -20, right: 0 }}>
+                        <XAxis dataKey="mes" tick={{ fontSize: 10 }} />
+                        <YAxis tick={{ fontSize: 10 }} />
+                        <Tooltip formatter={(v) => [v, 'Alertas']} />
+                        <Bar dataKey="total" radius={[3, 3, 0, 0]} fill="#1a4451" cursor="pointer"
+                          onClick={(d: { chave: string }) => setMesDrill(d.chave)} />
+                      </BarChart>
+                    )}
                   </ResponsiveContainer>
+                  {evolucaoView === 'mes' && !mesDrill && (
+                    <p className="text-[10px] text-gray-400 mt-1">Clique em um mês para ver o detalhamento por dia.</p>
+                  )}
                 </div>
               </div>
             </div>
@@ -1052,6 +1195,71 @@ export default function Telemetria() {
                         </td>
                       </tr>
                       {expandedMot === mot && (
+                        <tr>
+                          <td colSpan={8} className="p-0">
+                            <MotoristaDetail
+                              alertas={al}
+                              acoes={acoes}
+                              onRegistrarAcao={setModalAcao}
+                            />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* ── Veículos Tab ─────────────────────────────────────────────── */}
+          {tab === 'veiculos' && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-100">
+                  <tr>
+                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Veículo</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Total</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-orange-600" title="Curva Brusca">Curva</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-yellow-600" title="Freada Brusca">Freada</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-rose-600" title="Excesso Velocidade">Veloc.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-red-600" title="Excesso Velocidade por Via">V. Via</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Qualif.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Sev. Méd.</th>
+                    <th className="text-center px-3 py-3 text-xs font-semibold text-brand-700">Ações</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-50">
+                  {veiculosTable.map(({ placa, alertas: al, curva, freada, veloc, velocVia, qualificados, comAcao, sevMedia }) => (
+                    <Fragment key={placa}>
+                      <tr
+                        className="hover:bg-gray-50 cursor-pointer"
+                        onClick={() => setExpandedPlaca(expandedPlaca === placa ? null : placa)}
+                      >
+                        <td className="px-4 py-3 font-medium text-gray-800 flex items-center gap-2">
+                          {expandedPlaca === placa ? <ChevronUp size={14} className="text-gray-400" /> : <ChevronDown size={14} className="text-gray-400" />}
+                          <span className="truncate max-w-xs">{placa}</span>
+                        </td>
+                        <td className="px-3 py-3 text-center font-semibold text-gray-700">{al.length}</td>
+                        <td className="px-3 py-3 text-center text-orange-700">{curva || '—'}</td>
+                        <td className="px-3 py-3 text-center text-yellow-700">{freada || '—'}</td>
+                        <td className="px-3 py-3 text-center text-rose-700">{veloc || '—'}</td>
+                        <td className="px-3 py-3 text-center text-red-700">{velocVia || '—'}</td>
+                        <td className="px-3 py-3 text-center">
+                          {qualificados > 0
+                            ? <span className="text-xs font-medium text-red-600 bg-red-50 px-1.5 py-0.5 rounded">{qualificados}</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                        <td className="px-3 py-3 text-center text-xs text-gray-500">
+                          {sevMedia !== null ? `+${sevMedia} km/h` : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          {comAcao > 0
+                            ? <span className="text-xs text-brand-600 font-medium">{comAcao}</span>
+                            : <span className="text-gray-300">—</span>}
+                        </td>
+                      </tr>
+                      {expandedPlaca === placa && (
                         <tr>
                           <td colSpan={8} className="p-0">
                             <MotoristaDetail
