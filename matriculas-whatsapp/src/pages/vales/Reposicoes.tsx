@@ -334,7 +334,6 @@ export default function ReposicoesPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [observacao, setObservacao] = useState<Record<string, string>>({});
 
   const [coraModalOpen, setCoraModalOpen] = useState(false);
   const [coraImportando, setCoraImportando] = useState(false);
@@ -355,17 +354,6 @@ export default function ReposicoesPage() {
   }, [tab]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
-
-  async function handleAction(id: string, status: Status) {
-    setActionLoading(id + status);
-    await valesSupabase
-      .from("reposicoes")
-      .update({ status, validador_resposta: observacao[id] ?? null, validado_em: new Date().toISOString() })
-      .eq("id", id);
-    setActionLoading(null);
-    setObservacao((o) => { const next = { ...o }; delete next[id]; return next; });
-    await fetchData();
-  }
 
   // Marca como "Registrado no sistema" (registrado no sistema Ambev p/ envio do produto)
   async function marcarRegistrado(rep: Reposicao) {
@@ -499,16 +487,6 @@ export default function ReposicoesPage() {
   function Acoes({ r }: { r: Reposicao }) {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
-        {r.status === "pendente" && (
-          <>
-            <button onClick={() => handleAction(r.id, "validado")} disabled={!!actionLoading} className="px-2 py-1 rounded text-xs bg-green-100 text-green-700 hover:bg-green-200 disabled:opacity-50 transition-colors">
-              {actionLoading === r.id + "validado" ? "..." : "Validar"}
-            </button>
-            <button onClick={() => handleAction(r.id, "quebra")} disabled={!!actionLoading} title="Negar a reposição (registra como quebra)" className="px-2 py-1 rounded text-xs bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-50 transition-colors">
-              {actionLoading === r.id + "quebra" ? "..." : "Negar (quebra)"}
-            </button>
-          </>
-        )}
         {(r.status === "pendente" || r.status === "negado" || r.status === "quebra") && (
           <button onClick={() => enviarParaValidacao(r)} disabled={!!actionLoading} title="Reenvia para o grupo de validação no WhatsApp" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 disabled:opacity-50 transition-colors">
             <Send className="h-3 w-3" />{actionLoading === r.id + "envio-validacao" ? "..." : "Enviar p/ validação"}
@@ -542,17 +520,6 @@ export default function ReposicoesPage() {
           <div className="text-xs text-muted-foreground border-l-2 pl-3 italic">&ldquo;{r.mensagem_original}&rdquo;</div>
         )}
         <VendasConfronto rep={r} />
-        {r.status === "pendente" && (
-          <div className="mt-3 flex items-center gap-2">
-            <input
-              type="text"
-              placeholder="Observação (opcional)"
-              value={observacao[r.id] ?? ""}
-              onChange={(e) => setObservacao((o) => ({ ...o, [r.id]: e.target.value }))}
-              className="flex-1 max-w-xs px-3 py-1.5 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-          </div>
-        )}
       </>
     );
   }
