@@ -163,7 +163,7 @@ export default function Layout() {
   const armazem = armazemItems.filter(i => temAcesso(p, i.permKey))
 
   return (
-    <div className="min-h-screen flex bg-gray-50">
+    <div className="min-h-dvh flex bg-gray-50">
       {/* Overlay do drawer no mobile */}
       {mobileOpen && (
         <div className="fixed inset-0 bg-black/40 z-30 md:hidden" onClick={fecharMobile} />
@@ -171,7 +171,7 @@ export default function Layout() {
 
       <aside
         className={`bg-brand-700 flex flex-col z-40 transition-transform duration-200
-          fixed inset-y-0 left-0 h-screen md:sticky md:top-0 shrink-0
+          fixed inset-y-0 left-0 h-dvh md:sticky md:top-0 shrink-0
           ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0
           ${sidebarOpen ? 'w-64' : 'w-64 md:w-16'}`}
       >
