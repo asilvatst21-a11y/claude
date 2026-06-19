@@ -6,7 +6,7 @@
 -- select distinct filial from dto_observacoes;
 
 -- Opção 1: apagar apenas da sua filial (recomendado em ambiente com várias filiais)
-delete from dto_observacoes where filial = 'Petropolis';
+delete from dto_observacoes where filial = 'CDD PETROPOLIS';
 
 -- Opção 2: apagar TODOS os registros de TODAS as filiais
 -- delete from dto_observacoes;
