@@ -4,42 +4,28 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+// Identificador do build, exibido no rodapé do login para confirmar
+// rapidamente, em produção, qual versão está realmente carregada (útil
+// para descartar cache antigo do navegador/PWA).
+const BUILD_ID = new Date().toISOString().slice(0, 16).replace('T', ' ')
+
 export default defineConfig({
+  define: {
+    __BUILD_ID__: JSON.stringify(BUILD_ID),
+  },
   plugins: [
     react(),
     tailwindcss(),
+    // PWA temporariamente em modo "self-destroying": ao invés de instalar
+    // um service worker que faz cache, esta versão remove qualquer service
+    // worker já registrado e limpa todos os caches do dispositivo. Isso
+    // resolve de forma definitiva o problema de aparelhos presos numa versão
+    // antiga do app. Quando o fluxo estiver estável, basta voltar para a
+    // configuração com manifest/workbox para reativar o suporte offline.
     VitePWA({
+      selfDestroying: true,
       registerType: 'autoUpdate',
       injectRegister: 'auto',
-      includeAssets: ['favicon.svg', 'logo.png'],
-      manifest: {
-        name: 'Armazém — LOG20',
-        short_name: 'Armazém',
-        description: 'App do operador de armazém para registrar atividades, mesmo sem sinal de rede.',
-        start_url: '/armazem',
-        scope: '/',
-        display: 'standalone',
-        background_color: '#0b1f2b',
-        theme_color: '#0b1f2b',
-        icons: [
-          { src: '/logo.png', sizes: '192x192', type: 'image/png' },
-          { src: '/logo.png', sizes: '512x512', type: 'image/png' },
-        ],
-      },
-      workbox: {
-        navigateFallback: '/index.html',
-        globPatterns: ['**/*.{js,css,html,svg,png}'],
-        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
-        cleanupOutdatedCaches: true,
-        skipWaiting: true,
-        clientsClaim: true,
-        runtimeCaching: [
-          {
-            urlPattern: ({ url }) => url.pathname.startsWith('/rest/v1/') || url.hostname.endsWith('supabase.co'),
-            handler: 'NetworkOnly',
-          },
-        ],
-      },
     }),
   ],
   resolve: {
