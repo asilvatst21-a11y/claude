@@ -115,6 +115,7 @@ export default function Login() {
 
         <div className="bg-gray-50 px-8 py-4 text-center border-t border-gray-100">
           <p className="text-xs text-gray-500">© LOG20 Logística — Painel Analítico</p>
+          <p className="text-[10px] text-gray-300 mt-0.5">build {__BUILD_ID__}</p>
         </div>
       </div>
     </div>

@@ -45,10 +45,13 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// O /armazem é um ponto de entrada independente para o operador: se não
+// estiver logado, mostra a tela de login aqui mesmo (sem redirecionar para a
+// rota do supervisor) e, ao autenticar, permanece direto no app de atividades.
 function ArmazemOperadorRoute() {
   const { usuario, loading } = useAuth()
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-500">Carregando...</div>
-  if (!usuario) return <Navigate to="/login" replace />
+  if (!usuario) return <Login />
   return <ArmazemOperador />
 }
 
