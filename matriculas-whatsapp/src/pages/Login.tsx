@@ -26,10 +26,10 @@ export default function Login() {
     e.preventDefault()
     setErro('')
     setLoading(true)
-    const { sucesso, erro: erroMsg } = await entrar(filial, login, senha)
+    const { sucesso, erro: erroMsg, usuario } = await entrar(filial, login, senha)
     setLoading(false)
     if (sucesso) {
-      navigate('/')
+      navigate(usuario?.cargo ? '/armazem' : '/')
     } else {
       setErro(erroMsg ?? 'Erro ao entrar')
     }
