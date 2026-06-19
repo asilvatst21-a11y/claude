@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Play, Pause, Square, ArrowLeft, ArrowRight, AlertTriangle, LogOut, Loader2, CheckCircle2, Boxes } from 'lucide-react'
+import {
+  Play, Pause, Square, ArrowLeft, ArrowRight, AlertTriangle, LogOut, Loader2,
+  CheckCircle2, Boxes, WifiOff, RefreshCw,
+} from 'lucide-react'
 import { useAuth } from '../../lib/auth'
 import { supabase } from '../../lib/supabase'
 import { enviarMensagemGrupo } from '../../lib/zapi'
+import { armazemDb, cacheAtividades, atividadesEmCache, enfileirar } from '../../lib/armazemDb'
+import { useArmazemSync, processarFilaArmazem } from '../../lib/armazemSync'
 import type { ArmazemAtividadeTipo, ArmazemExecucao, ArmazemExecucaoPausa, ArmazemPergunta, ArmazemResposta } from '../../types'
 
 type Tela = 'carregando' | 'selecionar' | 'andamento' | 'wizard'
@@ -13,6 +18,20 @@ function formatarDuracao(segundos: number) {
   const m = Math.floor((segundos % 3600) / 60)
   const s = segundos % 60
   return [h, m, s].map(n => String(n).padStart(2, '0')).join(':')
+}
+
+function StatusConexao() {
+  const { online, pendentes, sincronizarAgora } = useArmazemSync()
+  if (online && pendentes === 0) return null
+  return (
+    <button
+      onClick={sincronizarAgora}
+      className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-white/10 text-white/80 hover:bg-white/20"
+    >
+      {online ? <RefreshCw size={12} /> : <WifiOff size={12} />}
+      {online ? `Sincronizando ${pendentes}` : `Offline · ${pendentes} pendente(s)`}
+    </button>
+  )
 }
 
 export default function ArmazemOperador() {
@@ -34,45 +53,76 @@ export default function ArmazemOperador() {
   const [houveAnomalia, setHouveAnomalia] = useState<boolean | null>(null)
   const [anomaliaDescricao, setAnomaliaDescricao] = useState('')
 
+  const irParaSelecao = useCallback(async () => {
+    if (!usuario) return
+    if (navigator.onLine) {
+      const { data: tipos } = await supabase
+        .from('armazem_atividades_tipo')
+        .select('*')
+        .eq('filial', usuario.filial)
+        .eq('ativo', true)
+        .contains('cargos', usuario.cargo ? [usuario.cargo] : [])
+        .order('nome')
+      if (Array.isArray(tipos)) {
+        await cacheAtividades(usuario.filial, tipos)
+        setAtividades(tipos)
+        setTela('selecionar')
+        return
+      }
+    }
+    const cache = await atividadesEmCache(usuario.filial)
+    setAtividades(cache.filter(a => !usuario.cargo || a.cargos.includes(usuario.cargo)))
+    setTela('selecionar')
+  }, [usuario])
+
   const carregarEstado = useCallback(async () => {
     if (!usuario) return
     setErro('')
-    const { data: execAtiva } = await supabase
-      .from('armazem_execucoes')
-      .select('*')
-      .eq('colaborador_id', usuario.id)
-      .in('status', ['em_andamento', 'pausada'])
-      .maybeSingle()
 
-    if (execAtiva) {
-      setExecucao(execAtiva)
-      if (execAtiva.atividade_tipo_id) {
-        const { data: tipo } = await supabase.from('armazem_atividades_tipo').select('*').eq('id', execAtiva.atividade_tipo_id).maybeSingle()
-        setTipoAtividade(tipo ?? null)
+    const local = await armazemDb.execucaoAtual.get({ colaborador_id: usuario.id })
+    if (local) {
+      setExecucao(local)
+      if (local.atividade_tipo_id) {
+        const tiposCache = await atividadesEmCache(usuario.filial)
+        setTipoAtividade(tiposCache.find(t => t.id === local.atividade_tipo_id) ?? null)
       }
-      if (execAtiva.status === 'pausada') {
-        const { data: pausa } = await supabase
-          .from('armazem_execucoes_pausas')
-          .select('*')
-          .eq('execucao_id', execAtiva.id)
-          .is('pausa_fim', null)
-          .maybeSingle()
-        setPausaAtual(pausa ?? null)
-      }
+      const pausaAberta = await armazemDb.pausas.where('execucao_id').equals(local.id).filter(p => !p.pausa_fim).first()
+      setPausaAtual(pausaAberta ?? null)
       setTela('andamento')
       return
     }
 
-    const { data: tipos } = await supabase
-      .from('armazem_atividades_tipo')
-      .select('*')
-      .eq('filial', usuario.filial)
-      .eq('ativo', true)
-      .contains('cargos', usuario.cargo ? [usuario.cargo] : [])
-      .order('nome')
-    setAtividades(Array.isArray(tipos) ? tipos : [])
-    setTela('selecionar')
-  }, [usuario])
+    if (navigator.onLine) {
+      const { data: execAtiva } = await supabase
+        .from('armazem_execucoes')
+        .select('*')
+        .eq('colaborador_id', usuario.id)
+        .in('status', ['em_andamento', 'pausada'])
+        .maybeSingle()
+      if (execAtiva) {
+        await armazemDb.execucaoAtual.put(execAtiva)
+        setExecucao(execAtiva)
+        if (execAtiva.atividade_tipo_id) {
+          const { data: tipo } = await supabase.from('armazem_atividades_tipo').select('*').eq('id', execAtiva.atividade_tipo_id).maybeSingle()
+          setTipoAtividade(tipo ?? null)
+        }
+        if (execAtiva.status === 'pausada') {
+          const { data: pausa } = await supabase
+            .from('armazem_execucoes_pausas')
+            .select('*')
+            .eq('execucao_id', execAtiva.id)
+            .is('pausa_fim', null)
+            .maybeSingle()
+          if (pausa) await armazemDb.pausas.put(pausa)
+          setPausaAtual(pausa ?? null)
+        }
+        setTela('andamento')
+        return
+      }
+    }
+
+    await irParaSelecao()
+  }, [usuario, irParaSelecao])
 
   useEffect(() => { carregarEstado() }, [carregarEstado])
 
@@ -86,23 +136,34 @@ export default function ArmazemOperador() {
     if (!usuario) return
     setSalvando(true)
     setErro('')
-    const { data, error } = await supabase
-      .from('armazem_execucoes')
-      .insert({
-        filial: usuario.filial,
-        colaborador_id: usuario.id,
-        colaborador_nome: usuario.nome ?? usuario.login,
-        cargo: usuario.cargo,
-        atividade_tipo_id: tipo.id,
-        atividade_nome: tipo.nome,
-        hora_inicio: new Date().toISOString(),
-        status: 'em_andamento',
-      })
-      .select('*')
-      .single()
+
+    const nova: ArmazemExecucao = {
+      id: crypto.randomUUID(),
+      filial: usuario.filial,
+      colaborador_id: usuario.id,
+      colaborador_nome: usuario.nome ?? usuario.login,
+      cargo: usuario.cargo,
+      atividade_tipo_id: tipo.id,
+      atividade_nome: tipo.nome,
+      hora_inicio: new Date().toISOString(),
+      hora_fim: null,
+      duracao_minutos: null,
+      status: 'em_andamento',
+      houve_anomalia: false,
+      anomalia_descricao: null,
+      km_percorrido: null,
+      respostas: [],
+      encerrada_manualmente_por: null,
+      encerrada_manualmente_motivo: null,
+      created_at: new Date().toISOString(),
+    }
+
+    await armazemDb.execucaoAtual.put(nova)
+    await enfileirar({ tabela: 'armazem_execucoes', acao: 'upsert', registroId: nova.id, payload: nova })
+    processarFilaArmazem()
+
     setSalvando(false)
-    if (error || !data) return setErro(error?.message ?? 'Não foi possível iniciar a atividade.')
-    setExecucao(data)
+    setExecucao(nova)
     setTipoAtividade(tipo)
     setTela('andamento')
   }
@@ -110,24 +171,43 @@ export default function ArmazemOperador() {
   async function pausarAtividade() {
     if (!execucao) return
     setSalvando(true)
-    const { data } = await supabase
-      .from('armazem_execucoes_pausas')
-      .insert({ execucao_id: execucao.id, pausa_inicio: new Date().toISOString() })
-      .select('*')
-      .single()
-    await supabase.from('armazem_execucoes').update({ status: 'pausada' }).eq('id', execucao.id)
-    setPausaAtual(data ?? null)
-    setExecucao({ ...execucao, status: 'pausada' })
+
+    const pausa: ArmazemExecucaoPausa = {
+      id: crypto.randomUUID(),
+      execucao_id: execucao.id,
+      pausa_inicio: new Date().toISOString(),
+      pausa_fim: null,
+      motivo: null,
+      created_at: new Date().toISOString(),
+    }
+    await armazemDb.pausas.put(pausa)
+    await enfileirar({ tabela: 'armazem_execucoes_pausas', acao: 'upsert', registroId: pausa.id, payload: pausa })
+
+    const atualizada = { ...execucao, status: 'pausada' as const }
+    await armazemDb.execucaoAtual.put(atualizada)
+    await enfileirar({ tabela: 'armazem_execucoes', acao: 'update', registroId: execucao.id, payload: { status: 'pausada' } })
+    processarFilaArmazem()
+
+    setPausaAtual(pausa)
+    setExecucao(atualizada)
     setSalvando(false)
   }
 
   async function retomarAtividade() {
     if (!execucao || !pausaAtual) return
     setSalvando(true)
-    await supabase.from('armazem_execucoes_pausas').update({ pausa_fim: new Date().toISOString() }).eq('id', pausaAtual.id)
-    await supabase.from('armazem_execucoes').update({ status: 'em_andamento' }).eq('id', execucao.id)
+
+    const pausaFinalizada = { ...pausaAtual, pausa_fim: new Date().toISOString() }
+    await armazemDb.pausas.put(pausaFinalizada)
+    await enfileirar({ tabela: 'armazem_execucoes_pausas', acao: 'update', registroId: pausaAtual.id, payload: { pausa_fim: pausaFinalizada.pausa_fim } })
+
+    const atualizada = { ...execucao, status: 'em_andamento' as const }
+    await armazemDb.execucaoAtual.put(atualizada)
+    await enfileirar({ tabela: 'armazem_execucoes', acao: 'update', registroId: execucao.id, payload: { status: 'em_andamento' } })
+    processarFilaArmazem()
+
     setPausaAtual(null)
-    setExecucao({ ...execucao, status: 'em_andamento' })
+    setExecucao(atualizada)
     setSalvando(false)
   }
 
@@ -135,7 +215,12 @@ export default function ArmazemOperador() {
     if (!execucao) return
     if (!window.confirm('Cancelar esta atividade? Use apenas se ela foi iniciada por engano.')) return
     setSalvando(true)
-    await supabase.from('armazem_execucoes').update({ status: 'cancelada', hora_fim: new Date().toISOString() }).eq('id', execucao.id)
+
+    const payload = { status: 'cancelada' as const, hora_fim: new Date().toISOString() }
+    await enfileirar({ tabela: 'armazem_execucoes', acao: 'update', registroId: execucao.id, payload })
+    await armazemDb.execucaoAtual.delete(execucao.id)
+    processarFilaArmazem()
+
     setSalvando(false)
     resetarParaSelecao()
   }
@@ -148,7 +233,7 @@ export default function ArmazemOperador() {
     setRespostas({})
     setHouveAnomalia(null)
     setAnomaliaDescricao('')
-    carregarEstado()
+    irParaSelecao()
   }
 
   function abrirWizard() {
@@ -196,30 +281,26 @@ export default function ArmazemOperador() {
 
     const horaFim = new Date()
     const duracaoMinutos = Math.round((horaFim.getTime() - new Date(execucao.hora_inicio).getTime()) / 60000)
+    const anomaliaDescricaoFinal = houveAnomalia ? anomaliaDescricao.trim() : null
 
-    const { error } = await supabase
-      .from('armazem_execucoes')
-      .update({
-        status: 'concluida',
-        hora_fim: horaFim.toISOString(),
-        duracao_minutos: duracaoMinutos,
-        respostas: respostasFinais,
-        houve_anomalia: !!houveAnomalia,
-        anomalia_descricao: houveAnomalia ? anomaliaDescricao.trim() : null,
-      })
-      .eq('id', execucao.id)
-
-    if (error) {
-      setSalvando(false)
-      return setErro(error.message)
+    const payload = {
+      status: 'concluida' as const,
+      hora_fim: horaFim.toISOString(),
+      duracao_minutos: duracaoMinutos,
+      respostas: respostasFinais,
+      houve_anomalia: !!houveAnomalia,
+      anomalia_descricao: anomaliaDescricaoFinal,
     }
+    await enfileirar({ tabela: 'armazem_execucoes', acao: 'update', registroId: execucao.id, payload })
+    await armazemDb.execucaoAtual.delete(execucao.id)
+    processarFilaArmazem()
 
-    if (houveAnomalia && usuario) {
+    if (houveAnomalia && usuario && navigator.onLine) {
       const { data: filial } = await supabase.from('filiais').select('grupo_armazem_whatsapp').eq('nome', usuario.filial).maybeSingle()
       if (filial?.grupo_armazem_whatsapp) {
         enviarMensagemGrupo(
           filial.grupo_armazem_whatsapp,
-          `⚠️ Anomalia registrada no Armazém\n\nColaborador: ${execucao.colaborador_nome}\nAtividade: ${execucao.atividade_nome}\nDescrição: ${anomaliaDescricao.trim()}`,
+          `⚠️ Anomalia registrada no Armazém\n\nColaborador: ${execucao.colaborador_nome}\nAtividade: ${execucao.atividade_nome}\nDescrição: ${anomaliaDescricaoFinal}`,
         ).catch(() => { /* alerta é best-effort, não bloqueia a finalização */ })
       }
     }
@@ -247,9 +328,12 @@ export default function ArmazemOperador() {
               <h1 className="text-2xl font-bold">{usuario?.nome ?? usuario?.login}</h1>
               <p className="text-white/50 text-sm mt-0.5">{usuario?.cargo ?? '—'}</p>
             </div>
-            <button onClick={() => { sair(); navigate('/login') }} className="p-2 rounded-full bg-white/10 hover:bg-white/20" title="Sair">
-              <LogOut size={20} />
-            </button>
+            <div className="flex flex-col items-end gap-2">
+              <button onClick={() => { sair(); navigate('/login') }} className="p-2 rounded-full bg-white/10 hover:bg-white/20" title="Sair">
+                <LogOut size={20} />
+              </button>
+              <StatusConexao />
+            </div>
           </div>
         </header>
 
@@ -294,7 +378,10 @@ export default function ArmazemOperador() {
     return (
       <div className="min-h-screen bg-[#0b1f2b] text-white flex flex-col">
         <header className="px-5 pt-8 pb-2">
-          <p className="text-white/50 text-sm uppercase tracking-wide">Atividade em execução</p>
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-white/50 text-sm uppercase tracking-wide">Atividade em execução</p>
+            <StatusConexao />
+          </div>
           <h1 className="text-3xl font-bold mt-1">{execucao.atividade_nome}</h1>
         </header>
 
