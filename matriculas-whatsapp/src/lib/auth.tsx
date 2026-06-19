@@ -27,7 +27,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function entrar(filial: string, login: string, senha: string) {
     const { data, error } = await supabase
       .from('usuarios')
-      .select('*')
+      .select('id, filial, login, senha, nome, admin, permissoes, cargo, created_at')
       .eq('filial', filial)
       .eq('login', login)
       .eq('senha', senha)
