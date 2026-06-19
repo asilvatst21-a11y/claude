@@ -2,9 +2,11 @@
 -- ATENÇÃO: operação destrutiva e irreversível (perde status_acao/responsavel_acao
 -- das ações já tratadas). Confirme antes de rodar. Execute no SQL Editor do Supabase.
 
+-- Confira antes o nome exato gravado (deve ser igual ao da tabela "filiais"):
+-- select distinct filial from dto_observacoes;
+
 -- Opção 1: apagar apenas da sua filial (recomendado em ambiente com várias filiais)
--- Troque 'NOME_DA_FILIAL' pelo nome exato da filial.
-delete from dto_observacoes where filial = 'NOME_DA_FILIAL';
+delete from dto_observacoes where filial = 'Petropolis';
 
 -- Opção 2: apagar TODOS os registros de TODAS as filiais
 -- delete from dto_observacoes;
