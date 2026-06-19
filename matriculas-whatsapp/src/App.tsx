@@ -27,6 +27,7 @@ import WhatsappConfigPage from './pages/vales/WhatsappConfig'
 import ImportCatalogoPage from './pages/vales/ImportCatalogo'
 import ArmazemOperador from './pages/armazem/Operador'
 import ArmazemCadastro from './pages/armazem/Cadastro'
+import ArmazemOperadores from './pages/armazem/Operadores'
 import ArmazemDashboard from './pages/armazem/Dashboard'
 
 function ProtectedRoutes() {
@@ -80,6 +81,7 @@ export default function App() {
             <Route path="/jornada" element={<Jornada />} />
             <Route path="/distribuicao" element={<Distribuicao />} />
             <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
+            <Route path="/armazem/operadores" element={<ArmazemOperadores />} />
             <Route path="/armazem/dashboard" element={<ArmazemDashboard />} />
             {/* Vales LOG20 */}
             <Route path="/vales" element={<ValesPage />} />
