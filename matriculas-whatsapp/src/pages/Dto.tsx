@@ -52,6 +52,13 @@ function temAnomalia(obs: DtoObservacao): boolean {
   return obs.houve_desvio === 'SIM' || QUESTOES_CONF.some(q => obs[q.key] === 'NÃO')
 }
 
+// Os campos de tarefas de segurança vêm de uma resposta de múltipla escolha
+// exportada como texto único, com os itens separados por ; ou ,
+function splitTarefas(valor: string | null): string[] {
+  if (!valor) return []
+  return valor.split(/[;,]/).map(t => t.trim()).filter(Boolean)
+}
+
 function parseDtoExcel(buffer: ArrayBuffer, filial: string): Omit<DtoObservacao, 'id' | 'created_at' | 'status_acao' | 'responsavel_acao' | 'prazo_acao'>[] {
   const wb = XLSX.read(buffer)
   const ws = wb.Sheets[wb.SheetNames[0]]
@@ -236,6 +243,7 @@ export default function Dto() {
     areas: Array.from(new Set(avs.map(o => o.area).filter(Boolean))) as string[],
     atividadesDistintas: new Set(avs.map(o => o.atividade).filter(Boolean)).size,
     anomalias: avs.filter(temAnomalia).length,
+    mediaTarefas: Math.round((avs.reduce((s, o) => s + splitTarefas(o.tarefas_seguranca).length, 0) / avs.length) * 10) / 10,
   })).sort((a, b) => b.total - a.total)
 
   // ── Planos de ação ──
@@ -800,12 +808,13 @@ export default function Dto() {
                       <th className="text-center px-4 py-3 font-medium text-gray-600">Anomalias</th>
                       <th className="text-center px-4 py-3 font-medium text-gray-600">Desvios Seg.</th>
                       <th className="text-center px-4 py-3 font-medium text-gray-600">Taxa Detecção</th>
+                      <th className="text-center px-4 py-3 font-medium text-gray-600">Méd. Tarefas/Obs.</th>
                       <th className="text-center px-4 py-3 font-medium text-gray-600">Atividades</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-600">Áreas</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rankingAvaliadores.length === 0 && <tr><td colSpan={8} className="text-center py-10 text-gray-400">Nenhum dado</td></tr>}
+                    {rankingAvaliadores.length === 0 && <tr><td colSpan={9} className="text-center py-10 text-gray-400">Nenhum dado</td></tr>}
                     {rankingAvaliadores.map(a => (
                       <tr key={a.nome} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="px-4 py-3 font-medium text-gray-900 text-sm">{a.nome}</td>
@@ -826,6 +835,7 @@ export default function Dto() {
                             {a.taxaDesvio}%
                           </span>
                         </td>
+                        <td className="px-4 py-3 text-center text-gray-600">{a.mediaTarefas}</td>
                         <td className="px-4 py-3 text-center text-gray-600">{a.atividadesDistintas}</td>
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap gap-1">
