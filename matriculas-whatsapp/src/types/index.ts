@@ -6,6 +6,7 @@ export interface Usuario {
   nome: string | null
   admin: boolean
   permissoes: string[] | null  // null = sem restrição; [] = bloqueado; ['gsdpq','dto'] = só essas
+  cargo: string | null
   created_at: string
 }
 
@@ -27,6 +28,8 @@ export const SECOES_SISTEMA = [
   { key: 'financeiro',      label: 'Financeiro',      grupo: 'Financeiro'   },
   { key: 'reposicoes',      label: 'Reposições (monitoramento)', grupo: 'Financeiro' },
   { key: 'distribuicao',    label: 'Distribuição',    grupo: 'Distribuição' },
+  { key: 'armazem',            label: 'Armazém (operador)',  grupo: 'Armazém' },
+  { key: 'armazem-supervisor', label: 'Armazém (supervisor)', grupo: 'Armazém' },
 ] as const
 
 export interface Filial {
@@ -36,6 +39,7 @@ export interface Filial {
   grupo_reposicoes_whatsapp: string | null
   grupo_solicitacao_2_whatsapp: string | null
   grupo_validacao_whatsapp: string | null
+  grupo_armazem_whatsapp: string | null
   created_at: string
 }
 
@@ -319,6 +323,67 @@ export interface TelemetriaAcao {
   dias_suspensao: number | null
   observacao: string | null
   registrado_por: string | null
+  created_at: string
+}
+
+export type ArmazemPerguntaTipo = 'numero' | 'texto' | 'sim_nao' | 'multipla_escolha'
+
+export interface ArmazemPergunta {
+  id: string
+  ordem: number
+  pergunta: string
+  tipo: ArmazemPerguntaTipo
+  opcoes: string[] | null
+  obrigatoria: boolean
+}
+
+export interface ArmazemAtividadeTipo {
+  id: string
+  filial: string
+  nome: string
+  cargos: string[]
+  unidade_producao: string | null
+  meta_tempo_minutos: number | null
+  perguntas: ArmazemPergunta[]
+  ativo: boolean
+  created_at: string
+}
+
+export interface ArmazemResposta {
+  pergunta_id: string
+  pergunta: string
+  resposta: string
+}
+
+export type ArmazemExecucaoStatus = 'em_andamento' | 'pausada' | 'concluida' | 'cancelada'
+
+export interface ArmazemExecucao {
+  id: string
+  filial: string
+  colaborador_id: string | null
+  colaborador_nome: string
+  cargo: string | null
+  atividade_tipo_id: string | null
+  atividade_nome: string
+  hora_inicio: string
+  hora_fim: string | null
+  duracao_minutos: number | null
+  status: ArmazemExecucaoStatus
+  houve_anomalia: boolean
+  anomalia_descricao: string | null
+  km_percorrido: number | null
+  respostas: ArmazemResposta[]
+  encerrada_manualmente_por: string | null
+  encerrada_manualmente_motivo: string | null
+  created_at: string
+}
+
+export interface ArmazemExecucaoPausa {
+  id: string
+  execucao_id: string
+  pausa_inicio: string
+  pausa_fim: string | null
+  motivo: string | null
   created_at: string
 }
 

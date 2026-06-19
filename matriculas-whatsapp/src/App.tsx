@@ -25,6 +25,9 @@ import ReposicoesPage from './pages/vales/Reposicoes'
 import ValesConfiguracoesPage from './pages/vales/Configuracoes'
 import WhatsappConfigPage from './pages/vales/WhatsappConfig'
 import ImportCatalogoPage from './pages/vales/ImportCatalogo'
+import ArmazemOperador from './pages/armazem/Operador'
+import ArmazemCadastro from './pages/armazem/Cadastro'
+import ArmazemDashboard from './pages/armazem/Dashboard'
 
 function ProtectedRoutes() {
   const { usuario, loading } = useAuth()
@@ -40,6 +43,13 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+function ArmazemOperadorRoute() {
+  const { usuario, loading } = useAuth()
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-500">Carregando...</div>
+  if (!usuario) return <Navigate to="/login" replace />
+  return <ArmazemOperador />
+}
+
 function PublicLogin() {
   const { usuario } = useAuth()
   if (usuario) return <Navigate to="/" replace />
@@ -53,6 +63,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<PublicLogin />} />
           <Route path="/solicitar-extra" element={<SolicitarExtra />} />
+          <Route path="/armazem" element={<ArmazemOperadorRoute />} />
           <Route element={<ProtectedRoutes />}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/matriculas" element={<Matriculas />} />
@@ -68,6 +79,8 @@ export default function App() {
             <Route path="/telemetria" element={<Telemetria />} />
             <Route path="/jornada" element={<Jornada />} />
             <Route path="/distribuicao" element={<Distribuicao />} />
+            <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
+            <Route path="/armazem/dashboard" element={<ArmazemDashboard />} />
             {/* Vales LOG20 */}
             <Route path="/vales" element={<ValesPage />} />
             <Route path="/vales/ajudantes" element={<AjudantesPage />} />
