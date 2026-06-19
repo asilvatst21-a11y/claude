@@ -16,6 +16,7 @@ const nav = [
   { href: "/rankings", label: "Ranking", icon: "📊" },
   { href: "/standings", label: "Classificação", icon: "🏅" },
   { href: "/rules", label: "Regras", icon: "📖" },
+  { href: "/instalar", label: "Instalar app", icon: "📲" },
   { href: "/profile", label: "Perfil", icon: "👤" },
   { href: "/pricing", label: "Planos", icon: "💎" },
   { href: "/support", label: "Suporte", icon: "💬" },

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { fetchFixturesByIds, mapApiStatus, extractGoals, type GoalEvent } from "@/lib/api-football";
-import { calculatePoints } from "@/lib/scoring";
+import { calculatePoints, PREDICTION_LOCK_MINUTES } from "@/lib/scoring";
 import { sendPushToUser } from "@/lib/push";
 import { maybeGenerateRoundSummaries } from "@/lib/round-summary";
 
@@ -181,35 +181,69 @@ async function runSync(): Promise<{ synced: number }> {
   });
   await maybeGenerateRoundSummaries(allRounds.map((m) => m.round ?? "Fase de Grupos")).catch(() => {});
 
-  // Notify users with predictions on matches starting in the next 15–30 min
-  const now = new Date();
-  const notifyFrom = new Date(now.getTime() + 15 * 60 * 1000);
-  const notifyTo   = new Date(now.getTime() + 30 * 60 * 1000);
-
-  const upcomingMatches = await prisma.match.findMany({
-    where: { status: "SCHEDULED", startsAt: { gte: notifyFrom, lte: notifyTo } },
-    select: { id: true, homeTeam: true, awayTeam: true },
-  });
-
-  if (upcomingMatches.length > 0) {
-    const matchIds = upcomingMatches.map((m) => m.id);
-    const preds = await prisma.prediction.findMany({
-      where: { matchId: { in: matchIds } },
-      select: { userId: true, matchId: true },
-    });
-    const matchById = Object.fromEntries(upcomingMatches.map((m) => [m.id, m]));
-    await Promise.allSettled(preds.map((p) => {
-      const m = matchById[p.matchId];
-      if (!m) return Promise.resolve();
-      return sendPushToUser(p.userId, {
-        title: "Jogo começando em breve! ⏰",
-        body: `${m.homeTeam} x ${m.awayTeam} — você tem um palpite registrado.`,
-        url: "/predictions",
-      });
-    }));
-  }
+  await sendLockReminders();
 
   return { synced };
+}
+
+const REMINDERS = [
+  { minutes: 30, field: "reminder30SentAt", title: "⏰ Faltam 30 minutos!", body: (h: string, a: string) => `Ainda dá tempo de palpitar em ${h} x ${a} antes do palpite fechar.` },
+  { minutes: 10, field: "reminder10SentAt", title: "⏳ Faltam 10 minutos!", body: (h: string, a: string) => `Corre lá: o palpite de ${h} x ${a} fecha em 10 minutos.` },
+  { minutes: 5,  field: "reminder5SentAt",  title: "🚨 Últimos 5 minutos!", body: (h: string, a: string) => `É agora ou nunca: o palpite de ${h} x ${a} tranca em 5 minutos.` },
+] as const;
+
+// Notify users who haven't predicted yet, as the prediction lock for a match approaches.
+// Each tier (30/10/5 min before lock) fires once per match — tracked via reminder*SentAt
+// columns — since this runs every 5 min via cron and would otherwise repeat.
+async function sendLockReminders() {
+  const now = new Date();
+
+  const candidates = await prisma.match.findMany({
+    where: {
+      status: "SCHEDULED",
+      startsAt: { gte: now },
+      OR: [{ reminder30SentAt: null }, { reminder10SentAt: null }, { reminder5SentAt: null }],
+    },
+    select: {
+      id: true, homeTeam: true, awayTeam: true, startsAt: true,
+      reminder30SentAt: true, reminder10SentAt: true, reminder5SentAt: true,
+    },
+  });
+
+  const subscribedUserIds = await prisma.pushSubscription.findMany({
+    select: { userId: true },
+    distinct: ["userId"],
+  }).then((rows) => rows.map((r) => r.userId));
+  if (subscribedUserIds.length === 0) return;
+
+  for (const match of candidates) {
+    const lockAt = new Date(match.startsAt.getTime() - PREDICTION_LOCK_MINUTES * 60 * 1000);
+
+    for (const reminder of REMINDERS) {
+      if (match[reminder.field]) continue;
+      const reminderAt = new Date(lockAt.getTime() - reminder.minutes * 60 * 1000);
+      if (now < reminderAt || now >= lockAt) continue;
+
+      const predicted = await prisma.prediction.findMany({
+        where: { matchId: match.id, userId: { in: subscribedUserIds } },
+        select: { userId: true },
+      });
+      const predictedSet = new Set(predicted.map((p) => p.userId));
+      const targets = subscribedUserIds.filter((id) => !predictedSet.has(id));
+
+      await Promise.allSettled(
+        targets.map((userId) =>
+          sendPushToUser(userId, {
+            title: reminder.title,
+            body: reminder.body(match.homeTeam, match.awayTeam),
+            url: "/predictions",
+          })
+        )
+      );
+
+      await prisma.match.update({ where: { id: match.id }, data: { [reminder.field]: now } });
+    }
+  }
 }
 
 export async function GET(req: Request) {

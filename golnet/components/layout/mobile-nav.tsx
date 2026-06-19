@@ -20,6 +20,7 @@ const moreNav = [
   { href: "/profile", label: "Perfil", icon: "👤" },
   { href: "/pricing", label: "Planos", icon: "💎" },
   { href: "/rules", label: "Regras", icon: "📖" },
+  { href: "/instalar", label: "Instalar app", icon: "📲" },
   { href: "/support", label: "Suporte", icon: "💬" },
 ];
 
