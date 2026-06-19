@@ -215,6 +215,9 @@ model Match {
   round        String?
   venue        String?
   lastSyncedAt DateTime?
+  reminder30SentAt DateTime?
+  reminder10SentAt DateTime?
+  reminder5SentAt  DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
