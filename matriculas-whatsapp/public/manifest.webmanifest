@@ -1,0 +1,14 @@
+{
+  "name": "Armazém — LOG20",
+  "short_name": "Armazém",
+  "description": "App do operador de armazém para registrar atividades.",
+  "start_url": "/armazem",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0b1f2b",
+  "theme_color": "#0b1f2b",
+  "icons": [
+    { "src": "/logo.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/logo.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

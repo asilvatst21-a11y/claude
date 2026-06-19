@@ -26,6 +26,7 @@ export default defineConfig({
       selfDestroying: true,
       registerType: 'autoUpdate',
       injectRegister: 'auto',
+      manifest: false,
     }),
   ],
   resolve: {
