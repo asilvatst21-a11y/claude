@@ -4,7 +4,7 @@ import {
   Users, CreditCard, MessageSquare, BarChart2, LogOut, Building2,
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
-  Wallet, Menu, X, Truck,
+  Wallet, Menu, X, Truck, Boxes,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -42,6 +42,11 @@ const financeiroItems = [
 
 const distribuicaoItems = [
   { permKey: 'distribuicao', to: '/distribuicao', label: 'Distribuição', icon: Truck, end: true },
+]
+
+const armazemItems = [
+  { permKey: 'armazem-supervisor', to: '/armazem/cadastro',  label: 'Cadastro de Atividades', icon: Boxes },
+  { permKey: 'armazem-supervisor', to: '/armazem/dashboard', label: 'Dashboard',              icon: Gauge },
 ]
 
 const adminItems = [
@@ -137,7 +142,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [sections, setSections] = useState({ seguranca: true, gente: true, financeiro: true, distribuicao: true, admin: true })
+  const [sections, setSections] = useState({ seguranca: true, gente: true, financeiro: true, distribuicao: true, armazem: true, admin: true })
   const fecharMobile = () => setMobileOpen(false)
 
   function toggleSection(key: keyof typeof sections) {
@@ -154,6 +159,7 @@ export default function Layout() {
   const gente = genteItems.filter(i => temAcesso(p, i.permKey))
   const financeiro = financeiroItems.filter(i => temAcesso(p, i.permKey))
   const distribuicao = distribuicaoItems.filter(i => temAcesso(p, i.permKey))
+  const armazem = armazemItems.filter(i => temAcesso(p, i.permKey))
 
   return (
     <div className="min-h-screen flex bg-gray-50">
@@ -241,6 +247,17 @@ export default function Layout() {
               items={distribuicao}
               open={sections.distribuicao}
               onToggle={() => toggleSection('distribuicao')}
+              collapsed={!sidebarOpen}
+              onNavigate={fecharMobile}
+            />
+          )}
+          {armazem.length > 0 && (
+            <Section
+              label="Armazém"
+              icon={Boxes}
+              items={armazem}
+              open={sections.armazem}
+              onToggle={() => toggleSection('armazem')}
               collapsed={!sidebarOpen}
               onNavigate={fecharMobile}
             />
