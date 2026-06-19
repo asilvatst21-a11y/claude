@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Play, Pause, Square, ArrowLeft, ArrowRight, AlertTriangle, LogOut, Loader2,
-  CheckCircle2, Boxes, WifiOff, RefreshCw,
+  CheckCircle2, Boxes, WifiOff, RefreshCw, History, Clock,
 } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
 import { supabase } from '../../lib/supabase'
@@ -11,7 +11,7 @@ import { armazemDb, cacheAtividades, atividadesEmCache, enfileirar } from '../..
 import { useArmazemSync, processarFilaArmazem } from '../../lib/armazemSync'
 import type { ArmazemAtividadeTipo, ArmazemExecucao, ArmazemExecucaoPausa, ArmazemPergunta, ArmazemResposta } from '../../types'
 
-type Tela = 'carregando' | 'selecionar' | 'andamento' | 'wizard'
+type Tela = 'carregando' | 'selecionar' | 'andamento' | 'wizard' | 'historico'
 
 function formatarDuracao(segundos: number) {
   const h = Math.floor(segundos / 3600)
@@ -46,6 +46,8 @@ export default function ArmazemOperador() {
   const [agora, setAgora] = useState(() => Date.now())
   const [erro, setErro] = useState('')
   const [salvando, setSalvando] = useState(false)
+  const [historico, setHistorico] = useState<ArmazemExecucao[]>([])
+  const [carregandoHistorico, setCarregandoHistorico] = useState(false)
 
   // Wizard de finalização
   const [passo, setPasso] = useState(0)
@@ -236,6 +238,21 @@ export default function ArmazemOperador() {
     irParaSelecao()
   }
 
+  async function abrirHistorico() {
+    if (!usuario) return
+    setTela('historico')
+    setCarregandoHistorico(true)
+    const { data } = await supabase
+      .from('armazem_execucoes')
+      .select('*')
+      .eq('colaborador_id', usuario.id)
+      .in('status', ['concluida', 'cancelada'])
+      .order('hora_inicio', { ascending: false })
+      .limit(30)
+    setHistorico(Array.isArray(data) ? data : [])
+    setCarregandoHistorico(false)
+  }
+
   function abrirWizard() {
     setPasso(0)
     setRespostas({})
@@ -329,9 +346,14 @@ export default function ArmazemOperador() {
               <p className="text-white/50 text-sm mt-0.5">{usuario?.cargo ?? '—'}</p>
             </div>
             <div className="flex flex-col items-end gap-2">
-              <button onClick={() => { sair(); navigate('/login') }} className="p-2 rounded-full bg-white/10 hover:bg-white/20" title="Sair">
-                <LogOut size={20} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={abrirHistorico} className="p-2 rounded-full bg-white/10 hover:bg-white/20" title="Minhas atividades">
+                  <History size={20} />
+                </button>
+                <button onClick={() => { sair(); navigate('/login') }} className="p-2 rounded-full bg-white/10 hover:bg-white/20" title="Sair">
+                  <LogOut size={20} />
+                </button>
+              </div>
               <StatusConexao />
             </div>
           </div>
@@ -553,6 +575,52 @@ export default function ArmazemOperador() {
             {salvando ? <Loader2 className="animate-spin" /> : ultimo ? <><CheckCircle2 size={22} /> Finalizar Atividade</> : <>Próxima <ArrowRight size={20} /></>}
           </button>
         </div>
+      </div>
+    )
+  }
+
+  // ─── Tela: histórico de atividades ──────────────────────────────────────
+  if (tela === 'historico') {
+    return (
+      <div className="min-h-screen bg-[#f4f6f8] flex flex-col">
+        <header className="bg-[#0b1f2b] text-white px-5 pt-8 pb-6 rounded-b-3xl shadow-lg flex items-center gap-3">
+          <button onClick={() => setTela('selecionar')} className="text-white/70 hover:text-white">
+            <ArrowLeft size={22} />
+          </button>
+          <h1 className="text-xl font-bold">Minhas atividades</h1>
+        </header>
+
+        <main className="flex-1 px-5 py-6">
+          {carregandoHistorico ? (
+            <div className="flex items-center justify-center py-20 text-gray-400"><Loader2 className="animate-spin" /></div>
+          ) : historico.length === 0 ? (
+            <p className="text-gray-400 text-center py-12">Nenhuma atividade registrada ainda.</p>
+          ) : (
+            <div className="space-y-3">
+              {historico.map(h => (
+                <div key={h.id} className="bg-white rounded-2xl shadow-sm border p-4">
+                  <div className="flex items-center justify-between">
+                    <p className="font-bold text-gray-800">{h.atividade_nome}</p>
+                    {h.status === 'cancelada'
+                      ? <span className="text-xs font-semibold text-red-500 bg-red-50 px-2 py-0.5 rounded-full">Cancelada</span>
+                      : h.houve_anomalia
+                        ? <span className="text-xs font-semibold text-amber-600 bg-amber-50 px-2 py-0.5 rounded-full">Anomalia</span>
+                        : <span className="text-xs font-semibold text-green-600 bg-green-50 px-2 py-0.5 rounded-full">Concluída</span>
+                    }
+                  </div>
+                  <p className="text-sm text-gray-400 mt-1">
+                    {new Date(h.hora_inicio).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                  {h.duracao_minutos != null && (
+                    <p className="text-sm text-gray-500 mt-1.5 flex items-center gap-1">
+                      <Clock size={14} /> {h.duracao_minutos} min
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </main>
       </div>
     )
   }
