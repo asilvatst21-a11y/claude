@@ -117,7 +117,7 @@ export default function Dto() {
   const [observacoes, setObservacoes] = useState<DtoObservacao[]>([])
   const [carregando, setCarregando] = useState(false)
   const [uploadando, setUploadando] = useState(false)
-  const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'atividades' | 'colaboradores' | 'acoes' | 'avaliadores'>('dashboard')
+  const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'atividades' | 'colaboradores' | 'acoes' | 'avaliadores' | 'tarefas'>('dashboard')
   const [filtroArea, setFiltroArea] = useState('Todas')
   const [filtroAvaliador, setFiltroAvaliador] = useState('Todos')
   const [filtroPeriodo, setFiltroPeriodo] = useState({ de: '', ate: '' })
@@ -244,6 +244,25 @@ export default function Dto() {
     atividadesDistintas: new Set(avs.map(o => o.atividade).filter(Boolean)).size,
     anomalias: avs.filter(temAnomalia).length,
     mediaTarefas: Math.round((avs.reduce((s, o) => s + splitTarefas(o.tarefas_seguranca).length, 0) / avs.length) * 10) / 10,
+  })).sort((a, b) => b.total - a.total)
+
+  // ── Por tarefa ──
+  const tarefaMap = new Map<string, { total: number; comDesvio: number }>()
+  obsFiltradas.forEach(o => {
+    const tarefas = splitTarefas(o.tarefas_seguranca)
+    const desviadas = new Set(splitTarefas(o.tarefa_com_desvio))
+    tarefas.forEach(t => {
+      const entry = tarefaMap.get(t) ?? { total: 0, comDesvio: 0 }
+      entry.total++
+      if (desviadas.has(t)) entry.comDesvio++
+      tarefaMap.set(t, entry)
+    })
+  })
+  const rankingTarefas = Array.from(tarefaMap.entries()).map(([tarefa, v]) => ({
+    tarefa,
+    total: v.total,
+    comDesvio: v.comDesvio,
+    taxaDesvio: v.total > 0 ? Math.round((v.comDesvio / v.total) * 100) : 0,
   })).sort((a, b) => b.total - a.total)
 
   // ── Planos de ação ──
@@ -418,6 +437,7 @@ export default function Dto() {
               ['colaboradores', 'Por Colaborador', null],
               ['acoes', 'Planos de Ação', pendentes],
               ['avaliadores', 'Por Avaliador', null],
+              ['tarefas', 'Por Tarefa', null],
             ] as const).map(([id, label, badge]) => (
               <button key={id} onClick={() => setAbaAtiva(id)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap flex items-center gap-1.5 ${abaAtiva === id ? 'border-accent-500 text-accent-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 {label}
@@ -860,6 +880,72 @@ export default function Dto() {
                     {(() => {
                       const min = [...rankingAvaliadores].sort((a, b) => a.taxaDesvio - b.taxaDesvio)[0]
                       return <p>• <strong>{min.nome}</strong> tem menor taxa de detecção ({min.taxaDesvio}%) — verificar critério de avaliação</p>
+                    })()}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Por Tarefa ── */}
+          {abaAtiva === 'tarefas' && (
+            <div className="space-y-5">
+              {rankingTarefas.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-5">
+                  <p className="text-sm font-semibold text-gray-700 mb-4">Tarefas mais observadas</p>
+                  <ResponsiveContainer width="100%" height={Math.max(100, Math.min(rankingTarefas.length, 15) * 32)}>
+                    <BarChart
+                      data={rankingTarefas.slice(0, 15)}
+                      layout="vertical"
+                      barSize={12}
+                      margin={{ left: 8 }}
+                    >
+                      <XAxis type="number" tick={{ fontSize: 11 }} />
+                      <YAxis type="category" dataKey="tarefa" tick={{ fontSize: 10 }} width={220} />
+                      <Tooltip />
+                      <Bar dataKey="total" name="Observações" fill="#1a4451" radius={[0, 3, 3, 0]} />
+                      <Bar dataKey="comDesvio" name="Com desvio" fill="#ef4444" radius={[0, 3, 3, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">Tarefa</th>
+                      <th className="text-center px-4 py-3 font-medium text-gray-600">Obs.</th>
+                      <th className="text-center px-4 py-3 font-medium text-gray-600">Com Desvio</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600 w-40">Taxa de Desvio</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rankingTarefas.length === 0 && <tr><td colSpan={4} className="text-center py-10 text-gray-400">Nenhum dado</td></tr>}
+                    {rankingTarefas.map(t => (
+                      <tr key={t.tarefa} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-900 text-sm">{t.tarefa}</td>
+                        <td className="px-4 py-3 text-center font-semibold text-gray-700">{t.total}</td>
+                        <td className="px-4 py-3 text-center">
+                          {t.comDesvio > 0
+                            ? <span className="text-xs font-bold bg-red-50 text-red-700 px-2 py-0.5 rounded-full">{t.comDesvio}</span>
+                            : <span className="text-xs text-gray-400">0</span>}
+                        </td>
+                        <td className="px-4 py-3"><ConformidadeBar pct={100 - t.taxaDesvio} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {rankingTarefas.filter(t => t.comDesvio > 0).length >= 1 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                  <p className="text-sm font-semibold text-blue-900 mb-2">Insights</p>
+                  <div className="space-y-1 text-xs text-blue-800">
+                    <p>• <strong>{rankingTarefas[0].tarefa}</strong> é a tarefa mais observada ({rankingTarefas[0].total} vezes)</p>
+                    {(() => {
+                      const top = [...rankingTarefas].filter(t => t.total >= 2).sort((a, b) => b.taxaDesvio - a.taxaDesvio)[0]
+                      return top ? <p>• <strong>{top.tarefa}</strong> tem a maior taxa de desvio ({top.taxaDesvio}%) — atenção nessa tarefa</p> : null
                     })()}
                   </div>
                 </div>
