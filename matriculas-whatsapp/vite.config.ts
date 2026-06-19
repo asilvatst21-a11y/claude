@@ -2,7 +2,6 @@ import path from 'path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { VitePWA } from 'vite-plugin-pwa'
 
 // Identificador do build, exibido no rodapé do login para confirmar
 // rapidamente, em produção, qual versão está realmente carregada (útil
@@ -16,18 +15,14 @@ export default defineConfig({
   plugins: [
     react(),
     tailwindcss(),
-    // PWA temporariamente em modo "self-destroying": ao invés de instalar
-    // um service worker que faz cache, esta versão remove qualquer service
-    // worker já registrado e limpa todos os caches do dispositivo. Isso
-    // resolve de forma definitiva o problema de aparelhos presos numa versão
-    // antiga do app. Quando o fluxo estiver estável, basta voltar para a
-    // configuração com manifest/workbox para reativar o suporte offline.
-    VitePWA({
-      selfDestroying: true,
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
-      manifest: false,
-    }),
+    // Não registramos mais nenhum service worker. O modo "self-destroying"
+    // do vite-plugin-pwa já cumpriu seu papel (limpou os caches antigos e
+    // destravou os aparelhos presos numa versão velha), mas ele voltava a se
+    // registrar a cada carregamento e, ao ativar, forçava o reload de todas as
+    // janelas abertas (client.navigate) — criando um laço infinito de
+    // recarregamento que aparecia como "travada" na tela de login, sobretudo
+    // no PWA instalado (sem barra de endereço para evidenciar o reload).
+    // O ícone/instalação continuam funcionando via public/manifest.webmanifest.
   ],
   resolve: {
     alias: {
