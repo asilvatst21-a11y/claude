@@ -34,6 +34,7 @@ function ProtectedRoutes() {
   const { usuario, loading } = useAuth()
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-500">Carregando...</div>
   if (!usuario) return <Navigate to="/login" replace />
+  if (usuario.cargo) return <Navigate to="/armazem" replace />
   return <Layout />
 }
 
@@ -53,7 +54,7 @@ function ArmazemOperadorRoute() {
 
 function PublicLogin() {
   const { usuario } = useAuth()
-  if (usuario) return <Navigate to="/" replace />
+  if (usuario) return <Navigate to={usuario.cargo ? '/armazem' : '/'} replace />
   return <Login />
 }
 
