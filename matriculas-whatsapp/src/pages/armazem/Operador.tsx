@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Play, Pause, Square, ArrowLeft, ArrowRight, AlertTriangle, LogOut, Loader2,
-  CheckCircle2, Boxes, WifiOff, RefreshCw, History, Clock,
+  CheckCircle2, Boxes, WifiOff, RefreshCw, History, Clock, Delete,
 } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
 import { supabase } from '../../lib/supabase'
@@ -18,6 +18,53 @@ function formatarDuracao(segundos: number) {
   const m = Math.floor((segundos % 3600) / 60)
   const s = segundos % 60
   return [h, m, s].map(n => String(n).padStart(2, '0')).join(':')
+}
+
+// Teclado numérico na própria tela: o operador forma o número tocando nos
+// dígitos, sem depender do teclado do sistema (mais rápido e à prova de luva).
+function TecladoNumerico({ valor, onChange }: { valor: string; onChange: (v: string) => void }) {
+  const digitar = (d: string) => onChange(valor + d)
+  const apagar = () => onChange(valor.slice(0, -1))
+  return (
+    <div>
+      <div className="bg-white/10 rounded-2xl px-5 py-6 text-center text-5xl font-bold tabular-nums min-h-[5.5rem] flex items-center justify-center">
+        {valor || <span className="text-white/25">0</span>}
+      </div>
+      <div className="grid grid-cols-3 gap-3 mt-4">
+        {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map(d => (
+          <button
+            key={d}
+            type="button"
+            onClick={() => digitar(d)}
+            className="bg-white/10 hover:bg-white/20 active:scale-95 transition rounded-2xl py-5 text-3xl font-bold"
+          >
+            {d}
+          </button>
+        ))}
+        <button
+          type="button"
+          onClick={() => onChange('')}
+          className="bg-white/5 hover:bg-white/10 active:scale-95 transition rounded-2xl py-5 text-base font-semibold text-white/70"
+        >
+          Limpar
+        </button>
+        <button
+          type="button"
+          onClick={() => digitar('0')}
+          className="bg-white/10 hover:bg-white/20 active:scale-95 transition rounded-2xl py-5 text-3xl font-bold"
+        >
+          0
+        </button>
+        <button
+          type="button"
+          onClick={apagar}
+          className="bg-white/5 hover:bg-white/10 active:scale-95 transition rounded-2xl py-5 flex items-center justify-center"
+        >
+          <Delete size={26} />
+        </button>
+      </div>
+    </div>
+  )
 }
 
 function StatusConexao() {
@@ -276,16 +323,28 @@ export default function ArmazemOperador() {
     return true
   }
 
+  // Perguntas de seleção (sim/não e múltipla escolha) avançam sozinhas ao
+  // tocar na opção — o operador não precisa confirmar, só o botão Voltar.
+  function responderEAvancar(perguntaId: string, valor: string) {
+    setRespostas(prev => ({ ...prev, [perguntaId]: valor }))
+    setPasso(p => p + 1)
+  }
+
+  function voltarWizard() {
+    if (passo > 0) setPasso(passo - 1)
+    else setTela('andamento')
+  }
+
   async function avancarWizard() {
     if (!respostaValida()) return
     if (passo < totalPassos - 1) {
       setPasso(passo + 1)
     } else {
-      await finalizarAtividade()
+      await finalizarAtividade(!!houveAnomalia, anomaliaDescricao)
     }
   }
 
-  async function finalizarAtividade() {
+  async function finalizarAtividade(anomalia: boolean, descricao: string) {
     if (!execucao) return
     setSalvando(true)
     setErro('')
@@ -298,21 +357,21 @@ export default function ArmazemOperador() {
 
     const horaFim = new Date()
     const duracaoMinutos = Math.round((horaFim.getTime() - new Date(execucao.hora_inicio).getTime()) / 60000)
-    const anomaliaDescricaoFinal = houveAnomalia ? anomaliaDescricao.trim() : null
+    const anomaliaDescricaoFinal = anomalia ? descricao.trim() : null
 
     const payload = {
       status: 'concluida' as const,
       hora_fim: horaFim.toISOString(),
       duracao_minutos: duracaoMinutos,
       respostas: respostasFinais,
-      houve_anomalia: !!houveAnomalia,
+      houve_anomalia: anomalia,
       anomalia_descricao: anomaliaDescricaoFinal,
     }
     await enfileirar({ tabela: 'armazem_execucoes', acao: 'update', registroId: execucao.id, payload })
     await armazemDb.execucaoAtual.delete(execucao.id)
     processarFilaArmazem()
 
-    if (houveAnomalia && usuario && navigator.onLine) {
+    if (anomalia && usuario && navigator.onLine) {
       const { data: filial } = await supabase.from('filiais').select('grupo_armazem_whatsapp').eq('nome', usuario.filial).maybeSingle()
       if (filial?.grupo_armazem_whatsapp) {
         enviarMensagemGrupo(
@@ -461,13 +520,19 @@ export default function ArmazemOperador() {
   if (tela === 'wizard') {
     const progresso = ((passo + 1) / totalPassos) * 100
     const ultimo = passo === totalPassos - 1
+    // Perguntas de número/texto precisam do botão "Próxima"; a etapa de
+    // anomalia só mostra "Finalizar" quando há descrição a preencher (Sim).
+    // As perguntas de seleção avançam sozinhas, então não exibem botão.
+    const mostrarAcao = perguntaAtual
+      ? perguntaAtual.tipo === 'numero' || perguntaAtual.tipo === 'texto'
+      : houveAnomalia === true
 
     return (
       <div className="min-h-screen bg-[#0b1f2b] text-white flex flex-col">
         <header className="px-5 pt-8 pb-4">
           <div className="flex items-center justify-between mb-3">
-            <button onClick={() => setTela('andamento')} className="text-white/60 hover:text-white">
-              <ArrowLeft size={22} />
+            <button onClick={voltarWizard} className="flex items-center gap-1 text-white/60 hover:text-white">
+              <ArrowLeft size={22} /> <span className="text-sm font-medium">Voltar</span>
             </button>
             <p className="text-white/50 text-sm">{passo + 1} de {totalPassos}</p>
           </div>
@@ -482,13 +547,9 @@ export default function ArmazemOperador() {
               <h2 className="text-3xl font-bold leading-tight">{perguntaAtual.pergunta}</h2>
 
               {perguntaAtual.tipo === 'numero' && (
-                <input
-                  type="number"
-                  autoFocus
-                  className="w-full bg-white/10 rounded-2xl px-5 py-5 text-2xl font-semibold outline-none focus:ring-2 focus:ring-accent-500 placeholder:text-white/30"
-                  placeholder="Digite um número"
-                  value={respostas[perguntaAtual.id] ?? ''}
-                  onChange={e => setRespostas({ ...respostas, [perguntaAtual.id]: e.target.value })}
+                <TecladoNumerico
+                  valor={respostas[perguntaAtual.id] ?? ''}
+                  onChange={v => setRespostas({ ...respostas, [perguntaAtual.id]: v })}
                 />
               )}
 
@@ -508,7 +569,7 @@ export default function ArmazemOperador() {
                   {['Sim', 'Não'].map(opcao => (
                     <button
                       key={opcao}
-                      onClick={() => setRespostas({ ...respostas, [perguntaAtual.id]: opcao })}
+                      onClick={() => responderEAvancar(perguntaAtual.id, opcao)}
                       className={`rounded-2xl py-6 text-2xl font-bold transition-colors
                         ${respostas[perguntaAtual.id] === opcao ? 'bg-accent-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
                     >
@@ -523,7 +584,7 @@ export default function ArmazemOperador() {
                   {(perguntaAtual.opcoes ?? []).filter(o => o.trim()).map(opcao => (
                     <button
                       key={opcao}
-                      onClick={() => setRespostas({ ...respostas, [perguntaAtual.id]: opcao })}
+                      onClick={() => responderEAvancar(perguntaAtual.id, opcao)}
                       className={`w-full rounded-2xl py-5 px-5 text-xl font-semibold text-left transition-colors
                         ${respostas[perguntaAtual.id] === opcao ? 'bg-accent-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
                     >
@@ -539,16 +600,21 @@ export default function ArmazemOperador() {
                 <AlertTriangle className="text-amber-400" size={32} /> Houve alguma anomalia durante a atividade?
               </h2>
               <div className="grid grid-cols-2 gap-3">
-                {[true, false].map(valor => (
-                  <button
-                    key={String(valor)}
-                    onClick={() => setHouveAnomalia(valor)}
-                    className={`rounded-2xl py-6 text-2xl font-bold transition-colors
-                      ${houveAnomalia === valor ? 'bg-accent-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
-                  >
-                    {valor ? 'Sim' : 'Não'}
-                  </button>
-                ))}
+                <button
+                  onClick={() => setHouveAnomalia(true)}
+                  disabled={salvando}
+                  className={`rounded-2xl py-6 text-2xl font-bold transition-colors disabled:opacity-50
+                    ${houveAnomalia === true ? 'bg-accent-500 text-white' : 'bg-white/10 text-white hover:bg-white/20'}`}
+                >
+                  Sim
+                </button>
+                <button
+                  onClick={() => { setHouveAnomalia(false); finalizarAtividade(false, '') }}
+                  disabled={salvando}
+                  className="rounded-2xl py-6 text-2xl font-bold transition-colors bg-white/10 text-white hover:bg-white/20 disabled:opacity-50"
+                >
+                  Não
+                </button>
               </div>
               {houveAnomalia && (
                 <textarea
@@ -566,15 +632,17 @@ export default function ArmazemOperador() {
           {erro && <p className="text-red-400 mt-4">{erro}</p>}
         </main>
 
-        <div className="px-5 pb-10">
-          <button
-            onClick={avancarWizard}
-            disabled={!respostaValida() || salvando}
-            className="w-full bg-green-500 hover:bg-green-600 disabled:opacity-40 text-white rounded-2xl py-5 text-xl font-bold flex items-center justify-center gap-2"
-          >
-            {salvando ? <Loader2 className="animate-spin" /> : ultimo ? <><CheckCircle2 size={22} /> Finalizar Atividade</> : <>Próxima <ArrowRight size={20} /></>}
-          </button>
-        </div>
+        {mostrarAcao && (
+          <div className="px-5 pb-10">
+            <button
+              onClick={avancarWizard}
+              disabled={!respostaValida() || salvando}
+              className="w-full bg-green-500 hover:bg-green-600 disabled:opacity-40 text-white rounded-2xl py-5 text-xl font-bold flex items-center justify-center gap-2"
+            >
+              {salvando ? <Loader2 className="animate-spin" /> : ultimo ? <><CheckCircle2 size={22} /> Finalizar Atividade</> : <>Próxima <ArrowRight size={20} /></>}
+            </button>
+          </div>
+        )}
       </div>
     )
   }
