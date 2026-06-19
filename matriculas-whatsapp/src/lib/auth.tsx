@@ -5,7 +5,7 @@ import type { Usuario } from '../types'
 interface AuthCtx {
   usuario: Usuario | null
   loading: boolean
-  entrar: (filial: string, login: string, senha: string) => Promise<{ sucesso: boolean; erro?: string }>
+  entrar: (filial: string, login: string, senha: string) => Promise<{ sucesso: boolean; erro?: string; usuario?: Usuario }>
   sair: () => void
 }
 
@@ -38,7 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     setUsuario(data)
     localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
-    return { sucesso: true }
+    return { sucesso: true, usuario: data }
   }
 
   function sair() {
