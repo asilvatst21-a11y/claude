@@ -1,0 +1,91 @@
+import { prisma } from "@/lib/prisma";
+import { fetchFixturesByIds, mapApiStatus, extractGoals, type GoalEvent } from "@/lib/api-football";
+
+// Skip hitting the external API again if we already refreshed within this window —
+// keeps frequent client-side polling from hammering API-Football or racing itself.
+const MIN_REFRESH_INTERVAL_MS = 20_000;
+
+export type RefreshResult = { synced: number; warning?: string; skipped?: boolean };
+
+// Fetches live/scheduled-today matches from API-Football and writes score/status updates
+// to the DB. Idempotent and safe to call concurrently (from cron or from logged-in users'
+// browsers) — it never touches predictions or points, only the source-of-truth match state.
+export async function refreshMatchScores(): Promise<RefreshResult> {
+  const spTz = { timeZone: "America/Sao_Paulo" };
+  const today = new Date().toLocaleDateString("en-CA", spTz);
+  const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", spTz);
+
+  const windowStart = new Date(`${yesterday}T00:00:00`);
+  const windowEnd = new Date(`${today}T23:59:59`);
+
+  const dbMatches = await prisma.match.findMany({
+    where: {
+      externalId: { not: null },
+      OR: [
+        { status: { in: ["SCHEDULED", "LIVE"] }, startsAt: { gte: windowStart, lte: windowEnd } },
+        { status: "LIVE" },
+      ],
+    },
+  });
+
+  if (dbMatches.length === 0) return { synced: 0 };
+
+  const mostRecentSync = dbMatches.reduce<Date | null>((latest, m) => {
+    if (!m.lastSyncedAt) return latest;
+    return !latest || m.lastSyncedAt > latest ? m.lastSyncedAt : latest;
+  }, null);
+  if (mostRecentSync && Date.now() - mostRecentSync.getTime() < MIN_REFRESH_INTERVAL_MS) {
+    return { synced: 0, skipped: true };
+  }
+
+  const externalIds = dbMatches.map((m) => Number(m.externalId));
+  const batches: number[][] = [];
+  for (let i = 0; i < externalIds.length; i += 20) batches.push(externalIds.slice(i, i + 20));
+
+  const failedBatchIds: number[] = [];
+  const fixtureArrays = await Promise.all(
+    batches.map((b) =>
+      fetchFixturesByIds(b).catch((e) => {
+        failedBatchIds.push(...b);
+        console.error("sync-matches: batch fetch failed for ids", b, e);
+        return [];
+      })
+    )
+  );
+  const fixtures = fixtureArrays.flat();
+  const warning = failedBatchIds.length > 0
+    ? `Falha ao buscar fixtures da API para externalId(s): ${failedBatchIds.join(", ")}`
+    : undefined;
+
+  if (fixtures.length === 0) return { synced: 0, warning };
+
+  const matchMap = Object.fromEntries(dbMatches.map((m) => [m.externalId!, m]));
+  const freshGoals: Record<string, GoalEvent[]> = {};
+  let synced = 0;
+
+  await Promise.all(fixtures.map(async (fixture) => {
+    const match = matchMap[String(fixture.fixture.id)];
+    if (!match) return;
+
+    const status = mapApiStatus(fixture.fixture.status.short);
+    const homeScore = fixture.goals.home;
+    const awayScore = fixture.goals.away;
+    const goals = (status === "FINISHED" || status === "LIVE") ? extractGoals(fixture) : undefined;
+    if (goals && goals.length > 0) freshGoals[match.id] = goals;
+
+    await prisma.match.update({
+      where: { id: match.id },
+      data: {
+        homeScore: homeScore ?? undefined,
+        awayScore: awayScore ?? undefined,
+        status,
+        lastSyncedAt: new Date(),
+        ...(goals && goals.length > 0 ? { goals } : {}),
+      },
+    });
+
+    synced++;
+  }));
+
+  return { synced, warning };
+}

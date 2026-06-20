@@ -7,6 +7,7 @@ import { prisma } from "@/lib/prisma";
 import { PushPermission } from "@/components/push-permission";
 import { WorldCupBanner } from "@/components/world-cup/world-cup-banner";
 import { InstallPrompt } from "@/components/install-prompt";
+import { LiveScorePoller } from "@/components/live-score-poller";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
@@ -30,6 +31,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       </div>
       <PushPermission />
       <InstallPrompt />
+      <LiveScorePoller />
     </div>
   );
 }
