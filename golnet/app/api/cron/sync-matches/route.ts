@@ -16,7 +16,7 @@ function authorize(req: Request) {
   return auth === `Bearer ${BEARER}`;
 }
 
-async function runSync(): Promise<{ synced: number }> {
+async function runSync(): Promise<{ synced: number; warning?: string }> {
 
   // Step 1: find matches that need syncing:
   // - SCHEDULED/LIVE within the 2-day SP window, OR
@@ -49,10 +49,22 @@ async function runSync(): Promise<{ synced: number }> {
   const batches: number[][] = [];
   for (let i = 0; i < externalIds.length; i += 20) batches.push(externalIds.slice(i, i + 20));
 
-  const fixtureArrays = await Promise.all(batches.map((b) => fetchFixturesByIds(b).catch(() => [])));
+  const failedBatchIds: number[] = [];
+  const fixtureArrays = await Promise.all(
+    batches.map((b) =>
+      fetchFixturesByIds(b).catch((e) => {
+        failedBatchIds.push(...b);
+        console.error("sync-matches: batch fetch failed for ids", b, e);
+        return [];
+      })
+    )
+  );
   const fixtures = fixtureArrays.flat();
+  const warning = failedBatchIds.length > 0
+    ? `Falha ao buscar fixtures da API para externalId(s): ${failedBatchIds.join(", ")}`
+    : undefined;
 
-  if (fixtures.length === 0) return { synced: 0 };
+  if (fixtures.length === 0) return { synced: 0, warning };
 
   const matchMap = Object.fromEntries(dbMatches.map((m) => [m.externalId!, m]));
 
@@ -183,7 +195,7 @@ async function runSync(): Promise<{ synced: number }> {
 
   await sendLockReminders();
 
-  return { synced };
+  return { synced, warning };
 }
 
 const REMINDERS = [
@@ -253,19 +265,21 @@ export async function GET(req: Request) {
 
   const start = Date.now();
   let synced = 0;
-  let error: string | undefined;
+  let fatalError: string | undefined;
+  let warning: string | undefined;
 
   try {
     const result = await runSync();
     synced = result.synced;
+    warning = result.warning;
   } catch (e) {
-    error = e instanceof Error ? e.message : String(e);
+    fatalError = e instanceof Error ? e.message : String(e);
   }
 
   const durationMs = Date.now() - start;
 
-  await prisma.cronLog.create({ data: { trigger: "auto", synced, durationMs, error } }).catch(() => {});
+  await prisma.cronLog.create({ data: { trigger: "auto", synced, durationMs, error: fatalError ?? warning } }).catch(() => {});
 
-  if (error) return NextResponse.json({ error }, { status: 500 });
-  return NextResponse.json({ synced, at: new Date(), durationMs });
+  if (fatalError) return NextResponse.json({ error: fatalError }, { status: 500 });
+  return NextResponse.json({ synced, warning, at: new Date(), durationMs });
 }
