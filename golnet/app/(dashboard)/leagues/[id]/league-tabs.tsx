@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import Link from "next/link";
 import { toBlob } from "html-to-image";
+import { avatarSrc } from "@/lib/utils";
 import { LeagueMatches } from "./league-matches";
 
 type Member = {
@@ -87,8 +88,8 @@ async function shareNodeAsImage(node: HTMLElement, filename: string, title: stri
     a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
-  } catch {
-    // ignore — capture failed silently, user can still screenshot manually
+  } catch (err) {
+    console.error("shareNodeAsImage failed", err);
   }
 }
 
@@ -187,54 +188,9 @@ export function LeagueTabs({
                 {STAT_COLUMNS.map((c) => `${c.icon} ${c.label}`).join(" · ")}
               </p>
             </div>
-          {/* Mobile: stacked cards — name, points and the stat breakdown all fit without horizontal scroll */}
-          <div className="sm:hidden divide-y divide-zinc-800">
-            {members.map((member, index) => {
-              const rank = index + 1;
-              const isMe = member.userId === userId;
-              const stats = statsByUserId[member.userId];
-              return (
-                <div key={member.id} className={`px-4 py-3 ${isMe ? "bg-green-500/5" : ""}`}>
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={`w-6 text-center font-bold text-sm shrink-0 ${
-                        rank === 1 ? "text-yellow-400" : rank === 2 ? "text-zinc-300" : rank === 3 ? "text-amber-600" : "text-zinc-500"
-                      }`}
-                    >
-                      {rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : rank}
-                    </span>
-                    {member.user.image ? (
-                      <img src={member.user.image} alt="" className="w-8 h-8 rounded-full shrink-0" />
-                    ) : (
-                      <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
-                        {member.user.name?.[0] ?? "?"}
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-white truncate">
-                        {member.user.name ?? "—"}
-                        {isMe && <span className="ml-2 text-xs text-green-400">(você)</span>}
-                      </p>
-                      {member.user.username && (
-                        <p className="text-xs text-zinc-500 truncate">@{member.user.username}</p>
-                      )}
-                    </div>
-                    <span className="font-bold text-green-400 text-base shrink-0">{member.totalPoints}</span>
-                  </div>
-                  <div className="flex items-center gap-3 mt-2 pl-9 text-xs text-zinc-400 flex-wrap">
-                    {STAT_COLUMNS.map((c) => (
-                      <span key={c.key} className="inline-flex items-center gap-1">
-                        {c.icon} {stats?.[c.key] ?? 0}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {/* Desktop/tablet: full table, plenty of width for every column */}
-          <div className="hidden sm:block overflow-x-auto">
+          {/* Single table at every breakpoint — name column isn't fixed, so dragging it sideways on
+              mobile reveals the stat columns, same as a regular championship table. */}
+          <div className="overflow-x-auto">
             <table className="w-full text-sm border-collapse">
               <thead>
                 <tr className="text-xs text-zinc-500 border-b border-zinc-800">
@@ -264,7 +220,7 @@ export function LeagueTabs({
                             {rank === 1 ? "🥇" : rank === 2 ? "🥈" : rank === 3 ? "🥉" : rank}
                           </span>
                           {member.user.image ? (
-                            <img src={member.user.image} alt="" className="w-8 h-8 rounded-full shrink-0" />
+                            <img src={avatarSrc(member.user.image)} alt="" className="w-8 h-8 rounded-full shrink-0" />
                           ) : (
                             <div className="w-8 h-8 rounded-full bg-zinc-700 flex items-center justify-center text-sm font-bold text-white shrink-0">
                               {member.user.name?.[0] ?? "?"}
