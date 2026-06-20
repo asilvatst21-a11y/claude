@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { fetchFixturesByIds, mapApiStatus, extractGoals, type GoalEvent } from "@/lib/api-football";
+import { refreshMatchScores } from "@/lib/sync-matches";
 import { calculatePoints, PREDICTION_LOCK_MINUTES } from "@/lib/scoring";
 import { sendPushToUser } from "@/lib/push";
 import { maybeGenerateRoundSummaries } from "@/lib/round-summary";
@@ -17,100 +17,26 @@ function authorize(req: Request) {
 }
 
 async function runSync(): Promise<{ synced: number; warning?: string }> {
+  const { synced, warning } = await refreshMatchScores();
 
-  // Step 1: find matches that need syncing:
-  // - SCHEDULED/LIVE within the 2-day SP window, OR
-  // - any LIVE match regardless of date (catches stuck matches like this one)
-  const spTz = { timeZone: "America/Sao_Paulo" };
-  const today = new Date().toLocaleDateString("en-CA", spTz);
-  const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", spTz);
+  // Score predictions for any finished match that hasn't been scored yet — derived
+  // straight from "result: null", not from this run's freshly-fetched fixtures, so a
+  // match scored by a client-triggered refresh (or a previous run) is always caught up.
+  const [regularPreds, duelPreds] = await Promise.all([
+    prisma.prediction.findMany({
+      where: { result: null, match: { status: "FINISHED", homeScore: { not: null }, awayScore: { not: null } } },
+      include: { match: true },
+    }),
+    prisma.duelPrediction.findMany({
+      where: { result: null, match: { status: "FINISHED", homeScore: { not: null }, awayScore: { not: null } } },
+      include: { match: true },
+    }),
+  ]);
 
-  const windowStart = new Date(`${yesterday}T00:00:00`);
-  const windowEnd   = new Date(`${today}T23:59:59`);
-
-  let synced = 0;
-
-  const dbMatches = await prisma.match.findMany({
-    where: {
-      externalId: { not: null },
-      OR: [
-        // Scheduled/live matches within today+yesterday window
-        { status: { in: ["SCHEDULED", "LIVE"] }, startsAt: { gte: windowStart, lte: windowEnd } },
-        // Any match still marked LIVE (stuck) — always re-check
-        { status: "LIVE" },
-      ],
-    },
-  });
-
-  if (dbMatches.length === 0) return { synced: 0 };
-
-  // Step 2: call API only for those specific IDs (batches of 20)
-  const externalIds = dbMatches.map((m) => Number(m.externalId));
-  const batches: number[][] = [];
-  for (let i = 0; i < externalIds.length; i += 20) batches.push(externalIds.slice(i, i + 20));
-
-  const failedBatchIds: number[] = [];
-  const fixtureArrays = await Promise.all(
-    batches.map((b) =>
-      fetchFixturesByIds(b).catch((e) => {
-        failedBatchIds.push(...b);
-        console.error("sync-matches: batch fetch failed for ids", b, e);
-        return [];
-      })
-    )
-  );
-  const fixtures = fixtureArrays.flat();
-  const warning = failedBatchIds.length > 0
-    ? `Falha ao buscar fixtures da API para externalId(s): ${failedBatchIds.join(", ")}`
-    : undefined;
-
-  if (fixtures.length === 0) return { synced: 0, warning };
-
-  const matchMap = Object.fromEntries(dbMatches.map((m) => [m.externalId!, m]));
-
-  const finishedMatchIds: string[] = [];
-  const freshGoals: Record<string, GoalEvent[]> = {};
-
-  // Step 3: update all matches in parallel
-  await Promise.all(fixtures.map(async (fixture) => {
-    const match = matchMap[String(fixture.fixture.id)];
-    if (!match) return;
-
-    const status = mapApiStatus(fixture.fixture.status.short);
-    const homeScore = fixture.goals.home;
-    const awayScore = fixture.goals.away;
-    const goals = (status === "FINISHED" || status === "LIVE") ? extractGoals(fixture) : undefined;
-    if (goals && goals.length > 0) freshGoals[match.id] = goals;
-
-    await prisma.match.update({
-      where: { id: match.id },
-      data: {
-        homeScore: homeScore ?? undefined,
-        awayScore: awayScore ?? undefined,
-        status,
-        lastSyncedAt: new Date(),
-        ...(goals && goals.length > 0 ? { goals } : {}),
-      },
-    });
-
-    synced++;
-    if (status === "FINISHED" && homeScore !== null && awayScore !== null) {
-      finishedMatchIds.push(match.id);
-    }
-  }));
-
-  // Step 4: score predictions for finished matches
-  if (finishedMatchIds.length > 0) {
-    const matchById = Object.fromEntries(dbMatches.map((m) => [m.id, m]));
-
-    const [regularPreds, duelPreds] = await Promise.all([
-      prisma.prediction.findMany({ where: { matchId: { in: finishedMatchIds }, result: null } }),
-      prisma.duelPrediction.findMany({ where: { matchId: { in: finishedMatchIds }, result: null } }),
-    ]);
-
+  if (regularPreds.length > 0 || duelPreds.length > 0) {
     await Promise.all(regularPreds.map(async (pred) => {
-      const match = matchById[pred.matchId];
-      if (!match || match.homeScore === null || match.awayScore === null) return;
+      const match = pred.match;
+      if (match.homeScore === null || match.awayScore === null) return;
 
       const { result, points, bonusPoints } = calculatePoints({
         predHome: pred.homeScore, predAway: pred.awayScore,
@@ -141,8 +67,8 @@ async function runSync(): Promise<{ synced: number; warning?: string }> {
     }));
 
     await Promise.all(duelPreds.map(async (dp) => {
-      const match = matchById[dp.matchId];
-      if (!match || match.homeScore === null || match.awayScore === null) return;
+      const match = dp.match;
+      if (match.homeScore === null || match.awayScore === null) return;
 
       const { result, points, bonusPoints } = calculatePoints({
         predHome: dp.homeScore, predAway: dp.awayScore,
@@ -155,9 +81,9 @@ async function runSync(): Promise<{ synced: number; warning?: string }> {
       });
     }));
 
-    // Finalize completed duels
+    // Finalize any active duel whose matches are all done now
     const affectedDuels = await prisma.duel.findMany({
-      where: { status: "ACTIVE", matches: { some: { matchId: { in: finishedMatchIds } } } },
+      where: { status: "ACTIVE" },
       include: {
         matches: { include: { match: { select: { id: true, status: true } } } },
         predictions: true,
