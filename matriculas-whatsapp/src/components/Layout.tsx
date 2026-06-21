@@ -4,7 +4,7 @@ import {
   Users, CreditCard, MessageSquare, BarChart2, LogOut, Building2,
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
-  Wallet, Menu, X, Truck, Boxes,
+  Wallet, Menu, X, Truck, Boxes, LineChart,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -48,6 +48,11 @@ const armazemItems = [
   { permKey: 'armazem-supervisor', to: '/armazem/cadastro',   label: 'Cadastro de Atividades', icon: Boxes },
   { permKey: 'armazem-supervisor', to: '/armazem/operadores', label: 'Operadores',             icon: UserCheck },
   { permKey: 'armazem-supervisor', to: '/armazem/dashboard',  label: 'Dashboard',              icon: Gauge },
+]
+
+const gerenciaItems = [
+  { permKey: 'gerencia', to: '/gerencia',           label: 'Painel DRE',        icon: LineChart,   end: true },
+  { permKey: 'gerencia', to: '/gerencia/importar',  label: 'Importar Planilha', icon: Upload                 },
 ]
 
 const adminItems = [
@@ -143,7 +148,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [sections, setSections] = useState({ seguranca: true, gente: true, financeiro: true, distribuicao: true, armazem: true, admin: true })
+  const [sections, setSections] = useState({ seguranca: true, gente: true, financeiro: true, distribuicao: true, armazem: true, gerencia: true, admin: true })
   const fecharMobile = () => setMobileOpen(false)
 
   function toggleSection(key: keyof typeof sections) {
@@ -161,6 +166,7 @@ export default function Layout() {
   const financeiro = financeiroItems.filter(i => temAcesso(p, i.permKey))
   const distribuicao = distribuicaoItems.filter(i => temAcesso(p, i.permKey))
   const armazem = armazemItems.filter(i => temAcesso(p, i.permKey))
+  const gerencia = gerenciaItems.filter(i => temAcesso(p, i.permKey))
 
   return (
     <div className="min-h-dvh flex bg-gray-50">
@@ -259,6 +265,17 @@ export default function Layout() {
               items={armazem}
               open={sections.armazem}
               onToggle={() => toggleSection('armazem')}
+              collapsed={!sidebarOpen}
+              onNavigate={fecharMobile}
+            />
+          )}
+          {gerencia.length > 0 && (
+            <Section
+              label="Gerência"
+              icon={LineChart}
+              items={gerencia}
+              open={sections.gerencia}
+              onToggle={() => toggleSection('gerencia')}
               collapsed={!sidebarOpen}
               onNavigate={fecharMobile}
             />
