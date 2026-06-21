@@ -29,6 +29,8 @@ import ArmazemOperador from './pages/armazem/Operador'
 import ArmazemCadastro from './pages/armazem/Cadastro'
 import ArmazemOperadores from './pages/armazem/Operadores'
 import ArmazemDashboard from './pages/armazem/Dashboard'
+import GerenciaPainel from './pages/gerencia/Painel'
+import GerenciaImportar from './pages/gerencia/Importar'
 
 function ProtectedRoutes() {
   const { usuario, loading } = useAuth()
@@ -87,6 +89,9 @@ export default function App() {
             <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
             <Route path="/armazem/operadores" element={<ArmazemOperadores />} />
             <Route path="/armazem/dashboard" element={<ArmazemDashboard />} />
+            {/* Gerência — DRE */}
+            <Route path="/gerencia" element={<GerenciaPainel />} />
+            <Route path="/gerencia/importar" element={<GerenciaImportar />} />
             {/* Vales LOG20 */}
             <Route path="/vales" element={<ValesPage />} />
             <Route path="/vales/ajudantes" element={<AjudantesPage />} />
