@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { fetchFixturesByIds, mapApiStatus, extractGoals, type GoalEvent } from "@/lib/api-football";
 
 // Skip hitting the external API again if we already refreshed within this window —
@@ -18,25 +19,29 @@ export async function refreshMatchScores(): Promise<RefreshResult> {
   const windowStart = new Date(`${yesterday}T00:00:00`);
   const windowEnd = new Date(`${today}T23:59:59`);
 
-  const dbMatches = await prisma.match.findMany({
-    where: {
-      externalId: { not: null },
-      OR: [
-        { status: { in: ["SCHEDULED", "LIVE"] }, startsAt: { gte: windowStart, lte: windowEnd } },
-        { status: "LIVE" },
-      ],
-    },
+  const matchFilter: Prisma.MatchWhereInput = {
+    externalId: { not: null },
+    OR: [
+      { status: { in: ["SCHEDULED", "LIVE"] }, startsAt: { gte: windowStart, lte: windowEnd } },
+      { status: "LIVE" },
+    ],
+  };
+
+  const { _max, _count } = await prisma.match.aggregate({
+    where: matchFilter,
+    _max: { lastSyncedAt: true },
+    _count: true,
   });
 
-  if (dbMatches.length === 0) return { synced: 0 };
-
-  const mostRecentSync = dbMatches.reduce<Date | null>((latest, m) => {
-    if (!m.lastSyncedAt) return latest;
-    return !latest || m.lastSyncedAt > latest ? m.lastSyncedAt : latest;
-  }, null);
-  if (mostRecentSync && Date.now() - mostRecentSync.getTime() < MIN_REFRESH_INTERVAL_MS) {
+  if (_count === 0) return { synced: 0 };
+  if (_max.lastSyncedAt && Date.now() - _max.lastSyncedAt.getTime() < MIN_REFRESH_INTERVAL_MS) {
     return { synced: 0, skipped: true };
   }
+
+  const dbMatches = await prisma.match.findMany({
+    where: matchFilter,
+    select: { id: true, externalId: true, lastSyncedAt: true },
+  });
 
   const externalIds = dbMatches.map((m) => Number(m.externalId));
   const batches: number[][] = [];

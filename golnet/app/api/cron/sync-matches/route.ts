@@ -25,11 +25,11 @@ async function runSync(): Promise<{ synced: number; warning?: string }> {
   const [regularPreds, duelPreds] = await Promise.all([
     prisma.prediction.findMany({
       where: { result: null, match: { status: "FINISHED", homeScore: { not: null }, awayScore: { not: null } } },
-      include: { match: true },
+      include: { match: { select: { homeScore: true, awayScore: true, stage: true, round: true } } },
     }),
     prisma.duelPrediction.findMany({
       where: { result: null, match: { status: "FINISHED", homeScore: { not: null }, awayScore: { not: null } } },
-      include: { match: true },
+      include: { match: { select: { homeScore: true, awayScore: true, stage: true } } },
     }),
   ]);
 
@@ -84,9 +84,12 @@ async function runSync(): Promise<{ synced: number; warning?: string }> {
     // Finalize any active duel whose matches are all done now
     const affectedDuels = await prisma.duel.findMany({
       where: { status: "ACTIVE" },
-      include: {
-        matches: { include: { match: { select: { id: true, status: true } } } },
-        predictions: true,
+      select: {
+        id: true,
+        creatorId: true,
+        opponentId: true,
+        matches: { select: { match: { select: { status: true } } } },
+        predictions: { select: { userId: true, points: true, bonusPoints: true } },
       },
     });
 
