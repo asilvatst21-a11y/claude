@@ -1,3 +1,8 @@
+export interface GerenciaDreFormulaComponente {
+  codigo: string;
+  sinal: "+" | "-";
+}
+
 export interface GerenciaDreConta {
   conta_codigo: string;
   conta_nome: string;
@@ -5,6 +10,7 @@ export interface GerenciaDreConta {
   grupo: string | null;
   meta_avr: number | null;
   ordem: number;
+  formula_componentes: GerenciaDreFormulaComponente[] | null;
 }
 
 export interface GerenciaDreLancamento {
