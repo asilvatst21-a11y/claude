@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from "recharts";
-import { Loader2, TrendingDown, TrendingUp, Search } from "lucide-react";
+import { Loader2, TrendingDown, TrendingUp, Search, ChevronRight, ChevronDown } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,63 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { supabase } from "@/lib/supabase";
 import { MESES_LABEL, MESES_ORDEM } from "@/lib/gerenciaDreTypes";
 import type { GerenciaDreConta, GerenciaDreLancamento } from "@/lib/gerenciaDreTypes";
+
+function ContaArvoreNo({
+  conta, sinal, contasPorCodigo, lancamentosDoMes, nivel, caminho, expandidos, onToggle,
+}: {
+  conta: GerenciaDreConta;
+  sinal: "+" | "-";
+  contasPorCodigo: Map<string, GerenciaDreConta>;
+  lancamentosDoMes: Map<string, GerenciaDreLancamento>;
+  nivel: number;
+  caminho: string;
+  expandidos: Set<string>;
+  onToggle: (caminho: string) => void;
+}) {
+  const filhos = conta.formula_componentes ?? [];
+  const temFilhos = filhos.length > 0;
+  const aberto = expandidos.has(caminho);
+  const lancamento = lancamentosDoMes.get(conta.conta_codigo);
+
+  return (
+    <>
+      <TableRow>
+        <TableCell style={{ paddingLeft: `${12 + nivel * 20}px` }}>
+          <div className="flex items-center gap-1.5">
+            {temFilhos ? (
+              <button onClick={() => onToggle(caminho)} className="p-0.5 rounded hover:bg-accent shrink-0">
+                {aberto ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              </button>
+            ) : (
+              <span className="w-5 shrink-0" />
+            )}
+            {sinal === "-" && <span className="text-red-600 font-semibold">−</span>}
+            <span className={temFilhos ? "font-medium" : ""}>{conta.conta_codigo} | {conta.conta_nome}</span>
+          </div>
+        </TableCell>
+        <TableCell className="text-right">{formatNumero(lancamento?.realizado)}</TableCell>
+      </TableRow>
+      {temFilhos && aberto && filhos.map((comp) => {
+        const filho = contasPorCodigo.get(comp.codigo);
+        if (!filho) return null;
+        const proximoCaminho = `${caminho}/${comp.codigo}`;
+        return (
+          <ContaArvoreNo
+            key={proximoCaminho}
+            conta={filho}
+            sinal={comp.sinal}
+            contasPorCodigo={contasPorCodigo}
+            lancamentosDoMes={lancamentosDoMes}
+            nivel={nivel + 1}
+            caminho={proximoCaminho}
+            expandidos={expandidos}
+            onToggle={onToggle}
+          />
+        );
+      })}
+    </>
+  );
+}
 
 function formatNumero(v: number | null | undefined): string {
   if (v === null || v === undefined) return "-";
@@ -34,6 +91,16 @@ export default function GerenciaPainelPage() {
   const [mesB, setMesB] = useState<string>("FEVEREIRO");
   const [contaComparativoId, setContaComparativoId] = useState<string>("");
   const [busca, setBusca] = useState("");
+  const [estruturaExpandidos, setEstruturaExpandidos] = useState<Set<string>>(new Set());
+
+  const toggleEstrutura = (caminho: string) => {
+    setEstruturaExpandidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(caminho)) next.delete(caminho);
+      else next.add(caminho);
+      return next;
+    });
+  };
 
   useEffect(() => {
     async function carregar() {
@@ -77,6 +144,21 @@ export default function GerenciaPainelPage() {
   }, [lancamentos]);
 
   const contasComMeta = useMemo(() => contas.filter((c) => c.meta_avr !== null), [contas]);
+
+  const contasPorCodigo = useMemo(() => new Map(contas.map((c) => [c.conta_codigo, c])), [contas]);
+
+  const raizesEstrutura = useMemo(() => {
+    const referenciadas = new Set<string>();
+    for (const c of contas) {
+      for (const comp of c.formula_componentes ?? []) referenciadas.add(comp.codigo);
+    }
+    return contas.filter((c) => !referenciadas.has(c.conta_codigo));
+  }, [contas]);
+
+  const lancamentosDoMesEstrutura = useMemo(
+    () => lancamentosPorMes.get(mesEfetivo) ?? new Map<string, GerenciaDreLancamento>(),
+    [lancamentosPorMes, mesEfetivo]
+  );
 
   const metasLinhas = useMemo(() => {
     const doMes = lancamentosPorMes.get(mesEfetivo);
@@ -164,6 +246,7 @@ export default function GerenciaPainelPage() {
       <Tabs defaultValue="metas">
         <TabsList>
           <TabsTrigger value="metas">Metas AVR</TabsTrigger>
+          <TabsTrigger value="estrutura">Estrutura do DRE</TabsTrigger>
           <TabsTrigger value="comparativo">Comparativo entre Meses</TabsTrigger>
           <TabsTrigger value="ranking">Ranking de Variações</TabsTrigger>
         </TabsList>
@@ -212,6 +295,52 @@ export default function GerenciaPainelPage() {
                   ))}
                   {metasLinhas.length === 0 && (
                     <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6">Sem dados para este mês.</TableCell></TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="estrutura" className="space-y-4">
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-muted-foreground">Mês:</span>
+            <Select value={mesEfetivo} onValueChange={setMes}>
+              <SelectTrigger className="w-44"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {mesesDisponiveis.map((m) => <SelectItem key={m} value={m}>{MESES_LABEL[m] ?? m}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">Composição dos totais (clique na seta para abrir)</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Conta</TableHead>
+                    <TableHead className="text-right">Realizado</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {raizesEstrutura.map((conta) => (
+                    <ContaArvoreNo
+                      key={conta.conta_codigo}
+                      conta={conta}
+                      sinal="+"
+                      contasPorCodigo={contasPorCodigo}
+                      lancamentosDoMes={lancamentosDoMesEstrutura}
+                      nivel={0}
+                      caminho={conta.conta_codigo}
+                      expandidos={estruturaExpandidos}
+                      onToggle={toggleEstrutura}
+                    />
+                  ))}
+                  {raizesEstrutura.length === 0 && (
+                    <TableRow><TableCell colSpan={2} className="text-center text-muted-foreground py-6">Sem dados para este mês.</TableCell></TableRow>
                   )}
                 </TableBody>
               </Table>
