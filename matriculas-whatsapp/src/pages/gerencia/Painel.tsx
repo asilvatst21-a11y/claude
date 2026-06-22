@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from "recharts";
@@ -13,22 +13,32 @@ import { supabase } from "@/lib/supabase";
 import { MESES_LABEL, MESES_ORDEM } from "@/lib/gerenciaDreTypes";
 import type { GerenciaDreConta, GerenciaDreLancamento } from "@/lib/gerenciaDreTypes";
 
+interface LinhaArvore {
+  celulas: ReactNode[];
+  impacto: number;
+}
+
 function ContaArvoreNo({
-  conta, sinal, contasPorCodigo, lancamentosDoMes, nivel, caminho, expandidos, onToggle,
+  conta, sinal, contasPorCodigo, renderLinha, nivel, caminho, expandidos, onToggle, ordenarPorImpacto,
 }: {
   conta: GerenciaDreConta;
   sinal: "+" | "-";
   contasPorCodigo: Map<string, GerenciaDreConta>;
-  lancamentosDoMes: Map<string, GerenciaDreLancamento>;
+  renderLinha: (codigo: string) => LinhaArvore;
   nivel: number;
   caminho: string;
   expandidos: Set<string>;
   onToggle: (caminho: string) => void;
+  ordenarPorImpacto?: boolean;
 }) {
   const filhos = conta.formula_componentes ?? [];
   const temFilhos = filhos.length > 0;
   const aberto = expandidos.has(caminho);
-  const lancamento = lancamentosDoMes.get(conta.conta_codigo);
+  const { celulas } = renderLinha(conta.conta_codigo);
+
+  const filhosOrdenados = ordenarPorImpacto
+    ? [...filhos].sort((a, b) => Math.abs(renderLinha(b.codigo).impacto) - Math.abs(renderLinha(a.codigo).impacto))
+    : filhos;
 
   return (
     <>
@@ -46,9 +56,9 @@ function ContaArvoreNo({
             <span className={temFilhos ? "font-medium" : ""}>{conta.conta_codigo} | {conta.conta_nome}</span>
           </div>
         </TableCell>
-        <TableCell className="text-right">{formatNumero(lancamento?.realizado)}</TableCell>
+        {celulas.map((celula, i) => <TableCell key={i} className="text-right">{celula}</TableCell>)}
       </TableRow>
-      {temFilhos && aberto && filhos.map((comp) => {
+      {temFilhos && aberto && filhosOrdenados.map((comp) => {
         const filho = contasPorCodigo.get(comp.codigo);
         if (!filho) return null;
         const proximoCaminho = `${caminho}/${comp.codigo}`;
@@ -58,11 +68,12 @@ function ContaArvoreNo({
             conta={filho}
             sinal={comp.sinal}
             contasPorCodigo={contasPorCodigo}
-            lancamentosDoMes={lancamentosDoMes}
+            renderLinha={renderLinha}
             nivel={nivel + 1}
             caminho={proximoCaminho}
             expandidos={expandidos}
             onToggle={onToggle}
+            ordenarPorImpacto={ordenarPorImpacto}
           />
         );
       })}
@@ -92,9 +103,19 @@ export default function GerenciaPainelPage() {
   const [contaComparativoId, setContaComparativoId] = useState<string>("");
   const [busca, setBusca] = useState("");
   const [estruturaExpandidos, setEstruturaExpandidos] = useState<Set<string>>(new Set());
+  const [rankingExpandidos, setRankingExpandidos] = useState<Set<string>>(new Set());
 
   const toggleEstrutura = (caminho: string) => {
     setEstruturaExpandidos((prev) => {
+      const next = new Set(prev);
+      if (next.has(caminho)) next.delete(caminho);
+      else next.add(caminho);
+      return next;
+    });
+  };
+
+  const toggleRanking = (caminho: string) => {
+    setRankingExpandidos((prev) => {
       const next = new Set(prev);
       if (next.has(caminho)) next.delete(caminho);
       else next.add(caminho);
@@ -160,6 +181,11 @@ export default function GerenciaPainelPage() {
     [lancamentosPorMes, mesEfetivo]
   );
 
+  const renderLinhaEstrutura = (codigo: string): LinhaArvore => {
+    const realizado = lancamentosDoMesEstrutura.get(codigo)?.realizado;
+    return { celulas: [formatNumero(realizado)], impacto: realizado ?? 0 };
+  };
+
   const metasLinhas = useMemo(() => {
     const doMes = lancamentosPorMes.get(mesEfetivo);
     if (!doMes) return [];
@@ -195,25 +221,39 @@ export default function GerenciaPainelPage() {
     });
   }, [contaComparativo, mesesDisponiveis, lancamentosPorMes]);
 
-  const ranking = useMemo(() => {
+  const valoresRanking = useMemo(() => {
     const doA = lancamentosPorMes.get(mesA);
     const doB = lancamentosPorMes.get(mesB);
-    if (!doA || !doB) return [];
-    return contas
-      .map((c) => {
-        const lA = doA.get(c.conta_codigo);
-        const lB = doB.get(c.conta_codigo);
-        if (!lA || !lB) return null;
-        const delta = lB.realizado - lA.realizado;
-        return { conta: c, realizadoA: lA.realizado, realizadoB: lB.realizado, delta };
-      })
-      .filter((x): x is NonNullable<typeof x> => x !== null && Math.abs(x.delta) > 0.01);
+    const map = new Map<string, { a: number; b: number; delta: number }>();
+    for (const c of contas) {
+      const a = doA?.get(c.conta_codigo)?.realizado ?? 0;
+      const b = doB?.get(c.conta_codigo)?.realizado ?? 0;
+      map.set(c.conta_codigo, { a, b, delta: b - a });
+    }
+    return map;
   }, [contas, lancamentosPorMes, mesA, mesB]);
 
-  const maioresVariacoes = useMemo(
-    () => [...ranking].sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)),
-    [ranking]
+  const raizesRanking = useMemo(
+    () => [...raizesEstrutura].sort(
+      (a, b) => Math.abs(valoresRanking.get(b.conta_codigo)?.delta ?? 0) - Math.abs(valoresRanking.get(a.conta_codigo)?.delta ?? 0)
+    ),
+    [raizesEstrutura, valoresRanking]
   );
+
+  const renderLinhaRanking = (codigo: string): LinhaArvore => {
+    const valores = valoresRanking.get(codigo) ?? { a: 0, b: 0, delta: 0 };
+    return {
+      celulas: [
+        formatNumero(valores.a),
+        formatNumero(valores.b),
+        <span key="delta" className={`flex items-center justify-end gap-1 ${valores.delta < 0 ? "text-red-600" : "text-green-600"}`}>
+          {valores.delta < 0 ? <TrendingDown className="h-3.5 w-3.5" /> : <TrendingUp className="h-3.5 w-3.5" />}
+          {formatNumero(Math.abs(valores.delta))}
+        </span>,
+      ],
+      impacto: valores.delta,
+    };
+  };
 
   if (carregando) {
     return <div className="p-6 flex items-center gap-2 text-gray-500"><Loader2 className="h-4 w-4 animate-spin" /> Carregando...</div>;
@@ -332,7 +372,7 @@ export default function GerenciaPainelPage() {
                       conta={conta}
                       sinal="+"
                       contasPorCodigo={contasPorCodigo}
-                      lancamentosDoMes={lancamentosDoMesEstrutura}
+                      renderLinha={renderLinhaEstrutura}
                       nivel={0}
                       caminho={conta.conta_codigo}
                       expandidos={estruturaExpandidos}
@@ -442,18 +482,21 @@ export default function GerenciaPainelPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {maioresVariacoes.map(({ conta, realizadoA, realizadoB, delta }) => (
-                    <TableRow key={conta.conta_codigo}>
-                      <TableCell>{conta.conta_codigo} | {conta.conta_nome}</TableCell>
-                      <TableCell className="text-right">{formatNumero(realizadoA)}</TableCell>
-                      <TableCell className="text-right">{formatNumero(realizadoB)}</TableCell>
-                      <TableCell className={`text-right flex items-center justify-end gap-1 ${delta < 0 ? "text-red-600" : "text-green-600"}`}>
-                        {delta < 0 ? <TrendingDown className="h-3.5 w-3.5" /> : <TrendingUp className="h-3.5 w-3.5" />}
-                        {formatNumero(Math.abs(delta))}
-                      </TableCell>
-                    </TableRow>
+                  {raizesRanking.map((conta) => (
+                    <ContaArvoreNo
+                      key={conta.conta_codigo}
+                      conta={conta}
+                      sinal="+"
+                      contasPorCodigo={contasPorCodigo}
+                      renderLinha={renderLinhaRanking}
+                      nivel={0}
+                      caminho={conta.conta_codigo}
+                      expandidos={rankingExpandidos}
+                      onToggle={toggleRanking}
+                      ordenarPorImpacto
+                    />
                   ))}
-                  {maioresVariacoes.length === 0 && (
+                  {raizesRanking.length === 0 && (
                     <TableRow><TableCell colSpan={4} className="text-center text-muted-foreground py-6">Sem dados suficientes para esses dois meses.</TableCell></TableRow>
                   )}
                 </TableBody>
