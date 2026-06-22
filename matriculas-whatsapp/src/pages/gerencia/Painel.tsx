@@ -129,7 +129,7 @@ export default function GerenciaPainelPage() {
   }, [contas, lancamentosPorMes, mesA, mesB]);
 
   const maioresVariacoes = useMemo(
-    () => [...ranking].sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 10),
+    () => [...ranking].sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)),
     [ranking]
   );
 
