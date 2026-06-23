@@ -295,6 +295,7 @@ export interface AlertaTML {
   sala: 'COLORADO' | 'SUB-FURIA'
   placa: string | null
   matricula: number | null
+  nome: string | null
   horario_limite: string
   horario_saida: string
   atraso_minutos: number
@@ -315,6 +316,7 @@ export interface HistoricoTML {
   sala: 'COLORADO' | 'SUB-FURIA' | null
   placa: string | null
   matricula: number | null
+  nome: string | null
   data_saida: string | null
   horario_saida: string | null
   horario_limite: string | null

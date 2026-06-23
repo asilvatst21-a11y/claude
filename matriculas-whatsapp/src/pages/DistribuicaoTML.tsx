@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase'
 import { enviarMensagemWhatsApp } from '../lib/zapi'
 import { parseEscalaBuffer, parseSaidaBuffer } from '../lib/tmlParser'
 import { isSalaTML, horarioLimite, atrasoMinutos, SALA_TML_LABEL, type SalaTML } from '../lib/tml'
-import type { AlertaTML, MotivoJustificativaTML } from '../types'
+import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
@@ -17,11 +17,34 @@ interface PendenteTML {
   sala: SalaTML
   placa: string | null
   matricula: number | null
+  nome: string | null
   horarioSaida: string
   horarioLimite: string
   atraso: number
   supervisores: { id: string; nome: string; telefone: string }[]
   mensagem: string
+}
+
+function ResultadoBadge({ resultado }: { resultado: HistoricoTML['resultado'] }) {
+  if (resultado === 'no_prazo') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-green-700 bg-green-100">
+        <CheckCircle className="h-3 w-3" /> Dentro da meta
+      </span>
+    )
+  }
+  if (resultado === 'atrasado') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-red-700 bg-red-100">
+        <AlertTriangle className="h-3 w-3" /> Atrasado
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-gray-700 bg-gray-100">
+      <Clock className="h-3 w-3" /> Indefinido
+    </span>
+  )
 }
 
 function StatusBadge({ status }: { status: AlertaTML['status'] }) {
@@ -116,6 +139,9 @@ export default function DistribuicaoTML() {
   const [pendentes, setPendentes] = useState<PendenteTML[] | null>(null)
   const [enviandoConfirmacao, setEnviandoConfirmacao] = useState(false)
 
+  const [historico, setHistorico] = useState<HistoricoTML[]>([])
+  const [loadingHistorico, setLoadingHistorico] = useState(true)
+
   const fetchAlertas = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
@@ -127,6 +153,19 @@ export default function DistribuicaoTML() {
       .limit(200)
     setAlertas(Array.isArray(data) ? data : [])
     setLoading(false)
+  }, [usuario])
+
+  const fetchHistorico = useCallback(async () => {
+    if (!usuario) return
+    setLoadingHistorico(true)
+    const { data } = await supabase
+      .from('historico_tml')
+      .select('*')
+      .eq('filial', usuario.filial)
+      .order('created_at', { ascending: false })
+      .limit(200)
+    setHistorico(Array.isArray(data) ? data : [])
+    setLoadingHistorico(false)
   }, [usuario])
 
   const fetchMotivos = useCallback(async () => {
@@ -145,6 +184,7 @@ export default function DistribuicaoTML() {
 
   useEffect(() => { fetchAlertas() }, [fetchAlertas])
   useEffect(() => { fetchMotivos() }, [fetchMotivos])
+  useEffect(() => { fetchHistorico() }, [fetchHistorico])
 
   async function handleEscala(file: File) {
     if (!usuario) return
@@ -214,10 +254,11 @@ export default function DistribuicaoTML() {
       const matriculas = [...new Set(saidas.map((s) => s.matricula).filter((m): m is number => m != null))]
       const { data: roster } = await supabase
         .from('motoristas_sala_tml')
-        .select('matricula, sala')
+        .select('matricula, nome, sala')
         .eq('filial', usuario.filial)
         .in('matricula', matriculas)
       const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
+      const nomePorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.nome]))
 
       const { data: alertasExistentes } = await supabase
         .from('alertas_tml')
@@ -237,11 +278,12 @@ export default function DistribuicaoTML() {
         const escala = escalaPorMapa.get(saida.mapa)
         const matricula = saida.matricula ?? escala?.matricula ?? null
         const placa = saida.placa ?? escala?.placa ?? null
+        const nome = matricula != null ? nomePorMatricula.get(matricula) ?? null : null
 
         if (!saida.horarioSaida) {
           diag.semHorario++
           historicoImediato.push({
-            filial: usuario.filial, mapa: saida.mapa, sala: null, placa, matricula,
+            filial: usuario.filial, mapa: saida.mapa, sala: null, placa, matricula, nome,
             data_saida: saida.dataSaida, horario_saida: null, horario_limite: null, atraso_minutos: null,
             resultado: 'indefinido', observacao: 'Sem horário de saída na planilha',
           })
@@ -253,7 +295,7 @@ export default function DistribuicaoTML() {
           diag.semSala++
           if (matricula != null) erros.push(`Mapa ${saida.mapa}: matrícula ${matricula} sem sala cadastrada`)
           historicoImediato.push({
-            filial: usuario.filial, mapa: saida.mapa, sala: null, placa, matricula,
+            filial: usuario.filial, mapa: saida.mapa, sala: null, placa, matricula, nome,
             data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: null, atraso_minutos: null,
             resultado: 'indefinido', observacao: 'Matrícula sem sala cadastrada no roster',
           })
@@ -266,7 +308,7 @@ export default function DistribuicaoTML() {
         if (atraso <= 0) {
           diag.noPrazo++
           historicoImediato.push({
-            filial: usuario.filial, mapa: saida.mapa, sala, placa, matricula,
+            filial: usuario.filial, mapa: saida.mapa, sala, placa, matricula, nome,
             data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: limite, atraso_minutos: atraso,
             resultado: 'no_prazo', observacao: null,
           })
@@ -283,7 +325,7 @@ export default function DistribuicaoTML() {
           diag.semSupervisor++
           erros.push(`Mapa ${saida.mapa}: nenhum supervisor cadastrado para a sala ${SALA_TML_LABEL[sala]}`)
           historicoImediato.push({
-            filial: usuario.filial, mapa: saida.mapa, sala, placa, matricula,
+            filial: usuario.filial, mapa: saida.mapa, sala, placa, matricula, nome,
             data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: limite, atraso_minutos: atraso,
             resultado: 'atrasado', observacao: 'Nenhum supervisor cadastrado para a sala',
           })
@@ -295,8 +337,8 @@ export default function DistribuicaoTML() {
           `⚠️ *TML PERDIDO*\n\n` +
           `🗺️ Mapa: ${saida.mapa}\n` +
           `🚛 Placa: ${placa ?? '-'}\n` +
-          `👤 Motorista (matrícula): ${matricula ?? '—'}\n` +
-          `🏢 Sala: ${SALA_TML_LABEL[sala]}\n` +
+          `👤 Motorista: ${nome ?? '—'} (matrícula ${matricula ?? '—'})\n` +
+          `🏢 Sala: ${sala}\n` +
           `🕐 Limite de saída: ${limite}\n` +
           `🕑 Saída real: ${saida.horarioSaida}\n` +
           `⏱️ Atraso: ${atraso} min\n\n` +
@@ -307,6 +349,7 @@ export default function DistribuicaoTML() {
           sala,
           placa,
           matricula,
+          nome,
           horarioSaida: saida.horarioSaida,
           horarioLimite: limite,
           atraso,
@@ -337,6 +380,7 @@ export default function DistribuicaoTML() {
         setPendentes(novosPendentes)
       }
       await fetchAlertas()
+      await fetchHistorico()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar saída')
     } finally {
@@ -366,6 +410,7 @@ export default function DistribuicaoTML() {
             sala: p.sala,
             placa: p.placa,
             matricula: p.matricula,
+            nome: p.nome,
             horario_limite: p.horarioLimite,
             horario_saida: p.horarioSaida,
             atraso_minutos: p.atraso,
@@ -384,6 +429,7 @@ export default function DistribuicaoTML() {
             sala: p.sala,
             placa: p.placa,
             matricula: p.matricula,
+            nome: p.nome,
             horario_saida: p.horarioSaida,
             horario_limite: p.horarioLimite,
             atraso_minutos: p.atraso,
@@ -397,6 +443,7 @@ export default function DistribuicaoTML() {
 
       setPendentes(null)
       await fetchAlertas()
+      await fetchHistorico()
       alert(
         `${pendentes.length} alerta(s) enviado(s).` +
         (erros.length ? `\n\nErros:\n${erros.slice(0, 15).join('\n')}` : '')
@@ -528,7 +575,7 @@ export default function DistribuicaoTML() {
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mapa</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Sala</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Placa</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Matrícula</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Motorista</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Limite</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Saída</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Atraso</th>
@@ -543,7 +590,7 @@ export default function DistribuicaoTML() {
                     <td className="px-4 py-3">{a.mapa}</td>
                     <td className="px-4 py-3">{SALA_TML_LABEL[a.sala] ?? a.sala}</td>
                     <td className="px-4 py-3">{a.placa ?? '—'}</td>
-                    <td className="px-4 py-3">{a.matricula ?? '—'}</td>
+                    <td className="px-4 py-3">{a.nome ?? '—'} {a.matricula != null && <span className="text-muted-foreground">({a.matricula})</span>}</td>
                     <td className="px-4 py-3">{a.horario_limite}</td>
                     <td className="px-4 py-3">{a.horario_saida}</td>
                     <td className="px-4 py-3">{a.atraso_minutos} min</td>
@@ -573,6 +620,61 @@ export default function DistribuicaoTML() {
         )}
       </div>
 
+      <div className="border rounded-lg bg-white">
+        <div className="px-4 py-3 border-b">
+          <h2 className="font-semibold text-sm">Histórico TML</h2>
+          <p className="text-xs text-muted-foreground">Todas as saídas processadas, dentro ou fora da meta</p>
+        </div>
+        {loadingHistorico ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
+          </div>
+        ) : historico.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <FileSpreadsheet className="h-10 w-10 mx-auto opacity-20 mb-3" />
+            <p>Nenhuma saída processada ainda.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mapa</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Sala</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Placa</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Motorista</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Limite</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Saída</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Atraso</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Resultado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {historico.map((h) => (
+                  <tr key={h.id} className="hover:bg-muted/30 transition-colors align-top">
+                    <td className="px-4 py-3">{h.mapa}</td>
+                    <td className="px-4 py-3">{h.sala ?? '—'}</td>
+                    <td className="px-4 py-3">{h.placa ?? '—'}</td>
+                    <td className="px-4 py-3">{h.nome ?? '—'} {h.matricula != null && <span className="text-muted-foreground">({h.matricula})</span>}</td>
+                    <td className="px-4 py-3">{h.horario_limite ?? '—'}</td>
+                    <td className="px-4 py-3">{h.horario_saida ?? '—'}</td>
+                    <td className="px-4 py-3">{h.atraso_minutos != null ? `${h.atraso_minutos} min` : '—'}</td>
+                    <td className="px-4 py-3">
+                      <ResultadoBadge resultado={h.resultado} />
+                      {h.observacao && (
+                        <p className="text-xs text-muted-foreground mt-1 max-w-[220px] truncate" title={h.observacao}>
+                          {h.observacao}
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {pendentes && pendentes.length > 0 && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -588,7 +690,7 @@ export default function DistribuicaoTML() {
                 {pendentes.map((p) => (
                   <div key={p.mapa} className="px-3 py-2 text-sm flex items-center justify-between gap-3">
                     <div>
-                      <span className="font-medium">Mapa {p.mapa}</span> · {SALA_TML_LABEL[p.sala]} · {p.placa ?? '-'} · matrícula {p.matricula ?? '—'}
+                      <span className="font-medium">Mapa {p.mapa}</span> · {p.sala} · {p.placa ?? '-'} · {p.nome ?? '—'} ({p.matricula ?? '—'})
                     </div>
                     <span className="text-red-600 whitespace-nowrap">{p.atraso} min atraso</span>
                   </div>
