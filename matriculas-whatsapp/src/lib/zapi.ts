@@ -69,18 +69,26 @@ export async function enviarBotoesGrupo(
   }
 }
 
-// Envio de mensagem com botões para um número individual (ex.: motivos de
-// justificativa de TML, para o supervisor tocar em vez de digitar).
-export async function enviarBotoesWhatsApp(
+// Envio de lista de opções para um número individual (ex.: motivos de
+// justificativa de TML). O WhatsApp só permite 3 botões inline por mensagem
+// (como SIM/NÃO); para mais opções o jeito nativo é a lista — aparece um
+// botão único que abre o menu com todas as opções, clicável igual.
+export async function enviarListaOpcoesWhatsApp(
   numero: string,
   mensagem: string,
-  botoes: { id: string; label: string }[]
+  titulo: string,
+  botaoLabel: string,
+  opcoes: { id: string; title: string; description?: string }[]
 ): Promise<{ sucesso: boolean; erro?: string }> {
   try {
-    const response = await fetch(`${BASE}/send-button-list`, {
+    const response = await fetch(`${BASE}/send-option-list`, {
       method: 'POST',
       headers: HEADERS,
-      body: JSON.stringify({ phone: limparNumero(numero), message: mensagem, buttonList: { buttons: botoes } }),
+      body: JSON.stringify({
+        phone: limparNumero(numero),
+        message: mensagem,
+        optionList: { title: titulo, buttonLabel: botaoLabel, options: opcoes },
+      }),
     })
     if (!response.ok) return { sucesso: false, erro: await response.text() }
     return { sucesso: true }

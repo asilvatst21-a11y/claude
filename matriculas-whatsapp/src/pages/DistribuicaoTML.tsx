@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { enviarBotoesWhatsApp } from '../lib/zapi'
+import { enviarListaOpcoesWhatsApp } from '../lib/zapi'
 import { parseEscalaBuffer, parseSaidaBuffer } from '../lib/tmlParser'
 import { isSalaTML, horarioLimite, atrasoMinutos, SALA_TML_LABEL } from '../lib/tml'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
@@ -344,7 +344,7 @@ export default function DistribuicaoTML() {
           `🕐 Limite de saída: ${limite}\n` +
           `🕑 Saída real: ${saida.horarioSaida}\n` +
           `⏱️ Atraso: ${atraso} min\n\n` +
-          `O motorista perdeu o TML. Toque no motivo correspondente abaixo.`
+          `O motorista perdeu o TML. Toque em "Selecionar motivo" abaixo e escolha a justificativa.`
 
         const numero = await gerarNumero(usuario.filial)
         const { data: alertaInserido, error: alertaErr } = await supabase
@@ -417,16 +417,22 @@ export default function DistribuicaoTML() {
         return
       }
 
-      const botoes = motivos
+      const opcoes = motivos
         .slice(0, 10)
         .map((m) => ({
           id: `tmlmotivo:${alerta.id}:${m.motivo}`,
-          label: m.motivo.length > 20 ? `${m.motivo.slice(0, 19)}…` : m.motivo,
+          title: m.motivo.length > 24 ? `${m.motivo.slice(0, 23)}…` : m.motivo,
         }))
 
       const erros: string[] = []
       for (const sup of supervisores) {
-        const resultado = await enviarBotoesWhatsApp(sup.telefone, alerta.mensagem_enviada, botoes)
+        const resultado = await enviarListaOpcoesWhatsApp(
+          sup.telefone,
+          alerta.mensagem_enviada,
+          'Motivo da justificativa',
+          'Selecionar motivo',
+          opcoes
+        )
         if (!resultado.sucesso) erros.push(`${sup.nome}: ${resultado.erro}`)
       }
 

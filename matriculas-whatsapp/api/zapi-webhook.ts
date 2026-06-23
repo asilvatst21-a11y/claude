@@ -1039,10 +1039,12 @@ async function tratarFluxo(
 }
 
 // ── TML: resposta do supervisor no chat individual ────────────────────────────────
-// O alerta é enviado com botões (um por motivo) cujo id embute o alerta_id
-// (UUID, 36 caracteres): "tmlmotivo:<alertaId>:<motivo>". Clicando, já sabemos
-// exatamente qual alerta atualizar. Se o supervisor responder em texto livre
-// (ex.: motivo "OUTRO"), usamos o último alerta "enviado" daquele número.
+// O alerta é enviado como lista de opções (send-option-list — o WhatsApp só
+// permite 3 botões inline por mensagem, então mais que isso exige lista).
+// Cada opção tem id "tmlmotivo:<alertaId>:<motivo>" (alertaId = UUID, 36
+// caracteres), então o clique já identifica exatamente qual alerta atualizar.
+// Se o supervisor responder em texto livre (ex.: motivo "OUTRO"), usamos o
+// último alerta "enviado" daquele número.
 function ultimosDigitos(s: string, n = 8): string {
   return String(s ?? '').replace(/\D/g, '').slice(-n)
 }
@@ -1074,7 +1076,7 @@ async function registrarJustificativaTml(alertaId: string, motivo: string, remet
 }
 
 async function tratarTml(body: any, remetente: string): Promise<{ ok: boolean; action: string }> {
-  const rawBtn = String(body?.buttonsResponseMessage?.buttonId ?? '')
+  const rawBtn = String(body?.listResponseMessage?.selectedRowId ?? body?.buttonsResponseMessage?.buttonId ?? '')
   if (rawBtn.startsWith('tmlmotivo:')) {
     const resto = rawBtn.slice('tmlmotivo:'.length)
     const alertaId = resto.slice(0, 36)
@@ -1128,7 +1130,7 @@ export default async function handler(req: any, res: any) {
       body.isGroup === true || body.isGroup === 'true' ||
       grupoId.endsWith('-group') || grupoId.endsWith('@g.us')
     const texto = extrairTexto(body)
-    const temConteudo = texto || body?.buttonsResponseMessage || body?.listResponse || temAudioSemTexto(body)
+    const temConteudo = texto || body?.buttonsResponseMessage || body?.listResponseMessage || temAudioSemTexto(body)
     const senderName: string = String(body.senderName ?? body.chatName ?? body.pushName ?? '')
     const participante: string = String(body.participantPhone ?? body.participant ?? '')
 
