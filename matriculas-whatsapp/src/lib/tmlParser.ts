@@ -154,7 +154,12 @@ export interface SaidaTML {
   horarioSaida: string | null;
 }
 
-const FASE_SAIDA_PORTARIA = "saida cdd/fab";
+// Comparação tolerante: a fase de saída pode vir como "Saida Cdd/Fab",
+// "Saida Cdd_Fab", "Saída CDD FAB" etc. Basta conter "saida" + "cdd"/"fab".
+function isFaseSaida(value: unknown): boolean {
+  const n = normalize(value);
+  return n.includes("saida") && (n.includes("cdd") || n.includes("fab"));
+}
 
 // Posições fixas na planilha 03.11.20: Fase = coluna B, Placa = coluna D,
 // Matrícula do motorista = coluna M. A linha de "Saida Cdd/Fab" é a última
@@ -191,7 +196,7 @@ export function parseSaidaBuffer(buffer: ArrayBuffer): SaidaTML[] {
     const row = rows[i];
     const mapa = Number(row[mapaIdx]);
     if (!mapa || isNaN(mapa)) continue;
-    if (normalize(row[COL_FASE]) !== FASE_SAIDA_PORTARIA) continue;
+    if (!isFaseSaida(row[COL_FASE])) continue;
 
     const matricula = Number(row[COL_MATRICULA]);
 
