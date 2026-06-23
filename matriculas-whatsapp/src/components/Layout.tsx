@@ -41,8 +41,10 @@ const financeiroItems = [
 ]
 
 const distribuicaoItems = [
-  { permKey: 'distribuicao', to: '/distribuicao',     label: 'Solicitação Extra',     icon: Truck, end: true },
-  { permKey: 'distribuicao', to: '/distribuicao/tml',  label: 'Carta de Controle TML', icon: CalendarClock    },
+  { permKey: 'distribuicao', to: '/distribuicao',          label: 'Solicitação Extra',     icon: Truck, end: true },
+  { permKey: 'distribuicao', to: '/distribuicao/tml',       label: 'Carta de Controle TML', icon: CalendarClock    },
+  { permKey: 'distribuicao', to: '/distribuicao/tml/analise', label: 'Análise TML',         icon: BarChart2        },
+  { permKey: 'distribuicao', to: '/distribuicao/tml/whatsapp', label: 'Config. WhatsApp TML', icon: MessageSquare },
 ]
 
 const armazemItems = [

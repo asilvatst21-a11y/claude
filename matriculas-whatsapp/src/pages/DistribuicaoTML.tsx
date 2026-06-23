@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send,
+  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { enviarListaOpcoesWhatsApp } from '../lib/zapi'
+import { enviarListaOpcoesWhatsApp, enviarMensagemGrupo } from '../lib/zapi'
 import { parseEscalaBuffer, parseSaidaBuffer } from '../lib/tmlParser'
 import { isSalaTML, horarioLimite, atrasoMinutos, SALA_TML_LABEL } from '../lib/tml'
+import { gerarResumoDiario, gerarResumoGerencial } from '../lib/tmlResumos'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
@@ -86,6 +87,36 @@ function montarMensagemTml(alerta: {
   )
 }
 
+function dataMaisFrequente(datas: (string | null | undefined)[]): string {
+  const contagem = new Map<string, number>()
+  for (const d of datas) {
+    if (!d) continue
+    contagem.set(d, (contagem.get(d) ?? 0) + 1)
+  }
+  let melhor = ''
+  let max = 0
+  for (const [d, c] of contagem) {
+    if (c > max) { melhor = d; max = c }
+  }
+  return melhor || new Date().toISOString().slice(0, 10)
+}
+
+// Resumo automático enviado ao grupo de WhatsApp configurado em
+// /distribuicao/tml/whatsapp toda vez que a planilha de saída é importada.
+// Se nenhum grupo estiver configurado, não falha — apenas não envia.
+async function enviarResumoDiario(filial: string, data: string): Promise<void> {
+  const { data: filialRow } = await supabase
+    .from('filiais')
+    .select('grupo_tml_diario_whatsapp')
+    .eq('nome', filial)
+    .maybeSingle()
+  const grupoId = filialRow?.grupo_tml_diario_whatsapp
+  if (!grupoId) return
+
+  const resumo = await gerarResumoDiario(filial, data)
+  await enviarMensagemGrupo(grupoId, resumo)
+}
+
 async function gerarNumero(filial: string): Promise<string> {
   const { count } = await supabase
     .from('alertas_tml')
@@ -154,6 +185,7 @@ export default function DistribuicaoTML() {
   const [erro, setErro] = useState('')
 
   const [enviandoAlertaId, setEnviandoAlertaId] = useState<string | null>(null)
+  const [enviandoResumoGerencial, setEnviandoResumoGerencial] = useState(false)
 
   const [historico, setHistorico] = useState<HistoricoTML[]>([])
   const [loadingHistorico, setLoadingHistorico] = useState(true)
@@ -399,6 +431,8 @@ export default function DistribuicaoTML() {
         if (histErr) erros.push(`Histórico: ${histErr.message}`)
       }
 
+      await enviarResumoDiario(usuario.filial, dataMaisFrequente(saidas.map((s) => s.dataSaida)))
+
       alert(
         `${saidas.length} saída(s) processada(s).\n\n` +
         `• ${diag.pendentes} motorista(s) perderam o TML — pendente de envio (use o botão "Enviar" na tela)\n` +
@@ -416,6 +450,34 @@ export default function DistribuicaoTML() {
       setErro(err instanceof Error ? err.message : 'Erro ao importar saída')
     } finally {
       setUploadingSaida(false)
+    }
+  }
+
+  async function handleEnviarResumoGerencial() {
+    if (!usuario) return
+    setEnviandoResumoGerencial(true)
+    setErro('')
+    try {
+      const { data: filialRow } = await supabase
+        .from('filiais')
+        .select('grupo_tml_gerencia_whatsapp')
+        .eq('nome', usuario.filial)
+        .maybeSingle()
+      const grupoId = filialRow?.grupo_tml_gerencia_whatsapp
+      if (!grupoId) {
+        setErro('Nenhum grupo configurado para o resumo gerencial. Configure em "Config. WhatsApp TML".')
+        return
+      }
+
+      const hoje = new Date().toISOString().slice(0, 10)
+      const resumo = await gerarResumoGerencial(usuario.filial, hoje)
+      const resultado = await enviarMensagemGrupo(grupoId, resumo)
+      if (!resultado.sucesso) throw new Error(resultado.erro)
+      alert('Resumo gerencial enviado.')
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao enviar resumo gerencial')
+    } finally {
+      setEnviandoResumoGerencial(false)
     }
   }
 
@@ -524,6 +586,9 @@ export default function DistribuicaoTML() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Link to="/distribuicao/tml/analise" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
+            <BarChart2 className="h-4 w-4" /> Análise
+          </Link>
           <Link to="/distribuicao/tml/motoristas" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <UserCog className="h-4 w-4" /> Motoristas
           </Link>
@@ -532,6 +597,14 @@ export default function DistribuicaoTML() {
           </Link>
           <button onClick={fetchAlertas} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
+          </button>
+          <button
+            onClick={handleEnviarResumoGerencial}
+            disabled={enviandoResumoGerencial}
+            className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50"
+          >
+            {enviandoResumoGerencial ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Enviar resumo gerencial
           </button>
         </div>
       </div>
