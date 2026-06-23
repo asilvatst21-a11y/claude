@@ -6,6 +6,7 @@ import SolicitarExtra from './pages/SolicitarExtra'
 import Distribuicao from './pages/Distribuicao'
 import DistribuicaoTML from './pages/DistribuicaoTML'
 import DistribuicaoTMLSupervisores from './pages/DistribuicaoTMLSupervisores'
+import DistribuicaoTMLMotoristas from './pages/DistribuicaoTMLMotoristas'
 import Dashboard from './pages/Dashboard'
 import Matriculas from './pages/Matriculas'
 import Clientes from './pages/Clientes'
@@ -90,6 +91,7 @@ export default function App() {
             <Route path="/distribuicao" element={<Distribuicao />} />
             <Route path="/distribuicao/tml" element={<DistribuicaoTML />} />
             <Route path="/distribuicao/tml/supervisores" element={<DistribuicaoTMLSupervisores />} />
+            <Route path="/distribuicao/tml/motoristas" element={<DistribuicaoTMLMotoristas />} />
             <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
             <Route path="/armazem/operadores" element={<ArmazemOperadores />} />
             <Route path="/armazem/dashboard" element={<ArmazemDashboard />} />

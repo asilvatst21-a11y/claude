@@ -1,14 +1,28 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, AlertTriangle, CheckCircle, Clock, X,
+  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { enviarMensagemWhatsApp } from '../lib/zapi'
-import { parseEscalaBuffer, parseSaidaBuffer, parseMotoristaSalaBuffer } from '../lib/tmlParser'
-import { isSalaTML, horarioLimite, atrasoMinutos, SALA_TML_LABEL } from '../lib/tml'
-import type { AlertaTML } from '../types'
+import { parseEscalaBuffer, parseSaidaBuffer } from '../lib/tmlParser'
+import { isSalaTML, horarioLimite, atrasoMinutos, SALA_TML_LABEL, type SalaTML } from '../lib/tml'
+import type { AlertaTML, MotivoJustificativaTML } from '../types'
+
+const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
+
+interface PendenteTML {
+  mapa: number
+  sala: SalaTML
+  placa: string | null
+  matricula: number | null
+  horarioSaida: string
+  horarioLimite: string
+  atraso: number
+  supervisores: { id: string; nome: string; telefone: string }[]
+  mensagem: string
+}
 
 function StatusBadge({ status }: { status: AlertaTML['status'] }) {
   if (status === 'justificado') {
@@ -91,11 +105,16 @@ export default function DistribuicaoTML() {
   const [loading, setLoading] = useState(true)
   const [uploadingEscala, setUploadingEscala] = useState(false)
   const [uploadingSaida, setUploadingSaida] = useState(false)
-  const [uploadingRoster, setUploadingRoster] = useState(false)
   const [justificando, setJustificando] = useState<AlertaTML | null>(null)
+  const [motivos, setMotivos] = useState<MotivoJustificativaTML[]>([])
+  const [motivoSelecionado, setMotivoSelecionado] = useState('')
   const [textoJustificativa, setTextoJustificativa] = useState('')
+  const [novoMotivo, setNovoMotivo] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
+
+  const [pendentes, setPendentes] = useState<PendenteTML[] | null>(null)
+  const [enviandoConfirmacao, setEnviandoConfirmacao] = useState(false)
 
   const fetchAlertas = useCallback(async () => {
     if (!usuario) return
@@ -110,7 +129,22 @@ export default function DistribuicaoTML() {
     setLoading(false)
   }, [usuario])
 
+  const fetchMotivos = useCallback(async () => {
+    if (!usuario) return
+    const { data } = await supabase
+      .from('motivos_justificativa_tml')
+      .select('*')
+      .eq('filial', usuario.filial)
+      .order('motivo')
+    if (data && data.length > 0) {
+      setMotivos(data)
+    } else {
+      setMotivos(MOTIVOS_PADRAO.map((motivo) => ({ id: motivo, filial: usuario.filial, motivo, created_at: '' })))
+    }
+  }, [usuario])
+
   useEffect(() => { fetchAlertas() }, [fetchAlertas])
+  useEffect(() => { fetchMotivos() }, [fetchMotivos])
 
   async function handleEscala(file: File) {
     if (!usuario) return
@@ -139,35 +173,6 @@ export default function DistribuicaoTML() {
       setErro(err instanceof Error ? err.message : 'Erro ao importar escala')
     } finally {
       setUploadingEscala(false)
-    }
-  }
-
-  async function handleMotoristaSala(file: File) {
-    if (!usuario) return
-    setUploadingRoster(true)
-    setErro('')
-    try {
-      const buffer = await file.arrayBuffer()
-      const roster = parseMotoristaSalaBuffer(buffer).filter((r) => isSalaTML(r.sala))
-      if (roster.length === 0) {
-        throw new Error('Nenhum motorista com sala COLORADO/SUB-FURIA encontrado na planilha')
-      }
-      const { error } = await supabase.from('motoristas_sala_tml').upsert(
-        roster.map((r) => ({
-          filial: usuario.filial,
-          matricula: r.matricula,
-          nome: r.nome,
-          sala: r.sala,
-          importado_em: new Date().toISOString(),
-        })),
-        { onConflict: 'filial,matricula' }
-      )
-      if (error) throw new Error(error.message)
-      alert(`${roster.length} motorista(s) importado(s) com sala definida.`)
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Erro ao importar relação de salas')
-    } finally {
-      setUploadingRoster(false)
     }
   }
 
@@ -221,25 +226,52 @@ export default function DistribuicaoTML() {
         .in('mapa', mapas)
       const mapasJaAlertados = new Set((alertasExistentes ?? []).map((a) => a.mapa))
 
-      let alertasEnviados = 0
       const erros: string[] = []
-      const diag = { jaAlertado: 0, semHorario: 0, semSala: 0, noPrazo: 0, semSupervisor: 0 }
+      const diag = { jaAlertado: 0, semHorario: 0, semSala: 0, noPrazo: 0, semSupervisor: 0, pendentes: 0 }
+      const historicoImediato: Record<string, unknown>[] = []
+      const novosPendentes: PendenteTML[] = []
 
       for (const saida of saidas) {
         if (mapasJaAlertados.has(saida.mapa)) { diag.jaAlertado++; continue }
-        if (!saida.horarioSaida) { diag.semHorario++; continue }
 
         const escala = escalaPorMapa.get(saida.mapa)
         const matricula = saida.matricula ?? escala?.matricula ?? null
+        const placa = saida.placa ?? escala?.placa ?? null
+
+        if (!saida.horarioSaida) {
+          diag.semHorario++
+          historicoImediato.push({
+            filial: usuario.filial, mapa: saida.mapa, sala: null, placa, matricula,
+            data_saida: saida.dataSaida, horario_saida: null, horario_limite: null, atraso_minutos: null,
+            resultado: 'indefinido', observacao: 'Sem horário de saída na planilha',
+          })
+          continue
+        }
+
         const sala = matricula != null ? salaPorMatricula.get(matricula) : undefined
         if (!isSalaTML(sala)) {
           diag.semSala++
           if (matricula != null) erros.push(`Mapa ${saida.mapa}: matrícula ${matricula} sem sala cadastrada`)
+          historicoImediato.push({
+            filial: usuario.filial, mapa: saida.mapa, sala: null, placa, matricula,
+            data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: null, atraso_minutos: null,
+            resultado: 'indefinido', observacao: 'Matrícula sem sala cadastrada no roster',
+          })
           continue
         }
 
         const atraso = atrasoMinutos(sala, saida.horarioSaida)
-        if (atraso <= 0) { diag.noPrazo++; continue }
+        const limite = horarioLimite(sala)
+
+        if (atraso <= 0) {
+          diag.noPrazo++
+          historicoImediato.push({
+            filial: usuario.filial, mapa: saida.mapa, sala, placa, matricula,
+            data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: limite, atraso_minutos: atraso,
+            resultado: 'no_prazo', observacao: null,
+          })
+          continue
+        }
 
         const { data: supervisores } = await supabase
           .from('supervisores_tml')
@@ -250,17 +282,19 @@ export default function DistribuicaoTML() {
         if (!supervisores?.length) {
           diag.semSupervisor++
           erros.push(`Mapa ${saida.mapa}: nenhum supervisor cadastrado para a sala ${SALA_TML_LABEL[sala]}`)
+          historicoImediato.push({
+            filial: usuario.filial, mapa: saida.mapa, sala, placa, matricula,
+            data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: limite, atraso_minutos: atraso,
+            resultado: 'atrasado', observacao: 'Nenhum supervisor cadastrado para a sala',
+          })
           continue
         }
 
-        const numero = await gerarNumero(usuario.filial)
-        const placa = saida.placa ?? escala?.placa ?? '-'
-        const limite = horarioLimite(sala)
-
+        diag.pendentes++
         const mensagem =
-          `⚠️ *TML PERDIDO — ${numero}*\n\n` +
+          `⚠️ *TML PERDIDO*\n\n` +
           `🗺️ Mapa: ${saida.mapa}\n` +
-          `🚛 Placa: ${placa}\n` +
+          `🚛 Placa: ${placa ?? '-'}\n` +
           `👤 Motorista (matrícula): ${matricula ?? '—'}\n` +
           `🏢 Sala: ${SALA_TML_LABEL[sala]}\n` +
           `🕐 Limite de saída: ${limite}\n` +
@@ -268,32 +302,29 @@ export default function DistribuicaoTML() {
           `⏱️ Atraso: ${atraso} min\n\n` +
           `O motorista perdeu o TML. *Responda esta mensagem* com a justificativa.`
 
-        for (const sup of supervisores) {
-          const resultado = await enviarMensagemWhatsApp(sup.telefone, mensagem)
-          if (!resultado.sucesso) erros.push(`${sup.nome}: ${resultado.erro}`)
-        }
-
-        await supabase.from('alertas_tml').insert({
-          filial: usuario.filial,
-          numero,
+        novosPendentes.push({
           mapa: saida.mapa,
           sala,
           placa,
           matricula,
-          horario_limite: limite,
-          horario_saida: saida.horarioSaida,
-          atraso_minutos: atraso,
-          supervisor_id: supervisores[0].id,
-          mensagem_enviada: mensagem,
-          status: 'enviado',
+          horarioSaida: saida.horarioSaida,
+          horarioLimite: limite,
+          atraso,
+          supervisores,
+          mensagem,
         })
+      }
 
-        alertasEnviados++
+      if (historicoImediato.length > 0) {
+        const { error: histErr } = await supabase
+          .from('historico_tml')
+          .upsert(historicoImediato, { onConflict: 'filial,mapa' })
+        if (histErr) erros.push(`Histórico: ${histErr.message}`)
       }
 
       alert(
-        `${saidas.length} saída(s) processada(s), ${alertasEnviados} alerta(s) enviado(s).\n\n` +
-        `Resumo (saídas que NÃO viraram alerta):\n` +
+        `${saidas.length} saída(s) processada(s).\n\n` +
+        `• ${diag.pendentes} motorista(s) perderam o TML — aguardando confirmação de envio\n` +
         `• ${diag.noPrazo} dentro do prazo (sem atraso)\n` +
         `• ${diag.semSala} sem sala (matrícula não está no roster)\n` +
         `• ${diag.semSupervisor} sem supervisor cadastrado na sala\n` +
@@ -301,11 +332,79 @@ export default function DistribuicaoTML() {
         `• ${diag.jaAlertado} já tinham alerta` +
         (erros.length ? `\n\nDetalhes:\n${erros.slice(0, 15).join('\n')}` : '')
       )
+
+      if (novosPendentes.length > 0) {
+        setPendentes(novosPendentes)
+      }
       await fetchAlertas()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar saída')
     } finally {
       setUploadingSaida(false)
+    }
+  }
+
+  async function handleConfirmarEnvio() {
+    if (!usuario || !pendentes?.length) return
+    setEnviandoConfirmacao(true)
+    const erros: string[] = []
+    try {
+      for (const p of pendentes) {
+        const numero = await gerarNumero(usuario.filial)
+
+        for (const sup of p.supervisores) {
+          const resultado = await enviarMensagemWhatsApp(sup.telefone, p.mensagem)
+          if (!resultado.sucesso) erros.push(`${sup.nome}: ${resultado.erro}`)
+        }
+
+        const { data: alertaInserido, error: alertaErr } = await supabase
+          .from('alertas_tml')
+          .insert({
+            filial: usuario.filial,
+            numero,
+            mapa: p.mapa,
+            sala: p.sala,
+            placa: p.placa,
+            matricula: p.matricula,
+            horario_limite: p.horarioLimite,
+            horario_saida: p.horarioSaida,
+            atraso_minutos: p.atraso,
+            supervisor_id: p.supervisores[0].id,
+            mensagem_enviada: p.mensagem,
+            status: 'enviado',
+          })
+          .select('id')
+          .single()
+        if (alertaErr) { erros.push(`Mapa ${p.mapa}: ${alertaErr.message}`); continue }
+
+        await supabase.from('historico_tml').upsert(
+          {
+            filial: usuario.filial,
+            mapa: p.mapa,
+            sala: p.sala,
+            placa: p.placa,
+            matricula: p.matricula,
+            horario_saida: p.horarioSaida,
+            horario_limite: p.horarioLimite,
+            atraso_minutos: p.atraso,
+            resultado: 'atrasado',
+            observacao: null,
+            alerta_id: alertaInserido?.id ?? null,
+          },
+          { onConflict: 'filial,mapa' }
+        )
+      }
+
+      setPendentes(null)
+      await fetchAlertas()
+      alert(
+        `${pendentes.length} alerta(s) enviado(s).` +
+        (erros.length ? `\n\nErros:\n${erros.slice(0, 15).join('\n')}` : '')
+      )
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao enviar alertas')
+    } finally {
+      setEnviandoConfirmacao(false)
     }
   }
 
@@ -324,11 +423,24 @@ export default function DistribuicaoTML() {
       if (error) throw new Error(error.message)
       setJustificando(null)
       setTextoJustificativa('')
+      setMotivoSelecionado('')
       await fetchAlertas()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar justificativa')
     } finally {
       setSalvando(false)
+    }
+  }
+
+  async function handleAdicionarMotivo() {
+    if (!usuario || !novoMotivo.trim()) return
+    const motivo = novoMotivo.trim().toUpperCase()
+    const { error } = await supabase
+      .from('motivos_justificativa_tml')
+      .upsert({ filial: usuario.filial, motivo }, { onConflict: 'filial,motivo' })
+    if (!error) {
+      setNovoMotivo('')
+      await fetchMotivos()
     }
   }
 
@@ -348,6 +460,9 @@ export default function DistribuicaoTML() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Link to="/distribuicao/tml/motoristas" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
+            <UserCog className="h-4 w-4" /> Motoristas
+          </Link>
           <Link to="/distribuicao/tml/supervisores" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <Users className="h-4 w-4" /> Supervisores
           </Link>
@@ -359,22 +474,16 @@ export default function DistribuicaoTML() {
 
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <UploadBox
-          titulo="1. Relação motorista x sala"
-          descricao="Planilha com nome, matrícula e sala (COLORADO ou SUB-FURIA) de cada motorista."
-          onFile={handleMotoristaSala}
-          isUploading={uploadingRoster}
-        />
-        <UploadBox
-          titulo="2. Escala do dia (03.11.49.02)"
+          titulo="1. Escala do dia (03.11.49.02)"
           descricao="Define qual motorista/placa está escalado para cada mapa."
           onFile={handleEscala}
           isUploading={uploadingEscala}
         />
         <UploadBox
-          titulo="3. Saída na portaria (03.11.20)"
-          descricao="Compara o horário de saída com o limite da sala e dispara alerta automático ao supervisor quando o motorista perde o TML."
+          titulo="2. Saída na portaria (03.11.20)"
+          descricao="Compara o horário de saída com o limite da sala. Motoristas que perderem o TML ficam pendentes de confirmação para envio do alerta."
           onFile={handleSaida}
           isUploading={uploadingSaida}
         />
@@ -449,7 +558,7 @@ export default function DistribuicaoTML() {
                     <td className="px-4 py-3 text-right">
                       {a.status === 'enviado' && (
                         <button
-                          onClick={() => { setJustificando(a); setTextoJustificativa('') }}
+                          onClick={() => { setJustificando(a); setTextoJustificativa(''); setMotivoSelecionado('') }}
                           className="px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors"
                         >
                           Registrar justificativa
@@ -464,6 +573,43 @@ export default function DistribuicaoTML() {
         )}
       </div>
 
+      {pendentes && pendentes.length > 0 && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h2 className="font-semibold">Confirmar envio de alertas</h2>
+              <button onClick={() => setPendentes(null)} disabled={enviandoConfirmacao} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                {pendentes.length} motorista(s) perderam o TML. Confirme para enviar o alerta via WhatsApp ao supervisor responsável e registrar no histórico.
+              </p>
+              <div className="border rounded-lg divide-y max-h-80 overflow-y-auto">
+                {pendentes.map((p) => (
+                  <div key={p.mapa} className="px-3 py-2 text-sm flex items-center justify-between gap-3">
+                    <div>
+                      <span className="font-medium">Mapa {p.mapa}</span> · {SALA_TML_LABEL[p.sala]} · {p.placa ?? '-'} · matrícula {p.matricula ?? '—'}
+                    </div>
+                    <span className="text-red-600 whitespace-nowrap">{p.atraso} min atraso</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t">
+              <button onClick={() => setPendentes(null)} disabled={enviandoConfirmacao} className="px-4 py-2 rounded-lg text-sm border hover:bg-accent transition-colors">Cancelar</button>
+              <button
+                onClick={handleConfirmarEnvio}
+                disabled={enviandoConfirmacao}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white transition-colors"
+              >
+                {enviandoConfirmacao ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {enviandoConfirmacao ? 'Enviando...' : 'Confirmar e enviar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {justificando && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
@@ -471,15 +617,50 @@ export default function DistribuicaoTML() {
               <h2 className="font-semibold">Registrar justificativa</h2>
               <button onClick={() => setJustificando(null)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
             </div>
-            <div className="p-5 space-y-2">
+            <div className="p-5 space-y-3">
               <p className="text-sm text-muted-foreground">{justificando.numero} — Mapa {justificando.mapa}</p>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Justificativa</label>
-              <input
-                value={textoJustificativa}
-                onChange={(e) => setTextoJustificativa(e.target.value)}
-                placeholder="Ex: Fila na portaria"
-                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
-              />
+              <label className="block text-sm font-medium text-gray-700">Motivo</label>
+              <div className="flex flex-wrap gap-2">
+                {motivos.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      setMotivoSelecionado(m.motivo)
+                      setTextoJustificativa(m.motivo === 'OUTRO' ? '' : m.motivo)
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
+                      motivoSelecionado === m.motivo ? 'bg-accent-500 text-white border-accent-500' : 'hover:bg-accent'
+                    }`}
+                  >
+                    {m.motivo}
+                  </button>
+                ))}
+              </div>
+
+              {motivoSelecionado === 'OUTRO' && (
+                <input
+                  value={textoJustificativa}
+                  onChange={(e) => setTextoJustificativa(e.target.value)}
+                  placeholder="Descreva o motivo"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  autoFocus
+                />
+              )}
+
+              <div className="pt-2 border-t">
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">Cadastrar novo motivo</label>
+                <div className="flex gap-2">
+                  <input
+                    value={novoMotivo}
+                    onChange={(e) => setNovoMotivo(e.target.value)}
+                    placeholder="Ex: PARADA OBRIGATÓRIA"
+                    className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                  />
+                  <button onClick={handleAdicionarMotivo} disabled={!novoMotivo.trim()} className="px-3 py-2 rounded-lg text-sm border hover:bg-accent disabled:opacity-50 transition-colors">
+                    Adicionar
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="flex justify-end gap-2 px-5 py-4 border-t">
               <button onClick={() => setJustificando(null)} disabled={salvando} className="px-4 py-2 rounded-lg text-sm border hover:bg-accent transition-colors">Cancelar</button>

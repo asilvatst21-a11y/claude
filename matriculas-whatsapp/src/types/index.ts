@@ -308,6 +308,30 @@ export interface AlertaTML {
   supervisores_tml?: { nome: string; telefone: string } | null
 }
 
+export interface HistoricoTML {
+  id: string
+  filial: string
+  mapa: number
+  sala: 'COLORADO' | 'SUB-FURIA' | null
+  placa: string | null
+  matricula: number | null
+  data_saida: string | null
+  horario_saida: string | null
+  horario_limite: string | null
+  atraso_minutos: number | null
+  resultado: 'no_prazo' | 'atrasado' | 'indefinido'
+  observacao: string | null
+  alerta_id: string | null
+  created_at: string
+}
+
+export interface MotivoJustificativaTML {
+  id: string
+  filial: string
+  motivo: string
+  created_at: string
+}
+
 export interface Colaborador {
   id: string
   filial: string
