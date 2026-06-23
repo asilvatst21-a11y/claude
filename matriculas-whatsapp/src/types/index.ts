@@ -268,6 +268,37 @@ export interface SolicitacaoExtra {
   created_at: string
 }
 
+export interface SupervisorTML {
+  id: string
+  filial: string
+  nome: string
+  sala: 'INT' | 'PET'
+  telefone: string
+  created_at: string
+  updated_at: string
+}
+
+export interface AlertaTML {
+  id: string
+  filial: string
+  numero: string
+  mapa: number
+  sala: 'INT' | 'PET'
+  placa: string | null
+  matricula: number | null
+  horario_limite: string
+  horario_saida: string
+  atraso_minutos: number
+  supervisor_id: string | null
+  mensagem_enviada: string | null
+  zapi_message_id: string | null
+  status: 'enviado' | 'justificado' | 'erro'
+  justificativa: string | null
+  justificado_em: string | null
+  created_at: string
+  supervisores_tml?: { nome: string; telefone: string } | null
+}
+
 export interface Colaborador {
   id: string
   filial: string
