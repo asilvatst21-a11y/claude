@@ -2,42 +2,48 @@
 -- Execute no SQL Editor do Supabase.
 -- Idempotente: funciona tanto se for a primeira vez quanto se a tabela motoristas_sala_tml já exista.
 
--- 1. Traduzir dados existentes em supervisores_tml e alertas_tml: INT → COLORADO, PET → SUB-FURIA
+-- PASSO 1: Remover constraints antigos (para permitir tradução de dados)
+-- escalas_tml: drop constraint na sala se existir
+DO $$
+DECLARE c TEXT;
+BEGIN
+  SELECT conname INTO c FROM pg_constraint
+    WHERE conrelid = 'escalas_tml'::regclass AND contype = 'c' AND conname ~ 'sala';
+  IF c IS NOT NULL THEN EXECUTE format('ALTER TABLE escalas_tml DROP CONSTRAINT %I CASCADE', c); END IF;
+END $$;
+
+-- supervisores_tml: drop constraint na sala se existir
+DO $$
+DECLARE c TEXT;
+BEGIN
+  SELECT conname INTO c FROM pg_constraint
+    WHERE conrelid = 'supervisores_tml'::regclass AND contype = 'c' AND conname ~ 'sala';
+  IF c IS NOT NULL THEN EXECUTE format('ALTER TABLE supervisores_tml DROP CONSTRAINT %I CASCADE', c); END IF;
+END $$;
+
+-- alertas_tml: drop constraint na sala se existir
+DO $$
+DECLARE c TEXT;
+BEGIN
+  SELECT conname INTO c FROM pg_constraint
+    WHERE conrelid = 'alertas_tml'::regclass AND contype = 'c' AND conname ~ 'sala';
+  IF c IS NOT NULL THEN EXECUTE format('ALTER TABLE alertas_tml DROP CONSTRAINT %I CASCADE', c); END IF;
+END $$;
+
+-- PASSO 2: Traduzir dados existentes: INT → COLORADO, PET → SUB-FURIA
 UPDATE supervisores_tml SET sala = 'COLORADO' WHERE sala = 'INT';
 UPDATE supervisores_tml SET sala = 'SUB-FURIA' WHERE sala = 'PET';
 UPDATE alertas_tml SET sala = 'COLORADO' WHERE sala = 'INT';
 UPDATE alertas_tml SET sala = 'SUB-FURIA' WHERE sala = 'PET';
 
--- 2. Atualizar CHECK constraints: remover os antigos, aplicar os novos
--- escalas_tml (remover a coluna sala inteiramente — vem da tabela motoristas_sala_tml por matrícula)
-DO $$
-DECLARE c TEXT;
-BEGIN
-  SELECT conname INTO c FROM pg_constraint
-    WHERE conrelid = 'escalas_tml'::regclass AND contype = 'c' AND conname LIKE '%sala%';
-  IF c IS NOT NULL THEN EXECUTE format('ALTER TABLE escalas_tml DROP CONSTRAINT %I', c); END IF;
-END $$;
+-- PASSO 3: Atualizar estrutura das tabelas
+-- escalas_tml: remover coluna sala inteiramente (vem da tabela motoristas_sala_tml por matrícula)
 ALTER TABLE escalas_tml DROP COLUMN IF EXISTS sala;
 
--- supervisores_tml: trocar CHECK de INT/PET para COLORADO/SUB-FURIA
-DO $$
-DECLARE c TEXT;
-BEGIN
-  SELECT conname INTO c FROM pg_constraint
-    WHERE conrelid = 'supervisores_tml'::regclass AND contype = 'c' AND conname LIKE '%sala%';
-  IF c IS NOT NULL THEN EXECUTE format('ALTER TABLE supervisores_tml DROP CONSTRAINT %I', c); END IF;
-END $$;
+-- PASSO 4: Adicionar novos CHECK constraints
 ALTER TABLE supervisores_tml ADD CONSTRAINT supervisores_tml_sala_check
   CHECK (sala IN ('COLORADO', 'SUB-FURIA'));
 
--- alertas_tml: trocar CHECK de INT/PET para COLORADO/SUB-FURIA
-DO $$
-DECLARE c TEXT;
-BEGIN
-  SELECT conname INTO c FROM pg_constraint
-    WHERE conrelid = 'alertas_tml'::regclass AND contype = 'c' AND conname LIKE '%sala%';
-  IF c IS NOT NULL THEN EXECUTE format('ALTER TABLE alertas_tml DROP CONSTRAINT %I', c); END IF;
-END $$;
 ALTER TABLE alertas_tml ADD CONSTRAINT alertas_tml_sala_check
   CHECK (sala IN ('COLORADO', 'SUB-FURIA'));
 
