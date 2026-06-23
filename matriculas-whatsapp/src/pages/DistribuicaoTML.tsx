@@ -63,6 +63,29 @@ function StatusBadge({ status }: { status: AlertaTML['status'] }) {
   )
 }
 
+function montarMensagemTml(alerta: {
+  mapa: number
+  placa: string | null
+  nome: string | null
+  matricula: number | null
+  sala: string
+  horario_limite: string
+  horario_saida: string
+  atraso_minutos: number
+}): string {
+  return (
+    `⚠️ *TML PERDIDO*\n\n` +
+    `🗺️ Mapa: ${alerta.mapa}\n` +
+    `🚛 Placa: ${alerta.placa ?? '-'}\n` +
+    `👤 Motorista: ${alerta.nome ?? '—'} (matrícula ${alerta.matricula ?? '—'})\n` +
+    `🏢 Sala: ${alerta.sala}\n` +
+    `🕐 Limite de saída: ${alerta.horario_limite}\n` +
+    `🕑 Saída real: ${alerta.horario_saida}\n` +
+    `⏱️ Atraso: ${alerta.atraso_minutos} min\n\n` +
+    `O motorista perdeu o TML. Toque em "Selecionar motivo" abaixo e escolha a justificativa.`
+  )
+}
+
 async function gerarNumero(filial: string): Promise<string> {
   const { count } = await supabase
     .from('alertas_tml')
@@ -335,16 +358,10 @@ export default function DistribuicaoTML() {
         }
 
         diag.pendentes++
-        const mensagem =
-          `⚠️ *TML PERDIDO*\n\n` +
-          `🗺️ Mapa: ${saida.mapa}\n` +
-          `🚛 Placa: ${placa ?? '-'}\n` +
-          `👤 Motorista: ${nome ?? '—'} (matrícula ${matricula ?? '—'})\n` +
-          `🏢 Sala: ${sala}\n` +
-          `🕐 Limite de saída: ${limite}\n` +
-          `🕑 Saída real: ${saida.horarioSaida}\n` +
-          `⏱️ Atraso: ${atraso} min\n\n` +
-          `O motorista perdeu o TML. Toque em "Selecionar motivo" abaixo e escolha a justificativa.`
+        const mensagem = montarMensagemTml({
+          mapa: saida.mapa, placa, nome, matricula, sala,
+          horario_limite: limite, horario_saida: saida.horarioSaida, atraso_minutos: atraso,
+        })
 
         const numero = await gerarNumero(usuario.filial)
         const { data: alertaInserido, error: alertaErr } = await supabase
@@ -403,9 +420,10 @@ export default function DistribuicaoTML() {
   }
 
   async function handleEnviarAlerta(alerta: AlertaTML) {
-    if (!usuario || !alerta.mensagem_enviada) return
+    if (!usuario) return
     setEnviandoAlertaId(alerta.id)
     try {
+      const mensagem = montarMensagemTml(alerta)
       const { data: supervisores } = await supabase
         .from('supervisores_tml')
         .select('id, nome, telefone')
@@ -428,7 +446,7 @@ export default function DistribuicaoTML() {
       for (const sup of supervisores) {
         const resultado = await enviarListaOpcoesWhatsApp(
           sup.telefone,
-          alerta.mensagem_enviada,
+          mensagem,
           'Motivo da justificativa',
           'Selecionar motivo',
           opcoes
