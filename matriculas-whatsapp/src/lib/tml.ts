@@ -1,17 +1,17 @@
-export type SalaTML = "INT" | "PET";
+export type SalaTML = "COLORADO" | "SUB-FURIA";
 
 export const SALA_TML_LABEL: Record<SalaTML, string> = {
-  INT: "Interior",
-  PET: "Petrópolis",
+  COLORADO: "COLORADO (7H)",
+  "SUB-FURIA": "SUB-FURIA (8H)",
 };
 
 export const REGRAS_TML: Record<SalaTML, { matinal: string; toleranciaMin: number }> = {
-  INT: { matinal: "07:00", toleranciaMin: 30 },
-  PET: { matinal: "08:00", toleranciaMin: 30 },
+  COLORADO: { matinal: "07:00", toleranciaMin: 30 },
+  "SUB-FURIA": { matinal: "08:00", toleranciaMin: 30 },
 };
 
 export function isSalaTML(sala: string | null | undefined): sala is SalaTML {
-  return sala === "INT" || sala === "PET";
+  return sala === "COLORADO" || sala === "SUB-FURIA";
 }
 
 export function horarioParaMinutos(horario: string): number {

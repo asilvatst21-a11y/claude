@@ -6,11 +6,9 @@ import {
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { enviarMensagemWhatsApp } from '../lib/zapi'
-import { parseEscalaBuffer, parseSaidaBuffer } from '../lib/tmlParser'
-import { isSalaTML, horarioLimite, atrasoMinutos } from '../lib/tml'
+import { parseEscalaBuffer, parseSaidaBuffer, parseMotoristaSalaBuffer } from '../lib/tmlParser'
+import { isSalaTML, horarioLimite, atrasoMinutos, SALA_TML_LABEL } from '../lib/tml'
 import type { AlertaTML } from '../types'
-
-const SALA_LABEL: Record<string, string> = { INT: 'Interior', PET: 'Petrópolis' }
 
 function StatusBadge({ status }: { status: AlertaTML['status'] }) {
   if (status === 'justificado') {
@@ -93,6 +91,7 @@ export default function DistribuicaoTML() {
   const [loading, setLoading] = useState(true)
   const [uploadingEscala, setUploadingEscala] = useState(false)
   const [uploadingSaida, setUploadingSaida] = useState(false)
+  const [uploadingRoster, setUploadingRoster] = useState(false)
   const [justificando, setJustificando] = useState<AlertaTML | null>(null)
   const [textoJustificativa, setTextoJustificativa] = useState('')
   const [salvando, setSalvando] = useState(false)
@@ -119,15 +118,14 @@ export default function DistribuicaoTML() {
     setErro('')
     try {
       const buffer = await file.arrayBuffer()
-      const escalas = parseEscalaBuffer(buffer).filter((e) => isSalaTML(e.sala))
+      const escalas = parseEscalaBuffer(buffer)
       if (escalas.length === 0) {
-        throw new Error('Nenhuma escala de Interior/Petrópolis encontrada na planilha')
+        throw new Error('Nenhum motorista escalado encontrado na planilha')
       }
       const { error } = await supabase.from('escalas_tml').upsert(
         escalas.map((e) => ({
           filial: usuario.filial,
           mapa: e.mapa,
-          sala: e.sala,
           placa: e.placa,
           matricula: e.matricula,
           data_entrega: e.dataEntrega,
@@ -141,6 +139,35 @@ export default function DistribuicaoTML() {
       setErro(err instanceof Error ? err.message : 'Erro ao importar escala')
     } finally {
       setUploadingEscala(false)
+    }
+  }
+
+  async function handleMotoristaSala(file: File) {
+    if (!usuario) return
+    setUploadingRoster(true)
+    setErro('')
+    try {
+      const buffer = await file.arrayBuffer()
+      const roster = parseMotoristaSalaBuffer(buffer).filter((r) => isSalaTML(r.sala))
+      if (roster.length === 0) {
+        throw new Error('Nenhum motorista com sala COLORADO/SUB-FURIA encontrado na planilha')
+      }
+      const { error } = await supabase.from('motoristas_sala_tml').upsert(
+        roster.map((r) => ({
+          filial: usuario.filial,
+          matricula: r.matricula,
+          nome: r.nome,
+          sala: r.sala,
+          importado_em: new Date().toISOString(),
+        })),
+        { onConflict: 'filial,matricula' }
+      )
+      if (error) throw new Error(error.message)
+      alert(`${roster.length} motorista(s) importado(s) com sala definida.`)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao importar relação de salas')
+    } finally {
+      setUploadingRoster(false)
     }
   }
 
@@ -174,10 +201,18 @@ export default function DistribuicaoTML() {
 
       const { data: escalas } = await supabase
         .from('escalas_tml')
-        .select('mapa, sala, placa, matricula')
+        .select('mapa, placa, matricula')
         .eq('filial', usuario.filial)
         .in('mapa', mapas)
       const escalaPorMapa = new Map((escalas ?? []).map((e) => [e.mapa, e]))
+
+      const matriculas = [...new Set(saidas.map((s) => s.matricula).filter((m): m is number => m != null))]
+      const { data: roster } = await supabase
+        .from('motoristas_sala_tml')
+        .select('matricula, sala')
+        .eq('filial', usuario.filial)
+        .in('matricula', matriculas)
+      const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
 
       const { data: alertasExistentes } = await supabase
         .from('alertas_tml')
@@ -193,33 +228,37 @@ export default function DistribuicaoTML() {
         if (mapasJaAlertados.has(saida.mapa) || !saida.horarioSaida) continue
 
         const escala = escalaPorMapa.get(saida.mapa)
-        if (!escala || !isSalaTML(escala.sala)) continue
+        const matricula = saida.matricula ?? escala?.matricula ?? null
+        const sala = matricula != null ? salaPorMatricula.get(matricula) : undefined
+        if (!isSalaTML(sala)) {
+          if (matricula != null) erros.push(`Mapa ${saida.mapa}: matrícula ${matricula} sem sala cadastrada`)
+          continue
+        }
 
-        const atraso = atrasoMinutos(escala.sala, saida.horarioSaida)
+        const atraso = atrasoMinutos(sala, saida.horarioSaida)
         if (atraso <= 0) continue
 
         const { data: supervisores } = await supabase
           .from('supervisores_tml')
           .select('id, nome, telefone')
           .eq('filial', usuario.filial)
-          .eq('sala', escala.sala)
+          .eq('sala', sala)
 
         if (!supervisores?.length) {
-          erros.push(`Mapa ${saida.mapa}: nenhum supervisor cadastrado para a sala ${escala.sala}`)
+          erros.push(`Mapa ${saida.mapa}: nenhum supervisor cadastrado para a sala ${SALA_TML_LABEL[sala]}`)
           continue
         }
 
         const numero = await gerarNumero(usuario.filial)
-        const placa = saida.placa ?? escala.placa ?? '-'
-        const matricula = saida.matricula ?? escala.matricula ?? null
-        const limite = horarioLimite(escala.sala)
+        const placa = saida.placa ?? escala?.placa ?? '-'
+        const limite = horarioLimite(sala)
 
         const mensagem =
           `⚠️ *TML PERDIDO — ${numero}*\n\n` +
           `🗺️ Mapa: ${saida.mapa}\n` +
           `🚛 Placa: ${placa}\n` +
           `👤 Motorista (matrícula): ${matricula ?? '—'}\n` +
-          `🏢 Sala: ${escala.sala === 'INT' ? 'Interior' : 'Petrópolis'}\n` +
+          `🏢 Sala: ${SALA_TML_LABEL[sala]}\n` +
           `🕐 Limite de saída: ${limite}\n` +
           `🕑 Saída real: ${saida.horarioSaida}\n` +
           `⏱️ Atraso: ${atraso} min\n\n` +
@@ -234,7 +273,7 @@ export default function DistribuicaoTML() {
           filial: usuario.filial,
           numero,
           mapa: saida.mapa,
-          sala: escala.sala,
+          sala,
           placa,
           matricula,
           horario_limite: limite,
@@ -295,7 +334,7 @@ export default function DistribuicaoTML() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold">Distribuição — Carta de Controle TML</h1>
           <p className="text-sm text-muted-foreground">
-            Monitoramento automático de saída na portaria (Interior e Petrópolis)
+            Monitoramento automático de saída na portaria (COLORADO e SUB-FURIA)
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
@@ -310,15 +349,21 @@ export default function DistribuicaoTML() {
 
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
         <UploadBox
-          titulo="1. Escala do dia (03.11.49.02)"
-          descricao="Define qual motorista/placa está escalado para cada sala (Interior e Petrópolis)."
+          titulo="1. Relação motorista x sala"
+          descricao="Planilha com nome, matrícula e sala (COLORADO ou SUB-FURIA) de cada motorista."
+          onFile={handleMotoristaSala}
+          isUploading={uploadingRoster}
+        />
+        <UploadBox
+          titulo="2. Escala do dia (03.11.49.02)"
+          descricao="Define qual motorista/placa está escalado para cada mapa."
           onFile={handleEscala}
           isUploading={uploadingEscala}
         />
         <UploadBox
-          titulo="2. Saída na portaria (03.11.20)"
+          titulo="3. Saída na portaria (03.11.20)"
           descricao="Compara o horário de saída com o limite da sala e dispara alerta automático ao supervisor quando o motorista perde o TML."
           onFile={handleSaida}
           isUploading={uploadingSaida}
@@ -377,7 +422,7 @@ export default function DistribuicaoTML() {
                   <tr key={a.id} className="hover:bg-muted/30 transition-colors align-top">
                     <td className="px-4 py-3 font-mono text-xs">{a.numero}</td>
                     <td className="px-4 py-3">{a.mapa}</td>
-                    <td className="px-4 py-3">{SALA_LABEL[a.sala] ?? a.sala}</td>
+                    <td className="px-4 py-3">{SALA_TML_LABEL[a.sala] ?? a.sala}</td>
                     <td className="px-4 py-3">{a.placa ?? '—'}</td>
                     <td className="px-4 py-3">{a.matricula ?? '—'}</td>
                     <td className="px-4 py-3">{a.horario_limite}</td>
