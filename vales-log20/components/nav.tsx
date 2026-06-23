@@ -11,6 +11,7 @@ import {
   History,
   RotateCcw,
   Settings,
+  Truck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "./theme-toggle";
@@ -22,6 +23,7 @@ const navItems = [
   { href: "/importar", label: "Importar", icon: FileSpreadsheet },
   { href: "/importacoes", label: "Histórico", icon: History },
   { href: "/reposicoes", label: "Reposições", icon: RotateCcw },
+  { href: "/distribuicao", label: "Distribuição", icon: Truck },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 

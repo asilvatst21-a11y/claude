@@ -259,6 +259,88 @@ async function processValidadorMessage(supabase: Awaited<ReturnType<typeof creat
   await responderValidacao(payload, `Reposição *${rep.numero}* ${confirmWord}${porQuem}`);
 }
 
+/**
+ * Handles WhatsApp replies from registered TML supervisors (Distribuição —
+ * Carta de Controle TML). Returns true when the sender is a known supervisor,
+ * so the caller knows not to fall through to the driver-reposição flow.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function processSupervisorTMLMessage(supabase: Awaited<ReturnType<typeof createServiceClient>>, payload: any): Promise<boolean> {
+  const phone = normalizePhone(payload.phone);
+  const texto: string = payload.text?.message ?? "";
+  if (!phone || !texto) return false;
+
+  const { data: supervisores } = await supabase
+    .from("supervisores_tml")
+    .select("id, sala, telefone");
+  const supervisor = (supervisores ?? []).find((s) => normalizePhone(s.telefone) === phone);
+  if (!supervisor) return false;
+
+  const refId: string | null = payload.referenceMessageId ?? null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let alerta: any = null;
+
+  if (refId) {
+    const { data } = await supabase
+      .from("alertas_tml")
+      .select("*")
+      .eq("zapi_message_id", refId)
+      .eq("status", "enviado")
+      .maybeSingle();
+    alerta = data;
+  }
+
+  if (!alerta) {
+    const match = texto.match(/TML-\d{8}-\d+/i);
+    if (match) {
+      const { data } = await supabase
+        .from("alertas_tml")
+        .select("*")
+        .eq("numero", match[0].toUpperCase())
+        .eq("status", "enviado")
+        .maybeSingle();
+      alerta = data;
+    }
+  }
+
+  if (!alerta) {
+    const { data: pendentes } = await supabase
+      .from("alertas_tml")
+      .select("*")
+      .eq("status", "enviado")
+      .eq("sala", supervisor.sala);
+
+    if (pendentes?.length === 1) {
+      alerta = pendentes[0];
+    } else if (pendentes && pendentes.length > 1) {
+      await sendMessage(
+        phone,
+        "❓ Há mais de um alerta de TML pendente. *Responda diretamente* à mensagem do alerta " +
+          "ou cite o número (ex: TML-20260623-0001)."
+      ).catch(() => null);
+      return true;
+    }
+  }
+
+  if (!alerta) return true;
+
+  await supabase
+    .from("alertas_tml")
+    .update({
+      justificativa: texto,
+      status: "justificado",
+      justificado_em: new Date().toISOString(),
+    })
+    .eq("id", alerta.id);
+
+  await sendMessage(
+    phone,
+    `✅ Justificativa registrada para *${alerta.numero}* (Mapa ${alerta.mapa}).`
+  ).catch(() => null);
+
+  return true;
+}
+
 export async function POST(request: NextRequest) {
   // Z-API webhook: always return 200 quickly to avoid retries
   const payload = await request.json().catch(() => null);
@@ -280,11 +362,15 @@ export async function POST(request: NextRequest) {
     return Response.json({ ok: true });
   }
 
-  // Direct messages: a fixed validador (when no group is used) or a driver.
+  // Direct messages: a fixed validador (when no group is used), a TML
+  // supervisor replying with a justification, or a driver.
   if (isValidador(phone)) {
     await processValidadorMessage(supabase, payload).catch(console.error);
   } else {
-    await processDriverMessage(supabase, payload).catch(console.error);
+    const handledByTML = await processSupervisorTMLMessage(supabase, payload).catch(() => false);
+    if (!handledByTML) {
+      await processDriverMessage(supabase, payload).catch(console.error);
+    }
   }
 
   return Response.json({ ok: true });
