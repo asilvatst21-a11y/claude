@@ -272,10 +272,19 @@ export interface SupervisorTML {
   id: string
   filial: string
   nome: string
-  sala: 'INT' | 'PET'
+  sala: 'COLORADO' | 'SUB-FURIA'
   telefone: string
   created_at: string
   updated_at: string
+}
+
+export interface MotoristaSalaTML {
+  id: string
+  filial: string
+  matricula: number
+  nome: string
+  sala: 'COLORADO' | 'SUB-FURIA'
+  importado_em: string
 }
 
 export interface AlertaTML {
@@ -283,7 +292,7 @@ export interface AlertaTML {
   filial: string
   numero: string
   mapa: number
-  sala: 'INT' | 'PET'
+  sala: 'COLORADO' | 'SUB-FURIA'
   placa: string | null
   matricula: number | null
   horario_limite: string

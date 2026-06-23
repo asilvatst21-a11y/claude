@@ -45,16 +45,15 @@ function readSheetRows(buffer: ArrayBuffer, preferredSheetName: string): unknown
 
 export interface EscalaTML {
   mapa: number;
-  sala: string;
   placa: string | null;
   matricula: number | null;
   dataEntrega: string | null;
 }
 
 /**
- * 03.11.49.02 — escala do dia: define qual motorista/placa está
- * escalado para cada sala. A coluna de sala não tem cabeçalho próprio
- * (vem logo após "Nro do Mapa"), por isso é localizada por posição.
+ * 03.11.49.02 — escala do dia: informa apenas os motoristas/placas
+ * escalados por mapa. Não traz a sala — a sala de cada motorista vem da
+ * planilha de roster (nome/matrícula/sala), casada por matrícula.
  */
 export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
   const rows = readSheetRows(buffer, "03.11.49.02");
@@ -72,7 +71,6 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
   if (headerRow === -1) return [];
 
   const header = rows[headerRow].map(normalize);
-  const salaIdx = mapaIdx + 1;
   const placaIdx = header.indexOf("placa");
   const motoristaIdx = header.indexOf("motorista");
   const dataEntregaIdx = header.indexOf("data entrega");
@@ -87,10 +85,62 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
 
     out.push({
       mapa,
-      sala: String(row[salaIdx] ?? "").trim().toUpperCase(),
       placa: placaIdx !== -1 ? String(row[placaIdx] ?? "").trim() || null : null,
       matricula: !isNaN(matricula) ? matricula : null,
       dataEntrega: dataEntregaIdx !== -1 ? excelDateToISO(row[dataEntregaIdx]) : null,
+    });
+  }
+  return out;
+}
+
+export interface MotoristaSalaTML {
+  matricula: number;
+  nome: string;
+  sala: string;
+}
+
+/**
+ * Planilha de roster (nome/matrícula/sala): define a qual sala
+ * (COLORADO ou SUB-FURIA) cada motorista pertence. Os nomes exatos das
+ * colunas variam, por isso a busca do cabeçalho é feita por substring
+ * normalizada.
+ */
+export function parseMotoristaSalaBuffer(buffer: ArrayBuffer): MotoristaSalaTML[] {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+
+  let headerRow = -1;
+  let matriculaIdx = -1;
+  let nomeIdx = -1;
+  let salaIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const header = rows[i].map(normalize);
+    const mIdx = header.findIndex((c) => c.includes("matricula"));
+    if (mIdx === -1) continue;
+    const nIdx = header.findIndex((c) => c.includes("nome") || c.includes("motorista"));
+    const sIdx = header.findIndex((c) => c.includes("sala"));
+    if (sIdx === -1) continue;
+    headerRow = i;
+    matriculaIdx = mIdx;
+    nomeIdx = nIdx;
+    salaIdx = sIdx;
+    break;
+  }
+  if (headerRow === -1) return [];
+
+  const out: MotoristaSalaTML[] = [];
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i];
+    const matricula = Number(row[matriculaIdx]);
+    if (!matricula || isNaN(matricula)) continue;
+    const sala = String(row[salaIdx] ?? "").trim().toUpperCase();
+    if (!sala) continue;
+
+    out.push({
+      matricula,
+      nome: nomeIdx !== -1 ? String(row[nomeIdx] ?? "").trim() : "",
+      sala,
     });
   }
   return out;
@@ -106,6 +156,13 @@ export interface SaidaTML {
 
 const FASE_SAIDA_PORTARIA = "saida cdd/fab";
 
+// Posições fixas na planilha 03.11.20: Fase = coluna B, Placa = coluna D,
+// Matrícula do motorista = coluna M. A linha de "Saida Cdd/Fab" é a última
+// fase registrada para o TML e é usada para casar com o 03.11.49.02.
+const COL_FASE = 1;
+const COL_PLACA = 3;
+const COL_MATRICULA = 12;
+
 /**
  * 03.11.20 — movimento de portaria. Só nos interessam as linhas com
  * Fase = "Saida Cdd/Fab", que marcam o horário real de saída do veículo.
@@ -115,7 +172,7 @@ export function parseSaidaBuffer(buffer: ArrayBuffer): SaidaTML[] {
 
   let headerRow = -1;
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
-    if (rows[i].some((c) => normalize(c) === "fase")) {
+    if (normalize(rows[i][COL_FASE]) === "fase") {
       headerRow = i;
       break;
     }
@@ -124,26 +181,23 @@ export function parseSaidaBuffer(buffer: ArrayBuffer): SaidaTML[] {
 
   const header = rows[headerRow].map(normalize);
   const mapaIdx = header.indexOf("mapa");
-  const faseIdx = header.indexOf("fase");
-  const placaIdx = header.indexOf("placa");
   const dtOperIdx = header.indexOf("dtoper");
   const hrOperIdx = header.indexOf("hroper");
-  const motoristaIdx = header.indexOf("motorista");
 
-  if (mapaIdx === -1 || faseIdx === -1) return [];
+  if (mapaIdx === -1) return [];
 
   const out: SaidaTML[] = [];
   for (let i = headerRow + 1; i < rows.length; i++) {
     const row = rows[i];
     const mapa = Number(row[mapaIdx]);
     if (!mapa || isNaN(mapa)) continue;
-    if (normalize(row[faseIdx]) !== FASE_SAIDA_PORTARIA) continue;
+    if (normalize(row[COL_FASE]) !== FASE_SAIDA_PORTARIA) continue;
 
-    const matricula = motoristaIdx !== -1 ? Number(row[motoristaIdx]) : NaN;
+    const matricula = Number(row[COL_MATRICULA]);
 
     out.push({
       mapa,
-      placa: placaIdx !== -1 ? String(row[placaIdx] ?? "").trim() || null : null,
+      placa: String(row[COL_PLACA] ?? "").trim() || null,
       matricula: !isNaN(matricula) ? matricula : null,
       dataSaida: dtOperIdx !== -1 ? excelDateToISO(row[dtOperIdx]) : null,
       horarioSaida: hrOperIdx !== -1 ? excelTimeToHorario(row[hrOperIdx]) : null,

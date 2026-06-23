@@ -3,9 +3,8 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft, Loader2, Pencil, Phone, Plus, RefreshCw, Trash2, X } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
+import { SALA_TML_LABEL } from '../lib/tml'
 import type { SupervisorTML } from '../types'
-
-const SALA_LABEL: Record<string, string> = { INT: 'Interior', PET: 'Petrópolis' }
 
 export default function DistribuicaoTMLSupervisores() {
   const { usuario } = useAuth()
@@ -19,7 +18,7 @@ export default function DistribuicaoTMLSupervisores() {
   const [erro, setErro] = useState('')
 
   const [nome, setNome] = useState('')
-  const [sala, setSala] = useState<'INT' | 'PET' | ''>('')
+  const [sala, setSala] = useState<'COLORADO' | 'SUB-FURIA' | ''>('')
   const [telefone, setTelefone] = useState('')
 
   const fetchSupervisores = useCallback(async () => {
@@ -148,7 +147,7 @@ export default function DistribuicaoTMLSupervisores() {
                 {supervisores.map((s) => (
                   <tr key={s.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-medium">{s.nome}</td>
-                    <td className="px-4 py-3">{SALA_LABEL[s.sala] ?? s.sala}</td>
+                    <td className="px-4 py-3">{SALA_TML_LABEL[s.sala] ?? s.sala}</td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">
                         <Phone className="h-3.5 w-3.5 text-green-600" />
@@ -187,10 +186,10 @@ export default function DistribuicaoTMLSupervisores() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Sala</label>
-                <select value={sala} onChange={(e) => setSala(e.target.value as 'INT' | 'PET')} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                <select value={sala} onChange={(e) => setSala(e.target.value as 'COLORADO' | 'SUB-FURIA')} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
                   <option value="">Selecione...</option>
-                  <option value="INT">Interior</option>
-                  <option value="PET">Petrópolis</option>
+                  <option value="COLORADO">COLORADO (7H)</option>
+                  <option value="SUB-FURIA">SUB-FURIA (8H)</option>
                 </select>
               </div>
               <div>
