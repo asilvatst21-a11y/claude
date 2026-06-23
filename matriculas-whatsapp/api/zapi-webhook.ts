@@ -1038,6 +1038,74 @@ async function tratarFluxo(
   return { ok: true, action: 'no-command' }
 }
 
+// ── TML: resposta do supervisor no chat individual ────────────────────────────────
+// O alerta é enviado com botões (um por motivo) cujo id embute o alerta_id
+// (UUID, 36 caracteres): "tmlmotivo:<alertaId>:<motivo>". Clicando, já sabemos
+// exatamente qual alerta atualizar. Se o supervisor responder em texto livre
+// (ex.: motivo "OUTRO"), usamos o último alerta "enviado" daquele número.
+function ultimosDigitos(s: string, n = 8): string {
+  return String(s ?? '').replace(/\D/g, '').slice(-n)
+}
+
+async function registrarJustificativaTml(alertaId: string, motivo: string, remetente: string): Promise<{ ok: boolean; action: string }> {
+  const { data: alerta } = await supabase
+    .from('alertas_tml')
+    .select('id, numero, status')
+    .eq('id', alertaId)
+    .maybeSingle()
+
+  if (!alerta) {
+    await enviar(remetente, '⚠️ Não encontrei esse alerta no sistema.')
+    return { ok: true, action: 'alert-not-found' }
+  }
+  if (alerta.status === 'justificado') {
+    await enviar(remetente, `ℹ️ O alerta ${alerta.numero ?? ''} já estava justificado.`)
+    return { ok: true, action: 'already-justified' }
+  }
+
+  await supabase.from('alertas_tml').update({
+    justificativa: motivo,
+    status: 'justificado',
+    justificado_em: new Date().toISOString(),
+  }).eq('id', alertaId)
+
+  await enviar(remetente, `✅ Motivo registrado no sistema: *${motivo}*`)
+  return { ok: true, action: 'justificado' }
+}
+
+async function tratarTml(body: any, remetente: string): Promise<{ ok: boolean; action: string }> {
+  const rawBtn = String(body?.buttonsResponseMessage?.buttonId ?? '')
+  if (rawBtn.startsWith('tmlmotivo:')) {
+    const resto = rawBtn.slice('tmlmotivo:'.length)
+    const alertaId = resto.slice(0, 36)
+    const motivo = resto.slice(37).trim()
+    if (!alertaId || !motivo) return { ok: true, action: 'invalid-button' }
+    return await registrarJustificativaTml(alertaId, motivo, remetente)
+  }
+
+  const texto = extrairTexto(body).trim()
+  if (!texto) return { ok: true, action: 'no-command' }
+
+  const digitos = ultimosDigitos(remetente)
+  if (!digitos) return { ok: true, action: 'no-command' }
+
+  const { data: supervisores } = await supabase.from('supervisores_tml').select('id, telefone')
+  const supervisor = (supervisores ?? []).find((s: any) => ultimosDigitos(s.telefone) === digitos)
+  if (!supervisor) return { ok: true, action: 'no-command' }
+
+  const { data: alerta } = await supabase
+    .from('alertas_tml')
+    .select('id')
+    .eq('supervisor_id', supervisor.id)
+    .eq('status', 'enviado')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!alerta) return { ok: true, action: 'no-pending-alert' }
+
+  return await registrarJustificativaTml(alerta.id, texto, remetente)
+}
+
 // ── Handler ──────────────────────────────────────────────────────────────────────
 
 export default async function handler(req: any, res: any) {
@@ -1064,8 +1132,16 @@ export default async function handler(req: any, res: any) {
     const senderName: string = String(body.senderName ?? body.chatName ?? body.pushName ?? '')
     const participante: string = String(body.participantPhone ?? body.participant ?? '')
 
-    if (fromMe || !isGroup || !grupoId || !temConteudo) {
+    if (fromMe || !grupoId || !temConteudo) {
       res.status(200).json({ ok: true, ignored: 'not-applicable' })
+      return
+    }
+
+    // Conversa individual (não-grupo): hoje só usada pelos alertas de TML,
+    // em que o supervisor toca no botão com o motivo ou responde em texto.
+    if (!isGroup) {
+      const r = await tratarTml(body, grupoId)
+      res.status(200).json(r)
       return
     }
 

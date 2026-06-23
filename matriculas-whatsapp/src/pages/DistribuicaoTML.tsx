@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { enviarMensagemWhatsApp } from '../lib/zapi'
+import { enviarBotoesWhatsApp } from '../lib/zapi'
 import { parseEscalaBuffer, parseSaidaBuffer } from '../lib/tmlParser'
 import { isSalaTML, horarioLimite, atrasoMinutos, SALA_TML_LABEL } from '../lib/tml'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
@@ -179,6 +179,16 @@ export default function DistribuicaoTML() {
   useEffect(() => { fetchMotivos() }, [fetchMotivos])
   useEffect(() => { fetchHistorico() }, [fetchHistorico])
 
+  // Atualiza sozinho a cada 15s para refletir respostas do supervisor pelo
+  // WhatsApp (clique no motivo) sem precisar apertar "Atualizar".
+  useEffect(() => {
+    const id = setInterval(() => {
+      fetchAlertas()
+      fetchHistorico()
+    }, 15000)
+    return () => clearInterval(id)
+  }, [fetchAlertas, fetchHistorico])
+
   async function handleEscala(file: File) {
     if (!usuario) return
     setUploadingEscala(true)
@@ -325,7 +335,6 @@ export default function DistribuicaoTML() {
         }
 
         diag.pendentes++
-        const listaMotivos = motivos.map((m, i) => `${i + 1}. ${m.motivo}`).join('\n')
         const mensagem =
           `⚠️ *TML PERDIDO*\n\n` +
           `🗺️ Mapa: ${saida.mapa}\n` +
@@ -335,7 +344,7 @@ export default function DistribuicaoTML() {
           `🕐 Limite de saída: ${limite}\n` +
           `🕑 Saída real: ${saida.horarioSaida}\n` +
           `⏱️ Atraso: ${atraso} min\n\n` +
-          `O motorista perdeu o TML. Informe o motivo:\n${listaMotivos}`
+          `O motorista perdeu o TML. Toque no motivo correspondente abaixo.`
 
         const numero = await gerarNumero(usuario.filial)
         const { data: alertaInserido, error: alertaErr } = await supabase
@@ -408,9 +417,16 @@ export default function DistribuicaoTML() {
         return
       }
 
+      const botoes = motivos
+        .slice(0, 10)
+        .map((m) => ({
+          id: `tmlmotivo:${alerta.id}:${m.motivo}`,
+          label: m.motivo.length > 20 ? `${m.motivo.slice(0, 19)}…` : m.motivo,
+        }))
+
       const erros: string[] = []
       for (const sup of supervisores) {
-        const resultado = await enviarMensagemWhatsApp(sup.telefone, alerta.mensagem_enviada)
+        const resultado = await enviarBotoesWhatsApp(sup.telefone, alerta.mensagem_enviada, botoes)
         if (!resultado.sucesso) erros.push(`${sup.nome}: ${resultado.erro}`)
       }
 

@@ -69,6 +69,26 @@ export async function enviarBotoesGrupo(
   }
 }
 
+// Envio de mensagem com botões para um número individual (ex.: motivos de
+// justificativa de TML, para o supervisor tocar em vez de digitar).
+export async function enviarBotoesWhatsApp(
+  numero: string,
+  mensagem: string,
+  botoes: { id: string; label: string }[]
+): Promise<{ sucesso: boolean; erro?: string }> {
+  try {
+    const response = await fetch(`${BASE}/send-button-list`, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ phone: limparNumero(numero), message: mensagem, buttonList: { buttons: botoes } }),
+    })
+    if (!response.ok) return { sucesso: false, erro: await response.text() }
+    return { sucesso: true }
+  } catch (e) {
+    return { sucesso: false, erro: String(e) }
+  }
+}
+
 export interface GrupoZApi {
   phone: string   // ID do grupo, usado como destino do envio
   name: string
