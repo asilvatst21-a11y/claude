@@ -325,6 +325,7 @@ export default function DistribuicaoTML() {
         }
 
         diag.pendentes++
+        const listaMotivos = motivos.map((m, i) => `${i + 1}. ${m.motivo}`).join('\n')
         const mensagem =
           `⚠️ *TML PERDIDO*\n\n` +
           `🗺️ Mapa: ${saida.mapa}\n` +
@@ -334,7 +335,7 @@ export default function DistribuicaoTML() {
           `🕐 Limite de saída: ${limite}\n` +
           `🕑 Saída real: ${saida.horarioSaida}\n` +
           `⏱️ Atraso: ${atraso} min\n\n` +
-          `O motorista perdeu o TML.`
+          `O motorista perdeu o TML. Informe o motivo:\n${listaMotivos}`
 
         const numero = await gerarNumero(usuario.filial)
         const { data: alertaInserido, error: alertaErr } = await supabase
