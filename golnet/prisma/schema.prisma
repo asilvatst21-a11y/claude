@@ -215,6 +215,9 @@ model Match {
   round        String?
   venue        String?
   lastSyncedAt DateTime?
+  reminder30SentAt DateTime?
+  reminder10SentAt DateTime?
+  reminder5SentAt  DateTime?
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
 
@@ -406,6 +409,18 @@ model RoundRanking {
   createdAt DateTime @default(now())
 
   @@unique([leagueId, userId, round])
+}
+
+// ─── Round Summary ────────────────────────────────────────────────────────────
+
+model RoundSummary {
+  id        String   @id @default(cuid())
+  leagueId  String
+  round     String
+  text      String   @db.Text
+  createdAt DateTime @default(now())
+
+  @@unique([leagueId, round])
 }
 
 // ─── Cron Log ─────────────────────────────────────────────────────────────────

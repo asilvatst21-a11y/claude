@@ -11,13 +11,15 @@ export const metadata = { title: "Liga — PalpitaAí" };
 
 export default async function LeagueDetailPage({
   params,
+  searchParams,
 }: {
   params: { id: string };
+  searchParams: { tab?: string };
 }) {
   const session = await auth();
   const userId = session?.user?.id ?? "";
 
-  const [league, userRecord, roundRankingsRaw] = await Promise.all([
+  const [league, userRecord, roundRankingsRaw, roundSummariesRaw] = await Promise.all([
     prisma.league.findUnique({
       where: { id: params.id },
       include: {
@@ -37,10 +39,14 @@ export default async function LeagueDetailPage({
       where: { leagueId: params.id },
       orderBy: { round: "asc" },
     }),
+    prisma.roundSummary.findMany({
+      where: { leagueId: params.id },
+    }),
   ]);
 
   // If league has competition/team filter, recalculate standings from predictions
   let members = league?.members ?? [];
+  let statsMatchIds: string[] | undefined;
   if (league && (league.competitionName || league.teamFilter.length > 0)) {
     const matchWhere: Record<string, unknown> = {};
     if (league.competitionName) matchWhere.leagueName = league.competitionName;
@@ -54,12 +60,12 @@ export default async function LeagueDetailPage({
       where: matchWhere,
       select: { id: true },
     });
-    const matchIds = filteredMatches.map((m) => m.id);
+    statsMatchIds = filteredMatches.map((m) => m.id);
     const memberUserIds = members.map((m) => m.userId);
 
     const predPoints = await prisma.prediction.groupBy({
       by: ["userId"],
-      where: { matchId: { in: matchIds }, userId: { in: memberUserIds } },
+      where: { matchId: { in: statsMatchIds }, userId: { in: memberUserIds } },
       _sum: { points: true, bonusPoints: true },
     });
     const pointsMap = Object.fromEntries(
@@ -75,6 +81,35 @@ export default async function LeagueDetailPage({
 
   const currentMember = members.find((m) => m.userId === userId);
   if (!currentMember) notFound();
+
+  // Per-player breakdown by prediction result, for the ranking "classification" table
+  const memberUserIds = members.map((m) => m.userId);
+  const resultCounts = await prisma.prediction.groupBy({
+    by: ["userId", "result"],
+    where: {
+      userId: { in: memberUserIds },
+      result: { not: null },
+      ...(statsMatchIds ? { matchId: { in: statsMatchIds } } : {}),
+    },
+    _count: { _all: true },
+  });
+
+  const statsByUserId: Record<string, Record<string, number>> = {};
+  for (const uid of memberUserIds) {
+    statsByUserId[uid] = {
+      EXACT_SCORE: 0,
+      CORRECT_RESULT_AND_DIFF: 0,
+      CORRECT_WINNER: 0,
+      CORRECT_DRAW: 0,
+      WRONG: 0,
+    };
+  }
+  for (const row of resultCounts) {
+    if (!row.result) continue;
+    statsByUserId[row.userId][row.result] = row._count._all;
+  }
+
+  const summaryByRound = Object.fromEntries(roundSummariesRaw.map((s) => [s.round, s.text]));
 
   const isOwner = currentMember.role === "OWNER";
   const userPlan = userRecord?.plan ?? "FREE";
@@ -105,6 +140,7 @@ export default async function LeagueDetailPage({
     .map(([round, entries]) => ({
       round,
       entries: entries.sort((a, b) => b.points - a.points),
+      summary: summaryByRound[round],
     }));
 
   return (
@@ -213,9 +249,11 @@ export default async function LeagueDetailPage({
       <LeagueTabs
         leagueId={params.id}
         members={members}
+        statsByUserId={statsByUserId}
         roundGroups={roundGroups}
         userPlan={userPlan}
         userId={userId}
+        initialTab={searchParams.tab}
         scoring={{
           ptsExactScore: league.ptsExactScore,
           ptsCorrectDiff: league.ptsCorrectDiff,

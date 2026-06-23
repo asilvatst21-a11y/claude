@@ -65,7 +65,9 @@ export function pointsFromResult(result: PredictionResult, _stage: MatchStage, r
   }
 }
 
+export const PREDICTION_LOCK_MINUTES = 5;
+
 export function isPredictionLocked(startsAt: Date): boolean {
-  const cutoff = new Date(startsAt.getTime() - 5 * 60 * 1000);
+  const cutoff = new Date(startsAt.getTime() - PREDICTION_LOCK_MINUTES * 60 * 1000);
   return new Date() >= cutoff;
 }
