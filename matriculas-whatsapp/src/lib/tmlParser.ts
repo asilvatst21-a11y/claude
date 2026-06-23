@@ -15,6 +15,15 @@ function excelDateToISO(value: unknown): string | null {
     const d = String(value.getUTCDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
   }
+  if (typeof value === "string") {
+    const m = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (m) {
+      const d = m[1].padStart(2, "0");
+      const mo = m[2].padStart(2, "0");
+      const y = m[3].length === 2 ? `20${m[3]}` : m[3];
+      return `${y}-${mo}-${d}`;
+    }
+  }
   const num = Number(value);
   if (!value || isNaN(num)) return null;
   const parsed = XLSX.SSF.parse_date_code(num);
@@ -25,6 +34,13 @@ function excelDateToISO(value: unknown): string | null {
 function excelTimeToHorario(value: unknown): string | null {
   if (value instanceof Date) {
     return `${String(value.getUTCHours()).padStart(2, "0")}:${String(value.getUTCMinutes()).padStart(2, "0")}`;
+  }
+  if (typeof value === "string") {
+    const m = value.trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (m) {
+      const h = Number(m[1]) % 24;
+      return `${String(h).padStart(2, "0")}:${m[2]}`;
+    }
   }
   const num = Number(value);
   if (value === null || value === undefined || value === "" || isNaN(num)) return null;
