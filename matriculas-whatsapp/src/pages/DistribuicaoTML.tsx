@@ -223,20 +223,23 @@ export default function DistribuicaoTML() {
 
       let alertasEnviados = 0
       const erros: string[] = []
+      const diag = { jaAlertado: 0, semHorario: 0, semSala: 0, noPrazo: 0, semSupervisor: 0 }
 
       for (const saida of saidas) {
-        if (mapasJaAlertados.has(saida.mapa) || !saida.horarioSaida) continue
+        if (mapasJaAlertados.has(saida.mapa)) { diag.jaAlertado++; continue }
+        if (!saida.horarioSaida) { diag.semHorario++; continue }
 
         const escala = escalaPorMapa.get(saida.mapa)
         const matricula = saida.matricula ?? escala?.matricula ?? null
         const sala = matricula != null ? salaPorMatricula.get(matricula) : undefined
         if (!isSalaTML(sala)) {
+          diag.semSala++
           if (matricula != null) erros.push(`Mapa ${saida.mapa}: matrícula ${matricula} sem sala cadastrada`)
           continue
         }
 
         const atraso = atrasoMinutos(sala, saida.horarioSaida)
-        if (atraso <= 0) continue
+        if (atraso <= 0) { diag.noPrazo++; continue }
 
         const { data: supervisores } = await supabase
           .from('supervisores_tml')
@@ -245,6 +248,7 @@ export default function DistribuicaoTML() {
           .eq('sala', sala)
 
         if (!supervisores?.length) {
+          diag.semSupervisor++
           erros.push(`Mapa ${saida.mapa}: nenhum supervisor cadastrado para a sala ${SALA_TML_LABEL[sala]}`)
           continue
         }
@@ -288,8 +292,14 @@ export default function DistribuicaoTML() {
       }
 
       alert(
-        `${saidas.length} saída(s) processada(s), ${alertasEnviados} alerta(s) enviado(s).` +
-        (erros.length ? `\n\nAvisos:\n${erros.join('\n')}` : '')
+        `${saidas.length} saída(s) processada(s), ${alertasEnviados} alerta(s) enviado(s).\n\n` +
+        `Resumo (saídas que NÃO viraram alerta):\n` +
+        `• ${diag.noPrazo} dentro do prazo (sem atraso)\n` +
+        `• ${diag.semSala} sem sala (matrícula não está no roster)\n` +
+        `• ${diag.semSupervisor} sem supervisor cadastrado na sala\n` +
+        `• ${diag.semHorario} sem horário de saída\n` +
+        `• ${diag.jaAlertado} já tinham alerta` +
+        (erros.length ? `\n\nDetalhes:\n${erros.slice(0, 15).join('\n')}` : '')
       )
       await fetchAlertas()
     } catch (err) {
