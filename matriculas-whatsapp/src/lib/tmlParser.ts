@@ -185,9 +185,9 @@ export function parseSaidaBuffer(buffer: ArrayBuffer): SaidaTML[] {
   if (headerRow === -1) return [];
 
   const header = rows[headerRow].map(normalize);
-  const mapaIdx = header.indexOf("mapa");
-  const dtOperIdx = header.indexOf("dtoper");
-  const hrOperIdx = header.indexOf("hroper");
+  const mapaIdx = header.findIndex((c) => c.includes("mapa"));
+  const dtOperIdx = header.findIndex((c) => c.includes("dtoper") || c.includes("data oper"));
+  const hrOperIdx = header.findIndex((c) => c.includes("hroper") || c.includes("hora oper"));
 
   if (mapaIdx === -1) return [];
 
