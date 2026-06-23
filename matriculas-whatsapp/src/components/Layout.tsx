@@ -41,7 +41,8 @@ const financeiroItems = [
 ]
 
 const distribuicaoItems = [
-  { permKey: 'distribuicao', to: '/distribuicao', label: 'Distribuição', icon: Truck, end: true },
+  { permKey: 'distribuicao', to: '/distribuicao',     label: 'Solicitação Extra',     icon: Truck, end: true },
+  { permKey: 'distribuicao', to: '/distribuicao/tml',  label: 'Carta de Controle TML', icon: CalendarClock    },
 ]
 
 const armazemItems = [
