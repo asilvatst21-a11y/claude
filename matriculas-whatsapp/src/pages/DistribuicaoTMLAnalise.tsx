@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip,
-  ResponsiveContainer, CartesianGrid, Legend,
+  BarChart, Bar, ComposedChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip,
+  ResponsiveContainer, CartesianGrid, Legend, LabelList,
 } from 'recharts'
 import { BarChart2, AlertTriangle, CheckCircle2, Clock, Users, Timer, TrendingDown, Check, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -235,14 +235,19 @@ export default function DistribuicaoTMLAnalise() {
       .sort((a, b) => b.total - a.total)
   }, [alertasFiltrados])
 
-  // ── Tendência temporal (por dia) ────────────────────────────────────────
+  // ── Tendência temporal (por dia): TML médio + conformidade ─────────────
   const porDia = useMemo(() => {
-    const mapa = new Map<string, { dia: string; saidas: number; perdidos: number }>()
+    const mapa = new Map<string, { dia: string; saidas: number; somaTempoSaida: number; nTempoSaida: number; dentroTolerancia: number }>()
     for (const h of historicoValido) {
-      if (!h.data_saida) continue
-      const k = mapa.get(h.data_saida) ?? { dia: h.data_saida, saidas: 0, perdidos: 0 }
+      if (!h.data_saida || !h.sala) continue
+      const k = mapa.get(h.data_saida) ?? { dia: h.data_saida, saidas: 0, somaTempoSaida: 0, nTempoSaida: 0, dentroTolerancia: 0 }
       k.saidas++
-      if (h.resultado === 'atrasado') k.perdidos++
+      const tempoSaida = tempoSaidaMinutos(h)
+      if (tempoSaida != null) {
+        k.somaTempoSaida += tempoSaida
+        k.nTempoSaida++
+        if (tempoSaida <= REGRAS_TML[h.sala].toleranciaMin) k.dentroTolerancia++
+      }
       mapa.set(h.data_saida, k)
     }
     return [...mapa.values()]
@@ -250,8 +255,8 @@ export default function DistribuicaoTMLAnalise() {
       .map((k) => ({
         dia: k.dia.slice(5).split('-').reverse().join('/'),
         saidas: k.saidas,
-        perdidos: k.perdidos,
-        pct: k.saidas > 0 ? Math.round((k.perdidos / k.saidas) * 1000) / 10 : 0,
+        tempoSaidaMedio: k.nTempoSaida > 0 ? Math.round(k.somaTempoSaida / k.nTempoSaida) : 0,
+        conformidadePct: k.nTempoSaida > 0 ? Math.round((k.dentroTolerancia / k.nTempoSaida) * 1000) / 10 : 0,
       }))
   }, [historicoValido])
 
@@ -369,7 +374,7 @@ export default function DistribuicaoTMLAnalise() {
           <div className="grid sm:grid-cols-2 gap-4">
             <ChartCard title="TMLs perdidos por sala">
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={porSala} barGap={6}>
+                <BarChart data={porSala} barGap={6} margin={{ top: 20 }}>
                   <defs>
                     <linearGradient id="gradPerdidos" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#ef4444" stopOpacity={1} />
@@ -385,8 +390,12 @@ export default function DistribuicaoTMLAnalise() {
                   <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="perdidos" name="Perdidos" fill="url(#gradPerdidos)" radius={[8, 8, 0, 0]} />
-                  <Bar dataKey="saidas" name="Saídas" fill="url(#gradSaidas)" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="perdidos" name="Perdidos" fill="url(#gradPerdidos)" radius={[8, 8, 0, 0]}>
+                    <LabelList dataKey="perdidos" position="top" style={{ fontSize: 11, fill: '#ef4444', fontWeight: 600 }} />
+                  </Bar>
+                  <Bar dataKey="saidas" name="Saídas" fill="url(#gradSaidas)" radius={[8, 8, 0, 0]}>
+                    <LabelList dataKey="saidas" position="top" style={{ fontSize: 11, fill: '#3b82f6', fontWeight: 600 }} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
               <div className="mt-2 text-xs text-muted-foreground space-y-0.5">
@@ -398,7 +407,7 @@ export default function DistribuicaoTMLAnalise() {
 
             <ChartCard title="% de atingimento do TML por sala">
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={porSala} barGap={6}>
+                <BarChart data={porSala} barGap={6} margin={{ top: 20 }}>
                   <defs>
                     <linearGradient id="gradAtingimento" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor="#16a34a" stopOpacity={1} />
@@ -410,7 +419,9 @@ export default function DistribuicaoTMLAnalise() {
                   <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} unit="%" />
                   <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar dataKey="pctAtingimento" name="% Atingimento" fill="url(#gradAtingimento)" radius={[8, 8, 0, 0]} />
+                  <Bar dataKey="pctAtingimento" name="% Atingimento" fill="url(#gradAtingimento)" radius={[8, 8, 0, 0]}>
+                    <LabelList dataKey="pctAtingimento" position="top" formatter={(v: number) => `${v}%`} style={{ fontSize: 11, fill: '#16a34a', fontWeight: 600 }} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -420,15 +431,19 @@ export default function DistribuicaoTMLAnalise() {
               subtitle="Saída real − horário matinal · conformidade = dentro da tolerância de cada sala"
             >
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={porSala} barGap={6}>
+                <BarChart data={porSala} barGap={6} margin={{ top: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="sala" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                   <YAxis yAxisId="min" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                   <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                   <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar yAxisId="min" dataKey="tempoSaidaMedio" name="Tempo médio de saída (min)" fill="#7c3aed" radius={[8, 8, 0, 0]} />
-                  <Bar yAxisId="pct" dataKey="conformidadePct" name="% Conformidade" fill="#16a34a" radius={[8, 8, 0, 0]} />
+                  <Bar yAxisId="min" dataKey="tempoSaidaMedio" name="Tempo médio de saída (min)" fill="#7c3aed" radius={[8, 8, 0, 0]}>
+                    <LabelList dataKey="tempoSaidaMedio" position="top" style={{ fontSize: 11, fill: '#7c3aed', fontWeight: 600 }} />
+                  </Bar>
+                  <Bar yAxisId="pct" dataKey="conformidadePct" name="% Conformidade" fill="#16a34a" radius={[8, 8, 0, 0]}>
+                    <LabelList dataKey="conformidadePct" position="top" formatter={(v: number) => `${v}%`} style={{ fontSize: 11, fill: '#16a34a', fontWeight: 600 }} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </ChartCard>
@@ -450,18 +465,31 @@ export default function DistribuicaoTMLAnalise() {
             </ChartCard>
           </div>
 
-          <ChartCard title="Tendência de TMLs perdidos por dia">
-            <ResponsiveContainer width="100%" height={260}>
-              <LineChart data={porDia}>
+          <ChartCard
+            title="Histórico de TML médio e conformidade por dia"
+            subtitle="Barras: tempo médio de saída (min) · Linha: % de conformidade"
+          >
+            <ResponsiveContainer width="100%" height={280}>
+              <ComposedChart data={porDia} margin={{ top: 24, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gradTempoSaidaDia" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#7c3aed" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.55} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="dia" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="qtd" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} unit="%" />
-                <Tooltip contentStyle={TOOLTIP_STYLE} />
+                <YAxis yAxisId="min" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} unit="%" domain={[0, 100]} />
+                <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Line yAxisId="qtd" type="monotone" dataKey="perdidos" name="TMLs perdidos" stroke="#dc2626" strokeWidth={2.5} dot={false} />
-                <Line yAxisId="pct" type="monotone" dataKey="pct" name="% perdido" stroke="#d97706" strokeWidth={2.5} dot={false} />
-              </LineChart>
+                <Bar yAxisId="min" dataKey="tempoSaidaMedio" name="Tempo médio de saída (min)" fill="url(#gradTempoSaidaDia)" radius={[8, 8, 0, 0]} barSize={28}>
+                  <LabelList dataKey="tempoSaidaMedio" position="top" style={{ fontSize: 11, fill: '#7c3aed', fontWeight: 600 }} />
+                </Bar>
+                <Line yAxisId="pct" type="monotone" dataKey="conformidadePct" name="% Conformidade" stroke="#16a34a" strokeWidth={2.5} dot={{ r: 3, fill: '#16a34a' }}>
+                  <LabelList dataKey="conformidadePct" position="top" formatter={(v: number) => `${v}%`} style={{ fontSize: 11, fill: '#16a34a', fontWeight: 600 }} />
+                </Line>
+              </ComposedChart>
             </ResponsiveContainer>
           </ChartCard>
 
@@ -508,15 +536,19 @@ export default function DistribuicaoTMLAnalise() {
 
           <ChartCard title="Tempo médio de deslocamento e % de início antes da matinal por sala">
             <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={porSalaDeslocamento} barGap={6}>
+              <BarChart data={porSalaDeslocamento} barGap={6} margin={{ top: 20 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="sala" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="min" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} unit="%" />
                 <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar yAxisId="min" dataKey="tempoMedio" name="Tempo médio de deslocamento (min)" fill="#0891b2" radius={[8, 8, 0, 0]} />
-                <Bar yAxisId="pct" dataKey="pctAntesMatinal" name="% antes da matinal" fill="#f59e0b" radius={[8, 8, 0, 0]} />
+                <Bar yAxisId="min" dataKey="tempoMedio" name="Tempo médio de deslocamento (min)" fill="#0891b2" radius={[8, 8, 0, 0]}>
+                  <LabelList dataKey="tempoMedio" position="top" style={{ fontSize: 11, fill: '#0891b2', fontWeight: 600 }} />
+                </Bar>
+                <Bar yAxisId="pct" dataKey="pctAntesMatinal" name="% antes da matinal" fill="#f59e0b" radius={[8, 8, 0, 0]}>
+                  <LabelList dataKey="pctAntesMatinal" position="top" formatter={(v: number) => `${v}%`} style={{ fontSize: 11, fill: '#f59e0b', fontWeight: 600 }} />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </ChartCard>
