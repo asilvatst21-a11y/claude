@@ -22,7 +22,8 @@ const segItems = [
 ]
 
 const genteItems = [
-  { permKey: 'jornada', to: '/jornada', label: 'Controle de Jornada', icon: Clock },
+  { permKey: 'jornada',      to: '/jornada',      label: 'Controle de Jornada', icon: Clock },
+  { permKey: 'distribuicao', to: '/distribuicao', label: 'Solicitação Extra',   icon: Truck, end: true },
 ]
 
 // Os itens de monitoramento de reposições (Reposições, Catálogo/Vendas e
@@ -41,7 +42,6 @@ const financeiroItems = [
 ]
 
 const distribuicaoItems = [
-  { permKey: 'distribuicao', to: '/distribuicao',          label: 'Solicitação Extra',     icon: Truck, end: true },
   { permKey: 'distribuicao', to: '/distribuicao/tml',       label: 'Carta de Controle TML', icon: CalendarClock, end: true },
   { permKey: 'distribuicao', to: '/distribuicao/tml/analise', label: 'Análise TML',         icon: BarChart2        },
   { permKey: 'distribuicao', to: '/distribuicao/tml/deslocamento', label: 'Tempo de Deslocamento', icon: Timer  },
