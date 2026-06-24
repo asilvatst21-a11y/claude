@@ -7,8 +7,8 @@ import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { enviarListaOpcoesWhatsApp, enviarMensagemGrupo } from '../lib/zapi'
 import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer } from '../lib/tmlParser'
-import { isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, tempoDeslocamentoMinutos, SALA_TML_LABEL } from '../lib/tml'
-import { gerarResumoDiario, gerarResumoGerencial } from '../lib/tmlResumos'
+import { isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, tempoDeslocamentoMinutos, SALA_TML_LABEL, type SalaTML } from '../lib/tml'
+import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusSalaTML } from '../lib/tmlResumos'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
@@ -197,9 +197,12 @@ export default function DistribuicaoTML() {
 
   const [enviandoAlertaId, setEnviandoAlertaId] = useState<string | null>(null)
   const [enviandoResumoGerencial, setEnviandoResumoGerencial] = useState(false)
+  const [enviandoResumoDiario, setEnviandoResumoDiario] = useState(false)
 
   const [historico, setHistorico] = useState<HistoricoTML[]>([])
   const [loadingHistorico, setLoadingHistorico] = useState(true)
+
+  const [statusSaida, setStatusSaida] = useState<Map<SalaTML, StatusSalaTML> | null>(null)
 
   const fetchAlertas = useCallback(async () => {
     if (!usuario) return
@@ -242,9 +245,16 @@ export default function DistribuicaoTML() {
     }
   }, [usuario])
 
+  const fetchStatusSaida = useCallback(async () => {
+    if (!usuario) return
+    const status = await statusSaidaPorSala(usuario.filial, hojeISO())
+    setStatusSaida(status)
+  }, [usuario])
+
   useEffect(() => { fetchAlertas() }, [fetchAlertas])
   useEffect(() => { fetchMotivos() }, [fetchMotivos])
   useEffect(() => { fetchHistorico() }, [fetchHistorico])
+  useEffect(() => { fetchStatusSaida() }, [fetchStatusSaida])
 
   // Atualiza sozinho a cada 15s para refletir respostas do supervisor pelo
   // WhatsApp (clique no motivo) sem precisar apertar "Atualizar".
@@ -252,9 +262,10 @@ export default function DistribuicaoTML() {
     const id = setInterval(() => {
       fetchAlertas()
       fetchHistorico()
+      fetchStatusSaida()
     }, 15000)
     return () => clearInterval(id)
-  }, [fetchAlertas, fetchHistorico])
+  }, [fetchAlertas, fetchHistorico, fetchStatusSaida])
 
   async function handleEscala(file: File) {
     if (!usuario) return
@@ -486,6 +497,7 @@ export default function DistribuicaoTML() {
 
       await fetchAlertas()
       await fetchHistorico()
+      await fetchStatusSaida()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar saída')
     } finally {
@@ -587,6 +599,33 @@ export default function DistribuicaoTML() {
       setErro(err instanceof Error ? err.message : 'Erro ao enviar resumo gerencial')
     } finally {
       setEnviandoResumoGerencial(false)
+    }
+  }
+
+  async function handleEnviarResumoDiario() {
+    if (!usuario) return
+    setEnviandoResumoDiario(true)
+    setErro('')
+    try {
+      const { data: filialRow } = await supabase
+        .from('filiais')
+        .select('grupo_tml_diario_whatsapp')
+        .eq('nome', usuario.filial)
+        .maybeSingle()
+      const grupoId = filialRow?.grupo_tml_diario_whatsapp
+      if (!grupoId) {
+        setErro('Nenhum grupo configurado para o resumo diário. Configure em "Config. WhatsApp TML".')
+        return
+      }
+
+      const resumo = await gerarResumoDiario(usuario.filial, hojeISO())
+      const resultado = await enviarMensagemGrupo(grupoId, resumo)
+      if (!resultado.sucesso) throw new Error(resultado.erro)
+      alert('Resumo diário enviado.')
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao enviar resumo diário')
+    } finally {
+      setEnviandoResumoDiario(false)
     }
   }
 
@@ -708,6 +747,14 @@ export default function DistribuicaoTML() {
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
           </button>
           <button
+            onClick={handleEnviarResumoDiario}
+            disabled={enviandoResumoDiario}
+            className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50"
+          >
+            {enviandoResumoDiario ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            Enviar resumo diário
+          </button>
+          <button
             onClick={handleEnviarResumoGerencial}
             disabled={enviandoResumoGerencial}
             className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50"
@@ -740,6 +787,35 @@ export default function DistribuicaoTML() {
           isUploading={uploadingChecklist}
         />
       </div>
+
+      {statusSaida && (
+        <div className="border rounded-lg bg-white">
+          <div className="px-4 py-3 border-b">
+            <h2 className="font-semibold text-sm">Status de saída — hoje</h2>
+          </div>
+          <div className="grid sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x">
+            {[...statusSaida.entries()].map(([sala, s]) => (
+              <div key={sala} className="p-4">
+                <p className="text-sm font-medium mb-2">{SALA_TML_LABEL[sala]}</p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Saíram</p>
+                    <p className="text-xl font-bold text-green-600">{s.saidas}/{s.esperado}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Faltam</p>
+                    <p className="text-xl font-bold text-blue-600">{s.faltam}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">TML médio</p>
+                    <p className="text-xl font-bold">{s.tmlMedio} min</p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="border rounded-lg bg-white p-4">

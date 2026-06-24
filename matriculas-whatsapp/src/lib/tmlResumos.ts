@@ -82,8 +82,18 @@ async function esperadoPorSala(filial: string, data: string): Promise<Map<SalaTM
   return new Map(SALAS.map((s) => [s, mapasPorSala.get(s)?.size ?? 0]))
 }
 
-// ── Resumo 1: disparado a cada importação da planilha de saída ────────────
-export async function gerarResumoDiario(filial: string, data: string): Promise<string> {
+export interface StatusSalaTML {
+  esperado: number
+  saidas: number
+  faltam: number
+  bateram: number
+  perdidos: number
+  tmlMedio: number
+}
+
+// Status de saída do dia por sala — usado tanto pelo resumo diário quanto
+// pelos cards da tela principal da Carta de Controle.
+export async function statusSaidaPorSala(filial: string, data: string): Promise<Map<SalaTML, StatusSalaTML>> {
   const esperado = await esperadoPorSala(filial, data)
 
   const { data: hist } = await supabase
@@ -104,6 +114,24 @@ export async function gerarResumoDiario(filial: string, data: string): Promise<s
     }
     porSala.set(h.sala, k)
   }
+
+  return new Map(SALAS.map((sala) => {
+    const total = esperado.get(sala) ?? 0
+    const s = porSala.get(sala) ?? { saidas: 0, perdidos: 0, somaTml: 0, nTml: 0 }
+    return [sala, {
+      esperado: total,
+      saidas: s.saidas,
+      faltam: Math.max(total - s.saidas, 0),
+      bateram: s.saidas - s.perdidos,
+      perdidos: s.perdidos,
+      tmlMedio: s.nTml > 0 ? Math.round(s.somaTml / s.nTml) : 0,
+    }]
+  }))
+}
+
+// ── Resumo 1: disparado a cada importação da planilha de saída ────────────
+export async function gerarResumoDiario(filial: string, data: string): Promise<string> {
+  const status = await statusSaidaPorSala(filial, data)
 
   const { data: alertasHoje } = await supabase
     .from('alertas_tml')
@@ -127,23 +155,19 @@ export async function gerarResumoDiario(filial: string, data: string): Promise<s
   let totalPerderam = 0
 
   for (const sala of SALAS) {
-    const total = esperado.get(sala) ?? 0
-    const s = porSala.get(sala) ?? { saidas: 0, perdidos: 0, somaTml: 0, nTml: 0 }
-    const faltam = Math.max(total - s.saidas, 0)
-    const pctSaiu = total > 0 ? Math.round((s.saidas / total) * 100) : 0
-    const bateram = s.saidas - s.perdidos
-    const tmlMedio = s.nTml > 0 ? Math.round(s.somaTml / s.nTml) : 0
-    totalBateram += bateram
+    const s = status.get(sala)!
+    const pctSaiu = s.esperado > 0 ? Math.round((s.saidas / s.esperado) * 100) : 0
+    totalBateram += s.bateram
     totalPerderam += s.perdidos
 
     texto += `\n🏢 ${SALA_TML_LABEL[sala]}\n`
-    texto += `✅ Saíram: ${s.saidas}/${total} mapas (${pctSaiu}%)\n`
-    texto += `⏳ Faltam: ${faltam} mapas\n`
-    texto += `✅ Bateram o TML: ${bateram}\n`
+    texto += `✅ Saíram: ${s.saidas}/${s.esperado} mapas (${pctSaiu}%)\n`
+    texto += `⏳ Faltam: ${s.faltam} mapas\n`
+    texto += `✅ Bateram o TML: ${s.bateram}\n`
     texto += `⚠️ Perderam o TML: ${s.perdidos}\n`
-    texto += `⏱️ Tempo médio do TML: ${tmlMedio} min\n`
-    if (s.saidas > 0 && faltam > 0) {
-      const tendencia = Math.round((s.perdidos / s.saidas) * total)
+    texto += `⏱️ Tempo médio do TML: ${s.tmlMedio} min\n`
+    if (s.saidas > 0 && s.faltam > 0) {
+      const tendencia = Math.round((s.perdidos / s.saidas) * s.esperado)
       texto += `📈 Tendência: ~${tendencia} TMLs perdidos no total, no ritmo atual\n`
     }
   }
