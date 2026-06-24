@@ -6,6 +6,7 @@ import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, Aler
 import { ValeDetalhesModal, type ValeDetalhes } from "@/components/vale-detalhes-modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -165,6 +166,9 @@ function buildMensagem(template: string, vars: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
 }
 
+const MENSAGEM_TELEFONE_MANUAL =
+  "Prezado colaborador, você possui pendências, procure o setor financeiro em até 24h.";
+
 function ValesContent() {
   const searchParams = useSearchParams();
   const { toast } = useToast();
@@ -201,6 +205,7 @@ function ValesContent() {
   // WhatsApp preview
   const [previewVale, setPreviewVale] = useState<ValeRow | null>(null);
   const [previewTemplate, setPreviewTemplate] = useState<string | null>(null);
+  const [manualPhone, setManualPhone] = useState("");
 
   // Atribuir ajudante
   const [atribuirVale, setAtribuirVale] = useState<ValeRow | null>(null);
@@ -247,6 +252,7 @@ function ValesContent() {
   const openPreview = useCallback(async (vale: ValeRow) => {
     setPreviewTemplate(null);
     setPreviewVale(vale);
+    setManualPhone("");
     try {
       const res = await fetch("/api/configuracoes");
       const data = await res.json();
@@ -261,14 +267,14 @@ function ValesContent() {
     }
   }, []);
 
-  const sendNotificacao = async (valeId: string, numeroVale: number) => {
+  const sendNotificacao = async (valeId: string, numeroVale: number, telefone?: string) => {
     setNotifyingId(valeId);
     setPreviewVale(null);
     try {
       const response = await fetch("/api/notificar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vale_id: valeId }),
+        body: JSON.stringify(telefone ? { vale_id: valeId, telefone } : { vale_id: valeId }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Erro ao enviar notificação");
@@ -285,6 +291,7 @@ function ValesContent() {
       });
     } finally {
       setNotifyingId(null);
+      setManualPhone("");
     }
   };
 
@@ -494,7 +501,7 @@ function ValesContent() {
 
       {/* WhatsApp Preview Modal */}
       {previewVale && (
-        <Dialog open={!!previewVale} onOpenChange={(o) => { if (!o) { setPreviewVale(null); setPreviewTemplate(null); } }}>
+        <Dialog open={!!previewVale} onOpenChange={(o) => { if (!o) { setPreviewVale(null); setPreviewTemplate(null); setManualPhone(""); } }}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -531,6 +538,31 @@ function ValesContent() {
                     </div>
                   ))}
                 </div>
+              ) : previewVale.ajudantes.length === 0 ? (
+                <div className="space-y-3">
+                  <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+                    <p className="text-sm text-blue-800">
+                      Este vale não tem ajudante atribuído. Digite o telefone para
+                      notificar — como o número não fica cadastrado, enviamos uma
+                      mensagem padrão (sem o nome da pessoa).
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="manual-phone">Telefone (WhatsApp)</Label>
+                    <Input
+                      id="manual-phone"
+                      type="tel"
+                      placeholder="(11) 91234-5678"
+                      value={manualPhone}
+                      onChange={(e) => setManualPhone(e.target.value)}
+                    />
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded p-2.5">
+                    <p className="text-sm text-green-900 leading-snug whitespace-pre-wrap">
+                      {MENSAGEM_TELEFONE_MANUAL}
+                    </p>
+                  </div>
+                </div>
               ) : (
                 <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3">
                   <p className="text-sm text-yellow-800">
@@ -551,8 +583,19 @@ function ValesContent() {
                 Cancelar
               </Button>
               <Button
-                onClick={() => sendNotificacao(previewVale.id, previewVale.numero_vale)}
-                disabled={!!notifyingId || ajudantesComTelefone.length === 0 || previewTemplate === null}
+                onClick={() => {
+                  if (ajudantesComTelefone.length > 0) {
+                    sendNotificacao(previewVale.id, previewVale.numero_vale);
+                  } else if (previewVale.ajudantes.length === 0 && manualPhone.trim()) {
+                    sendNotificacao(previewVale.id, previewVale.numero_vale, manualPhone.trim());
+                  }
+                }}
+                disabled={
+                  !!notifyingId ||
+                  previewTemplate === null ||
+                  (ajudantesComTelefone.length === 0 &&
+                    !(previewVale.ajudantes.length === 0 && manualPhone.trim()))
+                }
                 className="gap-2"
               >
                 {notifyingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}

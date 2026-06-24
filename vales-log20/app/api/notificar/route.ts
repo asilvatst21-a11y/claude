@@ -7,6 +7,9 @@ const TEMPLATE_DEFAULT =
   "Olá {nome}! Você possui {qtd} vale(s) pendente(s) no sistema LOG20 que precisam ser tratados. " +
   "Vale(s): {vales}. Por favor, procure o financeiro para regularizar.";
 
+const MENSAGEM_TELEFONE_MANUAL =
+  "Prezado colaborador, você possui pendências, procure o setor financeiro em até 24h.";
+
 function buildMensagem(template: string, vars: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_, key) => vars[key] ?? `{${key}}`);
 }
@@ -14,7 +17,7 @@ function buildMensagem(template: string, vars: Record<string, string>): string {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { vale_id, tipo = "pendente" } = body;
+    const { vale_id, tipo = "pendente", telefone: telefoneManual } = body;
 
     if (!vale_id) {
       return NextResponse.json(
@@ -53,6 +56,43 @@ export async function POST(request: NextRequest) {
         { error: "Vale não encontrado" },
         { status: 404 }
       );
+    }
+
+    // Sem ajudante cadastrado no vale: o usuário digita um telefone na hora
+    // e enviamos uma mensagem genérica (não temos o nome da pessoa).
+    if (telefoneManual) {
+      const phone = formatPhoneForZAPI(telefoneManual);
+      if (!phone) {
+        return NextResponse.json({ error: "Telefone inválido" }, { status: 400 });
+      }
+
+      const result = await sendMessage(phone, MENSAGEM_TELEFONE_MANUAL);
+
+      await supabase.from("notificacoes").insert({
+        vale_id: vale.id,
+        ajudante_id: null,
+        tipo,
+        telefone: phone,
+        mensagem: MENSAGEM_TELEFONE_MANUAL,
+        status: result.success ? "enviado" : "erro",
+        erro_detalhe: result.error ?? null,
+        enviada_em: result.success ? new Date().toISOString() : null,
+      });
+
+      if (!result.success) {
+        return NextResponse.json({ error: result.error || "Erro ao enviar" }, { status: 200 });
+      }
+
+      await supabase
+        .from("vales")
+        .update(
+          tipo === "resolvido"
+            ? { notificacao_final_enviada: true }
+            : { notificacao_pendente_enviada: true }
+        )
+        .eq("id", vale.id);
+
+      return NextResponse.json({ success: true, sent: 1, total: 1 });
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
