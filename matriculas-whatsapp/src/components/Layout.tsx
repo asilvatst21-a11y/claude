@@ -4,7 +4,7 @@ import {
   Users, CreditCard, MessageSquare, BarChart2, LogOut, Building2,
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
-  Wallet, Menu, X, Truck, Boxes, LineChart,
+  Wallet, Menu, X, Truck, Boxes, LineChart, Timer,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -42,8 +42,9 @@ const financeiroItems = [
 
 const distribuicaoItems = [
   { permKey: 'distribuicao', to: '/distribuicao',          label: 'Solicitação Extra',     icon: Truck, end: true },
-  { permKey: 'distribuicao', to: '/distribuicao/tml',       label: 'Carta de Controle TML', icon: CalendarClock    },
+  { permKey: 'distribuicao', to: '/distribuicao/tml',       label: 'Carta de Controle TML', icon: CalendarClock, end: true },
   { permKey: 'distribuicao', to: '/distribuicao/tml/analise', label: 'Análise TML',         icon: BarChart2        },
+  { permKey: 'distribuicao', to: '/distribuicao/tml/deslocamento', label: 'Tempo de Deslocamento', icon: Timer  },
   { permKey: 'distribuicao', to: '/distribuicao/tml/whatsapp', label: 'Config. WhatsApp TML', icon: MessageSquare },
 ]
 
@@ -151,7 +152,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [sections, setSections] = useState({ seguranca: true, gente: true, financeiro: true, distribuicao: true, armazem: true, gerencia: true, admin: true })
+  const [sections, setSections] = useState({ seguranca: false, gente: false, financeiro: false, distribuicao: false, armazem: false, gerencia: false, admin: false })
   const fecharMobile = () => setMobileOpen(false)
 
   function toggleSection(key: keyof typeof sections) {

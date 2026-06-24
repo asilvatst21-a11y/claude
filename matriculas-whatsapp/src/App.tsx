@@ -8,6 +8,7 @@ import DistribuicaoTML from './pages/DistribuicaoTML'
 import DistribuicaoTMLSupervisores from './pages/DistribuicaoTMLSupervisores'
 import DistribuicaoTMLMotoristas from './pages/DistribuicaoTMLMotoristas'
 import DistribuicaoTMLAnalise from './pages/DistribuicaoTMLAnalise'
+import DistribuicaoTMLDeslocamento from './pages/DistribuicaoTMLDeslocamento'
 import DistribuicaoTMLWhatsappConfig from './pages/DistribuicaoTMLWhatsappConfig'
 import Dashboard from './pages/Dashboard'
 import Matriculas from './pages/Matriculas'
@@ -95,6 +96,7 @@ export default function App() {
             <Route path="/distribuicao/tml/supervisores" element={<DistribuicaoTMLSupervisores />} />
             <Route path="/distribuicao/tml/motoristas" element={<DistribuicaoTMLMotoristas />} />
             <Route path="/distribuicao/tml/analise" element={<DistribuicaoTMLAnalise />} />
+            <Route path="/distribuicao/tml/deslocamento" element={<DistribuicaoTMLDeslocamento />} />
             <Route path="/distribuicao/tml/whatsapp" element={<DistribuicaoTMLWhatsappConfig />} />
             <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
             <Route path="/armazem/operadores" element={<ArmazemOperadores />} />

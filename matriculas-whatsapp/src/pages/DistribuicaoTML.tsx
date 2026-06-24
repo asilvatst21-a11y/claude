@@ -492,14 +492,25 @@ export default function DistribuicaoTML() {
         .in('mapa', mapas)
       const matriculaPorMapa = new Map((escalas ?? []).map((e) => [e.mapa, e.matricula]))
 
+      // Sala vem do cadastro de motoristas (mesma base usada na carta de
+      // controle), não da coluna EQUIPE da planilha de checklist.
+      const matriculas = [...new Set([...matriculaPorMapa.values()].filter((m): m is number => m != null))]
+      const { data: roster } = await supabase
+        .from('motoristas_sala_tml')
+        .select('matricula, sala')
+        .eq('filial', usuario.filial)
+        .in('matricula', matriculas)
+      const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
+
       let semHorario = 0
       let semSala = 0
       const linhas = checklist.map((c) => {
         const matricula = matriculaPorMapa.get(c.mapa) ?? null
-        if (!isSalaTML(c.sala)) semSala++
+        const sala = matricula != null ? salaPorMatricula.get(matricula) ?? null : null
+        if (!isSalaTML(sala)) semSala++
         if (!c.horarioInicio) semHorario++
-        const tempoDeslocamento = isSalaTML(c.sala) && c.horarioInicio
-          ? tempoDeslocamentoMinutos(c.sala, c.horarioInicio)
+        const tempoDeslocamento = isSalaTML(sala) && c.horarioInicio
+          ? tempoDeslocamentoMinutos(sala, c.horarioInicio)
           : null
         return {
           filial: usuario.filial,
@@ -507,7 +518,7 @@ export default function DistribuicaoTML() {
           placa: c.placa,
           matricula,
           nome: c.nome,
-          sala: c.sala,
+          sala,
           data: c.data,
           horario_inicio: c.horarioInicio,
           horario_final: c.horarioFinal,
