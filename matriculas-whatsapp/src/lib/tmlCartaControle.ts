@@ -4,8 +4,8 @@ import { horarioParaMinutos, minutosParaHorario, isSalaTML, type SalaTML } from 
 const SALAS: SalaTML[] = ['COLORADO', 'SUB-FURIA']
 
 // Limites de controle da carta (em %) — linhas horizontais do mapa de calor.
-const META = 100 // linha preta
-const LIMITE = 80 // linha amarela
+export const META = 100 // linha preta
+export const LIMITE = 80 // linha amarela
 
 // ── Configuração da curva de meta (cronograma planejado de saída) ─────────
 // Curva de meta acumulada por slot de 10 min desde o início da categoria
@@ -104,9 +104,21 @@ export async function serieCartaControleCDD(
   const ultimaSaida = todasSaidas.length > 0 ? Math.max(...todasSaidas) : gridStart
   const fim = Math.max(ultimaSaida, fimRampa)
 
+  // Slots com horário futuro (em relação a agora) ficam vazios — a linha só
+  // existe até o horário atual. Só se aplica quando "data" é hoje; para datas
+  // passadas o dia inteiro já aconteceu e nenhum slot é considerado futuro.
+  const agora = new Date()
+  const hojeISO = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, '0')}-${String(agora.getDate()).padStart(2, '0')}`
+  const minutosAgora = agora.getHours() * 60 + agora.getMinutes()
+
   const horarios: string[] = []
   const valores: (number | null)[] = []
   for (let t = gridStart; t <= fim; t += 10) {
+    horarios.push(minutosParaHorario(t))
+    if (data === hojeISO && t > minutosAgora) {
+      valores.push(null)
+      continue
+    }
     let esperadoAcumulado = 0
     let saidasAcumuladas = 0
     for (const sala of SALAS) {
@@ -116,7 +128,6 @@ export async function serieCartaControleCDD(
       esperadoAcumulado += Math.round(metaAcumulada(slots) * totalSala)
       saidasAcumuladas += (saidasPorSala.get(sala) ?? []).filter((m) => m <= t).length
     }
-    horarios.push(minutosParaHorario(t))
     valores.push(esperadoAcumulado > 0 ? Math.round((saidasAcumuladas / esperadoAcumulado) * 100) : null)
   }
 
