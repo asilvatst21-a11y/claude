@@ -6,7 +6,7 @@ import {
 import { BarChart2, AlertTriangle, CheckCircle2, Clock, Users } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import { SALA_TML_LABEL, type SalaTML } from '../lib/tml'
+import { SALA_TML_LABEL, REGRAS_TML, horarioParaMinutos, type SalaTML } from '../lib/tml'
 
 const CORES = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#be185d']
 
@@ -24,8 +24,15 @@ interface LinhaHistorico {
   matricula: number | null
   nome: string | null
   data_saida: string | null
+  horario_saida: string | null
   atraso_minutos: number | null
   resultado: 'no_prazo' | 'atrasado' | 'indefinido'
+}
+
+// Tempo decorrido desde o horário matinal da sala até a saída real do carro.
+function tempoSaidaMinutos(h: LinhaHistorico): number | null {
+  if (!h.sala || !h.horario_saida) return null
+  return horarioParaMinutos(h.horario_saida) - horarioParaMinutos(REGRAS_TML[h.sala].matinal)
 }
 
 interface LinhaAlerta {
@@ -65,7 +72,7 @@ export default function DistribuicaoTMLAnalise() {
     const [{ data: hist }, { data: al }] = await Promise.all([
       supabase
         .from('historico_tml')
-        .select('sala, matricula, nome, data_saida, atraso_minutos, resultado')
+        .select('sala, matricula, nome, data_saida, horario_saida, atraso_minutos, resultado')
         .eq('filial', usuario.filial)
         .gte('data_saida', de)
         .lte('data_saida', ate)
@@ -109,16 +116,32 @@ export default function DistribuicaoTMLAnalise() {
   const totalJustificados = alertasFiltrados.filter((a) => a.status === 'justificado').length
   const pctJustificado = totalPerdidos > 0 ? (totalJustificados / totalPerdidos) * 100 : 0
 
+  // ── Tempo de saída (saída real − horário matinal) e conformidade geral do CDD ──
+  const comTempoSaida = historicoFiltrado
+    .map((h) => ({ h, t: tempoSaidaMinutos(h) }))
+    .filter((x): x is { h: LinhaHistorico; t: number } => x.t != null)
+  const tempoSaidaMedioGeral = comTempoSaida.length > 0
+    ? comTempoSaida.reduce((acc, x) => acc + x.t, 0) / comTempoSaida.length
+    : 0
+  const dentroToleranciaGeral = comTempoSaida.filter((x) => x.t <= REGRAS_TML[x.h.sala as SalaTML].toleranciaMin).length
+  const pctConformidadeGeral = comTempoSaida.length > 0 ? (dentroToleranciaGeral / comTempoSaida.length) * 100 : 0
+
   // ── Ranking por sala ──────────────────────────────────────────────────────
   const porSala = useMemo(() => {
-    const mapa = new Map<string, { sala: string; saidas: number; perdidos: number; noPrazo: number; somaTempo: number; nTempo: number }>()
+    const mapa = new Map<string, { sala: string; saidas: number; perdidos: number; noPrazo: number; somaTempo: number; nTempo: number; somaTempoSaida: number; nTempoSaida: number; dentroTolerancia: number }>()
     for (const h of historicoFiltrado) {
       if (!h.sala) continue
-      const k = mapa.get(h.sala) ?? { sala: h.sala, saidas: 0, perdidos: 0, noPrazo: 0, somaTempo: 0, nTempo: 0 }
+      const k = mapa.get(h.sala) ?? { sala: h.sala, saidas: 0, perdidos: 0, noPrazo: 0, somaTempo: 0, nTempo: 0, somaTempoSaida: 0, nTempoSaida: 0, dentroTolerancia: 0 }
       k.saidas++
       if (h.resultado === 'atrasado') k.perdidos++
       if (h.resultado === 'no_prazo') k.noPrazo++
       if (h.atraso_minutos != null) { k.somaTempo += h.atraso_minutos; k.nTempo++ }
+      const tempoSaida = tempoSaidaMinutos(h)
+      if (tempoSaida != null) {
+        k.somaTempoSaida += tempoSaida
+        k.nTempoSaida++
+        if (tempoSaida <= REGRAS_TML[h.sala].toleranciaMin) k.dentroTolerancia++
+      }
       mapa.set(h.sala, k)
     }
     return [...mapa.values()].map((k) => ({
@@ -128,6 +151,8 @@ export default function DistribuicaoTMLAnalise() {
       pct: k.saidas > 0 ? Math.round((k.perdidos / k.saidas) * 1000) / 10 : 0,
       tempoMedio: k.nTempo > 0 ? Math.round(k.somaTempo / k.nTempo) : 0,
       pctAtingimento: (k.noPrazo + k.perdidos) > 0 ? Math.round((k.noPrazo / (k.noPrazo + k.perdidos)) * 1000) / 10 : 0,
+      tempoSaidaMedio: k.nTempoSaida > 0 ? Math.round(k.somaTempoSaida / k.nTempoSaida) : 0,
+      conformidadePct: k.nTempoSaida > 0 ? Math.round((k.dentroTolerancia / k.nTempoSaida) * 1000) / 10 : 0,
     }))
   }, [historicoFiltrado])
 
@@ -222,6 +247,11 @@ export default function DistribuicaoTMLAnalise() {
             <Card icon={Users} label="Justificados" value={`${totalJustificados} (${pctJustificado.toFixed(0)}%)`} hint="do total de TMLs perdidos" />
           </div>
 
+          <div className="grid grid-cols-2 gap-3">
+            <Card icon={Clock} label="Tempo médio de saída — Geral CDD" value={`${tempoSaidaMedioGeral.toFixed(0)} min`} hint="saída real − horário matinal, todas as salas" />
+            <Card icon={CheckCircle2} label="% Conformidade — Geral CDD" value={`${pctConformidadeGeral.toFixed(1)}%`} hint="carros que saíram dentro da tolerância" />
+          </div>
+
           <div className="grid sm:grid-cols-2 gap-4">
             <div className="border rounded-lg bg-white p-4">
               <h2 className="text-sm font-semibold mb-3">TMLs perdidos por sala</h2>
@@ -255,6 +285,23 @@ export default function DistribuicaoTMLAnalise() {
                   <Legend />
                   <Bar yAxisId="min" dataKey="tempoMedio" name="Tempo médio (min)" fill="#0891b2" radius={[4, 4, 0, 0]} />
                   <Bar yAxisId="pct" dataKey="pctAtingimento" name="% Atingimento" fill="#16a34a" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="border rounded-lg bg-white p-4">
+              <h2 className="text-sm font-semibold mb-3">Tempo médio de saída e % de conformidade por sala</h2>
+              <p className="text-xs text-muted-foreground mb-2">Saída real − horário matinal · conformidade = dentro da tolerância de cada sala</p>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={porSala}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="sala" tick={{ fontSize: 12 }} />
+                  <YAxis yAxisId="min" tick={{ fontSize: 12 }} />
+                  <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar yAxisId="min" dataKey="tempoSaidaMedio" name="Tempo médio de saída (min)" fill="#7c3aed" radius={[4, 4, 0, 0]} />
+                  <Bar yAxisId="pct" dataKey="conformidadePct" name="% Conformidade" fill="#16a34a" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
