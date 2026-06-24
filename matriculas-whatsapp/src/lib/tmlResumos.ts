@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { isSalaTML, SALA_TML_LABEL, type SalaTML } from './tml'
+import { horarioParaMinutos, isSalaTML, REGRAS_TML, SALA_TML_LABEL, type SalaTML } from './tml'
 
 const SALAS: SalaTML[] = ['COLORADO', 'SUB-FURIA']
 const NOMES_MES = [
@@ -15,6 +15,36 @@ function formatarDataBR(iso: string): string {
 function horaAtualBR(): string {
   const d = new Date()
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+// TML médio: horário de saída menos o início da matinal da sala, média de
+// todas as saídas já registradas (não só as atrasadas).
+function tempoTmlMinutos(sala: SalaTML, horarioSaida: string): number {
+  return horarioParaMinutos(horarioSaida) - horarioParaMinutos(REGRAS_TML[sala].matinal)
+}
+
+// Mapas da escala do dia cujo motorista (matrícula) não está cadastrado em
+// nenhuma sala — ficam parados, sem entrar em nenhuma contagem por sala.
+async function mapasParados(filial: string, data: string): Promise<number[]> {
+  const { data: escalas } = await supabase
+    .from('escalas_tml')
+    .select('mapa, matricula')
+    .eq('filial', filial)
+    .eq('data_entrega', data)
+
+  const matriculas = [...new Set((escalas ?? []).map((e) => e.matricula).filter((m): m is number => m != null))]
+  const { data: roster } = await supabase
+    .from('motoristas_sala_tml')
+    .select('matricula')
+    .eq('filial', filial)
+    .in('matricula', matriculas.length > 0 ? matriculas : [-1])
+  const comSala = new Set((roster ?? []).map((r) => r.matricula))
+
+  const mapas = new Set<number>()
+  for (const e of escalas ?? []) {
+    if (e.matricula == null || !comSala.has(e.matricula)) mapas.add(e.mapa)
+  }
+  return [...mapas].sort((a, b) => a - b)
 }
 
 // Quantos mapas eram esperados em cada sala na data, a partir da escala
@@ -51,16 +81,20 @@ export async function gerarResumoDiario(filial: string, data: string): Promise<s
 
   const { data: hist } = await supabase
     .from('historico_tml')
-    .select('sala, resultado')
+    .select('sala, resultado, horario_saida')
     .eq('filial', filial)
     .eq('data_saida', data)
 
-  const porSala = new Map<SalaTML, { saidas: number; perdidos: number }>()
+  const porSala = new Map<SalaTML, { saidas: number; perdidos: number; somaTml: number; nTml: number }>()
   for (const h of hist ?? []) {
     if (!isSalaTML(h.sala)) continue
-    const k = porSala.get(h.sala) ?? { saidas: 0, perdidos: 0 }
+    const k = porSala.get(h.sala) ?? { saidas: 0, perdidos: 0, somaTml: 0, nTml: 0 }
     k.saidas++
     if (h.resultado === 'atrasado') k.perdidos++
+    if (h.resultado !== 'invalido' && h.horario_saida) {
+      k.somaTml += tempoTmlMinutos(h.sala, h.horario_saida)
+      k.nTml++
+    }
     porSala.set(h.sala, k)
   }
 
@@ -82,18 +116,25 @@ export async function gerarResumoDiario(filial: string, data: string): Promise<s
   }
 
   let texto = `📊 *ATUALIZAÇÃO TML — ${formatarDataBR(data)} ${horaAtualBR()}*\n`
+  let totalBateram = 0
+  let totalPerderam = 0
 
   for (const sala of SALAS) {
     const total = esperado.get(sala) ?? 0
-    const s = porSala.get(sala) ?? { saidas: 0, perdidos: 0 }
+    const s = porSala.get(sala) ?? { saidas: 0, perdidos: 0, somaTml: 0, nTml: 0 }
     const faltam = Math.max(total - s.saidas, 0)
     const pctSaiu = total > 0 ? Math.round((s.saidas / total) * 100) : 0
-    const pctPerdido = s.saidas > 0 ? (s.perdidos / s.saidas) * 100 : 0
+    const bateram = s.saidas - s.perdidos
+    const tmlMedio = s.nTml > 0 ? Math.round(s.somaTml / s.nTml) : 0
+    totalBateram += bateram
+    totalPerderam += s.perdidos
 
     texto += `\n🏢 ${SALA_TML_LABEL[sala]}\n`
     texto += `✅ Saíram: ${s.saidas}/${total} mapas (${pctSaiu}%)\n`
     texto += `⏳ Faltam: ${faltam} mapas\n`
-    texto += `⚠️ TML perdidos até agora: ${s.perdidos} (${pctPerdido.toFixed(1)}% dos que já saíram)\n`
+    texto += `✅ Bateram o TML: ${bateram}\n`
+    texto += `⚠️ Perderam o TML: ${s.perdidos}\n`
+    texto += `⏱️ Tempo médio do TML: ${tmlMedio} min\n`
     if (s.saidas > 0 && faltam > 0) {
       const tendencia = Math.round((s.perdidos / s.saidas) * total)
       texto += `📈 Tendência: ~${tendencia} TMLs perdidos no total, no ritmo atual\n`
@@ -107,7 +148,13 @@ export async function gerarResumoDiario(filial: string, data: string): Promise<s
   } else {
     for (const [motivo, count] of motivosOrdenados) texto += `• ${motivo}: ${count}\n`
   }
-  texto += `🕗 Aguardando justificativa: ${aguardando}`
+  texto += `🕗 Aguardando justificativa: ${aguardando}\n`
+  texto += `\n📊 Total geral: ${totalBateram} bateram o TML | ${totalPerderam} perderam`
+
+  const parados = await mapasParados(filial, data)
+  if (parados.length > 0) {
+    texto += `\n\n🚧 Mapas parados (motorista sem sala cadastrada): ${parados.join(', ')}`
+  }
 
   return texto
 }
@@ -120,7 +167,7 @@ export async function gerarResumoGerencial(filial: string, data: string): Promis
 
   const { data: histMes } = await supabase
     .from('historico_tml')
-    .select('sala, resultado, atraso_minutos, data_saida')
+    .select('sala, resultado, horario_saida, data_saida')
     .eq('filial', filial)
     .gte('data_saida', mesInicio)
     .lte('data_saida', data)
@@ -133,7 +180,7 @@ export async function gerarResumoGerencial(filial: string, data: string): Promis
     .lte('created_at', `${data}T23:59:59`)
     .not('justificativa', 'is', null)
 
-  const hoje = new Map<SalaTML, { saidas: number; perdidos: number; somaAtraso: number; nAtraso: number }>()
+  const hoje = new Map<SalaTML, { saidas: number; perdidos: number; somaTml: number; nTml: number }>()
   const mes = new Map<SalaTML, { saidas: number; perdidos: number }>()
   for (const h of histMes ?? []) {
     if (!isSalaTML(h.sala)) continue
@@ -144,12 +191,12 @@ export async function gerarResumoGerencial(filial: string, data: string): Promis
     mes.set(h.sala, km)
 
     if (h.data_saida === data) {
-      const kh = hoje.get(h.sala) ?? { saidas: 0, perdidos: 0, somaAtraso: 0, nAtraso: 0 }
+      const kh = hoje.get(h.sala) ?? { saidas: 0, perdidos: 0, somaTml: 0, nTml: 0 }
       kh.saidas++
-      if (h.resultado === 'atrasado') {
-        kh.perdidos++
-        kh.somaAtraso += h.atraso_minutos ?? 0
-        kh.nAtraso++
+      if (h.resultado === 'atrasado') kh.perdidos++
+      if (h.resultado !== 'invalido' && h.horario_saida) {
+        kh.somaTml += tempoTmlMinutos(h.sala, h.horario_saida)
+        kh.nTml++
       }
       hoje.set(h.sala, kh)
     }
@@ -166,15 +213,19 @@ export async function gerarResumoGerencial(filial: string, data: string): Promis
   let texto = `📊 *RESULTADO TML DO DIA — ${formatarDataBR(data)}*\n`
   let totalSaidas = 0
   let totalPerdidos = 0
+  let somaTmlGeral = 0
+  let nTmlGeral = 0
 
   for (const sala of SALAS) {
-    const h = hoje.get(sala) ?? { saidas: 0, perdidos: 0, somaAtraso: 0, nAtraso: 0 }
+    const h = hoje.get(sala) ?? { saidas: 0, perdidos: 0, somaTml: 0, nTml: 0 }
     const m = mes.get(sala) ?? { saidas: 0, perdidos: 0 }
     totalSaidas += h.saidas
     totalPerdidos += h.perdidos
+    somaTmlGeral += h.somaTml
+    nTmlGeral += h.nTml
 
     const pctPerdidoHoje = h.saidas > 0 ? (h.perdidos / h.saidas) * 100 : 0
-    const atrasoMedio = h.nAtraso > 0 ? Math.round(h.somaAtraso / h.nAtraso) : 0
+    const tmlMedio = h.nTml > 0 ? Math.round(h.somaTml / h.nTml) : 0
     const pctMes = m.saidas > 0 ? (m.perdidos / m.saidas) * 100 : 0
 
     const motivos = [...(motivosPorSala.get(sala)?.entries() ?? [])].sort((a, b) => b[1] - a[1])
@@ -184,13 +235,20 @@ export async function gerarResumoGerencial(filial: string, data: string): Promis
 
     texto += `\n🏢 ${SALA_TML_LABEL[sala]}\n`
     texto += `• Saídas: ${h.saidas} | TML perdidos: ${h.perdidos} (${pctPerdidoHoje.toFixed(1)}%)\n`
-    texto += `• Atraso médio: ${atrasoMedio} min\n`
+    texto += `• Tempo médio do TML: ${tmlMedio} min\n`
     texto += `• Motivos: ${motivosTexto}\n`
     texto += `• Acumulado de ${nomeMes}: ${m.perdidos} perdidos em ${m.saidas} saídas (${pctMes.toFixed(1)}%)\n`
   }
 
-  const pctTotal = totalSaidas > 0 ? (totalPerdidos / totalSaidas) * 100 : 0
-  texto += `\n📈 Total do dia: ${totalPerdidos} TML perdidos em ${totalSaidas} saídas (${pctTotal.toFixed(1)}%)`
+  const pctBateram = totalSaidas > 0 ? ((totalSaidas - totalPerdidos) / totalSaidas) * 100 : 0
+  texto += `\n📈 Total do dia: ${totalPerdidos} TML perdidos em ${totalSaidas} saídas (${pctBateram.toFixed(1)}% bateram o TML)`
+  const tmlCdd = nTmlGeral > 0 ? Math.round(somaTmlGeral / nTmlGeral) : 0
+  texto += `\n⏱️ TML do CDD: ${tmlCdd} min`
+
+  const parados = await mapasParados(filial, data)
+  if (parados.length > 0) {
+    texto += `\n\n🚧 Mapas parados (motorista sem sala cadastrada): ${parados.join(', ')}`
+  }
 
   return texto
 }

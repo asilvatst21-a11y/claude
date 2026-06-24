@@ -164,11 +164,10 @@ function UploadBox({
         <p className="text-sm font-medium">
           {isUploading ? 'Processando...' : 'Clique para selecionar o arquivo'}
         </p>
-        <p className="text-xs text-muted-foreground mt-1">.xlsx ou .xls</p>
+        <p className="text-xs text-muted-foreground mt-1">.xlsx, .xls ou .csv</p>
         <input
           ref={inputRef}
           type="file"
-          accept=".xlsx,.xls"
           className="hidden"
           onChange={(e) => {
             const file = e.target.files?.[0]
