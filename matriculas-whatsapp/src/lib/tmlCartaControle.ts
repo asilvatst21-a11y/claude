@@ -1,29 +1,36 @@
 import { supabase } from './supabase'
-import {
-  horarioParaMinutos,
-  minutosParaHorario,
-  horarioLimite,
-  isSalaTML,
-  REGRAS_TML,
-  type SalaTML,
-} from './tml'
+import { horarioParaMinutos, minutosParaHorario, isSalaTML, type SalaTML } from './tml'
 
 const SALAS: SalaTML[] = ['COLORADO', 'SUB-FURIA']
 
-// Limites de controle da carta (em %).
-const META = 100 // linha preta — todos os mapas que deveriam ter saído, saíram
-const LIMITE = 80 // linha amarela — limite inferior aceitável de controle
+// Limites de controle da carta (em %) — linhas horizontais do mapa de calor.
+const META = 100 // linha preta
+const LIMITE = 80 // linha amarela
+
+// ── Configuração da curva de meta (cronograma planejado de saída) ─────────
+// Curva de meta acumulada por slot de 10 min desde o início da categoria
+// (ex.: slot 0 = 40%, slot 1 = 80%, slot 2 = 90%, slot 3+ = 100%). Mesma
+// curva para todas as categorias — só o horário de início muda.
+export const META_CURVA_ACUMULADA: number[] = [0.4, 0.8, 0.9, 1.0]
+
+// Horário em que cada categoria começa a seguir a curva de meta. Antes
+// desse horário a meta da categoria é 0%.
+export const INICIO_CURVA_POR_SALA: Record<SalaTML, string> = {
+  COLORADO: '07:00',
+  'SUB-FURIA': '08:00',
+}
 
 export interface SerieCartaControle {
   horarios: string[]
-  valores: (number | null)[] // % por horário (null = nenhum mapa ainda era esperado)
+  valores: (number | null)[] // % por horário (null = meta ainda é 0 para ambas as categorias)
   data: string
   meta: number
   limite: number
 }
 
-// Esperado por sala (mesma lógica do resumo): mapa → matrícula → sala no roster.
-async function esperadoPorSala(filial: string, data: string): Promise<Map<SalaTML, number>> {
+// Total por categoria (contagem de mapas/veículos na escala do dia): mapa →
+// matrícula → sala no roster.
+async function totalPorSala(filial: string, data: string): Promise<Map<SalaTML, number>> {
   const { data: escalas } = await supabase
     .from('escalas_tml')
     .select('mapa, matricula')
@@ -50,14 +57,24 @@ async function esperadoPorSala(filial: string, data: string): Promise<Map<SalaTM
   return new Map(SALAS.map((s) => [s, mapasPorSala.get(s)?.size ?? 0]))
 }
 
+// % de meta acumulada para uma categoria em um dado nº de slots de 10 min
+// desde o início da sua curva. Antes do início = 0%; após o fim da curva
+// configurada, mantém o último valor (100%) até o fim do dia.
+function metaAcumulada(slotsDesdeInicio: number): number {
+  if (slotsDesdeInicio < 0) return 0
+  const idx = Math.min(slotsDesdeInicio, META_CURVA_ACUMULADA.length - 1)
+  return META_CURVA_ACUMULADA[idx]
+}
+
 // Série da carta de controle consolidada do CDD. Para cada janela de 10 min,
-// considera apenas as salas cujo horário-limite (matinal + tolerância) já
-// passou e calcula: % = saídas válidas acumuladas ÷ mapas esperados.
+// "deveriam ter saído" = curva de meta acumulada × total da categoria (uma
+// curva fixa por categoria, não uma demanda calculada); "saíram" = saídas
+// válidas acumuladas. % = saíram ÷ deveriam ter saído.
 export async function serieCartaControleCDD(
   filial: string,
   data: string
 ): Promise<SerieCartaControle> {
-  const esperado = await esperadoPorSala(filial, data)
+  const totais = await totalPorSala(filial, data)
 
   const { data: hist } = await supabase
     .from('historico_tml')
@@ -73,24 +90,34 @@ export async function serieCartaControleCDD(
     saidasPorSala.get(h.sala)!.push(horarioParaMinutos(h.horario_saida))
   }
 
-  const inicio = Math.min(...SALAS.map((s) => horarioParaMinutos(REGRAS_TML[s].matinal)))
-  const limiteMax = Math.max(...SALAS.map((s) => horarioParaMinutos(horarioLimite(s))))
+  const gridStart = Math.min(
+    ...SALAS.map((s) => horarioParaMinutos(INICIO_CURVA_POR_SALA[s]))
+  )
+  const fimRampa = Math.max(
+    ...SALAS.map(
+      (s) =>
+        horarioParaMinutos(INICIO_CURVA_POR_SALA[s]) +
+        (META_CURVA_ACUMULADA.length - 1) * 10
+    )
+  )
   const todasSaidas = [...saidasPorSala.values()].flat()
-  const ultimaSaida = todasSaidas.length > 0 ? Math.max(...todasSaidas) : inicio
-  const fim = Math.max(ultimaSaida, limiteMax)
+  const ultimaSaida = todasSaidas.length > 0 ? Math.max(...todasSaidas) : gridStart
+  const fim = Math.max(ultimaSaida, fimRampa)
 
   const horarios: string[] = []
   const valores: (number | null)[] = []
-  for (let t = inicio; t <= fim; t += 10) {
-    let esp = 0
-    let sai = 0
+  for (let t = gridStart; t <= fim; t += 10) {
+    let esperadoAcumulado = 0
+    let saidasAcumuladas = 0
     for (const sala of SALAS) {
-      if (t < horarioParaMinutos(horarioLimite(sala))) continue
-      esp += esperado.get(sala) ?? 0
-      sai += (saidasPorSala.get(sala) ?? []).filter((m) => m <= t).length
+      const inicioSala = horarioParaMinutos(INICIO_CURVA_POR_SALA[sala])
+      const slots = Math.round((t - inicioSala) / 10)
+      const totalSala = totais.get(sala) ?? 0
+      esperadoAcumulado += Math.round(metaAcumulada(slots) * totalSala)
+      saidasAcumuladas += (saidasPorSala.get(sala) ?? []).filter((m) => m <= t).length
     }
     horarios.push(minutosParaHorario(t))
-    valores.push(esp > 0 ? Math.round((sai / esp) * 100) : null)
+    valores.push(esperadoAcumulado > 0 ? Math.round((saidasAcumuladas / esperadoAcumulado) * 100) : null)
   }
 
   return { horarios, valores, data, meta: META, limite: LIMITE }
