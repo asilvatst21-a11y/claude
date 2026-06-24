@@ -5,7 +5,8 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { enviarListaOpcoesWhatsApp, enviarMensagemGrupo } from '../lib/zapi'
+import { enviarListaOpcoesWhatsApp, enviarMensagemGrupo, enviarImagemGrupo } from '../lib/zapi'
+import { serieCartaControleCDD, renderCartaControlePNG } from '../lib/tmlCartaControle'
 import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer } from '../lib/tmlParser'
 import { isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, tempoDeslocamentoMinutos, SALA_TML_LABEL, type SalaTML } from '../lib/tml'
 import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusSalaTML } from '../lib/tmlResumos'
@@ -126,6 +127,19 @@ async function enviarResumoDiario(filial: string, data: string): Promise<void> {
 
   const resumo = await gerarResumoDiario(filial, data)
   await enviarMensagemGrupo(grupoId, resumo)
+
+  // Carta de controle visual (mapa de calor) — só envia se já houver algum
+  // ponto calculável. Falha de imagem não derruba o resumo de texto.
+  try {
+    const serie = await serieCartaControleCDD(filial, data)
+    if (serie.valores.some((v) => v !== null)) {
+      const img = renderCartaControlePNG(serie)
+      const [, m, d] = data.split('-')
+      await enviarImagemGrupo(grupoId, img, `📈 Carta de Controle TML — ${d}/${m}`)
+    }
+  } catch {
+    // ignora — o resumo de texto já foi enviado
+  }
 }
 
 async function gerarNumero(filial: string): Promise<string> {

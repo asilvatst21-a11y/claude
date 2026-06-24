@@ -146,6 +146,26 @@ export async function enviarImagemWhatsApp(
   }
 }
 
+// Envio de imagem para um grupo. O "image" pode ser uma URL ou um data URL
+// base64 (data:image/png;base64,...). O ID do grupo NÃO passa por limparNumero.
+export async function enviarImagemGrupo(
+  grupoId: string,
+  image: string,
+  legenda: string
+): Promise<{ sucesso: boolean; erro?: string }> {
+  try {
+    const response = await fetch(`${BASE}/send-image`, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify({ phone: grupoId.trim(), image, caption: legenda }),
+    })
+    if (!response.ok) return { sucesso: false, erro: await response.text() }
+    return { sucesso: true }
+  } catch (e) {
+    return { sucesso: false, erro: String(e) }
+  }
+}
+
 export function formatarMensagem(
   template: string,
   dados: Record<string, string>
