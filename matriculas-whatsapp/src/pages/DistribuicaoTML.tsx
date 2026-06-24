@@ -94,6 +94,10 @@ function montarMensagemTml(alerta: {
   )
 }
 
+function hojeISO(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
 function dataMaisFrequente(datas: (string | null | undefined)[]): string {
   const contagem = new Map<string, number>()
   for (const d of datas) {
@@ -218,6 +222,7 @@ export default function DistribuicaoTML() {
       .from('historico_tml')
       .select('*')
       .eq('filial', usuario.filial)
+      .eq('data_saida', hojeISO())
       .order('created_at', { ascending: false })
       .limit(200)
     setHistorico(Array.isArray(data) ? data : [])
@@ -821,7 +826,10 @@ export default function DistribuicaoTML() {
       <div className="border rounded-lg bg-white">
         <div className="px-4 py-3 border-b">
           <h2 className="font-semibold text-sm">Histórico TML</h2>
-          <p className="text-xs text-muted-foreground">Todas as saídas processadas, dentro ou fora da meta</p>
+          <p className="text-xs text-muted-foreground">
+            Saídas processadas hoje, dentro ou fora da meta. Para consultar outros dias, acesse a{' '}
+            <Link to="/distribuicao/tml/analise" className="text-accent-600 underline">Análise</Link>.
+          </p>
         </div>
         {loadingHistorico ? (
           <div className="flex items-center justify-center py-12">
