@@ -151,6 +151,9 @@ const TEMPLATE_DEFAULT =
   "Olá {nome}! Você possui {qtd} vale(s) pendente(s) no sistema LOG20 que precisam ser tratados. " +
   "Vale(s): {vales}. Por favor, procure o financeiro para regularizar.";
 
+const MENSAGEM_TELEFONE_MANUAL =
+  "Prezado colaborador, você possui pendências, procure o setor financeiro em até 24h.";
+
 export default function ValesPage() {
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
@@ -183,6 +186,7 @@ export default function ValesPage() {
   const [ajudantesList, setAjudantesList] = useState<AjudanteSimples[]>([]);
   const [previewVale, setPreviewVale] = useState<ValeRow | null>(null);
   const [previewTemplate, setPreviewTemplate] = useState<string | null>(null);
+  const [manualPhone, setManualPhone] = useState("");
   const [atribuirVale, setAtribuirVale] = useState<ValeRow | null>(null);
   const [buscaAtribuir, setBuscaAtribuir] = useState("");
   const [atribuindo, setAtribuindo] = useState(false);
@@ -253,6 +257,7 @@ export default function ValesPage() {
 
   const openPreview = useCallback(async (vale: ValeRow) => {
     setPreviewTemplate(null);
+    setManualPhone("");
     setPreviewVale(vale);
     try {
       const { data } = await valesSupabase
@@ -266,12 +271,48 @@ export default function ValesPage() {
     }
   }, []);
 
-  const sendNotificacao = async (valeId: string, numeroVale: number) => {
+  const sendNotificacao = async (valeId: string, numeroVale: number, telefoneManual?: string) => {
     setNotifyingId(valeId);
     setPreviewVale(null);
     try {
       const vale = vales.find((v) => v.id === valeId);
       if (!vale) throw new Error("Vale não encontrado");
+
+      // Sem ajudante com telefone: o usuário digitou um número na hora.
+      // Como não temos o nome da pessoa, enviamos uma mensagem genérica.
+      if (telefoneManual) {
+        const phone = formatPhoneForZAPI(telefoneManual);
+        if (!phone) throw new Error("Telefone inválido");
+
+        const result = await sendMessage(phone, MENSAGEM_TELEFONE_MANUAL);
+
+        await valesSupabase.from("notificacoes").insert({
+          vale_id: valeId,
+          ajudante_id: null,
+          tipo: "pendente",
+          telefone: phone,
+          mensagem: MENSAGEM_TELEFONE_MANUAL,
+          status: result.success ? "enviado" : "erro",
+          erro_detalhe: result.error ?? null,
+          enviada_em: result.success ? new Date().toISOString() : null,
+        });
+
+        if (!result.success) {
+          throw new Error(result.error || "Erro ao enviar");
+        }
+
+        await valesSupabase
+          .from("vales")
+          .update({ notificacao_pendente_enviada: true })
+          .eq("id", valeId);
+
+        toast({
+          title: "Notificação enviada",
+          description: `Mensagem WhatsApp enviada para vale #${numeroVale}`,
+        });
+        await fetchVales();
+        return;
+      }
 
       const ajudantesComTel = vale.ajudantes.filter((a) => a.telefone);
       if (ajudantesComTel.length === 0) {
@@ -330,6 +371,7 @@ export default function ValesPage() {
       });
     } finally {
       setNotifyingId(null);
+      setManualPhone("");
     }
   };
 
@@ -616,7 +658,7 @@ export default function ValesPage() {
 
       {/* WhatsApp Preview Modal */}
       {previewVale && (
-        <Dialog open={!!previewVale} onOpenChange={(o) => { if (!o) { setPreviewVale(null); setPreviewTemplate(null); } }}>
+        <Dialog open={!!previewVale} onOpenChange={(o) => { if (!o) { setPreviewVale(null); setPreviewTemplate(null); setManualPhone(""); } }}>
           <DialogContent className="max-w-lg">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
@@ -654,10 +696,34 @@ export default function ValesPage() {
                   ))}
                 </div>
               ) : (
-                <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3">
-                  <p className="text-sm text-yellow-800">
-                    Nenhum ajudante deste vale tem telefone cadastrado.
-                  </p>
+                <div className="space-y-3">
+                  <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
+                    <p className="text-sm text-blue-800">
+                      {previewVale.ajudantes.length === 0
+                        ? "Este vale não tem ajudante atribuído. "
+                        : "Nenhum ajudante deste vale tem telefone cadastrado. "}
+                      Digite o telefone para notificar — como o número não fica
+                      gravado, enviamos uma mensagem padrão (sem o nome da pessoa).
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label htmlFor="manual-phone" className="text-sm font-medium">
+                      Telefone (WhatsApp)
+                    </label>
+                    <Input
+                      id="manual-phone"
+                      type="tel"
+                      inputMode="tel"
+                      placeholder="(11) 91234-5678"
+                      value={manualPhone}
+                      onChange={(e) => setManualPhone(e.target.value)}
+                    />
+                  </div>
+                  <div className="bg-green-50 border border-green-200 rounded p-2.5">
+                    <p className="text-sm text-green-900 leading-snug whitespace-pre-wrap">
+                      {MENSAGEM_TELEFONE_MANUAL}
+                    </p>
+                  </div>
                 </div>
               )}
               {ajudantesSemTelefone.length > 0 && (
@@ -671,8 +737,18 @@ export default function ValesPage() {
                 Cancelar
               </Button>
               <Button
-                onClick={() => sendNotificacao(previewVale.id, previewVale.numero_vale)}
-                disabled={!!notifyingId || ajudantesComTelefone.length === 0 || previewTemplate === null}
+                onClick={() => {
+                  if (ajudantesComTelefone.length > 0) {
+                    sendNotificacao(previewVale.id, previewVale.numero_vale);
+                  } else if (manualPhone.trim()) {
+                    sendNotificacao(previewVale.id, previewVale.numero_vale, manualPhone.trim());
+                  }
+                }}
+                disabled={
+                  !!notifyingId ||
+                  previewTemplate === null ||
+                  (ajudantesComTelefone.length === 0 && !manualPhone.trim())
+                }
                 className="gap-2"
               >
                 {notifyingId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
