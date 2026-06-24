@@ -538,13 +538,15 @@ function ValesContent() {
                     </div>
                   ))}
                 </div>
-              ) : previewVale.ajudantes.length === 0 ? (
+              ) : (
                 <div className="space-y-3">
                   <div className="rounded-md border border-blue-200 bg-blue-50 p-3">
                     <p className="text-sm text-blue-800">
-                      Este vale não tem ajudante atribuído. Digite o telefone para
-                      notificar — como o número não fica cadastrado, enviamos uma
-                      mensagem padrão (sem o nome da pessoa).
+                      {previewVale.ajudantes.length === 0
+                        ? "Este vale não tem ajudante atribuído. "
+                        : "Nenhum ajudante deste vale tem telefone cadastrado. "}
+                      Digite o telefone para notificar — como o número não fica
+                      gravado, enviamos uma mensagem padrão (sem o nome da pessoa).
                     </p>
                   </div>
                   <div className="space-y-1.5">
@@ -552,6 +554,7 @@ function ValesContent() {
                     <Input
                       id="manual-phone"
                       type="tel"
+                      inputMode="tel"
                       placeholder="(11) 91234-5678"
                       value={manualPhone}
                       onChange={(e) => setManualPhone(e.target.value)}
@@ -562,13 +565,6 @@ function ValesContent() {
                       {MENSAGEM_TELEFONE_MANUAL}
                     </p>
                   </div>
-                </div>
-              ) : (
-                <div className="rounded-md border border-yellow-200 bg-yellow-50 p-3">
-                  <p className="text-sm text-yellow-800">
-                    Nenhum ajudante deste vale tem telefone cadastrado. Cadastre os
-                    telefones na aba Ajudantes antes de notificar.
-                  </p>
                 </div>
               )}
               {ajudantesSemTelefone.length > 0 && (
@@ -586,15 +582,14 @@ function ValesContent() {
                 onClick={() => {
                   if (ajudantesComTelefone.length > 0) {
                     sendNotificacao(previewVale.id, previewVale.numero_vale);
-                  } else if (previewVale.ajudantes.length === 0 && manualPhone.trim()) {
+                  } else if (manualPhone.trim()) {
                     sendNotificacao(previewVale.id, previewVale.numero_vale, manualPhone.trim());
                   }
                 }}
                 disabled={
                   !!notifyingId ||
                   previewTemplate === null ||
-                  (ajudantesComTelefone.length === 0 &&
-                    !(previewVale.ajudantes.length === 0 && manualPhone.trim()))
+                  (ajudantesComTelefone.length === 0 && !manualPhone.trim())
                 }
                 className="gap-2"
               >
