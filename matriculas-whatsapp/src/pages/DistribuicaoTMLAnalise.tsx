@@ -431,20 +431,26 @@ export default function DistribuicaoTMLAnalise() {
               subtitle="Saída real − horário matinal · conformidade = dentro da tolerância de cada sala"
             >
               <ResponsiveContainer width="100%" height={240}>
-                <BarChart data={porSala} barGap={6} margin={{ top: 20 }}>
+                <ComposedChart data={porSala} margin={{ top: 20 }}>
+                  <defs>
+                    <linearGradient id="gradTempoSaidaSala" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#7c3aed" stopOpacity={1} />
+                      <stop offset="100%" stopColor="#7c3aed" stopOpacity={0.55} />
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                   <XAxis dataKey="sala" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                   <YAxis yAxisId="min" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                  <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} unit="%" domain={[0, 100]} />
                   <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
                   <Legend wrapperStyle={{ fontSize: 12 }} />
-                  <Bar yAxisId="min" dataKey="tempoSaidaMedio" name="Tempo médio de saída (min)" fill="#7c3aed" radius={[8, 8, 0, 0]}>
+                  <Bar yAxisId="min" dataKey="tempoSaidaMedio" name="Tempo médio de saída (min)" fill="url(#gradTempoSaidaSala)" radius={[8, 8, 0, 0]} barSize={40}>
                     <LabelList dataKey="tempoSaidaMedio" position="top" style={{ fontSize: 11, fill: '#7c3aed', fontWeight: 600 }} />
                   </Bar>
-                  <Bar yAxisId="pct" dataKey="conformidadePct" name="% Conformidade" fill="#16a34a" radius={[8, 8, 0, 0]}>
+                  <Line yAxisId="pct" type="monotone" dataKey="conformidadePct" name="% Conformidade" stroke="#16a34a" strokeWidth={2.5} dot={{ r: 3, fill: '#16a34a' }}>
                     <LabelList dataKey="conformidadePct" position="top" formatter={(v: number) => `${v}%`} style={{ fontSize: 11, fill: '#16a34a', fontWeight: 600 }} />
-                  </Bar>
-                </BarChart>
+                  </Line>
+                </ComposedChart>
               </ResponsiveContainer>
             </ChartCard>
 
@@ -536,20 +542,26 @@ export default function DistribuicaoTMLAnalise() {
 
           <ChartCard title="Tempo médio de deslocamento e % de início antes da matinal por sala">
             <ResponsiveContainer width="100%" height={240}>
-              <BarChart data={porSalaDeslocamento} barGap={6} margin={{ top: 20 }}>
+              <ComposedChart data={porSalaDeslocamento} margin={{ top: 20 }}>
+                <defs>
+                  <linearGradient id="gradTempoDeslocamentoSala" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#0891b2" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#0891b2" stopOpacity={0.55} />
+                  </linearGradient>
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                 <XAxis dataKey="sala" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
                 <YAxis yAxisId="min" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} unit="%" />
+                <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} unit="%" domain={[0, 100]} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar yAxisId="min" dataKey="tempoMedio" name="Tempo médio de deslocamento (min)" fill="#0891b2" radius={[8, 8, 0, 0]}>
+                <Bar yAxisId="min" dataKey="tempoMedio" name="Tempo médio de deslocamento (min)" fill="url(#gradTempoDeslocamentoSala)" radius={[8, 8, 0, 0]} barSize={40}>
                   <LabelList dataKey="tempoMedio" position="top" style={{ fontSize: 11, fill: '#0891b2', fontWeight: 600 }} />
                 </Bar>
-                <Bar yAxisId="pct" dataKey="pctAntesMatinal" name="% antes da matinal" fill="#f59e0b" radius={[8, 8, 0, 0]}>
+                <Line yAxisId="pct" type="monotone" dataKey="pctAntesMatinal" name="% antes da matinal" stroke="#f59e0b" strokeWidth={2.5} dot={{ r: 3, fill: '#f59e0b' }}>
                   <LabelList dataKey="pctAntesMatinal" position="top" formatter={(v: number) => `${v}%`} style={{ fontSize: 11, fill: '#f59e0b', fontWeight: 600 }} />
-                </Bar>
-              </BarChart>
+                </Line>
+              </ComposedChart>
             </ResponsiveContainer>
           </ChartCard>
 
