@@ -266,6 +266,23 @@ export default function DistribuicaoTML() {
       if (escalas.length === 0) {
         throw new Error('Nenhum motorista escalado encontrado na planilha')
       }
+
+      // Mapas cancelados saem da planilha nova, mas como o upsert só
+      // insere/atualiza quem está nela, ficariam presos no banco com a escala
+      // antiga. Por isso, antes de upsertar, removemos da(s) data(s) que essa
+      // planilha cobre qualquer mapa que não esteja mais nela.
+      const datas = [...new Set(escalas.map((e) => e.dataEntrega).filter((d): d is string => d != null))]
+      const mapasNovos = escalas.map((e) => e.mapa)
+      if (datas.length > 0) {
+        const { error: delErr } = await supabase
+          .from('escalas_tml')
+          .delete()
+          .eq('filial', usuario.filial)
+          .in('data_entrega', datas)
+          .not('mapa', 'in', `(${mapasNovos.join(',')})`)
+        if (delErr) throw new Error(delErr.message)
+      }
+
       const { error } = await supabase.from('escalas_tml').upsert(
         escalas.map((e) => ({
           filial: usuario.filial,
