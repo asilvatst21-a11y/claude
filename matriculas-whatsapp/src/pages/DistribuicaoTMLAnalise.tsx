@@ -98,25 +98,27 @@ export default function DistribuicaoTMLAnalise() {
   const totalSaidas = historicoFiltrado.length
   const totalPerdidos = historicoFiltrado.filter((h) => h.resultado === 'atrasado').length
   const pctPerdido = totalSaidas > 0 ? (totalPerdidos / totalSaidas) * 100 : 0
-  const atrasados = historicoFiltrado.filter((h) => h.resultado === 'atrasado' && h.atraso_minutos != null)
-  const atrasoMedio = atrasados.length > 0
-    ? atrasados.reduce((acc, h) => acc + (h.atraso_minutos ?? 0), 0) / atrasados.length
+  const comTempo = historicoFiltrado.filter((h) => h.atraso_minutos != null)
+  const tempoMedioTml = comTempo.length > 0
+    ? comTempo.reduce((acc, h) => acc + (h.atraso_minutos ?? 0), 0) / comTempo.length
+    : 0
+  const validos = historicoFiltrado.filter((h) => h.resultado === 'no_prazo' || h.resultado === 'atrasado')
+  const pctAtingimento = validos.length > 0
+    ? (validos.filter((h) => h.resultado === 'no_prazo').length / validos.length) * 100
     : 0
   const totalJustificados = alertasFiltrados.filter((a) => a.status === 'justificado').length
   const pctJustificado = totalPerdidos > 0 ? (totalJustificados / totalPerdidos) * 100 : 0
 
   // ── Ranking por sala ──────────────────────────────────────────────────────
   const porSala = useMemo(() => {
-    const mapa = new Map<string, { sala: string; saidas: number; perdidos: number; somaAtraso: number; nAtraso: number }>()
+    const mapa = new Map<string, { sala: string; saidas: number; perdidos: number; noPrazo: number; somaTempo: number; nTempo: number }>()
     for (const h of historicoFiltrado) {
       if (!h.sala) continue
-      const k = mapa.get(h.sala) ?? { sala: h.sala, saidas: 0, perdidos: 0, somaAtraso: 0, nAtraso: 0 }
+      const k = mapa.get(h.sala) ?? { sala: h.sala, saidas: 0, perdidos: 0, noPrazo: 0, somaTempo: 0, nTempo: 0 }
       k.saidas++
-      if (h.resultado === 'atrasado') {
-        k.perdidos++
-        k.somaAtraso += h.atraso_minutos ?? 0
-        k.nAtraso++
-      }
+      if (h.resultado === 'atrasado') k.perdidos++
+      if (h.resultado === 'no_prazo') k.noPrazo++
+      if (h.atraso_minutos != null) { k.somaTempo += h.atraso_minutos; k.nTempo++ }
       mapa.set(h.sala, k)
     }
     return [...mapa.values()].map((k) => ({
@@ -124,21 +126,26 @@ export default function DistribuicaoTMLAnalise() {
       saidas: k.saidas,
       perdidos: k.perdidos,
       pct: k.saidas > 0 ? Math.round((k.perdidos / k.saidas) * 1000) / 10 : 0,
-      atrasoMedio: k.nAtraso > 0 ? Math.round(k.somaAtraso / k.nAtraso) : 0,
+      tempoMedio: k.nTempo > 0 ? Math.round(k.somaTempo / k.nTempo) : 0,
+      pctAtingimento: (k.noPrazo + k.perdidos) > 0 ? Math.round((k.noPrazo / (k.noPrazo + k.perdidos)) * 1000) / 10 : 0,
     }))
   }, [historicoFiltrado])
 
-  // ── Ranking de motoristas (reincidência) ────────────────────────────────
+  // ── Ranking de motoristas (reincidência + tempo médio em todas as saídas) ──
   const porMotorista = useMemo(() => {
-    const mapa = new Map<string, { nome: string; matricula: number | null; perdidos: number }>()
+    const mapa = new Map<string, { nome: string; matricula: number | null; saidas: number; perdidos: number; somaTempo: number; nTempo: number }>()
     for (const h of historicoFiltrado) {
-      if (h.resultado !== 'atrasado') continue
       const chave = h.matricula != null ? String(h.matricula) : `s/matricula:${h.nome}`
-      const k = mapa.get(chave) ?? { nome: h.nome ?? '—', matricula: h.matricula, perdidos: 0 }
-      k.perdidos++
+      const k = mapa.get(chave) ?? { nome: h.nome ?? '—', matricula: h.matricula, saidas: 0, perdidos: 0, somaTempo: 0, nTempo: 0 }
+      k.saidas++
+      if (h.resultado === 'atrasado') k.perdidos++
+      if (h.atraso_minutos != null) { k.somaTempo += h.atraso_minutos; k.nTempo++ }
       mapa.set(chave, k)
     }
-    return [...mapa.values()].sort((a, b) => b.perdidos - a.perdidos).slice(0, 10)
+    return [...mapa.values()]
+      .map((k) => ({ ...k, tempoMedio: k.nTempo > 0 ? Math.round(k.somaTempo / k.nTempo) : 0 }))
+      .sort((a, b) => b.perdidos - a.perdidos)
+      .slice(0, 10)
   }, [historicoFiltrado])
 
   // ── Ranking de motivos ───────────────────────────────────────────────────
@@ -155,12 +162,13 @@ export default function DistribuicaoTMLAnalise() {
 
   // ── Tendência temporal (por dia) ────────────────────────────────────────
   const porDia = useMemo(() => {
-    const mapa = new Map<string, { dia: string; saidas: number; perdidos: number }>()
+    const mapa = new Map<string, { dia: string; saidas: number; perdidos: number; somaTempo: number; nTempo: number }>()
     for (const h of historicoFiltrado) {
       if (!h.data_saida) continue
-      const k = mapa.get(h.data_saida) ?? { dia: h.data_saida, saidas: 0, perdidos: 0 }
+      const k = mapa.get(h.data_saida) ?? { dia: h.data_saida, saidas: 0, perdidos: 0, somaTempo: 0, nTempo: 0 }
       k.saidas++
       if (h.resultado === 'atrasado') k.perdidos++
+      if (h.atraso_minutos != null) { k.somaTempo += h.atraso_minutos; k.nTempo++ }
       mapa.set(h.data_saida, k)
     }
     return [...mapa.values()]
@@ -170,6 +178,7 @@ export default function DistribuicaoTMLAnalise() {
         saidas: k.saidas,
         perdidos: k.perdidos,
         pct: k.saidas > 0 ? Math.round((k.perdidos / k.saidas) * 1000) / 10 : 0,
+        tempoMedio: k.nTempo > 0 ? Math.round(k.somaTempo / k.nTempo) : 0,
       }))
   }, [historicoFiltrado])
 
@@ -205,10 +214,11 @@ export default function DistribuicaoTMLAnalise() {
         <p className="text-sm text-muted-foreground">Carregando…</p>
       ) : (
         <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <Card icon={CheckCircle2} label="Saídas no período" value={String(totalSaidas)} />
             <Card icon={AlertTriangle} label="TMLs perdidos" value={`${totalPerdidos} (${pctPerdido.toFixed(1)}%)`} />
-            <Card icon={Clock} label="Atraso médio" value={`${atrasoMedio.toFixed(0)} min`} hint="apenas TMLs perdidos" />
+            <Card icon={Clock} label="Tempo médio do TML" value={`${tempoMedioTml.toFixed(0)} min`} hint="todas as saídas do período" />
+            <Card icon={CheckCircle2} label="% Atingimento do TML" value={`${pctAtingimento.toFixed(1)}%`} />
             <Card icon={Users} label="Justificados" value={`${totalJustificados} (${pctJustificado.toFixed(0)}%)`} hint="do total de TMLs perdidos" />
           </div>
 
@@ -228,9 +238,25 @@ export default function DistribuicaoTMLAnalise() {
               </ResponsiveContainer>
               <div className="mt-2 text-xs text-muted-foreground space-y-0.5">
                 {porSala.map((s) => (
-                  <p key={s.sala}>{s.sala}: {s.pct}% perdido · atraso médio {s.atrasoMedio} min</p>
+                  <p key={s.sala}>{s.sala}: {s.pct}% perdido</p>
                 ))}
               </div>
+            </div>
+
+            <div className="border rounded-lg bg-white p-4">
+              <h2 className="text-sm font-semibold mb-3">Tempo médio do TML e % de atingimento por sala</h2>
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={porSala}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="sala" tick={{ fontSize: 12 }} />
+                  <YAxis yAxisId="min" tick={{ fontSize: 12 }} />
+                  <YAxis yAxisId="pct" orientation="right" tick={{ fontSize: 12 }} />
+                  <Tooltip />
+                  <Legend />
+                  <Bar yAxisId="min" dataKey="tempoMedio" name="Tempo médio (min)" fill="#0891b2" radius={[4, 4, 0, 0]} />
+                  <Bar yAxisId="pct" dataKey="pctAtingimento" name="% Atingimento" fill="#16a34a" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
 
             <div className="border rounded-lg bg-white p-4">
@@ -257,11 +283,13 @@ export default function DistribuicaoTMLAnalise() {
               <LineChart data={porDia}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="dia" tick={{ fontSize: 12 }} />
-                <YAxis tick={{ fontSize: 12 }} />
+                <YAxis yAxisId="qtd" tick={{ fontSize: 12 }} />
+                <YAxis yAxisId="min" orientation="right" tick={{ fontSize: 12 }} />
                 <Tooltip />
                 <Legend />
-                <Line type="monotone" dataKey="perdidos" name="TMLs perdidos" stroke="#dc2626" strokeWidth={2} dot={false} />
-                <Line type="monotone" dataKey="pct" name="% perdido" stroke="#d97706" strokeWidth={2} dot={false} />
+                <Line yAxisId="qtd" type="monotone" dataKey="perdidos" name="TMLs perdidos" stroke="#dc2626" strokeWidth={2} dot={false} />
+                <Line yAxisId="qtd" type="monotone" dataKey="pct" name="% perdido" stroke="#d97706" strokeWidth={2} dot={false} />
+                <Line yAxisId="min" type="monotone" dataKey="tempoMedio" name="Tempo médio (min)" stroke="#0891b2" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
@@ -277,6 +305,7 @@ export default function DistribuicaoTMLAnalise() {
                     <th className="py-1.5 pr-2">Motorista</th>
                     <th className="py-1.5 pr-2">Matrícula</th>
                     <th className="py-1.5 pr-2 text-right">TMLs perdidos</th>
+                    <th className="py-1.5 pr-2 text-right">Tempo médio (min)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -285,6 +314,7 @@ export default function DistribuicaoTMLAnalise() {
                       <td className="py-1.5 pr-2">{m.nome}</td>
                       <td className="py-1.5 pr-2">{m.matricula ?? '—'}</td>
                       <td className="py-1.5 pr-2 text-right font-semibold">{m.perdidos}</td>
+                      <td className="py-1.5 pr-2 text-right">{m.tempoMedio}</td>
                     </tr>
                   ))}
                 </tbody>
