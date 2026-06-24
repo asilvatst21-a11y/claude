@@ -27,6 +27,7 @@ type RoundGroup = {
     image: string | null;
     username: string | null;
     points: number;
+    pointsThisRound: number;
   }[];
   summary?: string;
 };
@@ -279,7 +280,7 @@ export function LeagueTabs({
               {roundGroups.map((group) => (
                 <div key={group.round} className="bg-zinc-900 border border-zinc-800 rounded-xl overflow-hidden">
                   <div className="p-4 border-b border-zinc-800">
-                    <h3 className="font-semibold text-white">Rodada {group.round}</h3>
+                    <h3 className="font-semibold text-white">Classificação após a Rodada {group.round}</h3>
                   </div>
                   {group.summary && (
                     <div className="px-4 py-3 bg-green-500/5 border-b border-zinc-800">
@@ -328,9 +329,12 @@ export function LeagueTabs({
                             </div>
                           </div>
 
-                          <span className="font-bold text-green-400 text-sm shrink-0">
-                            {entry.points} pts
-                          </span>
+                          <div className="text-right shrink-0">
+                            <span className="font-bold text-green-400 text-sm">{entry.points} pts</span>
+                            <p className="text-xs text-zinc-500">
+                              {entry.pointsThisRound > 0 ? `+${entry.pointsThisRound} na rodada` : "0 na rodada"}
+                            </p>
+                          </div>
                         </div>
                       );
                     })}

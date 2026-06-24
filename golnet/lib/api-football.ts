@@ -23,6 +23,12 @@ export type ApiFixture = {
     away: { id: number; name: string; logo: string; winner?: boolean | null };
   };
   goals: { home: number | null; away: number | null };
+  score: {
+    halftime: { home: number | null; away: number | null };
+    fulltime: { home: number | null; away: number | null };
+    extratime: { home: number | null; away: number | null };
+    penalty: { home: number | null; away: number | null };
+  };
   league: { id: number; name: string; season: number; round: string };
   events?: Array<{
     time: { elapsed: number; extra: number | null };
@@ -97,6 +103,17 @@ export async function fetchFixturesByDate(date: string): Promise<ApiFixture[]> {
 export async function fetchFixturesByIds(ids: number[]): Promise<ApiFixture[]> {
   if (ids.length === 0) return [];
   return apiFetch<ApiFixture[]>(`/fixtures?ids=${ids.join("-")}`);
+}
+
+// Predictions are scored on the 90-minute result only — extra time and penalty shootouts
+// don't count. `goals` reflects the score through extra time once a match goes there, so
+// once the match is finished we prefer `score.fulltime` (always the 90-min score).
+export function regulationScore(fixture: ApiFixture, status: MatchStatus): { home: number | null; away: number | null } {
+  const fulltime = fixture.score?.fulltime;
+  if (status === "FINISHED" && fulltime?.home != null && fulltime?.away != null) {
+    return fulltime;
+  }
+  return fixture.goals;
 }
 
 export function mapApiStatus(short: string): MatchStatus {

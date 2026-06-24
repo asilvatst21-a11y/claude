@@ -114,34 +114,39 @@ export default async function LeagueDetailPage({
   const isOwner = currentMember.role === "OWNER";
   const userPlan = userRecord?.plan ?? "FREE";
 
-  const memberMap = new Map(members.map((m) => [m.userId, m.user]));
-
-  // Group round rankings by round, sort entries by points desc
-  const roundMap = new Map<
-    string,
-    { userId: string; name: string | null; image: string | null; username: string | null; points: number }[]
-  >();
-
+  // Points scored per round, keyed by round then userId
+  const pointsByRoundAndUser = new Map<string, Map<string, number>>();
   for (const rr of roundRankingsRaw) {
-    const user = memberMap.get(rr.userId);
-    if (!roundMap.has(rr.round)) roundMap.set(rr.round, []);
-    roundMap.get(rr.round)!.push({
-      userId: rr.userId,
-      name: user?.name ?? null,
-      image: user?.image ?? null,
-      username: user?.username ?? null,
-      points: rr.points,
-    });
+    if (!pointsByRoundAndUser.has(rr.round)) pointsByRoundAndUser.set(rr.round, new Map());
+    pointsByRoundAndUser.get(rr.round)!.set(rr.userId, rr.points);
   }
 
-  // Sort rounds naturally and sort entries within each round by points desc
-  const roundGroups = Array.from(roundMap.entries())
-    .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-    .map(([round, entries]) => ({
-      round,
-      entries: entries.sort((a, b) => b.points - a.points),
-      summary: summaryByRound[round],
-    }));
+  // Sort rounds naturally, then accumulate each member's total as rounds complete —
+  // so "Rodada 2" shows the standing through round 2, not round 2 in isolation.
+  const sortedRounds = Array.from(pointsByRoundAndUser.keys())
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  const cumulativeByUser = new Map<string, number>();
+  const roundGroups = sortedRounds.map((round) => {
+    const pointsThisRound = pointsByRoundAndUser.get(round)!;
+    const entries = members
+      .map((m) => {
+        const thisRound = pointsThisRound.get(m.userId) ?? 0;
+        const cumulative = (cumulativeByUser.get(m.userId) ?? 0) + thisRound;
+        cumulativeByUser.set(m.userId, cumulative);
+        return {
+          userId: m.userId,
+          name: m.user.name,
+          image: m.user.image,
+          username: m.user.username,
+          points: cumulative,
+          pointsThisRound: thisRound,
+        };
+      })
+      .sort((a, b) => b.points - a.points);
+
+    return { round, entries, summary: summaryByRound[round] };
+  });
 
   return (
     <div className="max-w-3xl">

@@ -24,6 +24,43 @@ const LEADER_FLAVORS = [
 
 const DRAW_ADJECTIVES = ["chato", "movimentado", "nervoso", "travado"];
 
+const CLIMBER_TEMPLATES: Array<(name: string, climb: number, posPhrase: string, tail: string) => string> = [
+  (name, climb, posPhrase, tail) =>
+    `📈 ${name} foi a sensação da rodada: subiu ${climb} posiç${climb > 1 ? "ões" : "ão"} e ${posPhrase} ${tail}`,
+  (name, climb, posPhrase, tail) =>
+    `🚀 ${name} deu um salto e tanto: pulou ${climb} posiç${climb > 1 ? "ões" : "ão"} e ${posPhrase} ${tail}`,
+  (name, climb, posPhrase, tail) =>
+    `🔥 ${name} não tá de brincadeira: avançou ${climb} posiç${climb > 1 ? "ões" : "ão"} e ${posPhrase} ${tail}`,
+  (name, climb, posPhrase, tail) =>
+    `⬆️ Renovou o fôlego: ${name} subiu ${climb} posiç${climb > 1 ? "ões" : "ão"} e ${posPhrase} ${tail}`,
+];
+
+const FALLER_TEMPLATES: Array<(name: string, pts: number, zeroedText: string, fallPhrase: string, tail: string) => string> = [
+  (name, pts, zeroedText, fallPhrase, tail) =>
+    `📉 Já ${name}… amigo, foram ${pts} ponto${pts === 1 ? "" : "s"} na rodada.${zeroedText} ${fallPhrase} ${tail}`,
+  (name, pts, zeroedText, fallPhrase, tail) =>
+    `😬 ${name} teve rodada pra esquecer: só ${pts} ponto${pts === 1 ? "" : "s"}.${zeroedText} ${fallPhrase} ${tail}`,
+  (name, pts, zeroedText, fallPhrase, tail) =>
+    `🥶 Gelou: ${name} fez apenas ${pts} ponto${pts === 1 ? "" : "s"} na rodada.${zeroedText} ${fallPhrase} ${tail}`,
+  (name, pts, zeroedText, fallPhrase, tail) =>
+    `🧊 Sextou mal pra ${name}: ${pts} ponto${pts === 1 ? "" : "s"} na rodada.${zeroedText} ${fallPhrase} ${tail}`,
+];
+
+const EXACT_SCORE_LEADINS: Array<(names: string, verb: string) => string> = [
+  (names, verb) => `🎯 Placar exato da rodada: só ${names} ${verb} um cravado`,
+  (names, verb) => `🎯 Sniper da rodada: ${names} ${verb} acerto cravado`,
+  (names, verb) => `🎯 Tiro certo: ${names} ${verb} o placar na régua`,
+  (names, verb) => `🎯 Mão de cirurgião: ${names} ${verb} o placar exato`,
+];
+
+const TIE_TEMPLATES: Array<(names: string, rank: number) => string> = [
+  (names, rank) => `🤝 Empate geral entre ${names} na ${rank}ª posição — vai ser briga de foice na próxima rodada.`,
+  (names, rank) => `🤝 ${names} empatados na ${rank}ª posição — ninguém quer ceder espaço.`,
+  (names, rank) => `🤝 Quem desempata? ${names} estão emparelhados na ${rank}ª posição.`,
+];
+
+const CLOSING_LEADINS = ["Resumindo:", "Fechando a conta:", "Pra resumir:", "No fim das contas:"];
+
 const FEMININE_TEAMS = new Set([
   "argentina", "frança", "franca", "france", "alemanha", "germany",
   "inglaterra", "england", "bélgica", "belgica", "belgium",
@@ -263,9 +300,7 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
     const tail = partial > 0
       ? `Bateu na trave ${partial > 1 ? `${partial} vezes` : "uma vez"} (placar parcial), mas o que importa é que ${biggestClimber.name} tá vindo com tudo.`
       : `${biggestClimber.name} tá vindo com tudo.`;
-    lines.push(
-      `📈 ${biggestClimber.name} foi a sensação da rodada: subiu ${biggestClimber.climb} posiç${biggestClimber.climb > 1 ? "ões" : "ão"} e ${climbPositionPhrase(rank)} ${tail}`
-    );
+    lines.push(pick(CLIMBER_TEMPLATES)(biggestClimber.name, biggestClimber.climb, climbPositionPhrase(rank), tail));
   }
 
   // Biggest faller
@@ -278,7 +313,7 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
       ? "e agora tá numa zona de rebaixamento imaginária que só existe no nosso grupo do WhatsApp. 💀"
       : "na tabela.";
     lines.push(
-      `📉 Já ${biggestFaller.name}… amigo, foram ${biggestFaller.thisRound} ponto${biggestFaller.thisRound === 1 ? "" : "s"} na rodada.${zeroed ? " Zerou tudo." : ""} ${fallPhrase} ${tail}`
+      pick(FALLER_TEMPLATES)(biggestFaller.name, biggestFaller.thisRound, zeroed ? " Zerou tudo." : "", fallPhrase, tail)
     );
   }
 
@@ -296,13 +331,13 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
       }
     }
     const verb = names.length > 1 ? "acertaram" : "acertou";
-    lines.push(`🎯 Placar exato da rodada: só ${joinNames(names)} ${verb} um cravado${underdogText}.`);
+    lines.push(`${pick(EXACT_SCORE_LEADINS)(joinNames(names), verb)}${underdogText}.`);
   }
 
   // Tie for a position
   const tie = findTie(rows, currentRank);
   if (tie) {
-    lines.push(`🤝 Empate geral entre ${joinNames(tie.names)} na ${tie.rank}ª posição — vai ser briga de foice na próxima rodada.`);
+    lines.push(pick(TIE_TEMPLATES)(joinNames(tie.names), tie.rank));
   }
 
   // Closing
@@ -316,7 +351,7 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
   const nextRoundText = isNumericRound ? `Bora pra rodada ${roundNum + 1}! ⚽️` : "Bora pra próxima rodada! ⚽️";
 
   lines.push("");
-  lines.push(`Resumindo: ${summaryParts.join(", ")}. ${nextRoundText}`);
+  lines.push(`${pick(CLOSING_LEADINS)} ${summaryParts.join(", ")}. ${nextRoundText}`);
 
   return lines.join("\n");
 }
