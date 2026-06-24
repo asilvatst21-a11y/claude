@@ -6,6 +6,7 @@ import {
   mapApiStatus,
   mapApiStage,
   extractGroup,
+  regulationScore,
 } from "@/lib/api-football";
 import { isAdmin } from "@/lib/admin";
 
@@ -49,6 +50,7 @@ export async function POST(req: Request) {
     const stage = mapApiStage(fixture.league.round);
     const group = extractGroup(fixture.league.round);
     const isFinished = status === "FINISHED";
+    const score = regulationScore(fixture, status);
 
     const data = {
       leagueId: fixture.league.id,
@@ -66,8 +68,8 @@ export async function POST(req: Request) {
       group,
       round: fixture.league.round,
       venue: fixture.fixture.venue.name,
-      homeScore: isFinished ? (fixture.goals.home ?? undefined) : undefined,
-      awayScore: isFinished ? (fixture.goals.away ?? undefined) : undefined,
+      homeScore: isFinished ? (score.home ?? undefined) : undefined,
+      awayScore: isFinished ? (score.away ?? undefined) : undefined,
       lastSyncedAt: new Date(),
     };
 

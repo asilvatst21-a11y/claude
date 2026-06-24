@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { fetchFixturesByIds, mapApiStatus } from "@/lib/api-football";
+import { fetchFixturesByIds, mapApiStatus, regulationScore } from "@/lib/api-football";
 import { calculatePoints } from "@/lib/scoring";
 import { isAdmin } from "@/lib/admin";
 
@@ -25,8 +25,7 @@ export async function POST(req: Request) {
 
   const fixture = fixtures[0];
   const newStatus = mapApiStatus(fixture.fixture.status.short);
-  const homeScore = fixture.goals.home;
-  const awayScore = fixture.goals.away;
+  const { home: homeScore, away: awayScore } = regulationScore(fixture, newStatus);
 
   const before = { status: match.status, homeScore: match.homeScore, awayScore: match.awayScore };
 

@@ -2,27 +2,130 @@ import { prisma } from "@/lib/prisma";
 import { sendPushToUser } from "@/lib/push";
 import type { PredictionResult } from "@prisma/client";
 
-const INTROS = [
-  "Fechou a rodada e o bagulho ficou doido! 🔥",
-  "Rodada encerrada, hora do acerto de contas! ⚽️",
-  "Mais uma rodada no bolso, vamos à resenha! 🍿",
-  "Apitou o fim, agora é hora de falar quem mandou bem e quem se escondeu. 🎙️",
-];
-
-const LEADER_VERBS = [
-  "disparou na liderança",
-  "segue confortável na liderança",
-  "mandou ver e ampliou a liderança",
-];
-
-const LEADER_FLAVORS = [
-  "Tá jogando xadrez enquanto o resto joga dama.",
-  "Time que tá ganhando não se mexe.",
-  "Quem vai parar esse time?",
-  "Tá sobrando esse campeonato.",
-];
-
 const DRAW_ADJECTIVES = ["chato", "movimentado", "nervoso", "travado"];
+
+// Each Tone is a self-contained voice for the whole recap — title, intro, every section
+// template and the closing all come from the SAME tone, so a round doesn't just swap one
+// sentence, it reads like a different writer altogether. One tone is picked per summary.
+type Tone = {
+  title: (round: string) => string;
+  intros: string[];
+  leaderTemplates: Array<(name: string, points: number, pickText: string) => string>;
+  climberTemplates: Array<(name: string, climb: number, posPhrase: string, tail: string) => string>;
+  fallerTemplates: Array<(name: string, pts: number, zeroedText: string, fallPhrase: string, tail: string) => string>;
+  calmTemplates: string[];
+  exactScoreLeadins: Array<(names: string, verb: string) => string>;
+  tieTemplates: Array<(names: string, rank: number) => string>;
+  closingLeadins: string[];
+};
+
+const TONES: Tone[] = [
+  {
+    title: (round) => `🏆 Resenha da Rodada ${round}`,
+    intros: [
+      "Apitou o fim, agora é hora de falar quem mandou bem e quem se escondeu. 🎙️",
+      "Fechou a rodada e o bagulho ficou doido! 🔥",
+      "Rodada encerrada, hora do acerto de contas! ⚽️",
+    ],
+    leaderTemplates: [
+      (name, pts, pickText) => `🥇 ${name} segue confortável na liderança com ${pts} pontos${pickText ? ` — ${pickText}` : ""}. Time que tá ganhando não se mexe.`,
+      (name, pts, pickText) => `🥇 ${name} disparou na liderança com ${pts} pontos${pickText ? ` — ${pickText}` : ""}. Tá sobrando esse campeonato.`,
+      (name, pts, pickText) => `🥇 ${name} mandou ver e ampliou a liderança: foram ${pts} pontos${pickText ? ` — ${pickText}` : ""}. Quem vai parar esse time?`,
+    ],
+    climberTemplates: [
+      (name, climb, posPhrase, tail) => `📈 ${name} foi a sensação da rodada: subiu ${climb} posiç${climb > 1 ? "ões" : "ão"} e ${posPhrase} ${tail}`,
+      (name, climb, posPhrase, tail) => `🚀 ${name} deu um show: subiu ${climb} posiç${climb > 1 ? "ões" : "ão"} e ${posPhrase} ${tail}`,
+    ],
+    fallerTemplates: [
+      (name, pts, zeroedText, fallPhrase, tail) => `📉 Já ${name}… amigo, foram ${pts} ponto${pts === 1 ? "" : "s"} na rodada.${zeroedText} ${fallPhrase} ${tail}`,
+      (name, pts, zeroedText, fallPhrase, tail) => `😬 ${name} teve rodada pra esquecer: só ${pts} ponto${pts === 1 ? "" : "s"}.${zeroedText} ${fallPhrase} ${tail}`,
+    ],
+    calmTemplates: [
+      "😴 Rodada tranquila: ninguém se arriscou muito e a tabela ficou praticamente como estava.",
+      "🤷 Rodada sem grandes emoções — todo mundo manteve a posição.",
+    ],
+    exactScoreLeadins: [
+      (names, verb) => `🎯 Placar exato da rodada: só ${names} ${verb} um cravado`,
+      (names, verb) => `🎯 Mão de cirurgião: ${names} ${verb} o placar exato`,
+    ],
+    tieTemplates: [
+      (names, rank) => `🤝 Empate geral entre ${names} na ${rank}ª posição — vai ser briga de foice na próxima rodada.`,
+    ],
+    closingLeadins: ["Resumindo:", "Fechando a conta:"],
+  },
+  {
+    title: (round) => `😏 Raio-X da Rodada ${round}`,
+    intros: [
+      "Rodada fechou e tem gente que não vai gostar do que vou contar. 😏",
+      "Senta que lá vem resenha sem filtro dessa rodada. 🍿",
+      "Ninguém me pagou pra ser gentil, então vamos direto ao ponto.",
+    ],
+    leaderTemplates: [
+      (name, pts, pickText) => `👑 ${name} tá lá no topo de novo, ${pts} pontos${pickText ? ` (${pickText})` : ""}. Sorte? Talvez. Mas tá lá.`,
+      (name, pts, pickText) => `👑 ${name} simplesmente não erra: ${pts} pontos${pickText ? ` (${pickText})` : ""} e segue mandando.`,
+      (name, pts, pickText) => `👑 Mais uma rodada, mais uma vez ${name} na frente com ${pts} pontos${pickText ? ` (${pickText})` : ""}. Cansa só de ver.`,
+    ],
+    climberTemplates: [
+      (name, climb, posPhrase, tail) => `⬆️ ${name} resolveu aparecer: subiu ${climb} posiç${climb > 1 ? "ões" : "ão"} e ${posPhrase} ${tail}`,
+      (name, climb, posPhrase, tail) => `📈 Olha quem lembrou que joga: ${name} subiu ${climb} posiç${climb > 1 ? "ões" : "ão"} e ${posPhrase} ${tail}`,
+    ],
+    fallerTemplates: [
+      (name, pts, zeroedText, fallPhrase, tail) => `💀 ${name} jogou pra perder mesmo: ${pts} ponto${pts === 1 ? "" : "s"} na rodada.${zeroedText} ${fallPhrase} ${tail}`,
+      (name, pts, zeroedText, fallPhrase, tail) => `🧊 Gelou geral: ${name} com só ${pts} ponto${pts === 1 ? "" : "s"}.${zeroedText} ${fallPhrase} ${tail}`,
+    ],
+    calmTemplates: [
+      "🙄 Rodada sem graça: ninguém arriscou e a tabela nem se importou.",
+    ],
+    exactScoreLeadins: [
+      (names, verb) => `🎯 Pra constar: só ${names} ${verb} o cravado`,
+      (names, verb) => `🎯 Detalhe que ninguém pediu: ${names} ${verb} o placar exato`,
+    ],
+    tieTemplates: [
+      (names, rank) => `🤝 ${names} empatadinhos na ${rank}ª posição, que fofo.`,
+    ],
+    closingLeadins: ["Resumo sem enrolação:", "Pra fechar com estilo:"],
+  },
+  {
+    title: (round) => `📣 Fofoca da Rodada ${round}`,
+    intros: [
+      "Gente, para tudo que essa rodada teve história! 📣",
+      "Vocês não vão acreditar no que aconteceu nessa rodada... 👀",
+      "Abre o grupo que a resenha da rodada chegou! 📲",
+    ],
+    leaderTemplates: [
+      (name, pts, pickText) => `👑 Olha quem continua mandando: ${name}, com ${pts} pontos${pickText ? ` (${pickText})` : ""}. Já virou rotina.`,
+      (name, pts, pickText) => `👑 Adivinha quem tá na frente outra vez? ${name}, com ${pts} pontos${pickText ? ` (${pickText})` : ""}.`,
+    ],
+    climberTemplates: [
+      (name, climb, posPhrase, tail) => `📈 Gente, ${name} deu um salto e tanto: subiu ${climb} posiç${climb > 1 ? "ões" : "ão"} e ${posPhrase} ${tail}`,
+      (name, climb, posPhrase, tail) => `🚀 Vocês viram ${name}? Subiu ${climb} posiç${climb > 1 ? "ões" : "ão"} e ${posPhrase} ${tail}`,
+    ],
+    fallerTemplates: [
+      (name, pts, zeroedText, fallPhrase, tail) => `😱 Gente, ${name} despencou: só ${pts} ponto${pts === 1 ? "" : "s"} na rodada.${zeroedText} ${fallPhrase} ${tail}`,
+      (name, pts, zeroedText, fallPhrase, tail) => `😨 Alguém avisa ${name} que a rodada foi ruim: ${pts} ponto${pts === 1 ? "" : "s"}.${zeroedText} ${fallPhrase} ${tail}`,
+    ],
+    calmTemplates: [
+      "🤔 Pra ser sincero, nem teve fofoca essa rodada — a tabela ficou quase intacta.",
+    ],
+    exactScoreLeadins: [
+      (names, verb) => `🎯 Mas gente, o ouro da rodada: ${names} ${verb} o placar exato`,
+      (names, verb) => `🎯 Pausa pra aplaudir: ${names} ${verb} um cravado certinho`,
+    ],
+    tieTemplates: [
+      (names, rank) => `🤝 Vocês viram esse empate? ${names} dividindo a ${rank}ª posição!`,
+    ],
+    closingLeadins: ["Resumo da fofoca:", "Pra quem chegou agora:"],
+  },
+];
+
+function shuffle<T>(arr: T[]): T[] {
+  const copy = [...arr];
+  for (let i = copy.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
 
 const FEMININE_TEAMS = new Set([
   "argentina", "frança", "franca", "france", "alemanha", "germany",
@@ -132,20 +235,26 @@ function findTie<T extends { userId: string; name: string; current: number }>(
   return best;
 }
 
+type LeagueInfo = { id: string; name: string; competitionName: string | null; teamFilter: string[] };
+
 export async function maybeGenerateRoundSummaries(affectedRounds: string[], options?: { notify?: boolean }) {
   const notify = options?.notify ?? true;
   const rounds = Array.from(new Set(affectedRounds.filter(Boolean)));
+  if (rounds.length === 0) return;
+
+  const leagues = await prisma.league.findMany({
+    select: { id: true, name: true, competitionName: true, teamFilter: true },
+  });
+
   for (const round of rounds) {
-    await generateRoundSummaryIfComplete(round, notify);
+    await generateRoundSummaryIfComplete(round, notify, leagues);
   }
 }
 
-async function generateRoundSummaryIfComplete(round: string, notify: boolean) {
+async function generateRoundSummaryIfComplete(round: string, notify: boolean, leagues: LeagueInfo[]) {
   const matches = await prisma.match.findMany({ where: { round } });
   if (matches.length === 0) return;
   if (!matches.every((m) => DONE_STATUSES.includes(m.status))) return;
-
-  const leagues = await prisma.league.findMany();
 
   for (const league of leagues) {
     const exists = await prisma.roundSummary.findUnique({
@@ -237,33 +346,39 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
   const biggestClimber = [...withClimb].sort((a, b) => b.climb - a.climb)[0];
   const biggestFaller = [...withClimb].sort((a, b) => a.climb - b.climb)[0];
 
+  const tone = pick(TONES);
+
   const lines: string[] = [];
-  lines.push(`🏆 Resenha da Rodada ${round}`);
+  lines.push(tone.title(round));
   lines.push("");
-  lines.push(pick(INTROS));
+  lines.push(pick(tone.intros));
   lines.push("");
 
   // Leader
   const leaderPicks = topPicks(predsByUser[leader.userId] ?? [], matchById, 2);
   const leaderPickText = joinPicks(leaderPicks);
-  lines.push(
-    `🥇 ${leader.name} ${pick(LEADER_VERBS)} com ${leader.current} pontos${leaderPickText ? ` — ${leaderPickText}` : ""}. ${pick(LEADER_FLAVORS)}`
-  );
+  lines.push(pick(tone.leaderTemplates)(leader.name, leader.current, leaderPickText));
+
+  // Middle blocks (climber/faller/exact-score/tie) are shuffled so their order
+  // varies round to round too, instead of always reading top-to-bottom the same way.
+  const middleBlocks: string[] = [];
 
   // Biggest climber
+  let hadClimber = false;
   if (biggestClimber.climb > 0) {
+    hadClimber = true;
     const rank = currentRank[biggestClimber.userId];
     const partial = (predsByUser[biggestClimber.userId] ?? []).filter((p) => p.result === "CORRECT_RESULT_AND_DIFF").length;
     const tail = partial > 0
       ? `Bateu na trave ${partial > 1 ? `${partial} vezes` : "uma vez"} (placar parcial), mas o que importa é que ${biggestClimber.name} tá vindo com tudo.`
       : `${biggestClimber.name} tá vindo com tudo.`;
-    lines.push(
-      `📈 ${biggestClimber.name} foi a sensação da rodada: subiu ${biggestClimber.climb} posiç${biggestClimber.climb > 1 ? "ões" : "ão"} e ${climbPositionPhrase(rank)} ${tail}`
-    );
+    middleBlocks.push(pick(tone.climberTemplates)(biggestClimber.name, biggestClimber.climb, climbPositionPhrase(rank), tail));
   }
 
   // Biggest faller
+  let hadFaller = false;
   if (biggestFaller.climb < 0 && biggestFaller.userId !== biggestClimber.userId) {
+    hadFaller = true;
     const rank = currentRank[biggestFaller.userId];
     const isLast = rank === rows.length;
     const zeroed = biggestFaller.thisRound === 0;
@@ -271,9 +386,13 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
     const tail = isLast
       ? "e agora tá numa zona de rebaixamento imaginária que só existe no nosso grupo do WhatsApp. 💀"
       : "na tabela.";
-    lines.push(
-      `📉 Já ${biggestFaller.name}… amigo, foram ${biggestFaller.thisRound} ponto${biggestFaller.thisRound === 1 ? "" : "s"} na rodada.${zeroed ? " Zerou tudo." : ""} ${fallPhrase} ${tail}`
+    middleBlocks.push(
+      pick(tone.fallerTemplates)(biggestFaller.name, biggestFaller.thisRound, zeroed ? " Zerou tudo." : "", fallPhrase, tail)
     );
+  }
+
+  if (!hadClimber && !hadFaller) {
+    middleBlocks.push(pick(tone.calmTemplates));
   }
 
   // Exact scores this round
@@ -290,27 +409,29 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
       }
     }
     const verb = names.length > 1 ? "acertaram" : "acertou";
-    lines.push(`🎯 Placar exato da rodada: só ${joinNames(names)} ${verb} um cravado${underdogText}.`);
+    middleBlocks.push(`${pick(tone.exactScoreLeadins)(joinNames(names), verb)}${underdogText}.`);
   }
 
   // Tie for a position
   const tie = findTie(rows, currentRank);
   if (tie) {
-    lines.push(`🤝 Empate geral entre ${joinNames(tie.names)} na ${tie.rank}ª posição — vai ser briga de foice na próxima rodada.`);
+    middleBlocks.push(pick(tone.tieTemplates)(joinNames(tie.names), tie.rank));
   }
+
+  lines.push(...shuffle(middleBlocks));
 
   // Closing
   const roundNum = Number(round);
   const isNumericRound = round.trim() !== "" && Number.isFinite(roundNum);
   const summaryParts = [`${leader.name} reina`];
-  if (biggestClimber.climb > 0) summaryParts.push(`${biggestClimber.name} sobe igual foguete`);
-  if (biggestFaller.climb < 0 && biggestFaller.userId !== biggestClimber.userId) {
+  if (hadClimber) summaryParts.push(`${biggestClimber.name} sobe igual foguete`);
+  if (hadFaller) {
     summaryParts.push(`${biggestFaller.name} precisa rever a vida (ou pelo menos os palpites)`);
   }
   const nextRoundText = isNumericRound ? `Bora pra rodada ${roundNum + 1}! ⚽️` : "Bora pra próxima rodada! ⚽️";
 
   lines.push("");
-  lines.push(`Resumindo: ${summaryParts.join(", ")}. ${nextRoundText}`);
+  lines.push(`${pick(tone.closingLeadins)} ${summaryParts.join(", ")}. ${nextRoundText}`);
 
   return lines.join("\n");
 }
