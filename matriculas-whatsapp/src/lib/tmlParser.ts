@@ -162,6 +162,96 @@ export function parseMotoristaSalaBuffer(buffer: ArrayBuffer): MotoristaSalaTML[
   return out;
 }
 
+export interface ChecklistTML {
+  mapa: number;
+  placa: string | null;
+  nome: string | null;
+  sala: string | null;
+  data: string | null;
+  horarioInicio: string | null;
+  horarioFinal: string | null;
+}
+
+function normalizaSala(value: unknown): string | null {
+  const n = normalize(value);
+  if (n.includes("colorado")) return "COLORADO";
+  if (n.includes("furia")) return "SUB-FURIA";
+  return null;
+}
+
+// Extrai só a parte de horário de um texto "23/06/2026 08:21" (data + hora).
+function extraiHorario(value: unknown): string | null {
+  const s = String(value ?? "").trim();
+  const m = s.match(/(\d{1,2}):(\d{2})(?::\d{2})?\s*$/);
+  if (m) return `${m[1].padStart(2, "0")}:${m[2]}`;
+  return excelTimeToHorario(value);
+}
+
+// Extrai a parte de data de um texto "23/06/2026 08:21" (data + hora).
+function extraiData(value: unknown): string | null {
+  const s = String(value ?? "").trim();
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  if (m) {
+    const y = m[3].length === 2 ? `20${m[3]}` : m[3];
+    return `${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  }
+  return excelDateToISO(value);
+}
+
+/**
+ * Planilha de checklist (TIPO/FILIAL/PLACA/MOTORISTA/EQUIPE/MAPA/...HR INICIO/HR FINAL...).
+ * "HR INICIO" é o horário em que o motorista começou o checklist — usado pra
+ * medir o tempo de deslocamento (HR INICIO − horário matinal da sala).
+ */
+export function parseChecklistBuffer(buffer: ArrayBuffer): ChecklistTML[] {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const sheetName =
+    workbook.SheetNames.find((n) => normalize(n).includes("checklist")) ?? workbook.SheetNames[0];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
+    header: 1,
+    raw: true,
+    defval: null,
+  });
+
+  let headerRow = -1;
+  let mapaIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const idx = rows[i].findIndex((c) => normalize(c) === "mapa");
+    if (idx !== -1) {
+      headerRow = i;
+      mapaIdx = idx;
+      break;
+    }
+  }
+  if (headerRow === -1) return [];
+
+  const header = rows[headerRow].map(normalize);
+  const placaIdx = header.indexOf("placa");
+  const motoristaIdx = header.indexOf("motorista");
+  const equipeIdx = header.indexOf("equipe");
+  const dataIdx = header.indexOf("data");
+  const hrInicioIdx = header.findIndex((c) => c.includes("hr inicio") || c.includes("hora inicio"));
+  const hrFinalIdx = header.findIndex((c) => c.includes("hr final") || c.includes("hora final"));
+
+  const out: ChecklistTML[] = [];
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i];
+    const mapa = Number(row[mapaIdx]);
+    if (!mapa || isNaN(mapa)) continue;
+
+    out.push({
+      mapa,
+      placa: placaIdx !== -1 ? String(row[placaIdx] ?? "").trim() || null : null,
+      nome: motoristaIdx !== -1 ? String(row[motoristaIdx] ?? "").trim() || null : null,
+      sala: equipeIdx !== -1 ? normalizaSala(row[equipeIdx]) : null,
+      data: dataIdx !== -1 ? extraiData(row[dataIdx]) : null,
+      horarioInicio: hrInicioIdx !== -1 ? extraiHorario(row[hrInicioIdx]) : null,
+      horarioFinal: hrFinalIdx !== -1 ? extraiHorario(row[hrFinalIdx]) : null,
+    });
+  }
+  return out;
+}
+
 export interface SaidaTML {
   mapa: number;
   placa: string | null;

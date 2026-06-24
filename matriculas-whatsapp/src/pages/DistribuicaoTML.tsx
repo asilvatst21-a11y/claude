@@ -6,8 +6,8 @@ import {
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { enviarListaOpcoesWhatsApp, enviarMensagemGrupo } from '../lib/zapi'
-import { parseEscalaBuffer, parseSaidaBuffer } from '../lib/tmlParser'
-import { isSalaTML, horarioLimite, atrasoMinutos, SALA_TML_LABEL } from '../lib/tml'
+import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer } from '../lib/tmlParser'
+import { isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, tempoDeslocamentoMinutos, SALA_TML_LABEL } from '../lib/tml'
 import { gerarResumoDiario, gerarResumoGerencial } from '../lib/tmlResumos'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
 
@@ -25,6 +25,13 @@ function ResultadoBadge({ resultado }: { resultado: HistoricoTML['resultado'] })
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-red-700 bg-red-100">
         <AlertTriangle className="h-3 w-3" /> Atrasado
+      </span>
+    )
+  }
+  if (resultado === 'invalido') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-purple-700 bg-purple-100">
+        <X className="h-3 w-3" /> Inválido (saiu antes da matinal)
       </span>
     )
   }
@@ -176,6 +183,7 @@ export default function DistribuicaoTML() {
   const [loading, setLoading] = useState(true)
   const [uploadingEscala, setUploadingEscala] = useState(false)
   const [uploadingSaida, setUploadingSaida] = useState(false)
+  const [uploadingChecklist, setUploadingChecklist] = useState(false)
   const [justificando, setJustificando] = useState<AlertaTML | null>(null)
   const [motivos, setMotivos] = useState<MotivoJustificativaTML[]>([])
   const [motivoSelecionado, setMotivoSelecionado] = useState('')
@@ -326,7 +334,7 @@ export default function DistribuicaoTML() {
       const mapasJaAlertados = new Set((alertasExistentes ?? []).map((a) => a.mapa))
 
       const erros: string[] = []
-      const diag = { jaAlertado: 0, semHorario: 0, semSala: 0, noPrazo: 0, semSupervisor: 0, pendentes: 0 }
+      const diag = { jaAlertado: 0, semHorario: 0, semSala: 0, noPrazo: 0, semSupervisor: 0, pendentes: 0, invalido: 0 }
       const historicoImediato: Record<string, unknown>[] = []
 
       for (const saida of saidas) {
@@ -355,6 +363,16 @@ export default function DistribuicaoTML() {
             filial: usuario.filial, mapa: saida.mapa, sala: null, placa, matricula, nome,
             data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: null, atraso_minutos: null,
             resultado: 'indefinido', observacao: 'Matrícula sem sala cadastrada no roster',
+          })
+          continue
+        }
+
+        if (saidaInvalida(sala, saida.horarioSaida)) {
+          diag.invalido++
+          historicoImediato.push({
+            filial: usuario.filial, mapa: saida.mapa, sala, placa, matricula, nome,
+            data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: null, atraso_minutos: null,
+            resultado: 'invalido', observacao: 'Saída registrada antes do horário matinal da sala',
           })
           continue
         }
@@ -440,6 +458,7 @@ export default function DistribuicaoTML() {
         `• ${diag.semSala} sem sala (matrícula não está no roster)\n` +
         `• ${diag.semSupervisor} sem supervisor cadastrado na sala\n` +
         `• ${diag.semHorario} sem horário de saída\n` +
+        `• ${diag.invalido} com saída inválida (antes da matinal — não entram na conta)\n` +
         `• ${diag.jaAlertado} já tinham alerta` +
         (erros.length ? `\n\nDetalhes:\n${erros.slice(0, 15).join('\n')}` : '')
       )
@@ -450,6 +469,64 @@ export default function DistribuicaoTML() {
       setErro(err instanceof Error ? err.message : 'Erro ao importar saída')
     } finally {
       setUploadingSaida(false)
+    }
+  }
+
+  async function handleChecklist(file: File) {
+    if (!usuario) return
+    setUploadingChecklist(true)
+    setErro('')
+    try {
+      const buffer = await file.arrayBuffer()
+      const checklist = parseChecklistBuffer(buffer)
+      if (checklist.length === 0) {
+        alert('Nenhum registro de checklist encontrado na planilha.')
+        return
+      }
+
+      const mapas = checklist.map((c) => c.mapa)
+      const { data: escalas } = await supabase
+        .from('escalas_tml')
+        .select('mapa, matricula')
+        .eq('filial', usuario.filial)
+        .in('mapa', mapas)
+      const matriculaPorMapa = new Map((escalas ?? []).map((e) => [e.mapa, e.matricula]))
+
+      let semHorario = 0
+      let semSala = 0
+      const linhas = checklist.map((c) => {
+        const matricula = matriculaPorMapa.get(c.mapa) ?? null
+        if (!isSalaTML(c.sala)) semSala++
+        if (!c.horarioInicio) semHorario++
+        const tempoDeslocamento = isSalaTML(c.sala) && c.horarioInicio
+          ? tempoDeslocamentoMinutos(c.sala, c.horarioInicio)
+          : null
+        return {
+          filial: usuario.filial,
+          mapa: c.mapa,
+          placa: c.placa,
+          matricula,
+          nome: c.nome,
+          sala: c.sala,
+          data: c.data,
+          horario_inicio: c.horarioInicio,
+          horario_final: c.horarioFinal,
+          tempo_deslocamento_minutos: tempoDeslocamento,
+        }
+      })
+
+      const { error } = await supabase.from('checklist_tml').upsert(linhas, { onConflict: 'filial,mapa' })
+      if (error) throw new Error(error.message)
+
+      alert(
+        `${checklist.length} registro(s) de checklist importado(s).\n\n` +
+        `• ${semSala} sem sala identificada\n` +
+        `• ${semHorario} sem horário de início do checklist`
+      )
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao importar checklist')
+    } finally {
+      setUploadingChecklist(false)
     }
   }
 
@@ -611,7 +688,7 @@ export default function DistribuicaoTML() {
 
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
 
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-4 md:grid-cols-3">
         <UploadBox
           titulo="1. Escala do dia (03.11.49.02)"
           descricao="Define qual motorista/placa está escalado para cada mapa."
@@ -623,6 +700,12 @@ export default function DistribuicaoTML() {
           descricao="Compara o horário de saída com o limite da sala. Motoristas que perderem o TML ficam pendentes de envio do alerta na tabela abaixo."
           onFile={handleSaida}
           isUploading={uploadingSaida}
+        />
+        <UploadBox
+          titulo="3. Checklist (HR INICIO)"
+          descricao="Mede o tempo de deslocamento: quanto tempo depois da matinal o motorista começou o checklist."
+          onFile={handleChecklist}
+          isUploading={uploadingChecklist}
         />
       </div>
 

@@ -321,7 +321,7 @@ export interface HistoricoTML {
   horario_saida: string | null
   horario_limite: string | null
   atraso_minutos: number | null
-  resultado: 'no_prazo' | 'atrasado' | 'indefinido'
+  resultado: 'no_prazo' | 'atrasado' | 'indefinido' | 'invalido'
   observacao: string | null
   alerta_id: string | null
   created_at: string
@@ -331,6 +331,22 @@ export interface MotivoJustificativaTML {
   id: string
   filial: string
   motivo: string
+  created_at: string
+}
+
+export interface ChecklistTML {
+  id: string
+  filial: string
+  mapa: number
+  placa: string | null
+  matricula: number | null
+  nome: string | null
+  sala: 'COLORADO' | 'SUB-FURIA' | null
+  data: string | null
+  horario_inicio: string | null
+  horario_final: string | null
+  tempo_deslocamento_minutos: number | null
+  motivo: string | null
   created_at: string
 }
 

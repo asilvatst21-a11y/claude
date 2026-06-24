@@ -34,3 +34,15 @@ export function horarioLimite(sala: SalaTML): string {
 export function atrasoMinutos(sala: SalaTML, horarioSaida: string): number {
   return horarioParaMinutos(horarioSaida) - horarioParaMinutos(horarioLimite(sala));
 }
+
+// Saída registrada antes do início da matinal não é uma saída de TML válida
+// (o motorista não pode ter saído antes do turno começar) — não entra na conta.
+export function saidaInvalida(sala: SalaTML, horarioSaida: string): boolean {
+  return horarioParaMinutos(horarioSaida) < horarioParaMinutos(REGRAS_TML[sala].matinal);
+}
+
+// Tempo de deslocamento: quanto tempo depois da matinal o motorista começou
+// o checklist. Negativo significa que ele iniciou antes da matinal.
+export function tempoDeslocamentoMinutos(sala: SalaTML, horarioInicioChecklist: string): number {
+  return horarioParaMinutos(horarioInicioChecklist) - horarioParaMinutos(REGRAS_TML[sala].matinal);
+}
