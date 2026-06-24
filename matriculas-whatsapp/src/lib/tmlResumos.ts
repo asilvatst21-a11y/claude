@@ -25,10 +25,12 @@ function tempoTmlMinutos(sala: SalaTML, horarioSaida: string): number {
 
 // Mapas da escala do dia cujo motorista (matrícula) não está cadastrado em
 // nenhuma sala — ficam parados, sem entrar em nenhuma contagem por sala.
-async function mapasParados(filial: string, data: string): Promise<number[]> {
+// Mapas de freteiro (placa começando com CRW) não contam como parados — são
+// listados separadamente, já que não entram na conta do TML.
+async function mapasParadosEFreteiros(filial: string, data: string): Promise<{ parados: number[]; placasFreteiros: string[] }> {
   const { data: escalas } = await supabase
     .from('escalas_tml')
-    .select('mapa, matricula')
+    .select('mapa, matricula, placa')
     .eq('filial', filial)
     .eq('data_entrega', data)
 
@@ -41,10 +43,15 @@ async function mapasParados(filial: string, data: string): Promise<number[]> {
   const comSala = new Set((roster ?? []).map((r) => r.matricula))
 
   const mapas = new Set<number>()
+  const placasFreteiros: string[] = []
   for (const e of escalas ?? []) {
+    if (e.placa?.toUpperCase().startsWith('CRW')) {
+      placasFreteiros.push(e.placa.toUpperCase())
+      continue
+    }
     if (e.matricula == null || !comSala.has(e.matricula)) mapas.add(e.mapa)
   }
-  return [...mapas].sort((a, b) => a - b)
+  return { parados: [...mapas].sort((a, b) => a - b), placasFreteiros: placasFreteiros.sort() }
 }
 
 // Quantos mapas eram esperados em cada sala na data, a partir da escala
@@ -151,7 +158,10 @@ export async function gerarResumoDiario(filial: string, data: string): Promise<s
   texto += `🕗 Aguardando justificativa: ${aguardando}\n`
   texto += `\n📊 Total geral: ${totalBateram} bateram o TML | ${totalPerderam} perderam`
 
-  const parados = await mapasParados(filial, data)
+  const { parados, placasFreteiros } = await mapasParadosEFreteiros(filial, data)
+  if (placasFreteiros.length > 0) {
+    texto += `\n\n🚚 Freteiros: ${placasFreteiros.length} (${placasFreteiros.join(', ')})`
+  }
   if (parados.length > 0) {
     texto += `\n\n🚧 Mapas parados (motorista sem sala cadastrada): ${parados.join(', ')}`
   }
@@ -245,7 +255,10 @@ export async function gerarResumoGerencial(filial: string, data: string): Promis
   const tmlCdd = nTmlGeral > 0 ? Math.round(somaTmlGeral / nTmlGeral) : 0
   texto += `\n⏱️ TML do CDD: ${tmlCdd} min`
 
-  const parados = await mapasParados(filial, data)
+  const { parados, placasFreteiros } = await mapasParadosEFreteiros(filial, data)
+  if (placasFreteiros.length > 0) {
+    texto += `\n\n🚚 Freteiros: ${placasFreteiros.length} (${placasFreteiros.join(', ')})`
+  }
   if (parados.length > 0) {
     texto += `\n\n🚧 Mapas parados (motorista sem sala cadastrada): ${parados.join(', ')}`
   }
