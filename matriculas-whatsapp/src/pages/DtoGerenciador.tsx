@@ -162,7 +162,7 @@ function semanaAtual(): { seg: Date; dom: Date } {
 
 interface LinhaCalc {
   ativ: DtoAtividade
-  d25: number; d26: number
+  d25: number; d26: number; totalRealizados: number
   atosRecentes: number; atosAnteriores: number; abordPos: number
   cInicial: string
   gatilho: 'S' | 'N'
@@ -421,12 +421,13 @@ export default function DtoGerenciador() {
 
   // ── Desvios DTO + último DTO por atividade (match por nome normalizado, com apelidos) ──
   const dtoPorAtividade = useMemo(() => {
-    const m = new Map<string, { d25: number; d26: number; ultimo: Date | null }>()
+    const m = new Map<string, { d25: number; d26: number; total: number; ultimo: Date | null }>()
     for (const o of observacoes) {
       const key = norm(resolverNome(o.atividade))
       if (!key) continue
-      if (!m.has(key)) m.set(key, { d25: 0, d26: 0, ultimo: null })
+      if (!m.has(key)) m.set(key, { d25: 0, d26: 0, total: 0, ultimo: null })
       const acc = m.get(key)!
+      acc.total++
       const ano = anoDe(o.data_aplicacao)
       const desvio = norm(o.houve_desvio) === 'SIM'
       if (desvio && ano === ANO_ANTERIOR) acc.d25++
@@ -470,7 +471,7 @@ export default function DtoGerenciador() {
   // ── Cálculo final por atividade ──
   const linhas = useMemo<LinhaCalc[]>(() => {
     return atividades.filter(a => a.ativo).map(ativ => {
-      const dto = dtoPorAtividade.get(norm(ativ.nome_atividade)) ?? { d25: 0, d26: 0, ultimo: null }
+      const dto = dtoPorAtividade.get(norm(ativ.nome_atividade)) ?? { d25: 0, d26: 0, total: 0, ultimo: null }
       const rel = relatoPorAtividade.get(norm(ativ.nome_atividade)) ?? { atosRecentes: 0, atosAnteriores: 0, abordPos: 0 }
       const cInicial = criticidadeInicial(dto.d25, dto.d26, ativ.criticidade_base)
       const gatilho = calcGatilho(rel.atosAnteriores, rel.atosRecentes)
@@ -485,7 +486,7 @@ export default function DtoGerenciador() {
         diasRestantes = Math.round((vencimento.getTime() - HOJE.getTime()) / 86400000)
         status = diasRestantes < 0 ? 'Vencido' : diasRestantes <= 7 ? 'A vencer' : 'Em dia'
       }
-      return { ativ, d25: dto.d25, d26: dto.d26, atosRecentes: rel.atosRecentes, atosAnteriores: rel.atosAnteriores, abordPos: rel.abordPos, cInicial, gatilho, risco, periodicidade, ultimoDTO, vencimento, diasRestantes, status }
+      return { ativ, d25: dto.d25, d26: dto.d26, totalRealizados: dto.total, atosRecentes: rel.atosRecentes, atosAnteriores: rel.atosAnteriores, abordPos: rel.abordPos, cInicial, gatilho, risco, periodicidade, ultimoDTO, vencimento, diasRestantes, status }
     })
   }, [atividades, dtoPorAtividade, relatoPorAtividade])
 
@@ -726,6 +727,7 @@ export default function DtoGerenciador() {
                             <tr>
                               <td colSpan={7} className="bg-gray-50 border-b border-gray-200 px-6 py-4">
                                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                                  <MemoBox titulo="DTOs realizados (total)" val={String(l.totalRealizados)} />
                                   <MemoBox titulo={`Desvios DTO ${ANO_ANTERIOR} → ${ANO_ATUAL}`} val={`${l.d25} → ${l.d26}`} trend={l.d26 - l.d25} />
                                   <MemoBox titulo={`Atos inseguros ${LABEL_ANTERIOR} → ${LABEL_RECENTE}`} val={`${l.atosAnteriores} → ${l.atosRecentes}`} trend={l.atosRecentes - l.atosAnteriores} />
                                   <MemoBox titulo={`Abordagem positiva (${LABEL_RECENTE})`} val={String(l.abordPos)} trend={-l.abordPos} />
