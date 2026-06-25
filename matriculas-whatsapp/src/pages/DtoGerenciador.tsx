@@ -375,6 +375,20 @@ export default function DtoGerenciador() {
     return m
   }, [observacoes])
 
+  // ── Observações cuja atividade não bate com nenhum cadastro ativo (nome divergente,
+  // atividade desativada/excluída ou campo em branco) — ficam fora dos cálculos acima. ──
+  const observacoesNaoReconhecidas = useMemo(() => {
+    const nomesAtivos = new Set(atividades.filter(a => a.ativo).map(a => norm(a.nome_atividade)))
+    const m = new Map<string, number>()
+    for (const o of observacoes) {
+      const key = norm(o.atividade)
+      if (key && nomesAtivos.has(key)) continue
+      const nome = o.atividade?.trim() || '(atividade em branco)'
+      m.set(nome, (m.get(nome) ?? 0) + 1)
+    }
+    return Array.from(m.entries()).map(([nome, qtd]) => ({ nome, qtd })).sort((a, b) => b.qtd - a.qtd)
+  }, [observacoes, atividades])
+
   // ── Cálculo final por atividade ──
   const linhas = useMemo<LinhaCalc[]>(() => {
     return atividades.filter(a => a.ativo).map(ativ => {
@@ -510,6 +524,33 @@ export default function DtoGerenciador() {
               </div>
             ))}
           </div>
+
+          {/* Observações não reconhecidas — explica divergência de totais com a tela de Análise DTO */}
+          {observacoesNaoReconhecidas.length > 0 && (
+            <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-orange-600 mt-0.5 shrink-0" />
+                <div className="space-y-1.5">
+                  <p className="text-sm font-semibold text-orange-900">
+                    {observacoesNaoReconhecidas.reduce((s, d) => s + d.qtd, 0)} observação(ões) não entram nos cálculos acima
+                  </p>
+                  <p className="text-xs text-orange-800">
+                    O nome da atividade na observação não bate com nenhuma atividade ativa cadastrada — por acento/grafia diferente,
+                    atividade desativada ou campo em branco. Corrija o nome em "Cadastro" ou na planilha importada para que essas
+                    observações entrem no cálculo de risco e vencimento.
+                  </p>
+                  <ul className="text-xs text-orange-800 space-y-0.5 pt-1">
+                    {observacoesNaoReconhecidas.slice(0, 15).map(d => (
+                      <li key={d.nome}>• <strong>{d.nome}</strong> — {d.qtd} observação(ões)</li>
+                    ))}
+                  </ul>
+                  {observacoesNaoReconhecidas.length > 15 && (
+                    <p className="text-xs text-orange-700">e mais {observacoesNaoReconhecidas.length - 15} nome(s)...</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Tabs */}
           <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
