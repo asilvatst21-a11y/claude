@@ -12,9 +12,10 @@ export interface Usuario {
 
 /** Todas as seções configuráveis por permissão */
 export const SECOES_SISTEMA = [
-  { key: 'dashboard',       label: 'Dashboard',       grupo: 'Segurança'    },
+  { key: 'dashboard',       label: 'Início',          grupo: 'Segurança'    },
   { key: 'matriculas',      label: 'Matrículas',      grupo: 'Segurança'    },
   { key: 'clientes',        label: 'Clientes',        grupo: 'Segurança'    },
+  { key: 'disparos',        label: 'Disparos',        grupo: 'Segurança'    },
   { key: 'historico',       label: 'Histórico',       grupo: 'Segurança'    },
   { key: 'gsdpq',           label: 'GSDPQ',           grupo: 'Segurança'    },
   { key: 'dto',             label: 'DTO',              grupo: 'Segurança'    },

@@ -4,14 +4,15 @@ import {
   Users, CreditCard, MessageSquare, BarChart2, LogOut, Building2,
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
-  Wallet, Menu, X, Truck, Boxes, LineChart, Timer,
+  Wallet, Menu, X, Truck, Boxes, LineChart, Timer, Home, Send,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
 const segItems = [
-  { permKey: 'dashboard',       to: '/',                label: 'Dashboard',       icon: BarChart2,    end: true },
+  { permKey: 'dashboard',       to: '/',                label: 'Início',          icon: Home,         end: true },
   { permKey: 'matriculas',      to: '/matriculas',      label: 'Matrículas',      icon: CreditCard             },
   { permKey: 'clientes',        to: '/clientes',        label: 'Clientes',        icon: Users                  },
+  { permKey: 'disparos',        to: '/disparos',        label: 'Disparos',        icon: Send                   },
   { permKey: 'historico',       to: '/historico',       label: 'Histórico',       icon: MessageSquare          },
   { permKey: 'gsdpq',           to: '/gsdpq',           label: 'Análise GSDPQ',   icon: ClipboardList          },
   { permKey: 'dto',             to: '/dto',             label: 'Análise DTO',     icon: Activity               },
