@@ -352,8 +352,13 @@ export default function DtoGerenciador() {
   async function vincularAlias(alias: string, nomeAtividade: string) {
     if (!usuario) return
     setVinculando(alias)
-    await supabase.from('dto_atividade_aliases')
+    const { error } = await supabase.from('dto_atividade_aliases')
       .upsert({ filial: usuario.filial, alias, nome_atividade: nomeAtividade }, { onConflict: 'filial,alias' })
+    if (error) {
+      alert(`Não foi possível vincular "${alias}": ${error.message}`)
+      setVinculando(null)
+      return
+    }
     await carregar()
     setVinculando(null)
   }
