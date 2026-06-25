@@ -139,6 +139,16 @@ export function mapApiStatus(short: string): MatchStatus {
   }
 }
 
+// A fixture can briefly report a stale/wrong status (or get matched to the wrong
+// externalId upstream) — never let a match flip to LIVE/FINISHED before its own
+// kickoff time actually arrives, no matter what the API just said.
+export function guardStatusAgainstKickoff(status: MatchStatus, startsAt: Date): MatchStatus {
+  if ((status === "LIVE" || status === "FINISHED") && startsAt.getTime() > Date.now()) {
+    return "SCHEDULED";
+  }
+  return status;
+}
+
 export function mapApiStage(round: string): MatchStage {
   if (round.includes("Group Stage")) return "GROUP";
   if (round.includes("Round of 32") || round.includes("1/16-finals")) return "ROUND_OF_32";

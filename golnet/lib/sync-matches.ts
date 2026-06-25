@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
-import { fetchFixturesByIds, mapApiStatus, regulationScore, extractGoals, type GoalEvent } from "@/lib/api-football";
+import { fetchFixturesByIds, mapApiStatus, regulationScore, guardStatusAgainstKickoff, extractGoals, type GoalEvent } from "@/lib/api-football";
 
 // Skip hitting the external API again if we already refreshed within this window —
 // keeps frequent client-side polling from hammering API-Football or racing itself.
@@ -40,7 +40,7 @@ export async function refreshMatchScores(): Promise<RefreshResult> {
 
   const dbMatches = await prisma.match.findMany({
     where: matchFilter,
-    select: { id: true, externalId: true, lastSyncedAt: true },
+    select: { id: true, externalId: true, lastSyncedAt: true, startsAt: true },
   });
 
   const externalIds = dbMatches.map((m) => Number(m.externalId));
@@ -72,7 +72,7 @@ export async function refreshMatchScores(): Promise<RefreshResult> {
     const match = matchMap[String(fixture.fixture.id)];
     if (!match) return;
 
-    const status = mapApiStatus(fixture.fixture.status.short);
+    const status = guardStatusAgainstKickoff(mapApiStatus(fixture.fixture.status.short), match.startsAt);
     const { home: homeScore, away: awayScore } = regulationScore(fixture, status);
     const goals = (status === "FINISHED" || status === "LIVE") ? extractGoals(fixture) : undefined;
     if (goals && goals.length > 0) freshGoals[match.id] = goals;
