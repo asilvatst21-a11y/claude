@@ -75,7 +75,9 @@ export default function Disparos() {
 
     const [{ data: clientesDB }, { data: vendasDB }, { data: escalasDB }, { data: matriculasDB }] = await Promise.all([
       supabase.from('clientes').select('*').eq('filial', usuario.filial).order('nome'),
-      valesSupabase.from('vendas_dia').select('pdv_codigo, mapa').eq('filial', usuario.filial).eq('data', data),
+      // vendas_dia.filial vem do código UNB do CSV da Ambev (ex.: "0086"), não do
+      // nome da filial do usuário — não dá pra filtrar por usuario.filial aqui.
+      valesSupabase.from('vendas_dia').select('pdv_codigo, mapa').eq('data', data),
       supabase.from('escalas_tml').select('mapa, matricula').eq('filial', usuario.filial).eq('data_entrega', data),
       supabase.from('matriculas').select('*').eq('filial', usuario.filial).eq('ativo', true),
     ])
