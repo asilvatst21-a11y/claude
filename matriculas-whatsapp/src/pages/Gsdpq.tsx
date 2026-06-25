@@ -817,10 +817,17 @@ export default function Gsdpq() {
         colaborador_id: colabMap.get(r.colaborador_nome.toUpperCase()) ?? null,
       }))
 
+      // A planilha pode ter linhas duplicadas para a mesma chave (filial,
+      // colaborador, data, questão) — o Postgres rejeita upsert com a mesma
+      // chave repetida no mesmo comando, então deduplicamos mantendo a última.
+      const rowsDedup = Array.from(
+        new Map(rowsComFilial.map(r => [`${r.filial}|${r.colaborador_nome}|${r.data_avaliacao}|${r.questao}`, r])).values()
+      )
+
       let erroEncontrado: string | null = null
-      for (let i = 0; i < rowsComFilial.length; i += 50) {
+      for (let i = 0; i < rowsDedup.length; i += 50) {
         const { error } = await supabase.from('gsdpq_avaliacoes')
-          .upsert(rowsComFilial.slice(i, i + 50), { onConflict: 'filial,colaborador_nome,data_avaliacao,questao' })
+          .upsert(rowsDedup.slice(i, i + 50), { onConflict: 'filial,colaborador_nome,data_avaliacao,questao' })
         if (error) { erroEncontrado = error.message; break }
       }
 
@@ -828,8 +835,9 @@ export default function Gsdpq() {
         setImportResult({ tipo: 'erro', mensagem: `Erro ao salvar: ${erroEncontrado}` })
       } else {
         setQuestoes(qs)
-        const colaboradoresUnicos = new Set(rows.map(r => r.colaborador_nome)).size
-        setImportResult({ tipo: 'sucesso', mensagem: `✅ ${rows.length} registros importados com sucesso (${colaboradoresUnicos} colaboradores).` })
+        const colaboradoresUnicos = new Set(rowsDedup.map(r => r.colaborador_nome)).size
+        const duplicados = rows.length - rowsDedup.length
+        setImportResult({ tipo: 'sucesso', mensagem: `✅ ${rowsDedup.length} registros importados com sucesso (${colaboradoresUnicos} colaboradores).${duplicados > 0 ? ` ${duplicados} linha(s) duplicada(s) na planilha foram ignoradas.` : ''}` })
         await carregarDados()
       }
     } catch (e) {
@@ -854,17 +862,20 @@ export default function Gsdpq() {
         return
       }
 
+      const rowsDedup = Array.from(new Map(rows.map(r => [`${r.filial}|${r.nome}`, r])).values())
+
       let erroEncontrado: string | null = null
-      for (let i = 0; i < rows.length; i += 50) {
+      for (let i = 0; i < rowsDedup.length; i += 50) {
         const { error } = await supabase.from('gsdpq_colaboradores')
-          .upsert(rows.slice(i, i + 50), { onConflict: 'filial,nome' })
+          .upsert(rowsDedup.slice(i, i + 50), { onConflict: 'filial,nome' })
         if (error) { erroEncontrado = error.message; break }
       }
 
       if (erroEncontrado) {
         setImportResult({ tipo: 'erro', mensagem: `Erro ao salvar colaboradores: ${erroEncontrado}` })
       } else {
-        setImportResult({ tipo: 'sucesso', mensagem: `✅ ${rows.length} colaboradores atualizados com sucesso.` })
+        const duplicados = rows.length - rowsDedup.length
+        setImportResult({ tipo: 'sucesso', mensagem: `✅ ${rowsDedup.length} colaboradores atualizados com sucesso.${duplicados > 0 ? ` ${duplicados} linha(s) duplicada(s) na planilha foram ignoradas.` : ''}` })
         await carregarDados()
       }
     } catch (e) {
