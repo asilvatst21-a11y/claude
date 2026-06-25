@@ -7,7 +7,7 @@ import * as XLSX from 'xlsx'
 import html2canvas from 'html2canvas'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import type { DtoAtividade, DtoAvaliador, DtoObservacao, Relato } from '../types'
+import type { DtoAtividade, DtoAtividadeAlias, DtoAvaliador, DtoObservacao, Relato } from '../types'
 
 // ── Seed: base de atividades (Calendarização Armazém + Oficina da planilha oficial) ──
 
@@ -216,6 +216,38 @@ function StatusBadge({ status, dias }: { status: LinhaCalc['status']; dias: numb
   return <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${map[status]}`}>{txt}</span>
 }
 
+function LinhaVincular({ nome, qtd, opcoes, vinculando, onVincular }: {
+  nome: string; qtd: number; opcoes: string[]; vinculando: boolean
+  onVincular: (alias: string, nomeAtividade: string) => void
+}) {
+  const [destino, setDestino] = useState('')
+  const semBranco = nome !== '(atividade em branco)'
+  return (
+    <li className="flex flex-wrap items-center gap-2 py-1">
+      <span>• <strong>{nome}</strong> — {qtd} observação(ões)</span>
+      {semBranco && (
+        <>
+          <select
+            value={destino}
+            onChange={e => setDestino(e.target.value)}
+            className="text-xs border border-orange-300 rounded px-1.5 py-0.5 bg-white text-orange-900"
+          >
+            <option value="">vincular a...</option>
+            {opcoes.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+          <button
+            disabled={!destino || vinculando}
+            onClick={() => onVincular(nome, destino)}
+            className="text-xs font-medium px-2 py-0.5 rounded bg-orange-600 text-white disabled:opacity-40 hover:bg-orange-700"
+          >
+            {vinculando ? 'Vinculando...' : 'Vincular'}
+          </button>
+        </>
+      )}
+    </li>
+  )
+}
+
 // ── Componente principal ────────────────────────────────────────────────────────────────
 
 export default function DtoGerenciador() {
@@ -224,6 +256,8 @@ export default function DtoGerenciador() {
   const [observacoes, setObservacoes] = useState<DtoObservacao[]>([])
   const [relatos, setRelatos] = useState<Relato[]>([])
   const [avaliadores, setAvaliadores] = useState<DtoAvaliador[]>([])
+  const [aliases, setAliases] = useState<DtoAtividadeAlias[]>([])
+  const [vinculando, setVinculando] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [semeando, setSemeando] = useState(false)
   const [aba, setAba] = useState<'calendario' | 'fila' | 'responsavel' | 'cadastro'>('calendario')
@@ -298,20 +332,31 @@ export default function DtoGerenciador() {
   async function carregar() {
     if (!usuario) return
     setCarregando(true)
-    const [{ data: ativ }, { data: obs }, { data: rel }, { data: av }] = await Promise.all([
+    const [{ data: ativ }, { data: obs }, { data: rel }, { data: av }, { data: ali }] = await Promise.all([
       supabase.from('dto_atividades').select('*').eq('filial', usuario.filial).order('area').order('nome_atividade'),
       supabase.from('dto_observacoes').select('*').eq('filial', usuario.filial),
       supabase.from('relatos').select('*').eq('filial', usuario.filial),
       supabase.from('dto_avaliadores').select('*').eq('filial', usuario.filial).eq('ativo', true).order('nome'),
+      supabase.from('dto_atividade_aliases').select('*').eq('filial', usuario.filial),
     ])
     setAtividades(ativ ?? [])
     setObservacoes(obs ?? [])
     setAvaliadores(av ?? [])
     setRelatos(rel ?? [])
+    setAliases(ali ?? [])
     setCarregando(false)
   }
 
   useEffect(() => { carregar() }, [usuario?.filial])
+
+  async function vincularAlias(alias: string, nomeAtividade: string) {
+    if (!usuario) return
+    setVinculando(alias)
+    await supabase.from('dto_atividade_aliases')
+      .upsert({ filial: usuario.filial, alias, nome_atividade: nomeAtividade }, { onConflict: 'filial,alias' })
+    await carregar()
+    setVinculando(null)
+  }
 
   async function semearBase() {
     if (!usuario) return
@@ -335,11 +380,23 @@ export default function DtoGerenciador() {
     setAtividades(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a))
   }
 
+  // ── Apelidos: nomes divergentes nas observações/relatos (acento, grafia) que apontam
+  // para o nome oficial cadastrado em dto_atividades ──
+  const aliasMap = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const a of aliases) m.set(norm(a.alias), a.nome_atividade)
+    return m
+  }, [aliases])
+  function resolverNome(nome: string | null | undefined): string {
+    const n = norm(nome)
+    return n ? (aliasMap.get(n) ?? nome ?? '') : ''
+  }
+
   // ── Agregados de relato por ATIVIDADE — janela móvel intra-2026 (2 meses recentes vs 2 anteriores) ──
   const relatoPorAtividade = useMemo(() => {
     const m = new Map<string, { atosRecentes: number; atosAnteriores: number; abordPos: number }>()
     for (const r of relatos) {
-      const key = norm(r.atividade)
+      const key = norm(resolverNome(r.atividade))
       if (!key) continue
       const d = parseData(r.data_ocorrencia)
       if (!d) continue
@@ -355,13 +412,13 @@ export default function DtoGerenciador() {
       }
     }
     return m
-  }, [relatos])
+  }, [relatos, aliasMap])
 
-  // ── Desvios DTO + último DTO por atividade (match por nome normalizado) ──
+  // ── Desvios DTO + último DTO por atividade (match por nome normalizado, com apelidos) ──
   const dtoPorAtividade = useMemo(() => {
     const m = new Map<string, { d25: number; d26: number; ultimo: Date | null }>()
     for (const o of observacoes) {
-      const key = norm(o.atividade)
+      const key = norm(resolverNome(o.atividade))
       if (!key) continue
       if (!m.has(key)) m.set(key, { d25: 0, d26: 0, ultimo: null })
       const acc = m.get(key)!
@@ -373,21 +430,26 @@ export default function DtoGerenciador() {
       if (d && (!acc.ultimo || d > acc.ultimo)) acc.ultimo = d
     }
     return m
-  }, [observacoes])
+  }, [observacoes, aliasMap])
 
-  // ── Observações cuja atividade não bate com nenhum cadastro ativo (nome divergente,
-  // atividade desativada/excluída ou campo em branco) — ficam fora dos cálculos acima. ──
+  // ── Observações cuja atividade não bate com nenhum cadastro ativo, mesmo após aplicar
+  // os apelidos (nome divergente sem apelido, atividade desativada/excluída ou em branco) ──
   const observacoesNaoReconhecidas = useMemo(() => {
     const nomesAtivos = new Set(atividades.filter(a => a.ativo).map(a => norm(a.nome_atividade)))
     const m = new Map<string, number>()
     for (const o of observacoes) {
-      const key = norm(o.atividade)
+      const key = norm(resolverNome(o.atividade))
       if (key && nomesAtivos.has(key)) continue
       const nome = o.atividade?.trim() || '(atividade em branco)'
       m.set(nome, (m.get(nome) ?? 0) + 1)
     }
     return Array.from(m.entries()).map(([nome, qtd]) => ({ nome, qtd })).sort((a, b) => b.qtd - a.qtd)
-  }, [observacoes, atividades])
+  }, [observacoes, atividades, aliasMap])
+
+  const nomesAtividadesAtivas = useMemo(
+    () => Array.from(new Set(atividades.filter(a => a.ativo).map(a => a.nome_atividade))).sort(),
+    [atividades]
+  )
 
   // ── Cálculo final por atividade ──
   const linhas = useMemo<LinhaCalc[]>(() => {
@@ -536,12 +598,19 @@ export default function DtoGerenciador() {
                   </p>
                   <p className="text-xs text-orange-800">
                     O nome da atividade na observação não bate com nenhuma atividade ativa cadastrada — por acento/grafia diferente,
-                    atividade desativada ou campo em branco. Corrija o nome em "Cadastro" ou na planilha importada para que essas
-                    observações entrem no cálculo de risco e vencimento.
+                    atividade desativada ou campo em branco. Vincule abaixo ao nome oficial do cadastro (vale para sempre, não precisa
+                    repetir quando a mesma planilha vier de novo) ou cadastre como atividade nova em "Cadastro".
                   </p>
                   <ul className="text-xs text-orange-800 space-y-0.5 pt-1">
                     {observacoesNaoReconhecidas.slice(0, 15).map(d => (
-                      <li key={d.nome}>• <strong>{d.nome}</strong> — {d.qtd} observação(ões)</li>
+                      <LinhaVincular
+                        key={d.nome}
+                        nome={d.nome}
+                        qtd={d.qtd}
+                        opcoes={nomesAtividadesAtivas}
+                        vinculando={vinculando === d.nome}
+                        onVincular={vincularAlias}
+                      />
                     ))}
                   </ul>
                   {observacoesNaoReconhecidas.length > 15 && (

@@ -186,6 +186,14 @@ export interface DtoAtividade {
   created_at: string
 }
 
+export interface DtoAtividadeAlias {
+  id: string
+  filial: string
+  alias: string
+  nome_atividade: string
+  created_at: string
+}
+
 export interface ProntuarioSnapshot {
   id: string
   filial: string
