@@ -10,7 +10,8 @@ import DistribuicaoTMLMotoristas from './pages/DistribuicaoTMLMotoristas'
 import DistribuicaoTMLAnalise from './pages/DistribuicaoTMLAnalise'
 import DistribuicaoTMLDeslocamento from './pages/DistribuicaoTMLDeslocamento'
 import DistribuicaoTMLWhatsappConfig from './pages/DistribuicaoTMLWhatsappConfig'
-import Dashboard from './pages/Dashboard'
+import Home from './pages/Home'
+import Disparos from './pages/Disparos'
 import Matriculas from './pages/Matriculas'
 import Clientes from './pages/Clientes'
 import Historico from './pages/Historico'
@@ -78,9 +79,10 @@ export default function App() {
           <Route path="/solicitar-extra" element={<SolicitarExtra />} />
           <Route path="/armazem" element={<ArmazemOperadorRoute />} />
           <Route element={<ProtectedRoutes />}>
-            <Route path="/" element={<Dashboard />} />
+            <Route path="/" element={<Home />} />
             <Route path="/matriculas" element={<Matriculas />} />
             <Route path="/clientes" element={<Clientes />} />
+            <Route path="/disparos" element={<Disparos />} />
             <Route path="/historico" element={<Historico />} />
             <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
             <Route path="/fluxo" element={<AdminRoute><FluxoPunitivo /></AdminRoute>} />
