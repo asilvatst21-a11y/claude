@@ -219,14 +219,14 @@ function parseGsdpqExcel(buffer: ArrayBuffer): { rows: Omit<GsdpqAvaliacao, 'id'
     const realizado_por = r[cols[3]] ?? ''
     const funcao = (r[cols[6]] ?? '').trim()
     const equipe = r[cols[7]] ?? ''
-    const data_avaliacao = r[cols[9]] ?? ''
+    const data_avaliacao = (r[cols[9]] ?? '').trim()
     const observacoes = r[cols[12]] ?? ''
-    const filial = r[cols[1]] ?? ''
+    const filial = (r[cols[1]] ?? '').trim()
 
     questoes.forEach(q => {
       const resultado = (r[q] ?? '').toString().toUpperCase().trim()
       if (!resultado) return
-      rows.push({ filial, colaborador_nome, realizado_por, funcao: funcao || null, equipe, data_avaliacao, questao: q, resultado, observacoes })
+      rows.push({ filial, colaborador_nome, realizado_por, funcao: funcao || null, equipe, data_avaliacao, questao: q.trim(), resultado, observacoes })
     })
   })
 
@@ -826,9 +826,20 @@ export default function Gsdpq() {
 
       let erroEncontrado: string | null = null
       for (let i = 0; i < rowsDedup.length; i += 50) {
+        const lote = rowsDedup.slice(i, i + 50)
         const { error } = await supabase.from('gsdpq_avaliacoes')
-          .upsert(rowsDedup.slice(i, i + 50), { onConflict: 'filial,colaborador_nome,data_avaliacao,questao' })
-        if (error) { erroEncontrado = error.message; break }
+          .upsert(lote, { onConflict: 'filial,colaborador_nome,data_avaliacao,questao' })
+        if (error) {
+          if (!error.message.includes('cannot affect row a second time')) { erroEncontrado = error.message; break }
+          // Conflito de chave dentro do próprio lote não previsto pela deduplicação —
+          // salva linha por linha (mais lento, porém à prova desse erro).
+          for (const linha of lote) {
+            const { error: errLinha } = await supabase.from('gsdpq_avaliacoes')
+              .upsert([linha], { onConflict: 'filial,colaborador_nome,data_avaliacao,questao' })
+            if (errLinha) { erroEncontrado = errLinha.message; break }
+          }
+          if (erroEncontrado) break
+        }
       }
 
       if (erroEncontrado) {
@@ -866,9 +877,17 @@ export default function Gsdpq() {
 
       let erroEncontrado: string | null = null
       for (let i = 0; i < rowsDedup.length; i += 50) {
+        const lote = rowsDedup.slice(i, i + 50)
         const { error } = await supabase.from('gsdpq_colaboradores')
-          .upsert(rowsDedup.slice(i, i + 50), { onConflict: 'filial,nome' })
-        if (error) { erroEncontrado = error.message; break }
+          .upsert(lote, { onConflict: 'filial,nome' })
+        if (error) {
+          if (!error.message.includes('cannot affect row a second time')) { erroEncontrado = error.message; break }
+          for (const linha of lote) {
+            const { error: errLinha } = await supabase.from('gsdpq_colaboradores').upsert([linha], { onConflict: 'filial,nome' })
+            if (errLinha) { erroEncontrado = errLinha.message; break }
+          }
+          if (erroEncontrado) break
+        }
       }
 
       if (erroEncontrado) {
