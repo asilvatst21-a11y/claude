@@ -122,8 +122,10 @@ function riscoFinal(cInicial: string, gat: 'S' | 'N', abordPos: number, atos: nu
   if (abordPos >= atos) return descer(cInicial)
   return cInicial
 }
-function periodicidadeDias(risco: string): number {
-  return ({ Crítico: 15, Alto: 30, Médio: 45, Baixo: 60, Trivial: 60 } as Record<string, number>)[risco] ?? 60
+/** Trivial não tem prazo fixo: o DTO é feito apenas quando há uma ocorrência (sob demanda). */
+function periodicidadeDias(risco: string): number | null {
+  if (risco === 'Trivial') return null
+  return ({ Crítico: 15, Alto: 30, Médio: 45, Baixo: 60 } as Record<string, number>)[risco] ?? 60
 }
 
 // ── Normalização e datas ────────────────────────────────────────────────────────────────
@@ -150,6 +152,9 @@ function anoDe(s: string | null | undefined): number | null {
 function fmtData(d: Date | null): string {
   return d ? d.toLocaleDateString('pt-BR') : '—'
 }
+function fmtPeriodicidade(p: number | null): string {
+  return p === null ? 'Na ocorrência' : `${p}d`
+}
 function semanaAtual(): { seg: Date; dom: Date } {
   const hoje = new Date()
   const dow = hoje.getDay()
@@ -167,11 +172,11 @@ interface LinhaCalc {
   cInicial: string
   gatilho: 'S' | 'N'
   risco: string
-  periodicidade: number
+  periodicidade: number | null
   ultimoDTO: Date | null
   vencimento: Date | null
   diasRestantes: number | null
-  status: 'Vencido' | 'A vencer' | 'Em dia' | 'Nunca'
+  status: 'Vencido' | 'A vencer' | 'Em dia' | 'Nunca' | 'Sob demanda'
 }
 
 const ANO_ATUAL = new Date().getFullYear()
@@ -204,14 +209,16 @@ function NivelBadge({ nivel }: { nivel: string }) {
 }
 function StatusBadge({ status, dias }: { status: LinhaCalc['status']; dias: number | null }) {
   const map = {
-    Vencido:    'bg-red-100 text-red-700 border-red-300',
-    'A vencer': 'bg-yellow-100 text-yellow-800 border-yellow-300',
-    'Em dia':   'bg-green-100 text-green-800 border-green-300',
-    Nunca:      'bg-purple-100 text-purple-800 border-purple-300',
+    Vencido:       'bg-red-100 text-red-700 border-red-300',
+    'A vencer':    'bg-yellow-100 text-yellow-800 border-yellow-300',
+    'Em dia':      'bg-green-100 text-green-800 border-green-300',
+    Nunca:         'bg-purple-100 text-purple-800 border-purple-300',
+    'Sob demanda': 'bg-gray-100 text-gray-600 border-gray-300',
   }
   const txt = status === 'Nunca' ? 'Nunca realizado'
     : status === 'Vencido' ? `Vencido há ${Math.abs(dias ?? 0)}d`
     : status === 'A vencer' ? `Vence em ${dias}d`
+    : status === 'Sob demanda' ? 'Na ocorrência'
     : `Em dia (${dias}d)`
   return <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${map[status]}`}>{txt}</span>
 }
@@ -260,7 +267,7 @@ export default function DtoGerenciador() {
   const [vinculando, setVinculando] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [semeando, setSemeando] = useState(false)
-  const [aba, setAba] = useState<'calendario' | 'fila' | 'responsavel' | 'cadastro'>('calendario')
+  const [aba, setAba] = useState<'calendario' | 'fila' | 'responsavel' | 'cadastro' | 'apelidos'>('calendario')
   const [filtroArea, setFiltroArea] = useState('Todas')
   const [filtroStatus, setFiltroStatus] = useState<'Todos' | LinhaCalc['status']>('Todos')
   const [expand, setExpand] = useState<string | null>(null)
@@ -297,7 +304,7 @@ export default function DtoGerenciador() {
       l.ativ.area,
       l.ativ.responsavel ?? '',
       l.risco,
-      l.periodicidade,
+      fmtPeriodicidade(l.periodicidade),
       l.status + (l.diasRestantes !== null ? ` (${Math.abs(l.diasRestantes)}d)` : ''),
       fmtData(l.ultimoDTO),
       fmtData(l.vencimento),
@@ -481,7 +488,9 @@ export default function DtoGerenciador() {
       let vencimento: Date | null = null
       let diasRestantes: number | null = null
       let status: LinhaCalc['status'] = 'Nunca'
-      if (ultimoDTO) {
+      if (periodicidade === null) {
+        status = 'Sob demanda'
+      } else if (ultimoDTO) {
         vencimento = new Date(ultimoDTO); vencimento.setDate(vencimento.getDate() + periodicidade)
         diasRestantes = Math.round((vencimento.getTime() - HOJE.getTime()) / 86400000)
         status = diasRestantes < 0 ? 'Vencido' : diasRestantes <= 7 ? 'A vencer' : 'Em dia'
@@ -493,7 +502,7 @@ export default function DtoGerenciador() {
   const areas = ['Todas', ...Array.from(new Set(atividades.map(a => a.area)))]
 
   // ordena: status (Nunca/Vencido primeiro) → risco desc → dias asc
-  const ordemStatus = { Nunca: 0, Vencido: 1, 'A vencer': 2, 'Em dia': 3 }
+  const ordemStatus = { Nunca: 0, Vencido: 1, 'A vencer': 2, 'Em dia': 3, 'Sob demanda': 4 }
   const linhasOrdenadas = [...linhas].sort((a, b) =>
     ordemStatus[a.status] - ordemStatus[b.status] ||
     nivelIdx(b.risco) - nivelIdx(a.risco) ||
@@ -542,7 +551,7 @@ export default function DtoGerenciador() {
       ['Desvios DTO ' + ANO_ANTERIOR]: l.d25, ['Desvios DTO ' + ANO_ATUAL]: l.d26,
       ['Atos Inseguros ' + LABEL_ANTERIOR]: l.atosAnteriores, ['Atos Inseguros ' + LABEL_RECENTE]: l.atosRecentes,
       ['Abordagem Positiva ' + LABEL_RECENTE]: l.abordPos, 'Gatilho': l.gatilho,
-      'Risco Final': l.risco, 'Periodicidade (dias)': l.periodicidade,
+      'Risco Final': l.risco, 'Periodicidade': fmtPeriodicidade(l.periodicidade),
       'Último DTO': fmtData(l.ultimoDTO), 'Vencimento': fmtData(l.vencimento),
       'Status': l.status, 'Responsável': l.ativ.responsavel ?? '',
     }))
@@ -604,56 +613,6 @@ export default function DtoGerenciador() {
             ))}
           </div>
 
-          {/* Observações não reconhecidas — explica divergência de totais com a tela de Análise DTO */}
-          {observacoesNaoReconhecidas.length > 0 && (
-            <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-orange-600 mt-0.5 shrink-0" />
-                <div className="space-y-1.5">
-                  <p className="text-sm font-semibold text-orange-900">
-                    {observacoesNaoReconhecidas.reduce((s, d) => s + d.qtd, 0)} observação(ões) não entram nos cálculos acima
-                  </p>
-                  <p className="text-xs text-orange-800">
-                    O nome da atividade na observação não bate com nenhuma atividade ativa cadastrada — por acento/grafia diferente,
-                    atividade desativada ou campo em branco. Vincule abaixo ao nome oficial do cadastro (vale para sempre, não precisa
-                    repetir quando a mesma planilha vier de novo) ou cadastre como atividade nova em "Cadastro".
-                  </p>
-                  <ul className="text-xs text-orange-800 space-y-0.5 pt-1">
-                    {observacoesNaoReconhecidas.slice(0, 15).map(d => (
-                      <LinhaVincular
-                        key={d.nome}
-                        nome={d.nome}
-                        qtd={d.qtd}
-                        opcoes={nomesAtividadesAtivas}
-                        vinculando={vinculando === d.nome}
-                        onVincular={vincularAlias}
-                      />
-                    ))}
-                  </ul>
-                  {observacoesNaoReconhecidas.length > 15 && (
-                    <p className="text-xs text-orange-700">e mais {observacoesNaoReconhecidas.length - 15} nome(s)...</p>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Diagnóstico dos apelidos já vinculados — ajuda a identificar apelidos que não estão
-              casando com nenhuma observação ou cujo destino não existe/está inativo */}
-          {aliasDiagnostico.length > 0 && (
-            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
-              <p className="text-sm font-semibold text-blue-900 mb-2">Apelidos vinculados (diagnóstico)</p>
-              <ul className="text-xs text-blue-900 space-y-1">
-                {aliasDiagnostico.map(a => (
-                  <li key={a.id} className={!a.destinoExiste || a.qtdObs === 0 ? 'text-red-700 font-medium' : ''}>
-                    "{a.alias}" → "{a.nome_atividade}" — {a.qtdObs} observação(ões) encontrada(s)
-                    {!a.destinoExiste ? ' — ATIVIDADE DE DESTINO NÃO ENCONTRADA/INATIVA' : a.qtdObs === 0 ? ' — nenhuma observação com esse nome' : ''}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
           {/* Tabs */}
           <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
             {([
@@ -661,6 +620,7 @@ export default function DtoGerenciador() {
               ['fila', 'Fila da Semana', fila.length],
               ['responsavel', 'Por Responsável', null],
               ['cadastro', 'Cadastro', null],
+              ['apelidos', 'Apelidos', observacoesNaoReconhecidas.reduce((s, d) => s + d.qtd, 0)],
             ] as const).map(([id, label, badge]) => (
               <button key={id} onClick={() => setAba(id)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap flex items-center gap-1.5 ${aba === id ? 'border-accent-500 text-accent-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 {label}
@@ -668,6 +628,62 @@ export default function DtoGerenciador() {
               </button>
             ))}
           </div>
+
+          {/* ── Apelidos: observações não reconhecidas + diagnóstico dos apelidos já vinculados ── */}
+          {aba === 'apelidos' && (
+            <div className="space-y-4">
+              {observacoesNaoReconhecidas.length > 0 ? (
+                <div className="rounded-lg border border-orange-200 bg-orange-50 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="h-5 w-5 text-orange-600 mt-0.5 shrink-0" />
+                    <div className="space-y-1.5">
+                      <p className="text-sm font-semibold text-orange-900">
+                        {observacoesNaoReconhecidas.reduce((s, d) => s + d.qtd, 0)} observação(ões) não entram nos cálculos acima
+                      </p>
+                      <p className="text-xs text-orange-800">
+                        O nome da atividade na observação não bate com nenhuma atividade ativa cadastrada — por acento/grafia diferente,
+                        atividade desativada ou campo em branco. Vincule abaixo ao nome oficial do cadastro (vale para sempre, não precisa
+                        repetir quando a mesma planilha vier de novo) ou cadastre como atividade nova em "Cadastro".
+                      </p>
+                      <ul className="text-xs text-orange-800 space-y-0.5 pt-1">
+                        {observacoesNaoReconhecidas.slice(0, 15).map(d => (
+                          <LinhaVincular
+                            key={d.nome}
+                            nome={d.nome}
+                            qtd={d.qtd}
+                            opcoes={nomesAtividadesAtivas}
+                            vinculando={vinculando === d.nome}
+                            onVincular={vincularAlias}
+                          />
+                        ))}
+                      </ul>
+                      {observacoesNaoReconhecidas.length > 15 && (
+                        <p className="text-xs text-orange-700">e mais {observacoesNaoReconhecidas.length - 15} nome(s)...</p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 py-2">Nenhuma observação pendente de vínculo. 🎉</p>
+              )}
+
+              {/* Diagnóstico dos apelidos já vinculados — ajuda a identificar apelidos que não estão
+                  casando com nenhuma observação ou cujo destino não existe/está inativo */}
+              {aliasDiagnostico.length > 0 && (
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                  <p className="text-sm font-semibold text-blue-900 mb-2">Apelidos vinculados (diagnóstico)</p>
+                  <ul className="text-xs text-blue-900 space-y-1">
+                    {aliasDiagnostico.map(a => (
+                      <li key={a.id} className={!a.destinoExiste || a.qtdObs === 0 ? 'text-red-700 font-medium' : ''}>
+                        "{a.alias}" → "{a.nome_atividade}" — {a.qtdObs} observação(ões) encontrada(s)
+                        {!a.destinoExiste ? ' — ATIVIDADE DE DESTINO NÃO ENCONTRADA/INATIVA' : a.qtdObs === 0 ? ' — nenhuma observação com esse nome' : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── Calendário ── */}
           {aba === 'calendario' && (
@@ -678,7 +694,7 @@ export default function DtoGerenciador() {
                   <button key={a} onClick={() => setFiltroArea(a)} className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${filtroArea === a ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{a}</button>
                 ))}
                 <span className="text-xs text-gray-500 font-medium ml-3">Status:</span>
-                {(['Todos', 'Vencido', 'Nunca', 'A vencer', 'Em dia'] as const).map(s => (
+                {(['Todos', 'Vencido', 'Nunca', 'A vencer', 'Em dia', 'Sob demanda'] as const).map(s => (
                   <button key={s} onClick={() => setFiltroStatus(s)} className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${filtroStatus === s ? 'bg-brand-700 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{s}</button>
                 ))}
               </div>
@@ -719,7 +735,7 @@ export default function DtoGerenciador() {
                                 : <span className="text-xs text-gray-400">N</span>}
                             </td>
                             <td className="px-3 py-2.5 text-center"><NivelBadge nivel={l.risco} /></td>
-                            <td className="px-3 py-2.5 text-center text-xs text-gray-600">{l.periodicidade}d</td>
+                            <td className="px-3 py-2.5 text-center text-xs text-gray-600">{fmtPeriodicidade(l.periodicidade)}</td>
                             <td className="px-3 py-2.5 text-center text-xs text-gray-600">{fmtData(l.ultimoDTO)}</td>
                             <td className="px-3 py-2.5 text-center"><StatusBadge status={l.status} dias={l.diasRestantes} /></td>
                           </tr>
@@ -737,7 +753,7 @@ export default function DtoGerenciador() {
                                   <span className="font-semibold text-gray-700">Memória de cálculo:</span>{' '}
                                   Criticidade base <b>{l.ativ.criticidade_base}</b> + desvios DTO ({l.d25}→{l.d26}) ⇒ inicial <b>{l.cInicial}</b>.{' '}
                                   Gatilho <b>{l.gatilho}</b> {l.gatilho === 'S' ? `(atos ${LABEL_ANTERIOR}: ${l.atosAnteriores} → ${LABEL_RECENTE}: ${l.atosRecentes}) ⇒ sobe 1 nível` : l.abordPos >= l.atosRecentes ? `(abordagem ${l.abordPos} ≥ atos ${l.atosRecentes} em ${LABEL_RECENTE}) ⇒ desce 1 nível` : '⇒ mantém'}.{' '}
-                                  Risco final <b>{l.risco}</b> ⇒ DTO a cada <b>{l.periodicidade} dias</b>.
+                                  Risco final <b>{l.risco}</b> ⇒ {l.periodicidade === null ? <>DTO <b>sob demanda</b>, sem prazo fixo (apenas na ocorrência).</> : <>DTO a cada <b>{l.periodicidade} dias</b>.</>}
                                 </div>
                               </td>
                             </tr>
@@ -1008,7 +1024,7 @@ const FilaExportTemplate = forwardRef<HTMLDivElement, {
                 </td>
                 <td style={{ ...td, textAlign: 'center' }}>
                   <span style={{ fontWeight: 800, color: cor, fontSize: '13px' }}>{l.risco}</span>
-                  <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '1px' }}>{l.periodicidade}d</div>
+                  <div style={{ fontSize: '10px', color: '#94a3b8', marginTop: '1px' }}>{fmtPeriodicidade(l.periodicidade)}</div>
                 </td>
                 <td style={{ ...td, textAlign: 'center' }}>
                   <span style={{ fontSize: '11px', fontWeight: 700, color: statusCor, background: `${statusCor}15`, padding: '3px 8px', borderRadius: '999px', border: `1px solid ${statusCor}35`, whiteSpace: 'nowrap' }}>
