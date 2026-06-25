@@ -456,6 +456,17 @@ export default function DtoGerenciador() {
     [atividades]
   )
 
+  // ── Diagnóstico: para cada apelido salvo, quantas observações ele de fato casa
+  // e se a atividade de destino ainda existe/está ativa ──
+  const aliasDiagnostico = useMemo(() => {
+    return aliases.map(a => {
+      const aliasKey = norm(a.alias)
+      const qtdObs = observacoes.filter(o => norm(o.atividade) === aliasKey).length
+      const destinoExiste = atividades.some(at => at.ativo && norm(at.nome_atividade) === norm(a.nome_atividade))
+      return { ...a, qtdObs, destinoExiste }
+    })
+  }, [aliases, observacoes, atividades])
+
   // ── Cálculo final por atividade ──
   const linhas = useMemo<LinhaCalc[]>(() => {
     return atividades.filter(a => a.ativo).map(ativ => {
@@ -623,6 +634,22 @@ export default function DtoGerenciador() {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Diagnóstico dos apelidos já vinculados — ajuda a identificar apelidos que não estão
+              casando com nenhuma observação ou cujo destino não existe/está inativo */}
+          {aliasDiagnostico.length > 0 && (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <p className="text-sm font-semibold text-blue-900 mb-2">Apelidos vinculados (diagnóstico)</p>
+              <ul className="text-xs text-blue-900 space-y-1">
+                {aliasDiagnostico.map(a => (
+                  <li key={a.id} className={!a.destinoExiste || a.qtdObs === 0 ? 'text-red-700 font-medium' : ''}>
+                    "{a.alias}" → "{a.nome_atividade}" — {a.qtdObs} observação(ões) encontrada(s)
+                    {!a.destinoExiste ? ' — ATIVIDADE DE DESTINO NÃO ENCONTRADA/INATIVA' : a.qtdObs === 0 ? ' — nenhuma observação com esse nome' : ''}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
