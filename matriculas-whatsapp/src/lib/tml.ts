@@ -61,10 +61,43 @@ function diaDaSemana(data: string): number {
   return new Date(`${data}T00:00:00`).getDay();
 }
 
-// Meta de duração da matinal por dia da semana: segunda e terça 11 min,
-// quarta a sexta 7 min (não há matinal no fim de semana).
-export function metaMatinalMinutos(data: string): number {
+// Linha de parâmetro de meta de matinal vinda da tabela tml_meta_matinal
+// (editável na aba Parâmetros), versionada por data de vigência.
+export interface MetaMatinalParam {
+  dia_semana: number;
+  meta_minutos: number;
+  vigente_a_partir: string;
+}
+
+// Linha de parâmetro de gatilho de estouro vinda da tabela
+// tml_gatilho_estouro, versionada por data de vigência.
+export interface GatilhoEstouroParam {
+  deslocamento_ideal_minutos: number;
+  deslocamento_estouro_minutos: number;
+  vigente_a_partir: string;
+}
+
+function paramVigenteNaData<T extends { vigente_a_partir: string }>(
+  candidatos: T[],
+  data: string
+): T | undefined {
+  return candidatos
+    .filter((p) => p.vigente_a_partir <= data)
+    .sort((a, b) => b.vigente_a_partir.localeCompare(a.vigente_a_partir))[0];
+}
+
+// Meta de duração da matinal por dia da semana. Se "params" (linhas de
+// tml_meta_matinal) tiver um valor vigente para a data e o dia da semana,
+// usa ele; senão cai no padrão fixo (segunda e terça 11 min, quarta a
+// sexta 7 min — não há matinal no fim de semana). Isso preserva o cálculo
+// de dados já registrados antes da aba Parâmetros existir ou antes de uma
+// mudança de meta entrar em vigor.
+export function metaMatinalMinutos(data: string, params?: MetaMatinalParam[]): number {
   const dow = diaDaSemana(data);
+  if (params?.length) {
+    const vigente = paramVigenteNaData(params.filter((p) => p.dia_semana === dow), data);
+    if (vigente) return vigente.meta_minutos;
+  }
   return dow === 1 || dow === 2 ? 11 : 7;
 }
 
@@ -79,10 +112,23 @@ export function horarioInicioMatinalPadrao(sala: SalaTML, data: string): string 
 // Horário padrão de término da matinal quando ninguém aciona o timer:
 // início padrão + meta de duração do dia. Sábado não soma duração (sem
 // matinal esperada, o marco é só a própria 7h).
-export function horarioFinalMatinalPadrao(sala: SalaTML, data: string): string {
+export function horarioFinalMatinalPadrao(sala: SalaTML, data: string, params?: MetaMatinalParam[]): string {
   const inicio = horarioInicioMatinalPadrao(sala, data);
   if (diaDaSemana(data) === 6) return inicio;
-  return minutosParaHorario(horarioParaMinutos(inicio) + metaMatinalMinutos(data));
+  return minutosParaHorario(horarioParaMinutos(inicio) + metaMatinalMinutos(data, params));
+}
+
+// Gatilho de estouro de deslocamento vigente na data informada (lido da
+// aba Parâmetros, com fallback pros valores fixos abaixo).
+export function gatilhoEstouroMinutos(
+  data: string,
+  params?: GatilhoEstouroParam[]
+): { ideal: number; estouro: number } {
+  if (params?.length) {
+    const vigente = paramVigenteNaData(params, data);
+    if (vigente) return { ideal: vigente.deslocamento_ideal_minutos, estouro: vigente.deslocamento_estouro_minutos };
+  }
+  return { ideal: DESLOCAMENTO_IDEAL_MIN, estouro: DESLOCAMENTO_ESTOURO_MIN };
 }
 
 // Tempo de deslocamento usando o horário REAL de fim da matinal (registrado

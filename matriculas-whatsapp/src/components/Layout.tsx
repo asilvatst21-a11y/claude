@@ -4,7 +4,7 @@ import {
   Users, CreditCard, MessageSquare, BarChart2, LogOut, Building2,
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
-  Wallet, Menu, X, Truck, Boxes, LineChart, Timer, Home, Send,
+  Wallet, Menu, X, Truck, Boxes, LineChart, Timer, Home, Send, SlidersHorizontal,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -47,6 +47,7 @@ const distribuicaoItems = [
   { permKey: 'distribuicao', to: '/distribuicao/tml/analise', label: 'Análise TML',         icon: BarChart2        },
   { permKey: 'distribuicao', to: '/distribuicao/tml/deslocamento', label: 'Tempo de Deslocamento', icon: Timer  },
   { permKey: 'distribuicao', to: '/distribuicao/tml/whatsapp', label: 'Config. WhatsApp TML', icon: MessageSquare },
+  { permKey: 'distribuicao', to: '/distribuicao/tml/parametros', label: 'Parâmetros TML', icon: SlidersHorizontal },
   { permKey: 'distribuicao', to: '/matinal-tml', label: 'Timer da Matinal', icon: Clock },
 ]
 

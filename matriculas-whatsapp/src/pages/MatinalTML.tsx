@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Play, Square, CheckCircle2, AlertTriangle, ArrowLeft, Loader2, Building2, Clock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { SALA_TML_LABEL, type SalaTML, metaMatinalMinutos } from '../lib/tml'
+import { SALA_TML_LABEL, type SalaTML, type MetaMatinalParam, metaMatinalMinutos } from '../lib/tml'
 
 const SALAS: SalaTML[] = ['COLORADO', 'SUB-FURIA']
 
@@ -43,6 +43,7 @@ export default function MatinalTML() {
   const [sala, setSala] = useState<SalaTML | null>(null)
   const [nome, setNome] = useState('')
   const [registro, setRegistro] = useState<MatinalRow | null>(null)
+  const [metaParams, setMetaParams] = useState<MetaMatinalParam[]>([])
   const [agora, setAgora] = useState(() => Date.now())
   const [fimTentativo, setFimTentativo] = useState<Date | null>(null)
   const [motivoEstouro, setMotivoEstouro] = useState('')
@@ -71,13 +72,20 @@ export default function MatinalTML() {
     }
     setErro('')
     setSalvando(true)
-    const { data: row } = await supabase
-      .from('matinal_tml')
-      .select(CAMPOS_MATINAL)
-      .eq('filial', filial)
-      .eq('sala', sala)
-      .eq('data', hojeISO())
-      .maybeSingle()
+    const [{ data: row }, { data: params }] = await Promise.all([
+      supabase
+        .from('matinal_tml')
+        .select(CAMPOS_MATINAL)
+        .eq('filial', filial)
+        .eq('sala', sala)
+        .eq('data', hojeISO())
+        .maybeSingle(),
+      supabase
+        .from('tml_meta_matinal')
+        .select('dia_semana, meta_minutos, vigente_a_partir')
+        .eq('filial', filial),
+    ])
+    setMetaParams(params ?? [])
     setSalvando(false)
     setRegistro(row ?? null)
     if (!row) setTela('pronto')
@@ -129,7 +137,7 @@ export default function MatinalTML() {
     if (!registro || !fimTentativo) return
     const inicio = new Date(registro.horario_inicio)
     const duracao = Math.max(0, Math.round((fimTentativo.getTime() - inicio.getTime()) / 60000))
-    const meta = metaMatinalMinutos(hojeISO())
+    const meta = metaMatinalMinutos(hojeISO(), metaParams)
     const estourou = duracao > meta
     if (estourou && !motivoEstouro.trim()) {
       setErro('A matinal passou da meta — explique o motivo do estouro antes de confirmar.')
@@ -304,7 +312,7 @@ export default function MatinalTML() {
   // ─── Tela: confirmar horário de início/fim antes de gravar ─────────────
   if (tela === 'confirmar' && registro && fimTentativo) {
     const duracaoTentativa = Math.round((fimTentativo.getTime() - new Date(registro.horario_inicio).getTime()) / 60000)
-    const estourouTentativo = duracaoTentativa > metaMatinalMinutos(hojeISO())
+    const estourouTentativo = duracaoTentativa > metaMatinalMinutos(hojeISO(), metaParams)
     return (
       <div className="min-h-screen bg-[#0b1f2b] text-white flex flex-col">
         <header className="px-5 pt-8 pb-2">

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   Bar, ComposedChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Legend, LabelList,
@@ -6,7 +7,7 @@ import {
 import { Timer, TrendingDown, CheckCircle2, AlertTriangle, Check, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import { SALA_TML_LABEL, type SalaTML, DESLOCAMENTO_IDEAL_MIN, DESLOCAMENTO_ESTOURO_MIN } from '../lib/tml'
+import { SALA_TML_LABEL, type SalaTML, type GatilhoEstouroParam, gatilhoEstouroMinutos } from '../lib/tml'
 import { formatarDataBR } from '../lib/utils'
 
 const TOOLTIP_STYLE = { borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12 }
@@ -27,6 +28,7 @@ interface LinhaChecklist {
   nome: string | null
   data: string | null
   horario_inicio: string | null
+  horario_final_matinal: string | null
   tempo_deslocamento_minutos: number | null
   motivo: string | null
 }
@@ -92,6 +94,7 @@ export default function DistribuicaoTMLDeslocamento() {
 
   const [checklist, setChecklist] = useState<LinhaChecklist[]>([])
   const [matinais, setMatinais] = useState<LinhaMatinal[]>([])
+  const [gatilhoParams, setGatilhoParams] = useState<GatilhoEstouroParam[]>([])
   const [loading, setLoading] = useState(true)
   const [salvandoMotivo, setSalvandoMotivo] = useState<string | null>(null)
   const [rascunhoMotivo, setRascunhoMotivo] = useState<Record<string, string>>({})
@@ -99,10 +102,10 @@ export default function DistribuicaoTMLDeslocamento() {
   const carregar = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
-    const [{ data: chk }, { data: mat }] = await Promise.all([
+    const [{ data: chk }, { data: mat }, { data: gat }] = await Promise.all([
       supabase
         .from('checklist_tml')
-        .select('id, sala, matricula, nome, data, horario_inicio, tempo_deslocamento_minutos, motivo')
+        .select('id, sala, matricula, nome, data, horario_inicio, horario_final_matinal, tempo_deslocamento_minutos, motivo')
         .eq('filial', usuario.filial)
         .gte('data', de)
         .lte('data', ate)
@@ -114,9 +117,14 @@ export default function DistribuicaoTMLDeslocamento() {
         .gte('data', de)
         .lte('data', ate)
         .order('data', { ascending: false }),
+      supabase
+        .from('tml_gatilho_estouro')
+        .select('deslocamento_ideal_minutos, deslocamento_estouro_minutos, vigente_a_partir')
+        .eq('filial', usuario.filial),
     ])
     setChecklist(Array.isArray(chk) ? chk : [])
     setMatinais(Array.isArray(mat) ? mat : [])
+    setGatilhoParams(Array.isArray(gat) ? gat : [])
     setLoading(false)
   }, [usuario, de, ate])
 
@@ -133,12 +141,19 @@ export default function DistribuicaoTMLDeslocamento() {
     : 0
   const antesMatinalGeral = comDeslocamento.filter((c) => (c.tempo_deslocamento_minutos ?? 0) < 0).length
   const pctAntesMatinalGeral = comDeslocamento.length > 0 ? (antesMatinalGeral / comDeslocamento.length) * 100 : 0
-  const estouroGatilhoGeral = comDeslocamento.filter((c) => (c.tempo_deslocamento_minutos ?? 0) > DESLOCAMENTO_ESTOURO_MIN).length
+  // Cada registro é comparado contra o gatilho que estava vigente na SUA
+  // data, não o gatilho atual — assim, melhorar o gatilho não reclassifica
+  // o histórico já registrado.
+  const estouroGatilhoGeral = comDeslocamento.filter(
+    (c) => (c.tempo_deslocamento_minutos ?? 0) > gatilhoEstouroMinutos(c.data ?? hojeISO(), gatilhoParams).estouro
+  ).length
   const pctEstouroGatilhoGeral = comDeslocamento.length > 0 ? (estouroGatilhoGeral / comDeslocamento.length) * 100 : 0
+  const gatilhoAtual = gatilhoEstouroMinutos(hojeISO(), gatilhoParams)
 
-  function corDeslocamento(min: number): string {
-    if (min > DESLOCAMENTO_ESTOURO_MIN) return 'text-red-700'
-    if (min > DESLOCAMENTO_IDEAL_MIN) return 'text-amber-700'
+  function corDeslocamento(min: number, data: string | null): string {
+    const { ideal, estouro } = gatilhoEstouroMinutos(data ?? hojeISO(), gatilhoParams)
+    if (min > estouro) return 'text-red-700'
+    if (min > ideal) return 'text-amber-700'
     return 'text-green-700'
   }
 
@@ -189,6 +204,32 @@ export default function DistribuicaoTMLDeslocamento() {
     [matinais, sala]
   )
 
+  const matinaisComDuracao = useMemo(
+    () => matinaisFiltradas.filter((m) => m.duracao_minutos != null),
+    [matinaisFiltradas]
+  )
+  const duracaoMatinalMediaGeral = matinaisComDuracao.length > 0
+    ? matinaisComDuracao.reduce((acc, m) => acc + (m.duracao_minutos ?? 0), 0) / matinaisComDuracao.length
+    : 0
+
+  const porDiaMatinal = useMemo(() => {
+    const mapa = new Map<string, { data: string; soma: number; n: number; meta: number | null }>()
+    for (const m of matinaisComDuracao) {
+      if (!m.data) continue
+      const k = mapa.get(m.data) ?? { data: m.data, soma: 0, n: 0, meta: m.meta_minutos }
+      k.soma += m.duracao_minutos ?? 0
+      k.n++
+      mapa.set(m.data, k)
+    }
+    return [...mapa.values()]
+      .sort((a, b) => a.data.localeCompare(b.data))
+      .map((k) => ({
+        data: formatarDataBR(k.data),
+        duracaoMedia: k.n > 0 ? Math.round((k.soma / k.n) * 10) / 10 : 0,
+        meta: k.meta ?? undefined,
+      }))
+  }, [matinaisComDuracao])
+
   const historicoEstouros = useMemo(() => {
     const doMatinal: OcorrenciaEstouro[] = matinaisFiltradas
       .filter((m) => m.estouro_duracao)
@@ -201,7 +242,7 @@ export default function DistribuicaoTMLDeslocamento() {
         motivo: m.motivo_estouro,
       }))
     const doDeslocamento: OcorrenciaEstouro[] = comDeslocamento
-      .filter((c) => (c.tempo_deslocamento_minutos ?? 0) > DESLOCAMENTO_ESTOURO_MIN)
+      .filter((c) => (c.tempo_deslocamento_minutos ?? 0) > gatilhoEstouroMinutos(c.data ?? hojeISO(), gatilhoParams).estouro)
       .map((c) => ({
         chave: `deslocamento-${c.id}`,
         tipo: 'Deslocamento',
@@ -211,7 +252,7 @@ export default function DistribuicaoTMLDeslocamento() {
         motivo: c.motivo,
       }))
     return [...doMatinal, ...doDeslocamento].sort((a, b) => (b.data ?? '').localeCompare(a.data ?? ''))
-  }, [matinaisFiltradas, comDeslocamento])
+  }, [matinaisFiltradas, comDeslocamento, gatilhoParams])
 
   async function salvarMotivo(id: string) {
     const motivo = (rascunhoMotivo[id] ?? '').trim()
@@ -231,7 +272,9 @@ export default function DistribuicaoTMLDeslocamento() {
         </h1>
         <p className="text-sm text-muted-foreground">
           Horário em que o motorista iniciou o checklist menos o horário real de fim da matinal (registrado no Timer da Matinal).
-          Ideal: até {DESLOCAMENTO_IDEAL_MIN} min. Estouro de gatilho: acima de {DESLOCAMENTO_ESTOURO_MIN} min.
+          Ideal hoje: até {gatilhoAtual.ideal} min. Estouro de gatilho hoje: acima de {gatilhoAtual.estouro} min.
+          Ajuste esses valores na aba{' '}
+          <Link to="/distribuicao/tml/parametros" className="text-accent-600 underline">Parâmetros</Link>.
         </p>
       </div>
 
@@ -260,7 +303,7 @@ export default function DistribuicaoTMLDeslocamento() {
         <>
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <Card icon={Timer} label="Tempo médio de deslocamento" value={`${tempoDeslocamentoMedioGeral.toFixed(0)} min`} accent="text-cyan-600 bg-cyan-50" />
-            <Card icon={AlertTriangle} label="Estouro de gatilho" value={`${estouroGatilhoGeral} (${pctEstouroGatilhoGeral.toFixed(1)}%)`} hint={`deslocamento acima de ${DESLOCAMENTO_ESTOURO_MIN} min`} accent="text-red-600 bg-red-50" />
+            <Card icon={AlertTriangle} label="Estouro de gatilho" value={`${estouroGatilhoGeral} (${pctEstouroGatilhoGeral.toFixed(1)}%)`} hint={`deslocamento acima do gatilho vigente em cada data`} accent="text-red-600 bg-red-50" />
             <Card icon={TrendingDown} label="Iniciaram antes da matinal" value={`${antesMatinalGeral} (${pctAntesMatinalGeral.toFixed(1)}%)`} hint="checklist começou antes do turno" accent="text-amber-600 bg-amber-50" />
             <Card icon={CheckCircle2} label="Registros de checklist" value={String(comDeslocamento.length)} accent="text-blue-600 bg-blue-50" />
           </div>
@@ -335,6 +378,7 @@ export default function DistribuicaoTMLDeslocamento() {
                     <th className="py-2 px-4">Data</th>
                     <th className="py-2 px-4">Motorista</th>
                     <th className="py-2 px-4">Sala</th>
+                    <th className="py-2 px-4">Fim matinal</th>
                     <th className="py-2 px-4">Início checklist</th>
                     <th className="py-2 px-4 text-right">Deslocamento (min)</th>
                     <th className="py-2 px-4">Motivo</th>
@@ -347,10 +391,11 @@ export default function DistribuicaoTMLDeslocamento() {
                       <td className="py-2 px-4 whitespace-nowrap">{formatarDataBR(c.data)}</td>
                       <td className="py-2 px-4">{c.nome ?? '—'}</td>
                       <td className="py-2 px-4 whitespace-nowrap">{c.sala ? SALA_TML_LABEL[c.sala] : '—'}</td>
+                      <td className="py-2 px-4">{c.horario_final_matinal ?? '—'}</td>
                       <td className="py-2 px-4">{c.horario_inicio ?? '—'}</td>
-                      <td className={`py-2 px-4 text-right font-semibold ${corDeslocamento(c.tempo_deslocamento_minutos ?? 0)}`}>
+                      <td className={`py-2 px-4 text-right font-semibold ${corDeslocamento(c.tempo_deslocamento_minutos ?? 0, c.data)}`}>
                         {c.tempo_deslocamento_minutos}
-                        {(c.tempo_deslocamento_minutos ?? 0) > DESLOCAMENTO_ESTOURO_MIN && (
+                        {(c.tempo_deslocamento_minutos ?? 0) > gatilhoEstouroMinutos(c.data ?? hojeISO(), gatilhoParams).estouro && (
                           <span className="ml-1 text-[10px] font-bold uppercase">estouro</span>
                         )}
                       </td>
@@ -392,6 +437,7 @@ export default function DistribuicaoTMLDeslocamento() {
                     <th className="py-2 px-4">Data</th>
                     <th className="py-2 px-4">Motorista</th>
                     <th className="py-2 px-4">Sala</th>
+                    <th className="py-2 px-4">Fim matinal</th>
                     <th className="py-2 px-4">Início checklist</th>
                     <th className="py-2 px-4 text-right">Antes da matinal (min)</th>
                   </tr>
@@ -402,6 +448,7 @@ export default function DistribuicaoTMLDeslocamento() {
                       <td className="py-2 px-4 whitespace-nowrap">{formatarDataBR(c.data)}</td>
                       <td className="py-2 px-4">{c.nome ?? '—'}</td>
                       <td className="py-2 px-4 whitespace-nowrap">{c.sala ? SALA_TML_LABEL[c.sala] : '—'}</td>
+                      <td className="py-2 px-4">{c.horario_final_matinal ?? '—'}</td>
                       <td className="py-2 px-4">{c.horario_inicio ?? '—'}</td>
                       <td className="py-2 px-4 text-right font-semibold text-amber-800">{Math.abs(c.tempo_deslocamento_minutos ?? 0)}</td>
                     </tr>
@@ -415,7 +462,7 @@ export default function DistribuicaoTMLDeslocamento() {
             <div className="px-4 py-3 border-b">
               <h2 className="text-sm font-semibold">Histórico de estouros — matinal e deslocamento</h2>
               <p className="text-xs text-muted-foreground">
-                Todo dia em que a matinal passou da meta ou o checklist começou com mais de {DESLOCAMENTO_ESTOURO_MIN} min de deslocamento, com o motivo registrado (quando houver).
+                Todo dia em que a matinal passou da meta ou o checklist começou com mais que o gatilho de estouro vigente naquela data, com o motivo registrado (quando houver).
               </p>
             </div>
             {historicoEstouros.length === 0 ? (
@@ -449,6 +496,30 @@ export default function DistribuicaoTMLDeslocamento() {
               </table>
             )}
           </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <Card icon={Timer} label="Duração média da matinal" value={`${duracaoMatinalMediaGeral.toFixed(1)} min`} accent="text-cyan-600 bg-cyan-50" />
+            <Card icon={CheckCircle2} label="Matinais finalizadas" value={String(matinaisComDuracao.length)} accent="text-blue-600 bg-blue-50" />
+            <Card icon={AlertTriangle} label="Matinais com estouro" value={String(matinaisFiltradas.filter((m) => m.estouro_duracao).length)} accent="text-amber-600 bg-amber-50" />
+          </div>
+
+          {porDiaMatinal.length > 0 && (
+            <ChartCard title="Duração média da matinal por dia" subtitle="Tempo médio de início até o fim da matinal, comparado à meta do dia">
+              <ResponsiveContainer width="100%" height={240}>
+                <ComposedChart data={porDiaMatinal} margin={{ top: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="data" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="duracaoMedia" name="Duração média (min)" fill="#0891b2" radius={[8, 8, 0, 0]} barSize={28}>
+                    <LabelList dataKey="duracaoMedia" position="top" style={{ fontSize: 11, fill: '#0891b2', fontWeight: 600 }} />
+                  </Bar>
+                  <Line type="monotone" dataKey="meta" name="Meta (min)" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#f59e0b' }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )}
 
           <div className="border rounded-xl bg-white shadow-sm">
             <div className="px-4 py-3 border-b">

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2,
+  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -384,17 +384,19 @@ export default function DistribuicaoTML() {
 
       const { data: alertasExistentes } = await supabase
         .from('alertas_tml')
-        .select('mapa')
+        .select('mapa, data_saida')
         .eq('filial', usuario.filial)
         .in('mapa', mapas)
-      const mapasJaAlertados = new Set((alertasExistentes ?? []).map((a) => a.mapa))
+      // Chave por mapa+data: o mesmo número de mapa pode se repetir em dias
+      // diferentes e não deve ser tratado como "já alertado".
+      const mapasJaAlertados = new Set((alertasExistentes ?? []).map((a) => `${a.mapa}|${a.data_saida}`))
 
       const erros: string[] = []
       const diag = { jaAlertado: 0, semHorario: 0, semSala: 0, noPrazo: 0, semSupervisor: 0, pendentes: 0, invalido: 0 }
       const historicoImediato: Record<string, unknown>[] = []
 
       for (const saida of saidas) {
-        if (mapasJaAlertados.has(saida.mapa)) { diag.jaAlertado++; continue }
+        if (mapasJaAlertados.has(`${saida.mapa}|${saida.dataSaida}`)) { diag.jaAlertado++; continue }
 
         const escala = escalaPorMapa.get(saida.mapa)
         const matricula = saida.matricula ?? escala?.matricula ?? null
@@ -480,6 +482,7 @@ export default function DistribuicaoTML() {
             placa,
             matricula,
             nome,
+            data_saida: saida.dataSaida,
             horario_limite: limite,
             horario_saida: saida.horarioSaida,
             atraso_minutos: atraso,
@@ -500,11 +503,13 @@ export default function DistribuicaoTML() {
 
       if (historicoImediato.length > 0) {
         // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time"
-        // quando o mesmo mapa aparece mais de uma vez na planilha importada.
-        const historicoPorMapa = new Map(historicoImediato.map((h) => [h.mapa, h]))
+        // quando o mesmo mapa aparece mais de uma vez na planilha importada
+        // (chave inclui a data: o mesmo mapa pode se repetir em dias diferentes
+        // e cada dia precisa preservar seu próprio registro).
+        const historicoPorMapa = new Map(historicoImediato.map((h) => [`${h.mapa}|${h.data_saida}`, h]))
         const { error: histErr } = await supabase
           .from('historico_tml')
-          .upsert([...historicoPorMapa.values()], { onConflict: 'filial,mapa' })
+          .upsert([...historicoPorMapa.values()], { onConflict: 'filial,mapa,data_saida' })
         if (histErr) erros.push(`Histórico: ${histErr.message}`)
       }
 
@@ -552,6 +557,12 @@ export default function DistribuicaoTML() {
         .in('mapa', mapas)
       const matriculaPorMapa = new Map((escalas ?? []).map((e) => [e.mapa, e.matricula]))
 
+      const { data: metaParamsRaw } = await supabase
+        .from('tml_meta_matinal')
+        .select('dia_semana, meta_minutos, vigente_a_partir')
+        .eq('filial', usuario.filial)
+      const metaParams = metaParamsRaw ?? []
+
       // Sala vem do cadastro de motoristas (mesma base usada na carta de
       // controle), não da coluna EQUIPE da planilha de checklist.
       const matriculas = [...new Set([...matriculaPorMapa.values()].filter((m): m is number => m != null))]
@@ -595,7 +606,7 @@ export default function DistribuicaoTML() {
           const inicio = new Date(m.horario_inicio)
           const cap = new Date(inicio.getTime() + MATINAL_AUTO_FINALIZA_MIN * 60000)
           if (Date.now() >= cap.getTime()) {
-            const meta = metaMatinalMinutos(m.data)
+            const meta = metaMatinalMinutos(m.data, metaParams)
             await supabase.from('matinal_tml').update({
               horario_final: cap.toISOString(),
               meta_minutos: meta,
@@ -622,9 +633,10 @@ export default function DistribuicaoTML() {
         if (!isSalaTML(sala)) semSala++
         if (!c.horarioInicio) semHorario++
         let tempoDeslocamento: number | null = null
+        let horarioFinalMatinal: string | null = null
         if (isSalaTML(sala) && c.horarioInicio && c.data) {
-          const matinalFinal = horarioFinalEfetivoPorChave.get(`${sala}|${c.data}`) ?? horarioFinalMatinalPadrao(sala, c.data)
-          tempoDeslocamento = tempoDeslocamentoComMatinalReal(matinalFinal, c.horarioInicio)
+          horarioFinalMatinal = horarioFinalEfetivoPorChave.get(`${sala}|${c.data}`) ?? horarioFinalMatinalPadrao(sala, c.data, metaParams)
+          tempoDeslocamento = tempoDeslocamentoComMatinalReal(horarioFinalMatinal, c.horarioInicio)
         }
         return {
           filial: usuario.filial,
@@ -636,18 +648,19 @@ export default function DistribuicaoTML() {
           data: c.data,
           horario_inicio: c.horarioInicio,
           horario_final: c.horarioFinal,
+          horario_final_matinal: horarioFinalMatinal,
           tempo_deslocamento_minutos: tempoDeslocamento,
         }
       })
 
       // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time":
-      // se o mesmo mapa aparecer mais de uma vez no arquivo importado, fica só
-      // a última ocorrência antes do upsert.
-      const linhasPorMapa = new Map<typeof linhas[number]['mapa'], typeof linhas[number]>()
-      for (const linha of linhas) linhasPorMapa.set(linha.mapa, linha)
+      // se o mesmo mapa aparecer mais de uma vez no arquivo importado (chave
+      // inclui a data, já que o mesmo mapa pode se repetir em dias diferentes).
+      const linhasPorMapa = new Map<string, typeof linhas[number]>()
+      for (const linha of linhas) linhasPorMapa.set(`${linha.mapa}|${linha.data}`, linha)
       const linhasUnicas = [...linhasPorMapa.values()]
 
-      const { error } = await supabase.from('checklist_tml').upsert(linhasUnicas, { onConflict: 'filial,mapa' })
+      const { error } = await supabase.from('checklist_tml').upsert(linhasUnicas, { onConflict: 'filial,mapa,data' })
       if (error) throw new Error(error.message)
 
       const avisoMatinal = matinaisAutoFinalizadas.length > 0
@@ -837,6 +850,9 @@ export default function DistribuicaoTML() {
           </Link>
           <Link to="/distribuicao/tml/supervisores" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <Users className="h-4 w-4" /> Supervisores
+          </Link>
+          <Link to="/distribuicao/tml/parametros" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
+            <SlidersHorizontal className="h-4 w-4" /> Parâmetros
           </Link>
           <button onClick={fetchAlertas} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
@@ -1033,6 +1049,7 @@ export default function DistribuicaoTML() {
               <thead className="bg-muted/50">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mapa</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Data</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Sala</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Placa</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Motorista</th>
@@ -1046,6 +1063,7 @@ export default function DistribuicaoTML() {
                 {historico.map((h) => (
                   <tr key={h.id} className="hover:bg-muted/30 transition-colors align-top">
                     <td className="px-4 py-3">{h.mapa}</td>
+                    <td className="px-4 py-3">{formatarDataBR(h.data_saida)}</td>
                     <td className="px-4 py-3">{h.sala ?? '—'}</td>
                     <td className="px-4 py-3">{h.placa ?? '—'}</td>
                     <td className="px-4 py-3">{h.nome ?? '—'} {h.matricula != null && <span className="text-muted-foreground">({h.matricula})</span>}</td>
