@@ -5,12 +5,13 @@ import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import type { SolicitacaoExtra } from '../types'
 import PessoaValorCard from '../components/PessoaValorCard'
+import { formatarDataBR } from '../lib/utils'
 
 const TIPOS_SOLICITACAO = ['Finalizar Rota', 'Entrega/Recolha de Materiais', 'Outros'] as const
 const SOLICITANTES_AMBEV = ['Isabela Kimel', 'Takasi Augusto', 'Roberta Soares', 'Outro']
 
 function formatDate(str: string) {
-  return new Date(str + 'T00:00:00').toLocaleDateString('pt-BR')
+  return formatarDataBR(str + 'T00:00:00')
 }
 
 function formatCurrency(v: number | null) {

@@ -7,6 +7,7 @@ import { Timer, TrendingDown, CheckCircle2, AlertTriangle, Check, Loader2 } from
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { SALA_TML_LABEL, type SalaTML, DESLOCAMENTO_IDEAL_MIN, DESLOCAMENTO_ESTOURO_MIN } from '../lib/tml'
+import { formatarDataBR } from '../lib/utils'
 
 const TOOLTIP_STYLE = { borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12 }
 
@@ -343,7 +344,7 @@ export default function DistribuicaoTMLDeslocamento() {
                 <tbody>
                   {ocorrenciasMaisDemoradas.map((c) => (
                     <tr key={c.id} className="border-b last:border-0 hover:bg-slate-50">
-                      <td className="py-2 px-4 whitespace-nowrap">{c.data ? c.data.slice(8, 10) + '/' + c.data.slice(5, 7) : '—'}</td>
+                      <td className="py-2 px-4 whitespace-nowrap">{formatarDataBR(c.data)}</td>
                       <td className="py-2 px-4">{c.nome ?? '—'}</td>
                       <td className="py-2 px-4 whitespace-nowrap">{c.sala ? SALA_TML_LABEL[c.sala] : '—'}</td>
                       <td className="py-2 px-4">{c.horario_inicio ?? '—'}</td>
@@ -398,7 +399,7 @@ export default function DistribuicaoTMLDeslocamento() {
                 <tbody>
                   {ocorrenciasAntesMatinal.map((c) => (
                     <tr key={c.id} className="border-b border-amber-200 last:border-0">
-                      <td className="py-2 px-4 whitespace-nowrap">{c.data ? c.data.slice(8, 10) + '/' + c.data.slice(5, 7) : '—'}</td>
+                      <td className="py-2 px-4 whitespace-nowrap">{formatarDataBR(c.data)}</td>
                       <td className="py-2 px-4">{c.nome ?? '—'}</td>
                       <td className="py-2 px-4 whitespace-nowrap">{c.sala ? SALA_TML_LABEL[c.sala] : '—'}</td>
                       <td className="py-2 px-4">{c.horario_inicio ?? '—'}</td>
@@ -433,7 +434,7 @@ export default function DistribuicaoTMLDeslocamento() {
                 <tbody>
                   {historicoEstouros.map((o) => (
                     <tr key={o.chave} className="border-b last:border-0 hover:bg-slate-50">
-                      <td className="py-2 px-4 whitespace-nowrap">{o.data ? o.data.slice(8, 10) + '/' + o.data.slice(5, 7) : '—'}</td>
+                      <td className="py-2 px-4 whitespace-nowrap">{formatarDataBR(o.data)}</td>
                       <td className="py-2 px-4">
                         <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${o.tipo === 'Matinal' ? 'bg-cyan-50 text-cyan-700' : 'bg-red-50 text-red-700'}`}>
                           {o.tipo}
@@ -472,7 +473,7 @@ export default function DistribuicaoTMLDeslocamento() {
                 <tbody>
                   {matinaisFiltradas.map((m) => (
                     <tr key={m.id} className="border-b last:border-0 hover:bg-slate-50">
-                      <td className="py-2 px-4 whitespace-nowrap">{m.data ? m.data.slice(8, 10) + '/' + m.data.slice(5, 7) : '—'}</td>
+                      <td className="py-2 px-4 whitespace-nowrap">{formatarDataBR(m.data)}</td>
                       <td className="py-2 px-4 whitespace-nowrap">{m.sala ? SALA_TML_LABEL[m.sala] : '—'}</td>
                       <td className="py-2 px-4">{formatarHoraISO(m.horario_inicio)}</td>
                       <td className="py-2 px-4">{formatarHoraISO(m.horario_final)}</td>

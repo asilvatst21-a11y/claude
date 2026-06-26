@@ -14,6 +14,7 @@ import {
 } from '../lib/tml'
 import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusSalaTML } from '../lib/tmlResumos'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
+import { formatarDataBR } from '../lib/utils'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
@@ -635,7 +636,7 @@ export default function DistribuicaoTML() {
 
       const avisoMatinal = matinaisAutoFinalizadas.length > 0
         ? `\n\n⚠️ ${matinaisAutoFinalizadas.length} matinal(is) não foram finalizadas no timer e tiveram a duração limitada a ${MATINAL_AUTO_FINALIZA_MIN} min automaticamente:\n` +
-          matinaisAutoFinalizadas.map((m) => `• ${SALA_TML_LABEL[m.sala as SalaTML] ?? m.sala} — ${m.data}`).join('\n') +
+          matinaisAutoFinalizadas.map((m) => `• ${SALA_TML_LABEL[m.sala as SalaTML] ?? m.sala} — ${formatarDataBR(m.data)}`).join('\n') +
           `\nConfira em "Timer da Matinal" se o horário está correto.`
         : ''
 

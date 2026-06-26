@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { enviarMensagemGrupo } from '../lib/zapi'
 import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
+import { formatarDataBR } from '../lib/utils'
 import type { DtoObservacao } from '../types'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -40,15 +41,6 @@ function excelDate(val: string): string {
     return date.toLocaleDateString('pt-BR')
   }
   return val
-}
-
-// Exibe a data no formato dd/mm/aa (ano com 2 dígitos), a partir do
-// dd/mm/yyyy salvo em data_aplicacao.
-function formatarDataCurta(data: string | null): string {
-  if (!data) return '—'
-  const m = data.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
-  if (!m) return data
-  return `${m[1]}/${m[2]}/${m[3].slice(2)}`
 }
 
 function calcConformidade(obs: DtoObservacao): number {
@@ -132,6 +124,7 @@ export default function Dto() {
   const [filtroPeriodo, setFiltroPeriodo] = useState({ de: '', ate: '' })
   const [filtroStatus, setFiltroStatus] = useState<StatusAcao | 'Todos'>('Todos')
   const [expandedAtividade, setExpandedAtividade] = useState<string | null>(null)
+  const [expandedObs, setExpandedObs] = useState<string | null>(null)
   const [solicitados, setSolicitados] = useState<Set<string>>(new Set())
   const [orientados, setOrientados] = useState<Set<string>>(new Set())
 
@@ -620,15 +613,50 @@ export default function Dto() {
                                 <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
                                   {[...a.obs].sort((x, y) => (y.data_aplicacao ?? '').localeCompare(x.data_aplicacao ?? '')).map(o => {
                                     const conf = calcConformidade(o)
+                                    const tarefas = splitTarefas(o.tarefas_seguranca)
+                                    const aberto = expandedObs === o.id
                                     return (
-                                      <div key={o.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded px-2.5 py-1.5 text-xs">
-                                        <span className="text-gray-500 shrink-0 w-16">{formatarDataCurta(o.data_aplicacao)}</span>
-                                        <span className="font-medium text-gray-800 flex-1 min-w-0 truncate">{o.colaborador}</span>
-                                        {o.avaliador && <span className="text-gray-400 shrink-0 hidden sm:inline">{o.avaliador}</span>}
-                                        {temAnomalia(o)
-                                          ? <span className="text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded shrink-0">Anomalia</span>
-                                          : <span className="text-green-700 bg-green-50 px-1.5 py-0.5 rounded shrink-0">OK</span>}
-                                        <span className="w-24 shrink-0"><ConformidadeBar pct={conf} /></span>
+                                      <div key={o.id} className="bg-white border border-gray-100 rounded">
+                                        <button
+                                          type="button"
+                                          onClick={() => setExpandedObs(aberto ? null : o.id)}
+                                          className="w-full flex items-center gap-3 px-2.5 py-1.5 text-xs hover:bg-gray-50"
+                                        >
+                                          <span className="text-gray-500 shrink-0 w-16 text-left">{formatarDataBR(o.data_aplicacao)}</span>
+                                          <span className="font-medium text-gray-800 flex-1 min-w-0 truncate text-left underline decoration-dotted">{o.colaborador}</span>
+                                          {o.avaliador && <span className="text-gray-400 shrink-0 hidden sm:inline">{o.avaliador}</span>}
+                                          {temAnomalia(o)
+                                            ? <span className="text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded shrink-0">Anomalia</span>
+                                            : <span className="text-green-700 bg-green-50 px-1.5 py-0.5 rounded shrink-0">OK</span>}
+                                          <span className="w-24 shrink-0"><ConformidadeBar pct={conf} /></span>
+                                          {aberto ? <ChevronUp size={12} className="text-gray-400 shrink-0" /> : <ChevronDown size={12} className="text-gray-400 shrink-0" />}
+                                        </button>
+                                        {aberto && (
+                                          <div className="px-3 py-2.5 border-t border-gray-100 text-xs space-y-2">
+                                            <div>
+                                              <p className="font-semibold text-gray-600 uppercase text-[10px] mb-1">Tarefas de segurança identificadas</p>
+                                              {tarefas.length > 0 ? (
+                                                <ul className="list-disc list-inside text-gray-700 space-y-0.5">
+                                                  {tarefas.map((t, idx) => <li key={idx}>{t}</li>)}
+                                                </ul>
+                                              ) : (
+                                                <p className="text-gray-400">Nenhuma tarefa de segurança identificada.</p>
+                                              )}
+                                            </div>
+                                            {o.houve_desvio === 'SIM' && (
+                                              <div className="bg-red-50 border border-red-100 rounded p-2 space-y-0.5">
+                                                {o.tarefa_com_desvio && <p className="text-red-700"><span className="font-semibold">Tarefa com desvio:</span> {o.tarefa_com_desvio}</p>}
+                                                {o.qual_desvio && <p className="text-red-700"><span className="font-semibold">Desvio:</span> {o.qual_desvio}</p>}
+                                              </div>
+                                            )}
+                                            <div>
+                                              <p className="font-semibold text-gray-600 uppercase text-[10px] mb-1">Plano de ação</p>
+                                              <p className={o.acao_gerada ? 'text-gray-700' : 'text-gray-400'}>
+                                                {o.acao_gerada || 'Nenhum plano de ação registrado para essa avaliação.'}
+                                              </p>
+                                            </div>
+                                          </div>
+                                        )}
                                       </div>
                                     )
                                   })}
@@ -658,7 +686,7 @@ export default function Dto() {
                                             <div className="flex justify-between items-center mb-1 gap-2">
                                               <span className="font-semibold text-red-800">{o0.colaborador}</span>
                                               <div className="flex items-center gap-2 flex-wrap justify-end">
-                                                <span className="text-gray-500">{formatarDataCurta(o0.data_aplicacao)}</span>
+                                                <span className="text-gray-500">{formatarDataBR(o0.data_aplicacao)}</span>
                                                 {g.length > 1 && <span className="text-orange-700 font-semibold">{g.length} desvios</span>}
                                                 {jaSolic ? (
                                                   <span className="flex items-center gap-0.5 text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">
@@ -777,7 +805,7 @@ export default function Dto() {
                         <div key={o.id} className="px-4 py-3 flex items-start gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap mb-1">
-                              <span className="text-xs text-gray-400 shrink-0">{formatarDataCurta(o.data_aplicacao)}</span>
+                              <span className="text-xs text-gray-400 shrink-0">{formatarDataBR(o.data_aplicacao)}</span>
                               <span className="text-xs font-semibold text-gray-900">{o.colaborador}</span>
                               {o.atividade && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded shrink-0">{o.atividade}</span>}
                             </div>

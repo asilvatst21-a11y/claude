@@ -33,11 +33,12 @@ export function calcPrazo(dataEmissao: string | null | undefined): PrazoInfo | n
   return { status: "ok", label: `${dias} dias`, horasRestantes };
 }
 
+// Convenção do projeto: datas exibidas na tela usam dd/mm/aa (ano com 2 dígitos).
 export function formatDateBR(dateStr: string | Date | null | undefined): string {
   if (!dateStr) return "-";
   try {
     const date = typeof dateStr === "string" ? new Date(dateStr + "T00:00:00") : dateStr;
-    return date.toLocaleDateString("pt-BR");
+    return date.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "2-digit" });
   } catch {
     return "-";
   }

@@ -13,6 +13,7 @@ import {
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { ProntuarioSnapshot, ProntuarioRegistro } from '../types'
+import { formatarDataBR } from '../lib/utils'
 
 // ── Faixa ───────────────────────────────────────────────────────────────────────────────
 
@@ -443,7 +444,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
               {snapshots.map(s => (
                 <button key={s.id} onClick={() => setSelectedId(s.id)}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border ${selectedId === s.id ? 'bg-brand-700 text-white border-brand-700' : 'bg-white text-gray-600 border-gray-200 hover:border-brand-300'}`}>
-                  <Calendar size={11} /> {new Date(s.data_referencia + 'T12:00:00').toLocaleDateString('pt-BR')} <span className="opacity-60">({s.total_registros})</span>
+                  <Calendar size={11} /> {formatarDataBR(s.data_referencia + 'T12:00:00')} <span className="opacity-60">({s.total_registros})</span>
                 </button>
               ))}
             </div>
@@ -547,7 +548,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                 <input type="text" placeholder="Buscar nome ou CPF..." value={busca} onChange={e => setBusca(e.target.value)}
                   className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
               </div>
-              {previous.length > 0 && prevSnap && <span className="text-xs text-gray-400 ml-auto shrink-0">vs {new Date(prevSnap.data_referencia + 'T12:00:00').toLocaleDateString('pt-BR')}</span>}
+              {previous.length > 0 && prevSnap && <span className="text-xs text-gray-400 ml-auto shrink-0">vs {formatarDataBR(prevSnap.data_referencia + 'T12:00:00')}</span>}
             </div>
 
             <table className="w-full text-sm">

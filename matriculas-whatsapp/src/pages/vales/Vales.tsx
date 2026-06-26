@@ -423,9 +423,7 @@ export default function ValesPage() {
     try {
       const registradoPor = usuario.nome ?? usuario.login;
       const colaborador = fluxoAjudante.trim();
-      const dataFormatada = fluxoData
-        ? new Date(fluxoData + "T12:00:00").toLocaleDateString("pt-BR")
-        : "—";
+      const dataFormatada = fluxoData ? formatDateBR(fluxoData) : "—";
       const obs = `Vale #${fluxoVale.numero_vale}${fluxoVale.mapa ? ` · Mapa ${fluxoVale.mapa}` : ""}`;
 
       const { error } = await supabase.from("fluxo_punitivo").insert({

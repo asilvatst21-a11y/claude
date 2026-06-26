@@ -8,6 +8,7 @@ import html2canvas from 'html2canvas'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { DtoAtividade, DtoAtividadeAlias, DtoAvaliador, DtoObservacao, Relato } from '../types'
+import { formatarDataBR } from '../lib/utils'
 
 // ── Seed: base de atividades (Calendarização Armazém + Oficina da planilha oficial) ──
 
@@ -150,7 +151,7 @@ function anoDe(s: string | null | undefined): number | null {
   return m ? +m[1] : null
 }
 function fmtData(d: Date | null): string {
-  return d ? d.toLocaleDateString('pt-BR') : '—'
+  return formatarDataBR(d)
 }
 function fmtPeriodicidade(p: number | null): string {
   return p === null ? 'Na ocorrência' : `${p}d`
@@ -978,7 +979,7 @@ const FilaExportTemplate = forwardRef<HTMLDivElement, {
   filial: string
 }>(function FilaExportTemplate({ fila, filial }, ref) {
   const { seg, dom } = semanaAtual()
-  const semana = `${seg.toLocaleDateString('pt-BR')} a ${dom.toLocaleDateString('pt-BR')}`
+  const semana = `${formatarDataBR(seg)} a ${formatarDataBR(dom)}`
   const th: React.CSSProperties = { padding: '8px 12px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left', whiteSpace: 'nowrap' }
   const td: React.CSSProperties = { padding: '9px 12px', fontSize: '12px', verticalAlign: 'middle' }
 
@@ -1039,7 +1040,7 @@ const FilaExportTemplate = forwardRef<HTMLDivElement, {
 
       {/* Rodapé */}
       <div style={{ marginTop: '16px', paddingTop: '10px', borderTop: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', fontSize: '10px', color: '#94a3b8' }}>
-        <span>Gerado em {HOJE.toLocaleDateString('pt-BR')}</span>
+        <span>Gerado em {formatarDataBR(HOJE)}</span>
         <span>Total: {fila.length} DTO(s) na fila</span>
       </div>
     </div>

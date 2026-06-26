@@ -12,6 +12,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
 import type { TelemetriaAlerta, TelemetriaAcao } from '../types'
+import { formatarDataBR } from '../lib/utils'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -1522,13 +1523,12 @@ export default function Telemetria() {
                     </thead>
                     <tbody className="divide-y divide-gray-50">
                       {serieData.map((s, i) => {
-                        const [y2, m2, d2] = s.data.split('-')
                         const tipos = [...new Set(s.eventos.map(a => a.tipo))]
                         const vias  = [...new Set(s.eventos.map(a => a.logradouro).filter(Boolean))]
                         return (
                           <tr key={i} className="hover:bg-gray-50">
                             <td className="px-4 py-2.5 font-medium text-gray-800 max-w-xs truncate">{s.motorista}</td>
-                            <td className="px-3 py-2.5 text-center text-xs text-gray-600 font-medium">{`${d2}/${m2}/${y2}`}</td>
+                            <td className="px-3 py-2.5 text-center text-xs text-gray-600 font-medium">{formatarDataBR(s.data)}</td>
                             <td className="px-3 py-2.5 text-center">
                               <span className="text-sm font-bold text-red-600">{s.eventos.length}</span>
                             </td>

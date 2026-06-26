@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart, Upload, Loader2, X } from "lucide-react";
 import * as XLSX from "xlsx";
-import { formatCurrency } from "@/lib/valesUtils";
+import { formatCurrency, formatDateBR } from "@/lib/valesUtils";
 import { valesSupabase } from "@/lib/valesSupabase";
 import { enviarBotoesGrupo } from "@/lib/zapi";
 
@@ -83,7 +83,7 @@ function StatusBadge({ status }: { status: Status }) {
 function formatDate(str: string | null) {
   if (!str) return "—";
   return new Date(str).toLocaleString("pt-BR", {
-    day: "2-digit", month: "2-digit", year: "numeric",
+    day: "2-digit", month: "2-digit", year: "2-digit",
     hour: "2-digit", minute: "2-digit",
   });
 }
@@ -326,14 +326,14 @@ function VendasConfronto({ rep }: { rep: Reposicao }) {
   if (!vendas || vendas.length === 0) {
     const pdvCod = extrairCodigo(rep.codigo_pdv ?? rep.cliente);
     if (!pdvCod) return null;
-    return <div className="text-xs text-muted-foreground mt-2">Nenhuma venda encontrada para o PDV {pdvCod} em {rep.created_at.slice(0, 10)}.</div>;
+    return <div className="text-xs text-muted-foreground mt-2">Nenhuma venda encontrada para o PDV {pdvCod} em {formatDateBR(rep.created_at)}.</div>;
   }
 
   return (
     <div className="mt-3 space-y-1.5">
       <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         <ShoppingCart className="h-3.5 w-3.5" />
-        Vendas do dia para este PDV — {rep.created_at.slice(0, 10)}
+        Vendas do dia para este PDV — {formatDateBR(rep.created_at)}
         {temProduto
           ? <span className="ml-1 px-1.5 py-0.5 rounded-full bg-green-100 text-green-700 font-medium">produto confirmado no pedido ✓</span>
           : prodCod
