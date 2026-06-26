@@ -509,9 +509,9 @@ export default function Dto() {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
-                  <p className="text-sm font-semibold text-gray-700 mb-3">Atividades por Conformidade</p>
-                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
-                    {rankingAtividades.map((a, i) => (
+                  <p className="text-sm font-semibold text-gray-700 mb-3">Top Atividades com Anomalias</p>
+                  <div className="space-y-2">
+                    {rankingAtividades.filter(a => a.comAnomalia > 0).slice(0, 6).map((a, i) => (
                       <div key={a.atividade} className="flex items-center gap-3">
                         <span className="text-xs font-bold text-gray-400 w-4">{i + 1}</span>
                         <div className="flex-1 min-w-0">
@@ -613,6 +613,25 @@ export default function Dto() {
                                       </div>
                                     )
                                   }).filter(Boolean)}
+                                </div>
+                              </div>
+                              <div>
+                                <p className="text-xs font-semibold text-gray-600 uppercase mb-2">Avaliações realizadas ({a.obs.length})</p>
+                                <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                                  {[...a.obs].sort((x, y) => (y.data_aplicacao ?? '').localeCompare(x.data_aplicacao ?? '')).map(o => {
+                                    const conf = calcConformidade(o)
+                                    return (
+                                      <div key={o.id} className="flex items-center gap-3 bg-white border border-gray-100 rounded px-2.5 py-1.5 text-xs">
+                                        <span className="text-gray-500 shrink-0 w-16">{formatarDataCurta(o.data_aplicacao)}</span>
+                                        <span className="font-medium text-gray-800 flex-1 min-w-0 truncate">{o.colaborador}</span>
+                                        {o.avaliador && <span className="text-gray-400 shrink-0 hidden sm:inline">{o.avaliador}</span>}
+                                        {temAnomalia(o)
+                                          ? <span className="text-orange-700 bg-orange-50 px-1.5 py-0.5 rounded shrink-0">Anomalia</span>
+                                          : <span className="text-green-700 bg-green-50 px-1.5 py-0.5 rounded shrink-0">OK</span>}
+                                        <span className="w-24 shrink-0"><ConformidadeBar pct={conf} /></span>
+                                      </div>
+                                    )
+                                  })}
                                 </div>
                               </div>
                               {a.obs.filter(o => o.houve_desvio === 'SIM').length > 0 && (() => {
