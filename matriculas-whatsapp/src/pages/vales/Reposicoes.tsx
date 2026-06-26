@@ -361,6 +361,102 @@ function VendasConfronto({ rep }: { rep: Reposicao }) {
   );
 }
 
+// Seletor de produto reutilizável: atalho dos mais vendidos + busca por
+// nome/código. Usado na conferência para corrigir o produto solicitado e
+// para informar o produto correto numa inversão.
+function SeletorProduto({
+  value, onChange, produtos, topProdutos, placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  produtos: Produto[];
+  topProdutos: Produto[];
+  placeholder?: string;
+}) {
+  const [mostrarTop, setMostrarTop] = useState(false);
+  const [busca, setBusca] = useState("");
+
+  const filtrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    if (!termo) return [];
+    return produtos
+      .filter((p) => p.descricao.toLowerCase().includes(termo) || String(p.codigo).includes(termo))
+      .slice(0, 30);
+  }, [produtos, busca]);
+
+  function selecionar(p: Produto) {
+    onChange(`${p.codigo} - ${p.descricao}`);
+    setMostrarTop(false);
+    setBusca("");
+  }
+
+  if (value) {
+    return (
+      <div className="flex items-center justify-between gap-2 border rounded-md px-3 py-2 bg-purple-50">
+        <span className="font-medium">{value}</span>
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="text-xs text-muted-foreground hover:text-foreground underline shrink-0"
+        >
+          Trocar
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        onClick={() => setMostrarTop((v) => !v)}
+        className="text-xs text-purple-700 hover:underline"
+      >
+        {mostrarTop ? "Ocultar mais vendidos" : "Ver mais vendidos"}
+      </button>
+      {mostrarTop && (
+        <div className="border rounded-md max-h-44 overflow-y-auto divide-y">
+          {topProdutos.length === 0 ? (
+            <div className="px-3 py-2 text-xs text-muted-foreground">Sem dados de vendas recentes.</div>
+          ) : (
+            topProdutos.map((p) => (
+              <button
+                type="button"
+                key={p.codigo}
+                onClick={() => selecionar(p)}
+                className="w-full text-left px-3 py-1.5 text-sm hover:bg-purple-50 transition-colors"
+              >
+                {p.codigo} - {p.descricao}
+              </button>
+            ))
+          )}
+        </div>
+      )}
+      <input
+        type="text"
+        value={busca}
+        onChange={(e) => setBusca(e.target.value)}
+        placeholder={placeholder ?? "Buscar produto por nome ou código..."}
+        className="w-full border rounded-md px-3 py-2 text-sm"
+      />
+      {filtrados.length > 0 && (
+        <div className="border rounded-md max-h-44 overflow-y-auto divide-y">
+          {filtrados.map((p) => (
+            <button
+              type="button"
+              key={p.codigo}
+              onClick={() => selecionar(p)}
+              className="w-full text-left px-3 py-1.5 text-sm hover:bg-purple-50 transition-colors"
+            >
+              {p.codigo} - {p.descricao}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ReposicoesPage() {
   const [reposicoes, setReposicoes] = useState<Reposicao[]>([]);
   const [tab, setTab] = useState<"todos" | Status>("todos");
@@ -380,13 +476,12 @@ export default function ReposicoesPage() {
   const [conferindo, setConferindo] = useState<Reposicao | null>(null);
   const [confQuantidade, setConfQuantidade] = useState("");
   const [confEmbalagem, setConfEmbalagem] = useState("indefinido");
+  const [confProduto, setConfProduto] = useState("");
   const [confProdutoInvertido, setConfProdutoInvertido] = useState("");
   const [confEnviando, setConfEnviando] = useState(false);
   const [confErro, setConfErro] = useState<string | null>(null);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [topProdutos, setTopProdutos] = useState<Produto[]>([]);
-  const [mostrarTopProdutos, setMostrarTopProdutos] = useState(false);
-  const [buscaProdutoInvertido, setBuscaProdutoInvertido] = useState("");
 
   useEffect(() => {
     valesSupabase
@@ -407,35 +502,18 @@ export default function ReposicoesPage() {
       });
   }, []);
 
-  const produtosFiltrados = useMemo(() => {
-    const termo = buscaProdutoInvertido.trim().toLowerCase();
-    if (!termo) return [];
-    return produtos
-      .filter((p) => p.descricao.toLowerCase().includes(termo) || String(p.codigo).includes(termo))
-      .slice(0, 30);
-  }, [produtos, buscaProdutoInvertido]);
-
-  function selecionarProdutoInvertido(p: Produto) {
-    setConfProdutoInvertido(`${p.codigo} - ${p.descricao}`);
-    setMostrarTopProdutos(false);
-    setBuscaProdutoInvertido("");
-  }
-
   function abrirConferencia(r: Reposicao) {
     setConferindo(r);
     setConfQuantidade(r.quantidade ?? "");
     setConfEmbalagem(r.embalagem ?? "indefinido");
+    setConfProduto(r.produto ?? "");
     setConfProdutoInvertido(r.produto_invertido ?? "");
     setConfErro(null);
-    setMostrarTopProdutos(false);
-    setBuscaProdutoInvertido("");
   }
 
   function fecharConferencia() {
     setConferindo(null);
     setConfErro(null);
-    setMostrarTopProdutos(false);
-    setBuscaProdutoInvertido("");
   }
 
   // suppress unused import warning
@@ -518,6 +596,7 @@ export default function ReposicoesPage() {
     setConfEnviando(true);
     setConfErro(null);
     const ajustes = {
+      produto: confProduto || null,
       quantidade: confQuantidade || null,
       embalagem: confEmbalagem,
       produto_invertido: conferindo.tipo_reposicao === "inversao" ? confProdutoInvertido : null,
@@ -917,10 +996,22 @@ export default function ReposicoesPage() {
               <div><span className="text-xs text-muted-foreground block mb-0.5">PDV</span>{conferindo.codigo_pdv ?? conferindo.cliente ?? "—"}</div>
               <div><span className="text-xs text-muted-foreground block mb-0.5">Mapa</span>{conferindo.mapa ?? "—"}</div>
               <div><span className="text-xs text-muted-foreground block mb-0.5">Tipo</span>{TIPO_REPOSICAO_LABEL[conferindo.tipo_reposicao ?? "indefinido"] ?? "Não informado"}</div>
-              <div className="col-span-2"><span className="text-xs text-muted-foreground block mb-0.5">Produto solicitado</span>{conferindo.produto ?? "—"}</div>
               {conferindo.mensagem_original && conferindo.mensagem_original !== "[áudio]" && (
                 <div className="col-span-2 text-xs text-muted-foreground border-l-2 pl-2 italic">&ldquo;{conferindo.mensagem_original}&rdquo;</div>
               )}
+            </div>
+
+            <div className="text-sm block space-y-1.5">
+              <span className="text-xs text-muted-foreground block">
+                Produto solicitado {conferindo.produto ? `(original: "${conferindo.produto}")` : ""}
+              </span>
+              <SeletorProduto
+                value={confProduto}
+                onChange={setConfProduto}
+                produtos={produtos}
+                topProdutos={topProdutos}
+                placeholder="Corrigir produto solicitado..."
+              />
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -948,73 +1039,16 @@ export default function ReposicoesPage() {
             </div>
 
             {conferindo.tipo_reposicao === "inversao" && (
-              <div className="text-sm block space-y-2">
+              <div className="text-sm block space-y-1.5">
                 <span className="text-xs text-muted-foreground block">
-                  Equipe pediu inversão de "{conferindo.produto ?? "—"}" — qual produto entrou no lugar?
+                  Qual produto entrou no lugar do que foi pedido (inversão)?
                 </span>
-
-                {confProdutoInvertido ? (
-                  <div className="flex items-center justify-between gap-2 border rounded-md px-3 py-2 bg-purple-50">
-                    <span className="font-medium">{confProdutoInvertido}</span>
-                    <button
-                      type="button"
-                      onClick={() => setConfProdutoInvertido("")}
-                      className="text-xs text-muted-foreground hover:text-foreground underline shrink-0"
-                    >
-                      Trocar
-                    </button>
-                  </div>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setMostrarTopProdutos((v) => !v)}
-                      className="text-xs text-purple-700 hover:underline"
-                    >
-                      {mostrarTopProdutos ? "Ocultar mais vendidos" : "Ver mais vendidos"}
-                    </button>
-                    {mostrarTopProdutos && (
-                      <div className="border rounded-md max-h-44 overflow-y-auto divide-y">
-                        {topProdutos.length === 0 ? (
-                          <div className="px-3 py-2 text-xs text-muted-foreground">Sem dados de vendas recentes.</div>
-                        ) : (
-                          topProdutos.map((p) => (
-                            <button
-                              type="button"
-                              key={p.codigo}
-                              onClick={() => selecionarProdutoInvertido(p)}
-                              className="w-full text-left px-3 py-1.5 text-sm hover:bg-purple-50 transition-colors"
-                            >
-                              {p.codigo} - {p.descricao}
-                            </button>
-                          ))
-                        )}
-                      </div>
-                    )}
-
-                    <input
-                      type="text"
-                      value={buscaProdutoInvertido}
-                      onChange={(e) => setBuscaProdutoInvertido(e.target.value)}
-                      placeholder="Buscar produto por nome ou código..."
-                      className="w-full border rounded-md px-3 py-2 text-sm"
-                    />
-                    {produtosFiltrados.length > 0 && (
-                      <div className="border rounded-md max-h-44 overflow-y-auto divide-y">
-                        {produtosFiltrados.map((p) => (
-                          <button
-                            type="button"
-                            key={p.codigo}
-                            onClick={() => selecionarProdutoInvertido(p)}
-                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-purple-50 transition-colors"
-                          >
-                            {p.codigo} - {p.descricao}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                  </>
-                )}
+                <SeletorProduto
+                  value={confProdutoInvertido}
+                  onChange={setConfProdutoInvertido}
+                  produtos={produtos}
+                  topProdutos={topProdutos}
+                />
               </div>
             )}
 
