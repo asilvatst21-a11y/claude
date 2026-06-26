@@ -490,21 +490,6 @@ function resumoConfirmacao(pend: any, equipe?: string | null): string {
   return linhas.join('\n')
 }
 
-// Mensagem enviada ao grupo de validação (controle) para Falta/Inversão.
-function resumoValidacao(numero: string, pend: any, equipe?: string | null): string {
-  const linhas = [`🔎 *Validação de Reposição* — ${numero}`]
-  linhas.push(`🔁 Tipo: ${TIPO_LABEL[pend.tipo_reposicao ?? 'indefinido'] ?? 'Não informado'}`)
-  linhas.push(`📦 Embalagem: ${EMBALAGEM_LABEL[pend.embalagem ?? 'indefinido'] ?? 'Não informado'}`)
-  if (pend.motorista_nome) linhas.push(`👤 Motorista: ${pend.motorista_nome}`)
-  if (pend.codigo_pdv)     linhas.push(`🏪 PDV: ${pend.codigo_pdv}`)
-  if (pend.mapa)           linhas.push(`🗺️ Mapa: ${pend.mapa}`)
-  if (equipe)              linhas.push(equipe)
-  if (pend.produto)        linhas.push(`📋 Produto: ${pend.produto}`)
-  if (pend.quantidade)     linhas.push(`📊 Qtde: ${pend.quantidade}`)
-  linhas.push('\nValidar? Toque em *OK* / *NOK* ou responda *OK* para aprovar ou *NOK* para negar.')
-  return linhas.join('\n')
-}
-
 // Resposta do controle no grupo de validação: OK/NOK (botão ou texto).
 // O id da reposição pode vir embutido no buttonId (vok:<id> / vnok:<id>).
 function extrairValidacao(body: any): { decisao: 'ok' | 'nok'; repId: string | null } | null {
@@ -697,7 +682,7 @@ async function pedirCampos(pendId: string, grupoId: string, nome: string, falta:
 
 async function tratarReposicao(
   body: any, grupoId: string, filial: string, texto: string,
-  senderName: string, participante: string, grupoValidacao: string,
+  senderName: string, participante: string,
 ): Promise<{ ok: boolean; action: string }> {
   const limitePend = () => new Date(Date.now() - CONFIRM_TTL_MIN * 60_000).toISOString()
 
@@ -833,12 +818,14 @@ async function tratarReposicao(
     const numero = await gerarNumeroReposicao()
     const tipo = pend.tipo_reposicao ?? 'indefinido'
 
-    // Falta/Inversão (e indefinido) vão para validação do controle — mas só
-    // quando a embalagem for Fardo. Unidade fica só registrada, sem validação.
-    // O que não passa pelo grupo de validação já entra direto como "registrado",
-    // já que não há mais confirmação manual de registro pelo painel.
-    const precisaValidacao = (tipo === 'falta' || tipo === 'inversao' || tipo === 'indefinido') && pend.embalagem === 'fardo'
-    const enviaParaValidacao = precisaValidacao && !!grupoValidacao
+    // Falta/Inversão (e indefinido) precisam de conferência do controle — mas só
+    // quando a embalagem for Fardo ou Caixa. Unidade fica só registrada, sem
+    // conferência. A conferência agora é feita na tela de Reposições do site
+    // (o controle ajusta quantidade/embalagem/produto invertido e só então o
+    // site envia para o grupo de validação no WhatsApp) — o webhook não manda
+    // mais direto para o grupo de validação.
+    const precisaValidacao = (tipo === 'falta' || tipo === 'inversao' || tipo === 'indefinido') &&
+      (pend.embalagem === 'fardo' || pend.embalagem === 'caixa')
 
     const { data: novaRep, error: insErr } = await supabase.from('reposicoes').insert({
       numero,
@@ -854,7 +841,7 @@ async function tratarReposicao(
       embalagem: pend.embalagem || null,
       motivo: TIPO_LABEL[tipo] ?? null,
       mensagem_original: pend.mensagem_original,
-      status: enviaParaValidacao ? 'pendente' : 'registrado',
+      status: precisaValidacao ? 'pendente' : 'registrado',
     }).select('id, numero').single()
     if (insErr || !novaRep) {
       console.error('Erro ao inserir reposição:', insErr)
@@ -863,14 +850,9 @@ async function tratarReposicao(
     }
     await supabase.from('reposicao_confirmacoes').update({ status: 'confirmado' }).eq('id', pend.id)
 
-    if (enviaParaValidacao) {
+    if (precisaValidacao) {
       await enviar(grupoId,
-        `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nEnviada para validação do controle.`)
-      const equipeValidacao = await buscarEquipeMapa(pend.mapa, pend.filial)
-      await enviarBotoes(grupoValidacao, resumoValidacao(numero, pend, equipeValidacao), [
-        { id: `vok:${novaRep.id}`,  label: '✅ OK' },
-        { id: `vnok:${novaRep.id}`, label: '❌ NOK' },
-      ])
+        `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!\nAguardando conferência do controle.`)
     } else {
       await enviar(grupoId, `✅ *${numero}* registrada para ${pend.motorista_nome ?? ''}!`)
     }
@@ -1173,7 +1155,7 @@ export default async function handler(req: any, res: any) {
 
     // Grupos de solicitação (1 e 2): motorista envia e confirma
     if (filialRow.grupo_reposicoes_whatsapp === grupoId || filialRow.grupo_solicitacao_2_whatsapp === grupoId) {
-      const r = await tratarReposicao(body, grupoId, filial, texto, senderName, participante, grupoValidacao)
+      const r = await tratarReposicao(body, grupoId, filial, texto, senderName, participante)
       res.status(200).json(r)
       return
     }
