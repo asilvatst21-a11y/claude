@@ -37,6 +37,13 @@ interface Reposicao {
   cora_mapa_lancado: string | null;
   cora_motivo_lancado: string | null;
   cora_quantidade_lancada: string | null;
+  produto_invertido: string | null;
+  conferida_em: string | null;
+}
+
+interface Produto {
+  codigo: number;
+  descricao: string;
 }
 
 const TIPO_REPOSICAO_LABEL: Record<string, string> = {
@@ -50,8 +57,11 @@ const TIPO_REPOSICAO_LABEL: Record<string, string> = {
 const EMBALAGEM_LABEL: Record<string, string> = {
   unidade: "Unidade",
   fardo: "Fardo",
+  caixa: "Caixa",
   indefinido: "Não informado",
 };
+
+const EMBALAGEM_OPCOES = ["unidade", "fardo", "caixa"] as const;
 
 const STATUS_CONFIG: Record<Status, { label: string; color: string; icon: React.ElementType }> = {
   pendente: { label: "Pendente", color: "text-yellow-600 bg-yellow-50", icon: Clock },
@@ -364,6 +374,38 @@ export default function ReposicoesPage() {
   const [coraErro, setCoraErro] = useState<string | null>(null);
   const coraFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Conferência antes do envio para o grupo de validação: o revisor confirma/
+  // ajusta quantidade, embalagem e, em caso de inversão, qual produto entrou
+  // no lugar do que foi pedido.
+  const [conferindo, setConferindo] = useState<Reposicao | null>(null);
+  const [confQuantidade, setConfQuantidade] = useState("");
+  const [confEmbalagem, setConfEmbalagem] = useState("indefinido");
+  const [confProdutoInvertido, setConfProdutoInvertido] = useState("");
+  const [confEnviando, setConfEnviando] = useState(false);
+  const [confErro, setConfErro] = useState<string | null>(null);
+  const [produtos, setProdutos] = useState<Produto[]>([]);
+
+  useEffect(() => {
+    valesSupabase
+      .from("produtos")
+      .select("codigo, descricao")
+      .order("descricao")
+      .then(({ data }) => setProdutos(Array.isArray(data) ? data : []));
+  }, []);
+
+  function abrirConferencia(r: Reposicao) {
+    setConferindo(r);
+    setConfQuantidade(r.quantidade ?? "");
+    setConfEmbalagem(r.embalagem ?? "indefinido");
+    setConfProdutoInvertido(r.produto_invertido ?? "");
+    setConfErro(null);
+  }
+
+  function fecharConferencia() {
+    setConferindo(null);
+    setConfErro(null);
+  }
+
   // suppress unused import warning
   void formatCurrency;
 
@@ -415,6 +457,9 @@ export default function ReposicoesPage() {
     if (rep.mapa) linhas.push(`🗺️ Mapa: ${rep.mapa}`);
     if (rep.produto) linhas.push(`📋 Produto: ${rep.produto}`);
     if (rep.quantidade) linhas.push(`📊 Qtde: ${rep.quantidade}`);
+    if (rep.tipo_reposicao === "inversao" && rep.produto_invertido) {
+      linhas.push(`🔄 Invertido por: ${rep.produto_invertido}`);
+    }
     linhas.push("\nValidar? Toque em *OK* / *NOK* ou responda *OK* para aprovar ou *NOK* para negar.");
     const { sucesso, erro } = await enviarBotoesGrupo(grupo, linhas.join("\n"), [
       { id: `vok:${rep.id}`, label: "✅ OK" },
@@ -427,6 +472,34 @@ export default function ReposicoesPage() {
     if (!sucesso) { alert(`Falha ao enviar para o grupo de validação:\n${erro ?? ""}`); return; }
     await fetchData();
     alert("Enviado para o grupo de validação no WhatsApp.");
+  }
+
+  // Salva os ajustes feitos na conferência (sobrescrevendo quantidade/embalagem
+  // e gravando o produto correto no caso de inversão) e então envia para o
+  // grupo de validação com os dados já corrigidos.
+  async function confirmarConferencia() {
+    if (!conferindo) return;
+    if (conferindo.tipo_reposicao === "inversao" && !confProdutoInvertido) {
+      setConfErro("Selecione o produto que entrou no lugar do que foi pedido (inversão).");
+      return;
+    }
+    setConfEnviando(true);
+    setConfErro(null);
+    const ajustes = {
+      quantidade: confQuantidade || null,
+      embalagem: confEmbalagem,
+      produto_invertido: conferindo.tipo_reposicao === "inversao" ? confProdutoInvertido : null,
+      conferida_em: new Date().toISOString(),
+    };
+    const { error } = await valesSupabase.from("reposicoes").update(ajustes).eq("id", conferindo.id);
+    if (error) {
+      setConfEnviando(false);
+      setConfErro(`Falha ao salvar a conferência: ${error.message}`);
+      return;
+    }
+    await enviarParaValidacao({ ...conferindo, ...ajustes });
+    setConfEnviando(false);
+    setConferindo(null);
   }
 
   async function handleArquivoCora(file: File) {
@@ -504,8 +577,8 @@ export default function ReposicoesPage() {
     return (
       <div className="flex flex-wrap items-center gap-1.5">
         {(r.status === "pendente" || r.status === "negado") && (
-          <button onClick={() => enviarParaValidacao(r)} disabled={!!actionLoading} title="Reenvia para o grupo de validação no WhatsApp" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 disabled:opacity-50 transition-colors">
-            <Send className="h-3 w-3" />{actionLoading === r.id + "envio-validacao" ? "..." : "Enviar p/ validação"}
+          <button onClick={() => abrirConferencia(r)} disabled={!!actionLoading} title="Confere quantidade, tipo e (se inversão) o produto correto antes de enviar para o grupo de validação" className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-purple-100 text-purple-700 hover:bg-purple-200 disabled:opacity-50 transition-colors">
+            <ClipboardCheck className="h-3 w-3" />Conferir e enviar
           </button>
         )}
         {(r.status === "pendente" || r.status === "validado") && (
@@ -529,6 +602,7 @@ export default function ReposicoesPage() {
           <div><span className="text-xs text-muted-foreground block mb-0.5">Motivo</span><span className="font-medium">{r.motivo ?? "—"}</span></div>
           {r.validado_em && <div><span className="text-xs text-muted-foreground block mb-0.5">Validado em</span><span className="font-medium">{formatDate(r.validado_em)}</span></div>}
           {r.validador_resposta && <div><span className="text-xs text-muted-foreground block mb-0.5">Resposta</span><span className="font-medium">{r.validador_resposta}</span></div>}
+          {r.produto_invertido && <div><span className="text-xs text-muted-foreground block mb-0.5">Invertido por</span><span className="font-medium">{r.produto_invertido}</span></div>}
           {r.cora_solicitacao_id && <div><span className="text-xs text-muted-foreground block mb-0.5">Solicitação CORA</span><span className="font-medium">{r.cora_solicitacao_id}</span></div>}
           {r.cora_motivo_reprovacao && <div><span className="text-xs text-muted-foreground block mb-0.5">Motivo Reprovação CORA</span><span className="font-medium">{r.cora_motivo_reprovacao}</span></div>}
         </div>
@@ -785,6 +859,97 @@ export default function ReposicoesPage() {
             <div className="flex justify-end">
               <button onClick={fecharModalCora} className="px-4 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
                 Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {conferindo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Conferir solicitação — {conferindo.numero}</h2>
+              <button onClick={fecharConferencia} className="text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <p className="text-sm text-muted-foreground">
+              Revise os dados antes de enviar para o grupo de validação do controle. Ao confirmar, o
+              sistema monta a mensagem novamente já com os ajustes feitos aqui.
+            </p>
+
+            <div className="grid grid-cols-2 gap-3 text-sm bg-muted/30 rounded-md p-3">
+              <div><span className="text-xs text-muted-foreground block mb-0.5">Motorista</span>{conferindo.motorista_nome ?? "—"}</div>
+              <div><span className="text-xs text-muted-foreground block mb-0.5">PDV</span>{conferindo.codigo_pdv ?? conferindo.cliente ?? "—"}</div>
+              <div><span className="text-xs text-muted-foreground block mb-0.5">Mapa</span>{conferindo.mapa ?? "—"}</div>
+              <div><span className="text-xs text-muted-foreground block mb-0.5">Tipo</span>{TIPO_REPOSICAO_LABEL[conferindo.tipo_reposicao ?? "indefinido"] ?? "Não informado"}</div>
+              <div className="col-span-2"><span className="text-xs text-muted-foreground block mb-0.5">Produto solicitado</span>{conferindo.produto ?? "—"}</div>
+              {conferindo.mensagem_original && conferindo.mensagem_original !== "[áudio]" && (
+                <div className="col-span-2 text-xs text-muted-foreground border-l-2 pl-2 italic">&ldquo;{conferindo.mensagem_original}&rdquo;</div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <label className="text-sm">
+                <span className="text-xs text-muted-foreground block mb-1">Quantidade</span>
+                <input
+                  value={confQuantidade}
+                  onChange={(e) => setConfQuantidade(e.target.value)}
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                  placeholder="Ex.: 5"
+                />
+              </label>
+              <label className="text-sm">
+                <span className="text-xs text-muted-foreground block mb-1">Tipo (unidade ou caixa)</span>
+                <select
+                  value={confEmbalagem}
+                  onChange={(e) => setConfEmbalagem(e.target.value)}
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                >
+                  {EMBALAGEM_OPCOES.map((op) => (
+                    <option key={op} value={op}>{EMBALAGEM_LABEL[op]}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {conferindo.tipo_reposicao === "inversao" && (
+              <label className="text-sm block">
+                <span className="text-xs text-muted-foreground block mb-1">
+                  Equipe pediu inversão de "{conferindo.produto ?? "—"}" — qual produto entrou no lugar?
+                </span>
+                <select
+                  value={confProdutoInvertido}
+                  onChange={(e) => setConfProdutoInvertido(e.target.value)}
+                  className="w-full border rounded-md px-3 py-2 text-sm"
+                >
+                  <option value="">Selecione o produto correto...</option>
+                  {produtos.map((p) => (
+                    <option key={p.codigo} value={`${p.codigo} - ${p.descricao}`}>
+                      {p.codigo} - {p.descricao}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {confErro && (
+              <div className="rounded-md bg-red-50 text-red-700 text-sm px-3 py-2">{confErro}</div>
+            )}
+
+            <div className="flex justify-end gap-2">
+              <button onClick={fecharConferencia} disabled={confEnviando} className="px-4 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50">
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarConferencia}
+                disabled={confEnviando}
+                className="flex items-center gap-2 px-4 py-2 rounded-md bg-purple-600 text-white text-sm hover:bg-purple-700 disabled:opacity-50 transition-colors"
+              >
+                {confEnviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                Enviar para validação
               </button>
             </div>
           </div>
