@@ -16,6 +16,11 @@ export function formatarDataBR(data: string | Date | null | undefined): string {
   }
   const brMatch = data.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
   if (brMatch) return `${brMatch[1]}/${brMatch[2]}/${brMatch[3].slice(2)}`
+  // Data pura "yyyy-mm-dd" (sem horário): new Date(str) interpreta como meia-noite
+  // UTC, e toLocaleDateString converteria para o fuso local, voltando um dia em
+  // fusos negativos (Brasil). Por isso parseamos os componentes direto, sem Date.
+  const isoMatch = data.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (isoMatch) return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1].slice(2)}`
   const d = new Date(data)
   if (isNaN(d.getTime())) return data
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
