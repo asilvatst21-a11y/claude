@@ -30,6 +30,32 @@ interface LinhaChecklist {
   motivo: string | null
 }
 
+interface LinhaMatinal {
+  id: number
+  sala: SalaTML | null
+  data: string | null
+  horario_inicio: string | null
+  horario_final: string | null
+  meta_minutos: number | null
+  duracao_minutos: number | null
+  estouro_duracao: boolean | null
+  motivo_estouro: string | null
+}
+
+interface OcorrenciaEstouro {
+  chave: string
+  tipo: 'Matinal' | 'Deslocamento'
+  data: string | null
+  sala: SalaTML | null
+  minutos: number | null
+  motivo: string | null
+}
+
+function formatarHoraISO(iso: string | null): string {
+  if (!iso) return '—'
+  return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
 function Card({
   icon: Icon, label, value, hint, accent = 'text-accent-600 bg-accent/40',
 }: { icon: typeof Timer; label: string; value: string; hint?: string; accent?: string }) {
@@ -64,6 +90,7 @@ export default function DistribuicaoTMLDeslocamento() {
   const [sala, setSala] = useState<SalaTML | 'TODAS'>('TODAS')
 
   const [checklist, setChecklist] = useState<LinhaChecklist[]>([])
+  const [matinais, setMatinais] = useState<LinhaMatinal[]>([])
   const [loading, setLoading] = useState(true)
   const [salvandoMotivo, setSalvandoMotivo] = useState<string | null>(null)
   const [rascunhoMotivo, setRascunhoMotivo] = useState<Record<string, string>>({})
@@ -71,14 +98,24 @@ export default function DistribuicaoTMLDeslocamento() {
   const carregar = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
-    const { data: chk } = await supabase
-      .from('checklist_tml')
-      .select('id, sala, matricula, nome, data, horario_inicio, tempo_deslocamento_minutos, motivo')
-      .eq('filial', usuario.filial)
-      .gte('data', de)
-      .lte('data', ate)
-      .limit(5000)
+    const [{ data: chk }, { data: mat }] = await Promise.all([
+      supabase
+        .from('checklist_tml')
+        .select('id, sala, matricula, nome, data, horario_inicio, tempo_deslocamento_minutos, motivo')
+        .eq('filial', usuario.filial)
+        .gte('data', de)
+        .lte('data', ate)
+        .limit(5000),
+      supabase
+        .from('matinal_tml')
+        .select('id, sala, data, horario_inicio, horario_final, meta_minutos, duracao_minutos, estouro_duracao, motivo_estouro')
+        .eq('filial', usuario.filial)
+        .gte('data', de)
+        .lte('data', ate)
+        .order('data', { ascending: false }),
+    ])
     setChecklist(Array.isArray(chk) ? chk : [])
+    setMatinais(Array.isArray(mat) ? mat : [])
     setLoading(false)
   }, [usuario, de, ate])
 
@@ -145,6 +182,35 @@ export default function DistribuicaoTMLDeslocamento() {
     () => comDeslocamento.filter((c) => (c.tempo_deslocamento_minutos ?? 0) < 0).sort((a, b) => (a.data ?? '').localeCompare(b.data ?? '')),
     [comDeslocamento]
   )
+
+  const matinaisFiltradas = useMemo(
+    () => (sala === 'TODAS' ? matinais : matinais.filter((m) => m.sala === sala)),
+    [matinais, sala]
+  )
+
+  const historicoEstouros = useMemo(() => {
+    const doMatinal: OcorrenciaEstouro[] = matinaisFiltradas
+      .filter((m) => m.estouro_duracao)
+      .map((m) => ({
+        chave: `matinal-${m.id}`,
+        tipo: 'Matinal',
+        data: m.data,
+        sala: m.sala,
+        minutos: m.duracao_minutos,
+        motivo: m.motivo_estouro,
+      }))
+    const doDeslocamento: OcorrenciaEstouro[] = comDeslocamento
+      .filter((c) => (c.tempo_deslocamento_minutos ?? 0) > DESLOCAMENTO_ESTOURO_MIN)
+      .map((c) => ({
+        chave: `deslocamento-${c.id}`,
+        tipo: 'Deslocamento',
+        data: c.data,
+        sala: c.sala,
+        minutos: c.tempo_deslocamento_minutos,
+        motivo: c.motivo,
+      }))
+    return [...doMatinal, ...doDeslocamento].sort((a, b) => (b.data ?? '').localeCompare(a.data ?? ''))
+  }, [matinaisFiltradas, comDeslocamento])
 
   async function salvarMotivo(id: string) {
     const motivo = (rascunhoMotivo[id] ?? '').trim()
@@ -343,6 +409,90 @@ export default function DistribuicaoTMLDeslocamento() {
               </table>
             </div>
           )}
+
+          <div className="border rounded-xl bg-white shadow-sm">
+            <div className="px-4 py-3 border-b">
+              <h2 className="text-sm font-semibold">Histórico de estouros — matinal e deslocamento</h2>
+              <p className="text-xs text-muted-foreground">
+                Todo dia em que a matinal passou da meta ou o checklist começou com mais de {DESLOCAMENTO_ESTOURO_MIN} min de deslocamento, com o motivo registrado (quando houver).
+              </p>
+            </div>
+            {historicoEstouros.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-4">Nenhum estouro registrado no período.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground border-b bg-slate-50">
+                    <th className="py-2 px-4">Data</th>
+                    <th className="py-2 px-4">Tipo</th>
+                    <th className="py-2 px-4">Sala</th>
+                    <th className="py-2 px-4 text-right">Minutos</th>
+                    <th className="py-2 px-4">Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {historicoEstouros.map((o) => (
+                    <tr key={o.chave} className="border-b last:border-0 hover:bg-slate-50">
+                      <td className="py-2 px-4 whitespace-nowrap">{o.data ? o.data.slice(8, 10) + '/' + o.data.slice(5, 7) : '—'}</td>
+                      <td className="py-2 px-4">
+                        <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${o.tipo === 'Matinal' ? 'bg-cyan-50 text-cyan-700' : 'bg-red-50 text-red-700'}`}>
+                          {o.tipo}
+                        </span>
+                      </td>
+                      <td className="py-2 px-4 whitespace-nowrap">{o.sala ? SALA_TML_LABEL[o.sala] : '—'}</td>
+                      <td className="py-2 px-4 text-right font-semibold">{o.minutos ?? '—'}</td>
+                      <td className="py-2 px-4">{o.motivo || <span className="text-muted-foreground">sem motivo registrado</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+
+          <div className="border rounded-xl bg-white shadow-sm">
+            <div className="px-4 py-3 border-b">
+              <h2 className="text-sm font-semibold">Histórico da matinal</h2>
+              <p className="text-xs text-muted-foreground">Todos os registros de início/fim da matinal feitos no Timer da Matinal, no período.</p>
+            </div>
+            {matinaisFiltradas.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-4">Nenhuma matinal registrada no período.</p>
+            ) : (
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-left text-xs text-muted-foreground border-b bg-slate-50">
+                    <th className="py-2 px-4">Data</th>
+                    <th className="py-2 px-4">Sala</th>
+                    <th className="py-2 px-4">Início</th>
+                    <th className="py-2 px-4">Fim</th>
+                    <th className="py-2 px-4 text-right">Duração (min)</th>
+                    <th className="py-2 px-4 text-right">Meta (min)</th>
+                    <th className="py-2 px-4">Estouro</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {matinaisFiltradas.map((m) => (
+                    <tr key={m.id} className="border-b last:border-0 hover:bg-slate-50">
+                      <td className="py-2 px-4 whitespace-nowrap">{m.data ? m.data.slice(8, 10) + '/' + m.data.slice(5, 7) : '—'}</td>
+                      <td className="py-2 px-4 whitespace-nowrap">{m.sala ? SALA_TML_LABEL[m.sala] : '—'}</td>
+                      <td className="py-2 px-4">{formatarHoraISO(m.horario_inicio)}</td>
+                      <td className="py-2 px-4">{formatarHoraISO(m.horario_final)}</td>
+                      <td className="py-2 px-4 text-right">{m.duracao_minutos ?? '—'}</td>
+                      <td className="py-2 px-4 text-right">{m.meta_minutos ?? '—'}</td>
+                      <td className="py-2 px-4">
+                        {m.estouro_duracao ? (
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">estouro</span>
+                        ) : m.horario_final ? (
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-green-50 text-green-700">ok</span>
+                        ) : (
+                          <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">aberta</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </>
       )}
     </div>

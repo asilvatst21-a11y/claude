@@ -15,9 +15,12 @@ interface MatinalRow {
   meta_minutos: number | null
   duracao_minutos: number | null
   estouro_duracao: boolean | null
+  motivo_estouro: string | null
   iniciado_por: string | null
   finalizado_por: string | null
 }
+
+const CAMPOS_MATINAL = 'id, horario_inicio, horario_final, meta_minutos, duracao_minutos, estouro_duracao, motivo_estouro, iniciado_por, finalizado_por'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -42,6 +45,7 @@ export default function MatinalTML() {
   const [registro, setRegistro] = useState<MatinalRow | null>(null)
   const [agora, setAgora] = useState(() => Date.now())
   const [fimTentativo, setFimTentativo] = useState<Date | null>(null)
+  const [motivoEstouro, setMotivoEstouro] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
   const [aviso, setAviso] = useState('')
@@ -69,7 +73,7 @@ export default function MatinalTML() {
     setSalvando(true)
     const { data: row } = await supabase
       .from('matinal_tml')
-      .select('id, horario_inicio, horario_final, meta_minutos, duracao_minutos, estouro_duracao, iniciado_por, finalizado_por')
+      .select(CAMPOS_MATINAL)
       .eq('filial', filial)
       .eq('sala', sala)
       .eq('data', hojeISO())
@@ -99,7 +103,7 @@ export default function MatinalTML() {
     const { data: row, error } = await supabase
       .from('matinal_tml')
       .insert({ filial, sala, data: hojeISO(), horario_inicio: new Date().toISOString(), iniciado_por: nome.trim() })
-      .select('id, horario_inicio, horario_final, meta_minutos, duracao_minutos, estouro_duracao, iniciado_por, finalizado_por')
+      .select(CAMPOS_MATINAL)
       .single()
     setSalvando(false)
     if (error) {
@@ -117,28 +121,35 @@ export default function MatinalTML() {
 
   function pedirConfirmacaoFim() {
     setFimTentativo(new Date())
+    setMotivoEstouro('')
     setTela('confirmar')
   }
 
   async function confirmarFim() {
     if (!registro || !fimTentativo) return
-    setSalvando(true)
-    setErro('')
     const inicio = new Date(registro.horario_inicio)
     const duracao = Math.max(0, Math.round((fimTentativo.getTime() - inicio.getTime()) / 60000))
     const meta = metaMatinalMinutos(hojeISO())
+    const estourou = duracao > meta
+    if (estourou && !motivoEstouro.trim()) {
+      setErro('A matinal passou da meta — explique o motivo do estouro antes de confirmar.')
+      return
+    }
+    setSalvando(true)
+    setErro('')
     const { data: row, error } = await supabase
       .from('matinal_tml')
       .update({
         horario_final: fimTentativo.toISOString(),
         meta_minutos: meta,
         duracao_minutos: duracao,
-        estouro_duracao: duracao > meta,
+        estouro_duracao: estourou,
+        motivo_estouro: estourou ? motivoEstouro.trim() : null,
         finalizado_por: nome.trim() || null,
       })
       .eq('id', registro.id)
       .is('horario_final', null)
-      .select('id, horario_inicio, horario_final, meta_minutos, duracao_minutos, estouro_duracao, iniciado_por, finalizado_por')
+      .select(CAMPOS_MATINAL)
       .maybeSingle()
     setSalvando(false)
     if (error) { setErro(error.message); return }
@@ -292,6 +303,8 @@ export default function MatinalTML() {
 
   // ─── Tela: confirmar horário de início/fim antes de gravar ─────────────
   if (tela === 'confirmar' && registro && fimTentativo) {
+    const duracaoTentativa = Math.round((fimTentativo.getTime() - new Date(registro.horario_inicio).getTime()) / 60000)
+    const estourouTentativo = duracaoTentativa > metaMatinalMinutos(hojeISO())
     return (
       <div className="min-h-screen bg-[#0b1f2b] text-white flex flex-col">
         <header className="px-5 pt-8 pb-2">
@@ -313,9 +326,25 @@ export default function MatinalTML() {
             <div className="h-px bg-white/10" />
             <div className="flex items-center justify-between">
               <span className="text-white/60 text-sm">Duração</span>
-              <span className="text-xl font-bold">{Math.round((fimTentativo.getTime() - new Date(registro.horario_inicio).getTime()) / 60000)} min</span>
+              <span className="text-xl font-bold">{duracaoTentativa} min</span>
             </div>
           </div>
+
+          {estourouTentativo && (
+            <div className="w-full bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 space-y-2 text-left">
+              <p className="text-amber-300 text-sm flex items-center gap-1.5">
+                <AlertTriangle size={16} /> A matinal passou da meta do dia. Explique o motivo do estouro:
+              </p>
+              <textarea
+                value={motivoEstouro}
+                onChange={(e) => setMotivoEstouro(e.target.value)}
+                placeholder="Ex.: chegada de mais caminhões que o esperado, falta de colaborador, etc."
+                rows={3}
+                className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
+              />
+            </div>
+          )}
+
           <p className="text-white/40 text-sm text-center">Confira os horários acima antes de confirmar. Depois de confirmado não dá pra reabrir essa matinal.</p>
         </main>
 
@@ -323,7 +352,7 @@ export default function MatinalTML() {
           {erro && <p className="text-red-400 text-sm text-center">{erro}</p>}
           <button
             onClick={confirmarFim}
-            disabled={salvando}
+            disabled={salvando || (estourouTentativo && !motivoEstouro.trim())}
             className="w-full bg-green-500 hover:bg-green-600 disabled:opacity-50 text-white rounded-2xl py-5 text-lg font-bold flex items-center justify-center gap-2"
           >
             {salvando ? <Loader2 size={22} className="animate-spin" /> : <CheckCircle2 size={22} />} Confirmar
@@ -381,9 +410,10 @@ export default function MatinalTML() {
           </div>
 
           {registro.estouro_duracao && (
-            <p className="text-amber-300 text-sm bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2">
-              A matinal durou mais que a meta do dia.
-            </p>
+            <div className="w-full text-left text-amber-300 text-sm bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 space-y-1">
+              <p className="font-semibold">A matinal durou mais que a meta do dia.</p>
+              {registro.motivo_estouro && <p className="text-amber-200/90">Motivo: {registro.motivo_estouro}</p>}
+            </div>
           )}
           <p className="text-white/40 text-xs">Essa matinal já foi concluída e não pode ser reaberta.</p>
         </main>
