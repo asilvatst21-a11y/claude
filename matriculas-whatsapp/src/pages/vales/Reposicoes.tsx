@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from "react";
+import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart, Upload, Loader2, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatCurrency, formatDateBR } from "@/lib/valesUtils";
@@ -384,6 +384,9 @@ export default function ReposicoesPage() {
   const [confEnviando, setConfEnviando] = useState(false);
   const [confErro, setConfErro] = useState<string | null>(null);
   const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [topProdutos, setTopProdutos] = useState<Produto[]>([]);
+  const [mostrarTopProdutos, setMostrarTopProdutos] = useState(false);
+  const [buscaProdutoInvertido, setBuscaProdutoInvertido] = useState("");
 
   useEffect(() => {
     valesSupabase
@@ -391,7 +394,32 @@ export default function ReposicoesPage() {
       .select("codigo, descricao")
       .order("descricao")
       .then(({ data }) => setProdutos(Array.isArray(data) ? data : []));
+    valesSupabase
+      .rpc("top_produtos_vendidos", { dias: 30, limite: 20 })
+      .then(({ data }) => {
+        const linhas = Array.isArray(data) ? data : [];
+        setTopProdutos(
+          linhas.map((l: { produto_codigo: number; produto_nome: string }) => ({
+            codigo: l.produto_codigo,
+            descricao: l.produto_nome,
+          })),
+        );
+      });
   }, []);
+
+  const produtosFiltrados = useMemo(() => {
+    const termo = buscaProdutoInvertido.trim().toLowerCase();
+    if (!termo) return [];
+    return produtos
+      .filter((p) => p.descricao.toLowerCase().includes(termo) || String(p.codigo).includes(termo))
+      .slice(0, 30);
+  }, [produtos, buscaProdutoInvertido]);
+
+  function selecionarProdutoInvertido(p: Produto) {
+    setConfProdutoInvertido(`${p.codigo} - ${p.descricao}`);
+    setMostrarTopProdutos(false);
+    setBuscaProdutoInvertido("");
+  }
 
   function abrirConferencia(r: Reposicao) {
     setConferindo(r);
@@ -399,11 +427,15 @@ export default function ReposicoesPage() {
     setConfEmbalagem(r.embalagem ?? "indefinido");
     setConfProdutoInvertido(r.produto_invertido ?? "");
     setConfErro(null);
+    setMostrarTopProdutos(false);
+    setBuscaProdutoInvertido("");
   }
 
   function fecharConferencia() {
     setConferindo(null);
     setConfErro(null);
+    setMostrarTopProdutos(false);
+    setBuscaProdutoInvertido("");
   }
 
   // suppress unused import warning
@@ -916,23 +948,74 @@ export default function ReposicoesPage() {
             </div>
 
             {conferindo.tipo_reposicao === "inversao" && (
-              <label className="text-sm block">
-                <span className="text-xs text-muted-foreground block mb-1">
+              <div className="text-sm block space-y-2">
+                <span className="text-xs text-muted-foreground block">
                   Equipe pediu inversão de "{conferindo.produto ?? "—"}" — qual produto entrou no lugar?
                 </span>
-                <select
-                  value={confProdutoInvertido}
-                  onChange={(e) => setConfProdutoInvertido(e.target.value)}
-                  className="w-full border rounded-md px-3 py-2 text-sm"
-                >
-                  <option value="">Selecione o produto correto...</option>
-                  {produtos.map((p) => (
-                    <option key={p.codigo} value={`${p.codigo} - ${p.descricao}`}>
-                      {p.codigo} - {p.descricao}
-                    </option>
-                  ))}
-                </select>
-              </label>
+
+                {confProdutoInvertido ? (
+                  <div className="flex items-center justify-between gap-2 border rounded-md px-3 py-2 bg-purple-50">
+                    <span className="font-medium">{confProdutoInvertido}</span>
+                    <button
+                      type="button"
+                      onClick={() => setConfProdutoInvertido("")}
+                      className="text-xs text-muted-foreground hover:text-foreground underline shrink-0"
+                    >
+                      Trocar
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setMostrarTopProdutos((v) => !v)}
+                      className="text-xs text-purple-700 hover:underline"
+                    >
+                      {mostrarTopProdutos ? "Ocultar mais vendidos" : "Ver mais vendidos"}
+                    </button>
+                    {mostrarTopProdutos && (
+                      <div className="border rounded-md max-h-44 overflow-y-auto divide-y">
+                        {topProdutos.length === 0 ? (
+                          <div className="px-3 py-2 text-xs text-muted-foreground">Sem dados de vendas recentes.</div>
+                        ) : (
+                          topProdutos.map((p) => (
+                            <button
+                              type="button"
+                              key={p.codigo}
+                              onClick={() => selecionarProdutoInvertido(p)}
+                              className="w-full text-left px-3 py-1.5 text-sm hover:bg-purple-50 transition-colors"
+                            >
+                              {p.codigo} - {p.descricao}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+
+                    <input
+                      type="text"
+                      value={buscaProdutoInvertido}
+                      onChange={(e) => setBuscaProdutoInvertido(e.target.value)}
+                      placeholder="Buscar produto por nome ou código..."
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                    />
+                    {produtosFiltrados.length > 0 && (
+                      <div className="border rounded-md max-h-44 overflow-y-auto divide-y">
+                        {produtosFiltrados.map((p) => (
+                          <button
+                            type="button"
+                            key={p.codigo}
+                            onClick={() => selecionarProdutoInvertido(p)}
+                            className="w-full text-left px-3 py-1.5 text-sm hover:bg-purple-50 transition-colors"
+                          >
+                            {p.codigo} - {p.descricao}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
             )}
 
             {confErro && (
