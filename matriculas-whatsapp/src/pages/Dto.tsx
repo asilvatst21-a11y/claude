@@ -42,6 +42,15 @@ function excelDate(val: string): string {
   return val
 }
 
+// Exibe a data no formato dd/mm/aa (ano com 2 dígitos), a partir do
+// dd/mm/yyyy salvo em data_aplicacao.
+function formatarDataCurta(data: string | null): string {
+  if (!data) return '—'
+  const m = data.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  if (!m) return data
+  return `${m[1]}/${m[2]}/${m[3].slice(2)}`
+}
+
 function calcConformidade(obs: DtoObservacao): number {
   const sim = QUESTOES_CONF.filter(q => obs[q.key] === 'SIM').length
   const nao = QUESTOES_CONF.filter(q => obs[q.key] === 'NÃO').length
@@ -99,7 +108,7 @@ function parseDtoExcel(buffer: ArrayBuffer, filial: string): Omit<DtoObservacao,
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function ConformidadeBar({ pct }: { pct: number }) {
-  const color = pct >= 80 ? 'bg-brand-500' : pct >= 60 ? 'bg-yellow-400' : 'bg-red-500'
+  const color = pct >= 90 ? 'bg-brand-500' : 'bg-red-500'
   return (
     <div className="flex items-center gap-2">
       <div className="flex-1 h-1.5 bg-gray-200 rounded-full overflow-hidden">
@@ -500,9 +509,9 @@ export default function Dto() {
 
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 <div className="bg-white rounded-xl border border-gray-200 p-5">
-                  <p className="text-sm font-semibold text-gray-700 mb-3">Top Atividades com Anomalias</p>
-                  <div className="space-y-2">
-                    {rankingAtividades.filter(a => a.comAnomalia > 0).slice(0, 6).map((a, i) => (
+                  <p className="text-sm font-semibold text-gray-700 mb-3">Atividades por Conformidade</p>
+                  <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                    {rankingAtividades.map((a, i) => (
                       <div key={a.atividade} className="flex items-center gap-3">
                         <span className="text-xs font-bold text-gray-400 w-4">{i + 1}</span>
                         <div className="flex-1 min-w-0">
@@ -630,7 +639,7 @@ export default function Dto() {
                                             <div className="flex justify-between items-center mb-1 gap-2">
                                               <span className="font-semibold text-red-800">{o0.colaborador}</span>
                                               <div className="flex items-center gap-2 flex-wrap justify-end">
-                                                <span className="text-gray-500">{o0.data_aplicacao}</span>
+                                                <span className="text-gray-500">{formatarDataCurta(o0.data_aplicacao)}</span>
                                                 {g.length > 1 && <span className="text-orange-700 font-semibold">{g.length} desvios</span>}
                                                 {jaSolic ? (
                                                   <span className="flex items-center gap-0.5 text-xs text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded">
@@ -749,7 +758,7 @@ export default function Dto() {
                         <div key={o.id} className="px-4 py-3 flex items-start gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap mb-1">
-                              <span className="text-xs text-gray-400 shrink-0">{o.data_aplicacao}</span>
+                              <span className="text-xs text-gray-400 shrink-0">{formatarDataCurta(o.data_aplicacao)}</span>
                               <span className="text-xs font-semibold text-gray-900">{o.colaborador}</span>
                               {o.atividade && <span className="text-xs bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded shrink-0">{o.atividade}</span>}
                             </div>
