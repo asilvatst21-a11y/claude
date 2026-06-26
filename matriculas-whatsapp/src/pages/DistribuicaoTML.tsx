@@ -8,7 +8,10 @@ import { supabase } from '../lib/supabase'
 import { enviarListaOpcoesWhatsApp, enviarMensagemGrupo, enviarImagemGrupo } from '../lib/zapi'
 import { serieCartaControleCDD, renderCartaControlePNG } from '../lib/tmlCartaControle'
 import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer } from '../lib/tmlParser'
-import { isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, tempoDeslocamentoMinutos, SALA_TML_LABEL, type SalaTML } from '../lib/tml'
+import {
+  isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, SALA_TML_LABEL, type SalaTML,
+  horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal, metaMatinalMinutos, MATINAL_AUTO_FINALIZA_MIN,
+} from '../lib/tml'
 import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusSalaTML } from '../lib/tmlResumos'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
 
@@ -549,6 +552,58 @@ export default function DistribuicaoTML() {
         .in('matricula', matriculas)
       const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
 
+      // Busca o horário REAL de fim da matinal (registrado no timer) pra cada
+      // combinação sala+data presente no checklist importado.
+      const datasComSala = [...new Set(
+        checklist
+          .map((c) => {
+            const matricula = matriculaPorMapa.get(c.mapa) ?? null
+            const sala = matricula != null ? salaPorMatricula.get(matricula) ?? null : null
+            return isSalaTML(sala) && c.data ? `${sala}|${c.data}` : null
+          })
+          .filter((x): x is string => x != null)
+      )]
+      const salasNecessarias = [...new Set(datasComSala.map((k) => k.split('|')[0]))]
+      const datasNecessarias = [...new Set(datasComSala.map((k) => k.split('|')[1]))]
+
+      const { data: matinaisRaw } = salasNecessarias.length > 0
+        ? await supabase
+          .from('matinal_tml')
+          .select('id, sala, data, horario_inicio, horario_final, finalizado_automaticamente')
+          .eq('filial', usuario.filial)
+          .in('sala', salasNecessarias)
+          .in('data', datasNecessarias)
+        : { data: [] }
+
+      // Matinais iniciadas no timer mas nunca finalizadas: limita a duração a
+      // MATINAL_AUTO_FINALIZA_MIN e grava de volta, marcando como automática.
+      const matinaisAutoFinalizadas: { sala: string; data: string }[] = []
+      const horarioFinalEfetivoPorChave = new Map<string, string>()
+      for (const m of matinaisRaw ?? []) {
+        let horarioFinalISO = m.horario_final as string | null
+        if (!horarioFinalISO && m.horario_inicio) {
+          const inicio = new Date(m.horario_inicio)
+          const cap = new Date(inicio.getTime() + MATINAL_AUTO_FINALIZA_MIN * 60000)
+          if (Date.now() >= cap.getTime()) {
+            const meta = metaMatinalMinutos(m.data)
+            await supabase.from('matinal_tml').update({
+              horario_final: cap.toISOString(),
+              meta_minutos: meta,
+              duracao_minutos: MATINAL_AUTO_FINALIZA_MIN,
+              estouro_duracao: true,
+              finalizado_automaticamente: true,
+            }).eq('id', m.id)
+            horarioFinalISO = cap.toISOString()
+            matinaisAutoFinalizadas.push({ sala: m.sala, data: m.data })
+          }
+        }
+        if (horarioFinalISO) {
+          const d = new Date(horarioFinalISO)
+          const hhmm = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+          horarioFinalEfetivoPorChave.set(`${m.sala}|${m.data}`, hhmm)
+        }
+      }
+
       let semHorario = 0
       let semSala = 0
       const linhas = checklist.map((c) => {
@@ -556,9 +611,11 @@ export default function DistribuicaoTML() {
         const sala = matricula != null ? salaPorMatricula.get(matricula) ?? null : null
         if (!isSalaTML(sala)) semSala++
         if (!c.horarioInicio) semHorario++
-        const tempoDeslocamento = isSalaTML(sala) && c.horarioInicio
-          ? tempoDeslocamentoMinutos(sala, c.horarioInicio)
-          : null
+        let tempoDeslocamento: number | null = null
+        if (isSalaTML(sala) && c.horarioInicio && c.data) {
+          const matinalFinal = horarioFinalEfetivoPorChave.get(`${sala}|${c.data}`) ?? horarioFinalMatinalPadrao(sala, c.data)
+          tempoDeslocamento = tempoDeslocamentoComMatinalReal(matinalFinal, c.horarioInicio)
+        }
         return {
           filial: usuario.filial,
           mapa: c.mapa,
@@ -576,10 +633,17 @@ export default function DistribuicaoTML() {
       const { error } = await supabase.from('checklist_tml').upsert(linhas, { onConflict: 'filial,mapa' })
       if (error) throw new Error(error.message)
 
+      const avisoMatinal = matinaisAutoFinalizadas.length > 0
+        ? `\n\n⚠️ ${matinaisAutoFinalizadas.length} matinal(is) não foram finalizadas no timer e tiveram a duração limitada a ${MATINAL_AUTO_FINALIZA_MIN} min automaticamente:\n` +
+          matinaisAutoFinalizadas.map((m) => `• ${SALA_TML_LABEL[m.sala as SalaTML] ?? m.sala} — ${m.data}`).join('\n') +
+          `\nConfira em "Timer da Matinal" se o horário está correto.`
+        : ''
+
       alert(
         `${checklist.length} registro(s) de checklist importado(s).\n\n` +
         `• ${semSala} sem sala identificada\n` +
-        `• ${semHorario} sem horário de início do checklist`
+        `• ${semHorario} sem horário de início do checklist` +
+        avisoMatinal
       )
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar checklist')

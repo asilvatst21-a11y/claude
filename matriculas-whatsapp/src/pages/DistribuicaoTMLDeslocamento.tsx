@@ -6,7 +6,7 @@ import {
 import { Timer, TrendingDown, CheckCircle2, AlertTriangle, Check, Loader2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import { SALA_TML_LABEL, type SalaTML } from '../lib/tml'
+import { SALA_TML_LABEL, type SalaTML, DESLOCAMENTO_IDEAL_MIN, DESLOCAMENTO_ESTOURO_MIN } from '../lib/tml'
 
 const TOOLTIP_STYLE = { borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12 }
 
@@ -95,6 +95,14 @@ export default function DistribuicaoTMLDeslocamento() {
     : 0
   const antesMatinalGeral = comDeslocamento.filter((c) => (c.tempo_deslocamento_minutos ?? 0) < 0).length
   const pctAntesMatinalGeral = comDeslocamento.length > 0 ? (antesMatinalGeral / comDeslocamento.length) * 100 : 0
+  const estouroGatilhoGeral = comDeslocamento.filter((c) => (c.tempo_deslocamento_minutos ?? 0) > DESLOCAMENTO_ESTOURO_MIN).length
+  const pctEstouroGatilhoGeral = comDeslocamento.length > 0 ? (estouroGatilhoGeral / comDeslocamento.length) * 100 : 0
+
+  function corDeslocamento(min: number): string {
+    if (min > DESLOCAMENTO_ESTOURO_MIN) return 'text-red-700'
+    if (min > DESLOCAMENTO_IDEAL_MIN) return 'text-amber-700'
+    return 'text-green-700'
+  }
 
   const porSalaDeslocamento = useMemo(() => {
     const mapa = new Map<string, { sala: string; soma: number; n: number; antesMatinal: number }>()
@@ -154,7 +162,10 @@ export default function DistribuicaoTMLDeslocamento() {
         <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
           <Timer className="h-6 w-6 text-primary" /> Tempo de Deslocamento
         </h1>
-        <p className="text-sm text-muted-foreground">Horário em que o motorista iniciou o checklist menos o horário matinal da sala.</p>
+        <p className="text-sm text-muted-foreground">
+          Horário em que o motorista iniciou o checklist menos o horário real de fim da matinal (registrado no Timer da Matinal).
+          Ideal: até {DESLOCAMENTO_IDEAL_MIN} min. Estouro de gatilho: acima de {DESLOCAMENTO_ESTOURO_MIN} min.
+        </p>
       </div>
 
       <div className="flex flex-wrap items-end gap-3 border rounded-lg bg-white p-3">
@@ -180,8 +191,9 @@ export default function DistribuicaoTMLDeslocamento() {
         <p className="text-sm text-muted-foreground">Carregando…</p>
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <Card icon={Timer} label="Tempo médio de deslocamento" value={`${tempoDeslocamentoMedioGeral.toFixed(0)} min`} accent="text-cyan-600 bg-cyan-50" />
+            <Card icon={AlertTriangle} label="Estouro de gatilho" value={`${estouroGatilhoGeral} (${pctEstouroGatilhoGeral.toFixed(1)}%)`} hint={`deslocamento acima de ${DESLOCAMENTO_ESTOURO_MIN} min`} accent="text-red-600 bg-red-50" />
             <Card icon={TrendingDown} label="Iniciaram antes da matinal" value={`${antesMatinalGeral} (${pctAntesMatinalGeral.toFixed(1)}%)`} hint="checklist começou antes do turno" accent="text-amber-600 bg-amber-50" />
             <Card icon={CheckCircle2} label="Registros de checklist" value={String(comDeslocamento.length)} accent="text-blue-600 bg-blue-50" />
           </div>
@@ -269,7 +281,12 @@ export default function DistribuicaoTMLDeslocamento() {
                       <td className="py-2 px-4">{c.nome ?? '—'}</td>
                       <td className="py-2 px-4 whitespace-nowrap">{c.sala ? SALA_TML_LABEL[c.sala] : '—'}</td>
                       <td className="py-2 px-4">{c.horario_inicio ?? '—'}</td>
-                      <td className="py-2 px-4 text-right font-semibold text-amber-700">{c.tempo_deslocamento_minutos}</td>
+                      <td className={`py-2 px-4 text-right font-semibold ${corDeslocamento(c.tempo_deslocamento_minutos ?? 0)}`}>
+                        {c.tempo_deslocamento_minutos}
+                        {(c.tempo_deslocamento_minutos ?? 0) > DESLOCAMENTO_ESTOURO_MIN && (
+                          <span className="ml-1 text-[10px] font-bold uppercase">estouro</span>
+                        )}
+                      </td>
                       <td className="py-2 px-4">
                         <input
                           value={rascunhoMotivo[c.id] ?? c.motivo ?? ''}

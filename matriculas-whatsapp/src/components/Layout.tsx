@@ -47,6 +47,7 @@ const distribuicaoItems = [
   { permKey: 'distribuicao', to: '/distribuicao/tml/analise', label: 'Análise TML',         icon: BarChart2        },
   { permKey: 'distribuicao', to: '/distribuicao/tml/deslocamento', label: 'Tempo de Deslocamento', icon: Timer  },
   { permKey: 'distribuicao', to: '/distribuicao/tml/whatsapp', label: 'Config. WhatsApp TML', icon: MessageSquare },
+  { permKey: 'distribuicao', to: '/matinal-tml', label: 'Timer da Matinal', icon: Clock },
 ]
 
 const armazemItems = [

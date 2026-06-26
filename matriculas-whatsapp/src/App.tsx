@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from './lib/auth'
 import Layout from './components/Layout'
 import Login from './pages/Login'
 import SolicitarExtra from './pages/SolicitarExtra'
+import MatinalTML from './pages/MatinalTML'
 import Distribuicao from './pages/Distribuicao'
 import DistribuicaoTML from './pages/DistribuicaoTML'
 import DistribuicaoTMLSupervisores from './pages/DistribuicaoTMLSupervisores'
@@ -77,6 +78,7 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<PublicLogin />} />
           <Route path="/solicitar-extra" element={<SolicitarExtra />} />
+          <Route path="/matinal-tml" element={<MatinalTML />} />
           <Route path="/armazem" element={<ArmazemOperadorRoute />} />
           <Route element={<ProtectedRoutes />}>
             <Route path="/" element={<Home />} />
