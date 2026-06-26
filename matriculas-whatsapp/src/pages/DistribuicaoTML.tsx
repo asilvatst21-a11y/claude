@@ -312,8 +312,11 @@ export default function DistribuicaoTML() {
         if (delErr) throw new Error(delErr.message)
       }
 
+      // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time"
+      // quando o mesmo mapa aparece mais de uma vez na planilha importada.
+      const escalasPorMapa = new Map(escalas.map((e) => [e.mapa, e]))
       const { error } = await supabase.from('escalas_tml').upsert(
-        escalas.map((e) => ({
+        [...escalasPorMapa.values()].map((e) => ({
           filial: usuario.filial,
           mapa: e.mapa,
           placa: e.placa,
@@ -344,8 +347,11 @@ export default function DistribuicaoTML() {
         return
       }
 
+      // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time"
+      // quando o mesmo mapa aparece mais de uma vez na planilha importada.
+      const saidasPorMapa = new Map(saidas.map((s) => [s.mapa, s]))
       const { error: upsertErr } = await supabase.from('saidas_tml').upsert(
-        saidas.map((s) => ({
+        [...saidasPorMapa.values()].map((s) => ({
           filial: usuario.filial,
           mapa: s.mapa,
           placa: s.placa,
@@ -493,9 +499,12 @@ export default function DistribuicaoTML() {
       }
 
       if (historicoImediato.length > 0) {
+        // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time"
+        // quando o mesmo mapa aparece mais de uma vez na planilha importada.
+        const historicoPorMapa = new Map(historicoImediato.map((h) => [h.mapa, h]))
         const { error: histErr } = await supabase
           .from('historico_tml')
-          .upsert(historicoImediato, { onConflict: 'filial,mapa' })
+          .upsert([...historicoPorMapa.values()], { onConflict: 'filial,mapa' })
         if (histErr) erros.push(`Histórico: ${histErr.message}`)
       }
 
@@ -631,7 +640,14 @@ export default function DistribuicaoTML() {
         }
       })
 
-      const { error } = await supabase.from('checklist_tml').upsert(linhas, { onConflict: 'filial,mapa' })
+      // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time":
+      // se o mesmo mapa aparecer mais de uma vez no arquivo importado, fica só
+      // a última ocorrência antes do upsert.
+      const linhasPorMapa = new Map<typeof linhas[number]['mapa'], typeof linhas[number]>()
+      for (const linha of linhas) linhasPorMapa.set(linha.mapa, linha)
+      const linhasUnicas = [...linhasPorMapa.values()]
+
+      const { error } = await supabase.from('checklist_tml').upsert(linhasUnicas, { onConflict: 'filial,mapa' })
       if (error) throw new Error(error.message)
 
       const avisoMatinal = matinaisAutoFinalizadas.length > 0
