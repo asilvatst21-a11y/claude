@@ -311,9 +311,11 @@ export interface AlertaTML {
   supervisor_id: string | null
   mensagem_enviada: string | null
   zapi_message_id: string | null
-  status: 'pendente' | 'enviado' | 'justificado' | 'erro'
+  status: 'pendente' | 'enviado' | 'respondido' | 'justificado' | 'erro'
   justificativa: string | null
   justificado_em: string | null
+  resposta_supervisor: string | null
+  respondido_em: string | null
   created_at: string
   supervisores_tml?: { nome: string; telefone: string } | null
 }

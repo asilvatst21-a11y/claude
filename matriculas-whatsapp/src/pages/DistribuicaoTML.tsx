@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { enviarListaOpcoesWhatsApp, enviarMensagemGrupo, enviarImagemGrupo } from '../lib/zapi'
+import { enviarListaOpcoesWhatsApp, enviarMensagemWhatsApp, enviarMensagemGrupo, enviarImagemGrupo } from '../lib/zapi'
 import { serieCartaControleCDD, renderCartaControlePNG } from '../lib/tmlCartaControle'
 import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer } from '../lib/tmlParser'
 import {
@@ -79,9 +79,16 @@ function StatusBadge({ status }: { status: AlertaTML['status'] }) {
       </span>
     )
   }
+  if (status === 'respondido') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-orange-700 bg-orange-100">
+        <Clock className="h-3 w-3" /> Aguardando classificação
+      </span>
+    )
+  }
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-yellow-700 bg-yellow-100">
-      <Clock className="h-3 w-3" /> Aguardando justificativa
+      <Clock className="h-3 w-3" /> Aguardando resposta
     </span>
   )
 }
@@ -105,7 +112,7 @@ function montarMensagemTml(alerta: {
     `🕐 Limite de saída: ${alerta.horario_limite}\n` +
     `🕑 Saída real: ${alerta.horario_saida}\n` +
     `⏱️ Atraso: ${alerta.atraso_minutos} min\n\n` +
-    `O motorista perdeu o TML. Toque em "Selecionar motivo" abaixo e escolha a justificativa.`
+    `O motorista perdeu o TML. *Responda esta mensagem explicando o que aconteceu* — o controle vai classificar o motivo no sistema.`
   )
 }
 
@@ -769,26 +776,12 @@ export default function DistribuicaoTML() {
         return
       }
 
-      // Justificativa em 2 etapas: o supervisor escolhe primeiro a ÁREA (UGC)
-      // — são poucas e cabem na lista do WhatsApp — e o webhook responde com
-      // os motivos daquela área (paginados). Cada opção carrega o id do alerta.
-      const ugcsDisponiveis = ordenarUgcs(
-        Array.from(new Set(motivos.map((m) => (m.ugc || 'GERAL')))),
-      )
-      const opcoes = ugcsDisponiveis.slice(0, 10).map((ugc) => ({
-        id: `tmlugc:${alerta.id}:${ugc}`,
-        title: ugc.length > 24 ? `${ugc.slice(0, 23)}…` : ugc,
-      }))
-
+      // Novo fluxo: o supervisor responde em TEXTO LIVRE. Mandamos só a
+      // notificação; a classificação do motivo (pela tabela/UGC) é feita pelo
+      // controle no site depois que o supervisor responder.
       const erros: string[] = []
       for (const sup of supervisores) {
-        const resultado = await enviarListaOpcoesWhatsApp(
-          sup.telefone,
-          mensagem,
-          'Área do motivo',
-          'Escolher área',
-          opcoes
-        )
+        const resultado = await enviarMensagemWhatsApp(sup.telefone, mensagem)
         if (!resultado.sucesso) erros.push(`${sup.nome}: ${resultado.erro}`)
       }
 
@@ -871,6 +864,16 @@ export default function DistribuicaoTML() {
     }
   }
 
+  // Abre o modal de classificação do motivo. Para alertas já justificados,
+  // pré-seleciona o motivo atual para permitir edição.
+  function abrirJustificativa(a: AlertaTML) {
+    setJustificando(a)
+    setTextoJustificativa(a.justificativa ?? '')
+    setMotivoSelecionado(a.justificativa ?? '')
+    setUgcSelecionada(null)
+    setBuscaMotivo('')
+  }
+
   // Áreas (UGC) disponíveis e motivos filtrados pela área/busca no modal do site.
   const ugcsDisponiveis = useMemo(
     () => ordenarUgcs(Array.from(new Set(motivos.map((m) => m.ugc || 'GERAL')))),
@@ -889,7 +892,7 @@ export default function DistribuicaoTML() {
   const stats = {
     total: alertas.length,
     pendenteEnvio: alertas.filter((a) => a.status === 'pendente').length,
-    aguardandoJustificativa: alertas.filter((a) => a.status === 'enviado').length,
+    aguardandoJustificativa: alertas.filter((a) => a.status === 'enviado' || a.status === 'respondido').length,
     justificados: alertas.filter((a) => a.status === 'justificado').length,
   }
 
@@ -1059,9 +1062,14 @@ export default function DistribuicaoTML() {
                     <td className="px-4 py-3">{a.atraso_minutos} min</td>
                     <td className="px-4 py-3">
                       <StatusBadge status={a.status} />
+                      {a.resposta_supervisor && (
+                        <p className="text-xs text-blue-700 mt-1 max-w-[240px]" title={a.resposta_supervisor}>
+                          💬 <span className="italic">{a.resposta_supervisor}</span>
+                        </p>
+                      )}
                       {a.justificativa && (
-                        <p className="text-xs text-muted-foreground mt-1 max-w-[220px] truncate" title={a.justificativa}>
-                          {a.justificativa}
+                        <p className="text-xs text-muted-foreground mt-1 max-w-[240px] truncate" title={a.justificativa}>
+                          Motivo: {a.justificativa}
                         </p>
                       )}
                     </td>
@@ -1076,12 +1084,20 @@ export default function DistribuicaoTML() {
                           {enviandoAlertaId === a.id ? 'Enviando...' : 'Enviar'}
                         </button>
                       )}
-                      {a.status === 'enviado' && (
+                      {(a.status === 'enviado' || a.status === 'respondido') && (
                         <button
-                          onClick={() => { setJustificando(a); setTextoJustificativa(''); setMotivoSelecionado(''); setUgcSelecionada(null); setBuscaMotivo('') }}
+                          onClick={() => abrirJustificativa(a)}
                           className="px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors"
                         >
-                          Registrar justificativa
+                          Classificar motivo
+                        </button>
+                      )}
+                      {a.status === 'justificado' && (
+                        <button
+                          onClick={() => abrirJustificativa(a)}
+                          className="px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors"
+                        >
+                          Editar motivo
                         </button>
                       )}
                     </td>
@@ -1157,11 +1173,18 @@ export default function DistribuicaoTML() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
             <div className="flex items-center justify-between px-5 py-4 border-b">
-              <h2 className="font-semibold">Registrar justificativa</h2>
+              <h2 className="font-semibold">{justificando.status === 'justificado' ? 'Editar motivo' : 'Classificar motivo'}</h2>
               <button onClick={() => setJustificando(null)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
             </div>
             <div className="p-5 space-y-3">
               <p className="text-sm text-muted-foreground">{justificando.numero} — Mapa {justificando.mapa}</p>
+
+              {justificando.resposta_supervisor && (
+                <div className="rounded-lg bg-blue-50 border border-blue-100 px-3 py-2">
+                  <p className="text-xs font-medium text-blue-700 mb-0.5">Resposta do supervisor</p>
+                  <p className="text-sm text-blue-900 whitespace-pre-line">{justificando.resposta_supervisor}</p>
+                </div>
+              )}
 
               <label className="block text-sm font-medium text-gray-700">Área responsável</label>
               <div className="flex flex-wrap gap-1.5">
