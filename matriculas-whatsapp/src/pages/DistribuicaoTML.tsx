@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal,
@@ -17,6 +17,16 @@ import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
+
+// Ordem de exibição das áreas (UGC) responsáveis pelo atraso. Motivos sem
+// área cadastrada caem em "GERAL".
+const UGC_ORDEM = ['ARMAZÉM', 'DISTRIBUIÇÃO', 'FINANCEIRO', 'FROTA', 'GENTE', 'SEGURANCA', 'GERAL']
+function ordenarUgcs(ugcs: string[]): string[] {
+  return [...ugcs].sort((a, b) => {
+    const ia = UGC_ORDEM.indexOf(a); const ib = UGC_ORDEM.indexOf(b)
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib) || a.localeCompare(b)
+  })
+}
 
 function ResultadoBadge({ resultado }: { resultado: HistoricoTML['resultado'] }) {
   if (resultado === 'no_prazo') {
@@ -210,6 +220,9 @@ export default function DistribuicaoTML() {
   const [motivoSelecionado, setMotivoSelecionado] = useState('')
   const [textoJustificativa, setTextoJustificativa] = useState('')
   const [novoMotivo, setNovoMotivo] = useState('')
+  const [novoMotivoUgc, setNovoMotivoUgc] = useState('GERAL')
+  const [ugcSelecionada, setUgcSelecionada] = useState<string | null>(null)
+  const [buscaMotivo, setBuscaMotivo] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -259,7 +272,7 @@ export default function DistribuicaoTML() {
     if (data && data.length > 0) {
       setMotivos(data)
     } else {
-      setMotivos(MOTIVOS_PADRAO.map((motivo) => ({ id: motivo, filial: usuario.filial, motivo, created_at: '' })))
+      setMotivos(MOTIVOS_PADRAO.map((motivo) => ({ id: motivo, filial: usuario.filial, motivo, ugc: 'GERAL', created_at: '' })))
     }
   }, [usuario])
 
@@ -753,20 +766,24 @@ export default function DistribuicaoTML() {
         return
       }
 
-      const opcoes = motivos
-        .slice(0, 10)
-        .map((m) => ({
-          id: `tmlmotivo:${alerta.id}:${m.motivo}`,
-          title: m.motivo.length > 24 ? `${m.motivo.slice(0, 23)}…` : m.motivo,
-        }))
+      // Justificativa em 2 etapas: o supervisor escolhe primeiro a ÁREA (UGC)
+      // — são poucas e cabem na lista do WhatsApp — e o webhook responde com
+      // os motivos daquela área (paginados). Cada opção carrega o id do alerta.
+      const ugcsDisponiveis = ordenarUgcs(
+        Array.from(new Set(motivos.map((m) => (m.ugc || 'GERAL')))),
+      )
+      const opcoes = ugcsDisponiveis.slice(0, 10).map((ugc) => ({
+        id: `tmlugc:${alerta.id}:${ugc}`,
+        title: ugc.length > 24 ? `${ugc.slice(0, 23)}…` : ugc,
+      }))
 
       const erros: string[] = []
       for (const sup of supervisores) {
         const resultado = await enviarListaOpcoesWhatsApp(
           sup.telefone,
           mensagem,
-          'Motivo da justificativa',
-          'Selecionar motivo',
+          'Área do motivo',
+          'Escolher área',
           opcoes
         )
         if (!resultado.sucesso) erros.push(`${sup.nome}: ${resultado.erro}`)
@@ -818,12 +835,27 @@ export default function DistribuicaoTML() {
     const motivo = novoMotivo.trim().toUpperCase()
     const { error } = await supabase
       .from('motivos_justificativa_tml')
-      .upsert({ filial: usuario.filial, motivo }, { onConflict: 'filial,motivo' })
+      .upsert({ filial: usuario.filial, motivo, ugc: novoMotivoUgc }, { onConflict: 'filial,motivo' })
     if (!error) {
       setNovoMotivo('')
       await fetchMotivos()
     }
   }
+
+  // Áreas (UGC) disponíveis e motivos filtrados pela área/busca no modal do site.
+  const ugcsDisponiveis = useMemo(
+    () => ordenarUgcs(Array.from(new Set(motivos.map((m) => m.ugc || 'GERAL')))),
+    [motivos],
+  )
+  const motivosFiltrados = useMemo(() => {
+    const termo = buscaMotivo.trim().toLowerCase()
+    return motivos.filter((m) => {
+      const area = m.ugc || 'GERAL'
+      if (ugcSelecionada && area !== ugcSelecionada) return false
+      if (termo && !m.motivo.toLowerCase().includes(termo)) return false
+      return true
+    })
+  }, [motivos, ugcSelecionada, buscaMotivo])
 
   const stats = {
     total: alertas.length,
@@ -1011,7 +1043,7 @@ export default function DistribuicaoTML() {
                       )}
                       {a.status === 'enviado' && (
                         <button
-                          onClick={() => { setJustificando(a); setTextoJustificativa(''); setMotivoSelecionado('') }}
+                          onClick={() => { setJustificando(a); setTextoJustificativa(''); setMotivoSelecionado(''); setUgcSelecionada(null); setBuscaMotivo('') }}
                           className="px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors"
                         >
                           Registrar justificativa
@@ -1095,22 +1127,59 @@ export default function DistribuicaoTML() {
             </div>
             <div className="p-5 space-y-3">
               <p className="text-sm text-muted-foreground">{justificando.numero} — Mapa {justificando.mapa}</p>
-              <label className="block text-sm font-medium text-gray-700">Motivo</label>
-              <div className="flex flex-wrap gap-2">
-                {motivos.map((m) => (
+
+              <label className="block text-sm font-medium text-gray-700">Área responsável</label>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  onClick={() => setUgcSelecionada(null)}
+                  className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+                    ugcSelecionada === null ? 'bg-accent-500 text-white border-accent-500' : 'hover:bg-accent'
+                  }`}
+                >
+                  Todas
+                </button>
+                {ugcsDisponiveis.map((ugc) => (
                   <button
-                    key={m.id}
-                    onClick={() => {
-                      setMotivoSelecionado(m.motivo)
-                      setTextoJustificativa(m.motivo === 'OUTRO' ? '' : m.motivo)
-                    }}
-                    className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${
-                      motivoSelecionado === m.motivo ? 'bg-accent-500 text-white border-accent-500' : 'hover:bg-accent'
+                    key={ugc}
+                    onClick={() => setUgcSelecionada(ugc)}
+                    className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+                      ugcSelecionada === ugc ? 'bg-accent-500 text-white border-accent-500' : 'hover:bg-accent'
                     }`}
                   >
-                    {m.motivo}
+                    {ugc}
                   </button>
                 ))}
+              </div>
+
+              <input
+                value={buscaMotivo}
+                onChange={(e) => setBuscaMotivo(e.target.value)}
+                placeholder="Buscar motivo..."
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+              />
+
+              <div className="max-h-56 overflow-y-auto border rounded-lg divide-y">
+                {motivosFiltrados.length === 0 ? (
+                  <div className="px-3 py-3 text-xs text-muted-foreground">Nenhum motivo para essa área/busca.</div>
+                ) : (
+                  motivosFiltrados.map((m) => (
+                    <button
+                      key={m.id}
+                      onClick={() => {
+                        setMotivoSelecionado(m.motivo)
+                        setTextoJustificativa(m.motivo === 'OUTRO' ? '' : m.motivo)
+                      }}
+                      className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                        motivoSelecionado === m.motivo ? 'bg-accent-500 text-white' : 'hover:bg-accent'
+                      }`}
+                    >
+                      {m.motivo}
+                      {m.ugc && m.ugc !== 'GERAL' && (
+                        <span className={`ml-2 text-[10px] ${motivoSelecionado === m.motivo ? 'text-white/80' : 'text-muted-foreground'}`}>· {m.ugc}</span>
+                      )}
+                    </button>
+                  ))
+                )}
               </div>
 
               {motivoSelecionado === 'OUTRO' && (
@@ -1126,6 +1195,13 @@ export default function DistribuicaoTML() {
               <div className="pt-2 border-t">
                 <label className="block text-xs font-medium text-gray-500 mb-1.5">Cadastrar novo motivo</label>
                 <div className="flex gap-2">
+                  <select
+                    value={novoMotivoUgc}
+                    onChange={(e) => setNovoMotivoUgc(e.target.value)}
+                    className="px-2 py-2 border border-gray-200 rounded-lg text-sm"
+                  >
+                    {UGC_ORDEM.map((ugc) => <option key={ugc} value={ugc}>{ugc}</option>)}
+                  </select>
                   <input
                     value={novoMotivo}
                     onChange={(e) => setNovoMotivo(e.target.value)}
