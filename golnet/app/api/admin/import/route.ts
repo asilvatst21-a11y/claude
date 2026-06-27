@@ -7,6 +7,7 @@ import {
   mapApiStage,
   extractGroup,
   regulationScore,
+  guardStatusAgainstKickoff,
 } from "@/lib/api-football";
 import { isAdmin } from "@/lib/admin";
 
@@ -46,7 +47,8 @@ export async function POST(req: Request) {
 
   for (const fixture of fixtures) {
     const externalId = String(fixture.fixture.id);
-    const status = mapApiStatus(fixture.fixture.status.short);
+    const startsAt = new Date(fixture.fixture.date);
+    const status = guardStatusAgainstKickoff(mapApiStatus(fixture.fixture.status.short), startsAt);
     const stage = mapApiStage(fixture.league.round);
     const group = extractGroup(fixture.league.round);
     const isFinished = status === "FINISHED";
@@ -62,7 +64,7 @@ export async function POST(req: Request) {
       awayTeamId: fixture.teams.away.id,
       homeTeamFlag: fixture.teams.home.logo,
       awayTeamFlag: fixture.teams.away.logo,
-      startsAt: new Date(fixture.fixture.date),
+      startsAt,
       status,
       stage,
       group,

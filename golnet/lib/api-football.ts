@@ -96,7 +96,10 @@ export async function fetchLeagueFixtures(
 }
 
 export async function fetchFixturesByDate(date: string): Promise<ApiFixture[]> {
-  return apiFetch<ApiFixture[]>(`/fixtures?date=${date}`);
+  // Without an explicit timezone, API-Football filters `date` against UTC days, while
+  // `date` here is a São Paulo calendar day — a match at 22:00 BRT (01:00 UTC the next
+  // day) would silently fall outside that day's results without this.
+  return apiFetch<ApiFixture[]>(`/fixtures?date=${date}&timezone=America/Sao_Paulo`);
 }
 
 // Fetch specific fixtures by their IDs (hyphen-separated, max 20 per call)
@@ -137,6 +140,16 @@ export function mapApiStatus(short: string): MatchStatus {
     default:
       return "SCHEDULED";
   }
+}
+
+// A fixture can briefly report a stale/wrong status (or get matched to the wrong
+// externalId upstream) — never let a match flip to LIVE/FINISHED before its own
+// kickoff time actually arrives, no matter what the API just said.
+export function guardStatusAgainstKickoff(status: MatchStatus, startsAt: Date): MatchStatus {
+  if ((status === "LIVE" || status === "FINISHED") && startsAt.getTime() > Date.now()) {
+    return "SCHEDULED";
+  }
+  return status;
 }
 
 export function mapApiStage(round: string): MatchStage {

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { fetchFixturesByIds, mapApiStatus, regulationScore } from "@/lib/api-football";
+import { fetchFixturesByIds, mapApiStatus, regulationScore, guardStatusAgainstKickoff } from "@/lib/api-football";
 import { calculatePoints } from "@/lib/scoring";
 import { isAdmin } from "@/lib/admin";
 
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
 
   const match = await prisma.match.findUnique({
     where: { externalId: String(externalId) },
-    select: { id: true, homeTeam: true, awayTeam: true, status: true, homeScore: true, awayScore: true, stage: true, round: true },
+    select: { id: true, homeTeam: true, awayTeam: true, status: true, homeScore: true, awayScore: true, stage: true, round: true, startsAt: true },
   });
   if (!match) return NextResponse.json({ error: `Partida com externalId ${externalId} não encontrada no banco` }, { status: 404 });
 
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   if (!fixtures.length) return NextResponse.json({ error: "Fixture não encontrada na API" }, { status: 404 });
 
   const fixture = fixtures[0];
-  const newStatus = mapApiStatus(fixture.fixture.status.short);
+  const newStatus = guardStatusAgainstKickoff(mapApiStatus(fixture.fixture.status.short), match.startsAt);
   const { home: homeScore, away: awayScore } = regulationScore(fixture, newStatus);
 
   const before = { status: match.status, homeScore: match.homeScore, awayScore: match.awayScore };

@@ -24,11 +24,11 @@ async function runSync(): Promise<{ synced: number; warning?: string }> {
   // match scored by a client-triggered refresh (or a previous run) is always caught up.
   const [regularPreds, duelPreds] = await Promise.all([
     prisma.prediction.findMany({
-      where: { result: null, match: { status: "FINISHED", homeScore: { not: null }, awayScore: { not: null } } },
+      where: { result: null, match: { status: "FINISHED", homeScore: { not: null }, awayScore: { not: null }, startsAt: { lte: new Date() } } },
       include: { match: { select: { homeScore: true, awayScore: true, stage: true, round: true } } },
     }),
     prisma.duelPrediction.findMany({
-      where: { result: null, match: { status: "FINISHED", homeScore: { not: null }, awayScore: { not: null } } },
+      where: { result: null, match: { status: "FINISHED", homeScore: { not: null }, awayScore: { not: null }, startsAt: { lte: new Date() } } },
       include: { match: { select: { homeScore: true, awayScore: true, stage: true } } },
     }),
   ]);

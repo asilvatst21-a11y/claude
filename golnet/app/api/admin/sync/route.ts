@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { fetchFixturesByDate, mapApiStatus, regulationScore } from "@/lib/api-football";
+import { fetchFixturesByDate, mapApiStatus, regulationScore, guardStatusAgainstKickoff } from "@/lib/api-football";
 import { calculatePoints, pointsFromResult, type ScoringRules } from "@/lib/scoring";
 import { isAdmin } from "@/lib/admin";
 
@@ -31,7 +31,7 @@ export async function POST() {
     });
     if (!match) continue;
 
-    const status = mapApiStatus(fixture.fixture.status.short);
+    const status = guardStatusAgainstKickoff(mapApiStatus(fixture.fixture.status.short), match.startsAt);
     const { home: homeScore, away: awayScore } = regulationScore(fixture, status);
 
     await prisma.match.update({

@@ -22,6 +22,9 @@ export async function POST(req: Request) {
 
   const match = await prisma.match.findUnique({ where: { id: matchId } });
   if (!match) return NextResponse.json({ error: "Partida não encontrada" }, { status: 404 });
+  if (match.startsAt.getTime() > Date.now()) {
+    return NextResponse.json({ error: "Esse jogo ainda não começou" }, { status: 400 });
+  }
 
   const before = { status: match.status, homeScore: match.homeScore, awayScore: match.awayScore };
 
