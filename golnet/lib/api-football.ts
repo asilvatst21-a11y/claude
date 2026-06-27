@@ -96,7 +96,10 @@ export async function fetchLeagueFixtures(
 }
 
 export async function fetchFixturesByDate(date: string): Promise<ApiFixture[]> {
-  return apiFetch<ApiFixture[]>(`/fixtures?date=${date}`);
+  // Without an explicit timezone, API-Football filters `date` against UTC days, while
+  // `date` here is a São Paulo calendar day — a match at 22:00 BRT (01:00 UTC the next
+  // day) would silently fall outside that day's results without this.
+  return apiFetch<ApiFixture[]>(`/fixtures?date=${date}&timezone=America/Sao_Paulo`);
 }
 
 // Fetch specific fixtures by their IDs (hyphen-separated, max 20 per call)

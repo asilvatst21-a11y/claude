@@ -16,8 +16,11 @@ export async function refreshMatchScores(): Promise<RefreshResult> {
   const today = new Date().toLocaleDateString("en-CA", spTz);
   const yesterday = new Date(Date.now() - 86_400_000).toLocaleDateString("en-CA", spTz);
 
-  const windowStart = new Date(`${yesterday}T00:00:00`);
-  const windowEnd = new Date(`${today}T23:59:59`);
+  // Brasília has been a fixed UTC-3 offset since DST was abolished in 2019 — the explicit
+  // offset is required here, otherwise the server's (UTC) local time shifts this window by
+  // 3 hours and silently drops any match starting after ~21:00 BRT from the candidate set.
+  const windowStart = new Date(`${yesterday}T00:00:00-03:00`);
+  const windowEnd = new Date(`${today}T23:59:59-03:00`);
 
   const matchFilter: Prisma.MatchWhereInput = {
     externalId: { not: null },
