@@ -1079,6 +1079,31 @@ async function registrarJustificativaTml(alertaId: string, motivo: string, remet
   return { ok: true, action: 'justificado' }
 }
 
+// Novo fluxo: o supervisor responde em TEXTO LIVRE. Guardamos a resposta no
+// alerta (sem finalizar) e o controle classifica o motivo pela tabela no site.
+async function registrarRespostaSupervisorTml(alertaId: string, texto: string, remetente: string): Promise<{ ok: boolean; action: string }> {
+  const { data: alerta } = await supabase
+    .from('alertas_tml')
+    .select('id, numero, status, resposta_supervisor')
+    .eq('id', alertaId)
+    .maybeSingle()
+  if (!alerta) return { ok: true, action: 'alert-not-found' }
+
+  // Anexa à resposta anterior (caso o supervisor mande em várias mensagens).
+  const anterior = (alerta.resposta_supervisor ?? '').trim()
+  const novo = anterior ? `${anterior}\n${texto}` : texto
+
+  await supabase.from('alertas_tml').update({
+    resposta_supervisor: novo,
+    respondido_em: new Date().toISOString(),
+    // Só muda o status se ainda estava aguardando; não reabre um já justificado.
+    ...(alerta.status === 'enviado' ? { status: 'respondido' } : {}),
+  }).eq('id', alertaId)
+
+  await enviar(remetente, '✅ Resposta recebida! O controle vai classificar o motivo no sistema. Obrigado.')
+  return { ok: true, action: 'resposta-registrada' }
+}
+
 // Passo 2 da justificativa: escolhida a área (UGC), manda a lista de motivos
 // daquela área. Pagina de 9 em 9 (limite ~10 linhas da lista do WhatsApp),
 // acrescentando uma linha "Ver mais" quando ainda houver motivos.
@@ -1219,17 +1244,19 @@ async function tratarTml(body: any, remetente: string): Promise<{ ok: boolean; a
   const supervisor = (supervisores ?? []).find((s: any) => ultimosDigitos(s.telefone) === digitos)
   if (!supervisor) return { ok: true, action: 'no-command' }
 
+  // Pega o alerta mais recente aguardando resposta deste supervisor (enviado
+  // ou já respondido, para permitir complementar a resposta).
   const { data: alerta } = await supabase
     .from('alertas_tml')
     .select('id')
     .eq('supervisor_id', supervisor.id)
-    .eq('status', 'enviado')
+    .in('status', ['enviado', 'respondido'])
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
   if (!alerta) return { ok: true, action: 'no-pending-alert' }
 
-  return await registrarJustificativaTml(alerta.id, texto, remetente)
+  return await registrarRespostaSupervisorTml(alerta.id, texto, remetente)
 }
 
 // ── Handler ──────────────────────────────────────────────────────────────────────
