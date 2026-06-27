@@ -67,6 +67,27 @@ async function enviarBotoes(destino: string, message: string, botoes: BotaoZ[]):
   }
 }
 
+// Envia lista de opções (send-option-list) — usada nos passos da justificativa
+// de TML (escolher a área e depois o motivo). O WhatsApp limita a lista a ~10
+// linhas; o chamador é responsável por paginar.
+interface OpcaoZ { id: string; title: string; description?: string }
+async function enviarOpcoes(destino: string, message: string, titulo: string, botaoLabel: string, opcoes: OpcaoZ[]): Promise<void> {
+  try {
+    const resp = await fetch(`${ZAPI_BASE}/send-option-list`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Client-Token': ZAPI_CLIENT_TOKEN },
+      body: JSON.stringify({ phone: destino, message, optionList: { title: titulo, buttonLabel: botaoLabel, options: opcoes } }),
+    })
+    if (!resp.ok) {
+      console.error('send-option-list error:', resp.status, await resp.text().catch(() => ''))
+      await enviar(destino, message)
+    }
+  } catch (e) {
+    console.error('enviarOpcoes exception:', e)
+    await enviar(destino, message)
+  }
+}
+
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
 
@@ -1058,14 +1079,134 @@ async function registrarJustificativaTml(alertaId: string, motivo: string, remet
   return { ok: true, action: 'justificado' }
 }
 
+// Passo 2 da justificativa: escolhida a área (UGC), manda a lista de motivos
+// daquela área. Pagina de 9 em 9 (limite ~10 linhas da lista do WhatsApp),
+// acrescentando uma linha "Ver mais" quando ainda houver motivos.
+const MOTIVOS_POR_PAGINA = 9
+async function enviarMotivosUgcTml(alertaId: string, ugc: string, offset: number, remetente: string): Promise<{ ok: boolean; action: string }> {
+  const { data: alerta } = await supabase
+    .from('alertas_tml')
+    .select('id, filial, status')
+    .eq('id', alertaId)
+    .maybeSingle()
+  if (!alerta) {
+    await enviar(remetente, '⚠️ Não encontrei esse alerta no sistema.')
+    return { ok: true, action: 'alert-not-found' }
+  }
+  if (alerta.status === 'justificado') {
+    await enviar(remetente, 'ℹ️ Esse alerta já estava justificado.')
+    return { ok: true, action: 'already-justified' }
+  }
+
+  const { data: motivos } = await supabase
+    .from('motivos_justificativa_tml')
+    .select('motivo')
+    .eq('filial', alerta.filial)
+    .eq('ugc', ugc)
+    .order('motivo')
+  const lista = (motivos ?? []).map((m: any) => m.motivo as string)
+  if (!lista.length) {
+    await enviar(remetente, `⚠️ Nenhum motivo cadastrado para a área *${ugc}*.`)
+    return { ok: true, action: 'no-motivos' }
+  }
+
+  const pagina = lista.slice(offset, offset + MOTIVOS_POR_PAGINA)
+  const opcoes: OpcaoZ[] = pagina.map((motivo) => ({
+    id: `tmlmotivo:${alertaId}:${motivo}`,
+    title: motivo.length > 24 ? `${motivo.slice(0, 23)}…` : motivo,
+    description: motivo.length > 24 ? motivo : undefined,
+  }))
+  const proximo = offset + MOTIVOS_POR_PAGINA
+  if (proximo < lista.length) {
+    opcoes.push({ id: `tmlmais:${alertaId}:${ugc}:${proximo}`, title: '➡️ Ver mais motivos' })
+  }
+
+  await enviarOpcoes(remetente, `Motivos de *${ugc}* — escolha um:`, ugc, 'Selecionar motivo', opcoes)
+  return { ok: true, action: 'motivos-enviados' }
+}
+
+// Versão de teste do passo 2: lista os motivos da área sem exigir alerta e sem
+// permitir registro — usada pelo botão "Enviar teste" do painel. Os motivos têm
+// id "tmltestemotivo:<motivo>", que apenas confirma o recebimento.
+async function enviarMotivosUgcTesteTml(filial: string, ugc: string, offset: number, remetente: string): Promise<{ ok: boolean; action: string }> {
+  const { data: motivos } = await supabase
+    .from('motivos_justificativa_tml')
+    .select('motivo')
+    .eq('filial', filial)
+    .eq('ugc', ugc)
+    .order('motivo')
+  const lista = (motivos ?? []).map((m: any) => m.motivo as string)
+  if (!lista.length) {
+    await enviar(remetente, `⚠️ (teste) Nenhum motivo cadastrado para a área *${ugc}*.`)
+    return { ok: true, action: 'teste-no-motivos' }
+  }
+  const pagina = lista.slice(offset, offset + MOTIVOS_POR_PAGINA)
+  const opcoes: OpcaoZ[] = pagina.map((motivo) => ({
+    id: `tmltestemotivo:${motivo}`,
+    title: motivo.length > 24 ? `${motivo.slice(0, 23)}…` : motivo,
+    description: motivo.length > 24 ? motivo : undefined,
+  }))
+  const proximo = offset + MOTIVOS_POR_PAGINA
+  if (proximo < lista.length) {
+    opcoes.push({ id: `tmltestemais:${filial}:${ugc}:${proximo}`, title: '➡️ Ver mais motivos' })
+  }
+  await enviarOpcoes(remetente, `🧪 *TESTE* — Motivos de *${ugc}*:`, ugc, 'Selecionar motivo', opcoes)
+  return { ok: true, action: 'teste-motivos' }
+}
+
 async function tratarTml(body: any, remetente: string): Promise<{ ok: boolean; action: string }> {
   const rawBtn = String(body?.listResponseMessage?.selectedRowId ?? body?.buttonsResponseMessage?.buttonId ?? '')
+  // ── Modo teste (botão "Enviar teste" do painel): não mexe em alertas reais ──
+  if (rawBtn.startsWith('tmltestemotivo:')) {
+    const motivo = rawBtn.slice('tmltestemotivo:'.length).trim()
+    if (motivo) await enviar(remetente, `✅ *Teste recebido!*\nMotivo: *${motivo}*\n_(nenhum alerta foi alterado — isto é só um teste)_`)
+    return { ok: true, action: 'teste-motivo' }
+  }
+  if (rawBtn.startsWith('tmltesteugc:')) {
+    const resto = rawBtn.slice('tmltesteugc:'.length)
+    const i = resto.indexOf(':')
+    const filial = i >= 0 ? resto.slice(0, i) : ''
+    const ugc = i >= 0 ? resto.slice(i + 1).trim() : ''
+    if (!filial || !ugc) return { ok: true, action: 'invalid-button' }
+    return await enviarMotivosUgcTesteTml(filial, ugc, 0, remetente)
+  }
+  if (rawBtn.startsWith('tmltestemais:')) {
+    const resto = rawBtn.slice('tmltestemais:'.length)
+    const sep = resto.lastIndexOf(':')
+    const offset = sep >= 0 ? parseInt(resto.slice(sep + 1), 10) || 0 : 0
+    const head = sep >= 0 ? resto.slice(0, sep) : resto
+    const i = head.indexOf(':')
+    const filial = i >= 0 ? head.slice(0, i) : ''
+    const ugc = i >= 0 ? head.slice(i + 1) : ''
+    if (!filial || !ugc) return { ok: true, action: 'invalid-button' }
+    return await enviarMotivosUgcTesteTml(filial, ugc, offset, remetente)
+  }
+
   if (rawBtn.startsWith('tmlmotivo:')) {
     const resto = rawBtn.slice('tmlmotivo:'.length)
     const alertaId = resto.slice(0, 36)
     const motivo = resto.slice(37).trim()
     if (!alertaId || !motivo) return { ok: true, action: 'invalid-button' }
     return await registrarJustificativaTml(alertaId, motivo, remetente)
+  }
+  // Passo 1 → 2: clicou na área (UGC)
+  if (rawBtn.startsWith('tmlugc:')) {
+    const resto = rawBtn.slice('tmlugc:'.length)
+    const alertaId = resto.slice(0, 36)
+    const ugc = resto.slice(37).trim()
+    if (!alertaId || !ugc) return { ok: true, action: 'invalid-button' }
+    return await enviarMotivosUgcTml(alertaId, ugc, 0, remetente)
+  }
+  // "Ver mais" dentro de uma área
+  if (rawBtn.startsWith('tmlmais:')) {
+    const resto = rawBtn.slice('tmlmais:'.length)
+    const alertaId = resto.slice(0, 36)
+    const rest = resto.slice(37)
+    const sep = rest.lastIndexOf(':')
+    const ugc = sep >= 0 ? rest.slice(0, sep) : rest
+    const offset = sep >= 0 ? parseInt(rest.slice(sep + 1), 10) || 0 : 0
+    if (!alertaId || !ugc) return { ok: true, action: 'invalid-button' }
+    return await enviarMotivosUgcTml(alertaId, ugc, offset, remetente)
   }
 
   const texto = extrairTexto(body).trim()

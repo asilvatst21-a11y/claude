@@ -87,12 +87,13 @@ export default function DistribuicaoTMLAnalise() {
 
   const [historico, setHistorico] = useState<LinhaHistorico[]>([])
   const [alertas, setAlertas] = useState<LinhaAlerta[]>([])
+  const [motivoUgc, setMotivoUgc] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(true)
 
   const carregar = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
-    const [{ data: hist }, { data: al }] = await Promise.all([
+    const [{ data: hist }, { data: al }, { data: mot }] = await Promise.all([
       supabase
         .from('historico_tml')
         .select('sala, matricula, nome, data_saida, horario_saida, atraso_minutos, resultado')
@@ -107,9 +108,14 @@ export default function DistribuicaoTMLAnalise() {
         .gte('created_at', de)
         .lte('created_at', `${ate}T23:59:59`)
         .limit(5000),
+      supabase
+        .from('motivos_justificativa_tml')
+        .select('motivo, ugc')
+        .eq('filial', usuario.filial),
     ])
     setHistorico(Array.isArray(hist) ? hist : [])
     setAlertas(Array.isArray(al) ? al : [])
+    setMotivoUgc(new Map((Array.isArray(mot) ? mot : []).map((m: any) => [m.motivo, m.ugc || 'GERAL'])))
     setLoading(false)
   }, [usuario, de, ate])
 
@@ -209,6 +215,21 @@ export default function DistribuicaoTMLAnalise() {
       .map(([motivo, total]) => ({ motivo, total }))
       .sort((a, b) => b.total - a.total)
   }, [alertasFiltrados])
+
+  // ── Ranking por área responsável (UGC) ────────────────────────────────────
+  // A justificativa guarda o texto do motivo; cruzamos com o catálogo para
+  // descobrir a área. Motivo sem área (ou texto livre) cai em "GERAL".
+  const porUgc = useMemo(() => {
+    const mapa = new Map<string, number>()
+    for (const a of alertasFiltrados) {
+      if (!a.justificativa) continue
+      const ugc = motivoUgc.get(a.justificativa) ?? 'GERAL'
+      mapa.set(ugc, (mapa.get(ugc) ?? 0) + 1)
+    }
+    return [...mapa.entries()]
+      .map(([ugc, total]) => ({ ugc, total }))
+      .sort((a, b) => b.total - a.total)
+  }, [alertasFiltrados, motivoUgc])
 
   // ── Tendência temporal (por dia): TML médio + conformidade ─────────────
   const porDia = useMemo(() => {
@@ -386,6 +407,25 @@ export default function DistribuicaoTMLAnalise() {
                     <Tooltip contentStyle={TOOLTIP_STYLE} />
                     <Legend wrapperStyle={{ fontSize: 11 }} />
                   </PieChart>
+                </ResponsiveContainer>
+              )}
+            </ChartCard>
+
+            <ChartCard title="Atrasos por área responsável (UGC)">
+              {porUgc.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhuma justificativa registrada no período.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={240}>
+                  <BarChart data={porUgc} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                    <XAxis type="number" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <YAxis type="category" dataKey="ugc" width={96} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
+                    <Bar dataKey="total" name="Atrasos" radius={[0, 6, 6, 0]} barSize={20}>
+                      {porUgc.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} />)}
+                      <LabelList dataKey="total" position="right" style={{ fontSize: 11, fontWeight: 600 }} />
+                    </Bar>
+                  </BarChart>
                 </ResponsiveContainer>
               )}
             </ChartCard>

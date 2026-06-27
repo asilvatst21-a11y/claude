@@ -340,6 +340,7 @@ export interface MotivoJustificativaTML {
   id: string
   filial: string
   motivo: string
+  ugc?: string | null
   created_at: string
 }
 
