@@ -229,6 +229,9 @@ export default function DistribuicaoTML() {
   const [enviandoAlertaId, setEnviandoAlertaId] = useState<string | null>(null)
   const [enviandoResumoGerencial, setEnviandoResumoGerencial] = useState(false)
   const [enviandoResumoDiario, setEnviandoResumoDiario] = useState(false)
+  const [testeAberto, setTesteAberto] = useState(false)
+  const [telefoneTeste, setTelefoneTeste] = useState('')
+  const [enviandoTeste, setEnviandoTeste] = useState(false)
 
   const [historico, setHistorico] = useState<HistoricoTML[]>([])
   const [loadingHistorico, setLoadingHistorico] = useState(true)
@@ -842,6 +845,32 @@ export default function DistribuicaoTML() {
     }
   }
 
+  // Envia uma mensagem de TESTE (lista de áreas → motivos) para um número
+  // digitado, sem criar nem alterar alertas reais. Os cliques caem no fluxo
+  // de teste do webhook (id "tmlteste*"), que só confirma o recebimento.
+  async function handleEnviarTeste() {
+    if (!usuario || !telefoneTeste.trim()) return
+    setEnviandoTeste(true)
+    setErro('')
+    try {
+      const ugcs = ordenarUgcs(Array.from(new Set(motivos.map((m) => m.ugc || 'GERAL'))))
+      const opcoes = ugcs.slice(0, 10).map((ugc) => ({
+        id: `tmltesteugc:${usuario.filial}:${ugc}`,
+        title: ugc.length > 24 ? `${ugc.slice(0, 23)}…` : ugc,
+      }))
+      const msg = '🧪 *TESTE — Justificativa de TML*\nEscolha a área para ver os motivos. Nenhum alerta real será alterado.'
+      const r = await enviarListaOpcoesWhatsApp(telefoneTeste.trim(), msg, 'Área do motivo', 'Escolher área', opcoes)
+      if (!r.sucesso) throw new Error(r.erro)
+      setTesteAberto(false)
+      setTelefoneTeste('')
+      alert('Mensagem de teste enviada. Confira o WhatsApp do número informado.')
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao enviar teste')
+    } finally {
+      setEnviandoTeste(false)
+    }
+  }
+
   // Áreas (UGC) disponíveis e motivos filtrados pela área/busca no modal do site.
   const ugcsDisponiveis = useMemo(
     () => ordenarUgcs(Array.from(new Set(motivos.map((m) => m.ugc || 'GERAL')))),
@@ -904,6 +933,12 @@ export default function DistribuicaoTML() {
           >
             {enviandoResumoGerencial ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             Enviar resumo gerencial
+          </button>
+          <button
+            onClick={() => { setTesteAberto(true); setErro('') }}
+            className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors"
+          >
+            <Send className="h-4 w-4" /> Enviar teste
           </button>
         </div>
       </div>
@@ -1222,6 +1257,42 @@ export default function DistribuicaoTML() {
                 className="px-4 py-2 rounded-lg text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white transition-colors"
               >
                 {salvando ? 'Salvando...' : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {testeAberto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h2 className="font-semibold">Enviar teste de justificativa</h2>
+              <button onClick={() => setTesteAberto(false)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Manda a lista de áreas e motivos para o WhatsApp do número informado, sem criar ou
+                alterar nenhum alerta. Ao clicar nas opções, o bot responde em modo teste.
+              </p>
+              <label className="block text-sm font-medium text-gray-700">Telefone (com DDD)</label>
+              <input
+                value={telefoneTeste}
+                onChange={(e) => setTelefoneTeste(e.target.value)}
+                placeholder="Ex: 27999998888"
+                className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm"
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t">
+              <button onClick={() => setTesteAberto(false)} disabled={enviandoTeste} className="px-4 py-2 rounded-lg text-sm border hover:bg-accent transition-colors">Cancelar</button>
+              <button
+                onClick={handleEnviarTeste}
+                disabled={enviandoTeste || !telefoneTeste.trim()}
+                className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white transition-colors"
+              >
+                {enviandoTeste ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {enviandoTeste ? 'Enviando...' : 'Enviar teste'}
               </button>
             </div>
           </div>
