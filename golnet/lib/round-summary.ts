@@ -37,7 +37,7 @@ const TONES: Tone[] = [
       (name, climb, posPhrase, tail) => `🚀 ${name} deu um show: subiu ${climb} posiç${climb > 1 ? "ões" : "ão"} e ${posPhrase} ${tail}`,
     ],
     fallerTemplates: [
-      (name, pts, zeroedText, fallPhrase, tail) => `📉 Já ${name}… amigo, foram ${pts} ponto${pts === 1 ? "" : "s"} na rodada.${zeroedText} ${fallPhrase} ${tail}`,
+      (name, pts, zeroedText, fallPhrase, tail) => `📉 ${name} não teve a melhor rodada: só ${pts} ponto${pts === 1 ? "" : "s"}.${zeroedText} ${fallPhrase} ${tail}`,
       (name, pts, zeroedText, fallPhrase, tail) => `😬 ${name} teve rodada pra esquecer: só ${pts} ponto${pts === 1 ? "" : "s"}.${zeroedText} ${fallPhrase} ${tail}`,
     ],
     calmTemplates: [
@@ -141,6 +141,12 @@ const FEMININE_TEAMS = new Set([
 ]);
 
 const DONE_STATUSES = ["FINISHED", "POSTPONED", "CANCELLED"];
+
+const KNOCKOUT_CLOSINGS = [
+  "Fase de grupos acabou — agora é mata-mata! ⚔️",
+  "Chega de grupo: a partir de agora, quem perde tá fora. Falta pouco pra final! 🏆",
+  "Bola pro chaveamento, porque agora é tudo ou nada! 🔥",
+];
 
 function displayName(user: { name: string | null; username: string | null }) {
   return user.name ?? (user.username ? `@${user.username}` : "Jogador misterioso");
@@ -256,6 +262,26 @@ async function generateRoundSummaryIfComplete(round: string, notify: boolean, le
   if (matches.length === 0) return;
   if (!matches.every((m) => DONE_STATUSES.includes(m.status))) return;
 
+  // If this round is entirely group-stage matches AND it contains the chronologically
+  // last group-stage fixture for the competition AND knockout-round fixtures already
+  // exist (i.e. the bracket has been drawn) — this is the round that closes out the
+  // groups, so the summary should announce the transition into the knockout stage.
+  let groupStageEnding = false;
+  if (matches.every((m) => m.stage === "GROUP")) {
+    const leagueNames = Array.from(new Set(matches.map((m) => m.leagueName))).filter(
+      (n): n is string => n != null
+    );
+    const [knockoutCount, latestGroupMatch] = await Promise.all([
+      prisma.match.count({ where: { leagueName: { in: leagueNames }, stage: { not: "GROUP" } } }),
+      prisma.match.findFirst({
+        where: { leagueName: { in: leagueNames }, stage: "GROUP" },
+        orderBy: { startsAt: "desc" },
+        select: { round: true },
+      }),
+    ]);
+    groupStageEnding = knockoutCount > 0 && latestGroupMatch?.round === round;
+  }
+
   for (const league of leagues) {
     const exists = await prisma.roundSummary.findUnique({
       where: { leagueId_round: { leagueId: league.id, round } },
@@ -273,7 +299,7 @@ async function generateRoundSummaryIfComplete(round: string, notify: boolean, le
     }
     if (leagueMatches.length === 0) continue;
 
-    const text = await buildSummaryText(league.id, round, leagueMatches.map((m) => m.id));
+    const text = await buildSummaryText(league.id, round, leagueMatches.map((m) => m.id), groupStageEnding);
     if (!text) continue;
 
     await prisma.roundSummary.create({ data: { leagueId: league.id, round, text } });
@@ -298,7 +324,7 @@ async function notifyMembers(leagueId: string, leagueName: string, round: string
   );
 }
 
-async function buildSummaryText(leagueId: string, round: string, matchIds: string[]): Promise<string | null> {
+async function buildSummaryText(leagueId: string, round: string, matchIds: string[], groupStageEnding: boolean): Promise<string | null> {
   const members = await prisma.leagueMember.findMany({
     where: { leagueId },
     include: { user: { select: { name: true, username: true } } },
@@ -428,7 +454,9 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
   if (hadFaller) {
     summaryParts.push(`${biggestFaller.name} precisa rever a vida (ou pelo menos os palpites)`);
   }
-  const nextRoundText = isNumericRound ? `Bora pra rodada ${roundNum + 1}! ⚽️` : "Bora pra próxima rodada! ⚽️";
+  const nextRoundText = groupStageEnding
+    ? pick(KNOCKOUT_CLOSINGS)
+    : isNumericRound ? `Bora pra rodada ${roundNum + 1}! ⚽️` : "Bora pra próxima rodada! ⚽️";
 
   lines.push("");
   lines.push(`${pick(tone.closingLeadins)} ${summaryParts.join(", ")}. ${nextRoundText}`);
