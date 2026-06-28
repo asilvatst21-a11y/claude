@@ -1,14 +1,7 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { prisma } from "@/lib/prisma";
-import {
-  fetchLeagueFixtures,
-  mapApiStatus,
-  mapApiStage,
-  extractGroup,
-  regulationScore,
-  guardStatusAgainstKickoff,
-} from "@/lib/api-football";
+import { fetchLeagueFixtures } from "@/lib/api-football";
+import { upsertFixtures } from "@/lib/sync-matches";
 import { isAdmin } from "@/lib/admin";
 
 export async function POST(req: Request) {
@@ -42,49 +35,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ imported: 0, updated: 0, error: `Nenhum jogo encontrado para temporada ${season} ou ${season - 1}` });
   }
 
-  let imported = 0;
-  let updated = 0;
-
-  for (const fixture of fixtures) {
-    const externalId = String(fixture.fixture.id);
-    const startsAt = new Date(fixture.fixture.date);
-    const status = guardStatusAgainstKickoff(mapApiStatus(fixture.fixture.status.short), startsAt);
-    const stage = mapApiStage(fixture.league.round);
-    const group = extractGroup(fixture.league.round);
-    const isFinished = status === "FINISHED";
-    const score = regulationScore(fixture, status);
-
-    const data = {
-      leagueId: fixture.league.id,
-      leagueName: fixture.league.name,
-      leagueSeason: fixture.league.season,
-      homeTeam: fixture.teams.home.name,
-      awayTeam: fixture.teams.away.name,
-      homeTeamId: fixture.teams.home.id,
-      awayTeamId: fixture.teams.away.id,
-      homeTeamFlag: fixture.teams.home.logo,
-      awayTeamFlag: fixture.teams.away.logo,
-      startsAt,
-      status,
-      stage,
-      group,
-      round: fixture.league.round,
-      venue: fixture.fixture.venue.name,
-      homeScore: isFinished ? (score.home ?? undefined) : undefined,
-      awayScore: isFinished ? (score.away ?? undefined) : undefined,
-      lastSyncedAt: new Date(),
-    };
-
-    const existing = await prisma.match.findUnique({ where: { externalId } });
-
-    if (existing) {
-      await prisma.match.update({ where: { externalId }, data });
-      updated++;
-    } else {
-      await prisma.match.create({ data: { externalId, ...data } });
-      imported++;
-    }
-  }
+  const { imported, updated } = await upsertFixtures(fixtures);
 
   return NextResponse.json({ imported, updated, season: usedSeason });
 }

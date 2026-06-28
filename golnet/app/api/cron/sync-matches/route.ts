@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { refreshMatchScores } from "@/lib/sync-matches";
+import { refreshMatchScores, discoverNewFixtures } from "@/lib/sync-matches";
 import { calculatePoints, PREDICTION_LOCK_MINUTES } from "@/lib/scoring";
 import { sendPushToUser } from "@/lib/push";
 import { maybeGenerateRoundSummaries } from "@/lib/round-summary";
@@ -17,7 +17,19 @@ function authorize(req: Request) {
 }
 
 async function runSync(): Promise<{ synced: number; warning?: string }> {
-  const { synced, warning } = await refreshMatchScores();
+  // Knockout brackets (round of 32, round of 16, ...) are only published by API-Football
+  // once the previous stage finishes, so a one-time import misses every later round —
+  // re-pull fixtures for any tournament that still has matches left to play.
+  const discovery = await discoverNewFixtures().catch((e) => {
+    console.error("discoverNewFixtures failed", e);
+    return null;
+  });
+  const discoveryNote = discovery && (discovery.imported > 0 || discovery.updated > 0)
+    ? `Novas partidas descobertas: ${discovery.imported} importadas, ${discovery.updated} atualizadas.`
+    : undefined;
+
+  const { synced, warning: syncWarning } = await refreshMatchScores();
+  const warning = [syncWarning, discoveryNote].filter(Boolean).join(" | ") || undefined;
 
   // Score predictions for any finished match that hasn't been scored yet — derived
   // straight from "result: null", not from this run's freshly-fetched fixtures, so a
