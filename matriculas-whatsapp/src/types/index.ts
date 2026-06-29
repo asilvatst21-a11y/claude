@@ -381,6 +381,7 @@ export interface HistoricoTML {
   resultado: 'no_prazo' | 'atrasado' | 'indefinido' | 'invalido'
   observacao: string | null
   alerta_id: string | null
+  regiao_entregas: string | null
   created_at: string
 }
 
