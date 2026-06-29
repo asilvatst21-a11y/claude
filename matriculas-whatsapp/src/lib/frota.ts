@@ -168,3 +168,122 @@ export function resumoPorDia(rows: FrotaDisponibilidade[]): ResumoDiaFrota[] {
     })
     .sort((a, b) => a.data.localeCompare(b.data))
 }
+
+export function disponiveisNoDia(rows: FrotaDisponibilidade[], data: string): FrotaDisponibilidade[] {
+  return rows.filter(r => r.data === data && normalizar(r.status) === 'DISPONIVEL')
+}
+
+export interface RankingPlacaFrota {
+  placa: string
+  frota: string | null
+  diasComDado: number
+  diasDisponivel: number
+  diasIndisponivel: number
+  percentualIndisponibilidade: number
+  motivos: { motivo: string; quantidade: number }[]
+}
+
+// Ranking de placas por tempo indisponível no período — só considera dias em
+// que a placa estava contratada (ignora "Não Contratada", que não é
+// indisponibilidade operacional).
+export function rankingIndisponibilidadePorPlaca(rows: FrotaDisponibilidade[]): RankingPlacaFrota[] {
+  const porPlaca = new Map<string, FrotaDisponibilidade[]>()
+  for (const r of rows) {
+    if (normalizar(r.status) === 'NAO CONTRATADA' || normalizar(r.status) === '') continue
+    if (!porPlaca.has(r.placa)) porPlaca.set(r.placa, [])
+    porPlaca.get(r.placa)!.push(r)
+  }
+
+  return Array.from(porPlaca.entries())
+    .map(([placa, linhas]) => {
+      const disponiveis = linhas.filter(l => normalizar(l.status) === 'DISPONIVEL')
+      const indisponiveis = linhas.filter(l => normalizar(l.status) !== 'DISPONIVEL')
+
+      const motivosMap = new Map<string, number>()
+      for (const l of indisponiveis) {
+        const motivo = l.justificativa?.trim() || (normalizar(l.status) === 'PARADO' ? 'Parado' : 'Sem justificativa')
+        motivosMap.set(motivo, (motivosMap.get(motivo) ?? 0) + 1)
+      }
+
+      return {
+        placa,
+        frota: linhas[0]?.frota ?? null,
+        diasComDado: linhas.length,
+        diasDisponivel: disponiveis.length,
+        diasIndisponivel: indisponiveis.length,
+        percentualIndisponibilidade: linhas.length > 0 ? Math.round((indisponiveis.length / linhas.length) * 100) : 0,
+        motivos: Array.from(motivosMap.entries())
+          .map(([motivo, quantidade]) => ({ motivo, quantidade }))
+          .sort((a, b) => b.quantidade - a.quantidade),
+      }
+    })
+    .sort((a, b) => b.diasIndisponivel - a.diasIndisponivel)
+}
+
+// ─── Fixação de Território: território disponibilizado (Frota) x região
+// realmente executada (Carta de Controle TML, via "Região +Entregas" trazida
+// junto da escala do dia) ──────────────────────────────────────────────────
+
+// "120 - Monte Castelo" -> "Monte Castelo"
+function extrairBairroTerritorio(territorio: string | null): string | null {
+  if (!territorio) return null
+  const m = territorio.match(/^[\d/]+\s*-\s*(.+)$/)
+  return (m ? m[1] : territorio).trim() || null
+}
+
+// Comparação aproximada: tolera pequenas variações de grafia entre as duas
+// origens (ex.: "Quissamé" no território x "QUISSAMA" na roteirização),
+// comparando também o radical sem a última letra.
+function bairroBateNaRegiao(territorio: string | null, regioesEntregas: string[]): boolean | null {
+  const bairro = extrairBairroTerritorio(territorio)
+  if (!bairro || regioesEntregas.length === 0) return null
+  const bairroNorm = normalizar(bairro)
+  const textoNorm = normalizar(regioesEntregas.join(' / '))
+  if (textoNorm.includes(bairroNorm)) return true
+  const radical = bairroNorm.length > 4 ? bairroNorm.slice(0, -1) : bairroNorm
+  return textoNorm.includes(radical)
+}
+
+export interface HistoricoTmlRegiao {
+  placa: string | null
+  data_saida: string | null
+  regiao_entregas: string | null
+}
+
+export interface CruzamentoTerritorioItem {
+  placa: string
+  data: string
+  territorio: string
+  regiaoEntregas: string | null
+  bate: boolean | null
+}
+
+// Cruza, por placa+dia, o território disponibilizado com a(s) região(ões)
+// realmente entregue(s) naquele dia (pode haver mais de um mapa/viagem por
+// placa no mesmo dia). `bate: null` quando não há dado do TML para comparar.
+export function cruzarTerritorio(
+  frotaRows: FrotaDisponibilidade[],
+  historicoTml: HistoricoTmlRegiao[],
+): CruzamentoTerritorioItem[] {
+  const regioesPorPlacaData = new Map<string, string[]>()
+  for (const h of historicoTml) {
+    if (!h.placa || !h.data_saida || !h.regiao_entregas) continue
+    const key = `${h.placa}|${h.data_saida}`
+    if (!regioesPorPlacaData.has(key)) regioesPorPlacaData.set(key, [])
+    regioesPorPlacaData.get(key)!.push(h.regiao_entregas)
+  }
+
+  return frotaRows
+    .filter(r => normalizar(r.status) === 'DISPONIVEL' && r.territorio)
+    .map(r => {
+      const regioes = regioesPorPlacaData.get(`${r.placa}|${r.data}`) ?? []
+      return {
+        placa: r.placa,
+        data: r.data,
+        territorio: r.territorio as string,
+        regiaoEntregas: regioes.length > 0 ? regioes.join(' / ') : null,
+        bate: bairroBateNaRegiao(r.territorio, regioes),
+      }
+    })
+    .sort((a, b) => b.data.localeCompare(a.data) || a.placa.localeCompare(b.placa))
+}

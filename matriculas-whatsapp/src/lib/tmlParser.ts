@@ -64,12 +64,17 @@ export interface EscalaTML {
   placa: string | null;
   matricula: number | null;
   dataEntrega: string | null;
+  regiaoEntregas: string | null;
+  cidadesEntregas: string | null;
 }
 
 /**
- * 03.11.49.02 — escala do dia: informa apenas os motoristas/placas
- * escalados por mapa. Não traz a sala — a sala de cada motorista vem da
- * planilha de roster (nome/matrícula/sala), casada por matrícula.
+ * 03.11.49.02 — escala do dia: informa os motoristas/placas escalados por
+ * mapa. Não traz a sala — a sala de cada motorista vem da planilha de
+ * roster (nome/matrícula/sala), casada por matrícula. Também traz a
+ * roteirização do dia ("Região +Entregas"/"Cidades +Entregas" por mapa),
+ * usada para cruzar o território realmente executado com o território
+ * disponibilizado na Frota.
  */
 export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
   const rows = readSheetRows(buffer, "03.11.49.02");
@@ -90,6 +95,8 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
   const placaIdx = header.indexOf("placa");
   const motoristaIdx = header.indexOf("motorista");
   const dataEntregaIdx = header.indexOf("data entrega");
+  const regiaoIdx = header.findIndex((c) => c.includes("regiao") && c.includes("entregas"));
+  const cidadesIdx = header.findIndex((c) => c.includes("cidades") && c.includes("entregas"));
 
   const out: EscalaTML[] = [];
   for (let i = headerRow + 1; i < rows.length; i++) {
@@ -104,6 +111,8 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
       placa: placaIdx !== -1 ? String(row[placaIdx] ?? "").trim() || null : null,
       matricula: !isNaN(matricula) ? matricula : null,
       dataEntrega: dataEntregaIdx !== -1 ? excelDateToISO(row[dataEntregaIdx]) : null,
+      regiaoEntregas: regiaoIdx !== -1 ? String(row[regiaoIdx] ?? "").trim() || null : null,
+      cidadesEntregas: cidadesIdx !== -1 ? String(row[cidadesIdx] ?? "").trim() || null : null,
     });
   }
   return out;

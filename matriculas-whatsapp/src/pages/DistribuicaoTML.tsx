@@ -345,6 +345,8 @@ export default function DistribuicaoTML() {
           placa: e.placa,
           matricula: e.matricula,
           data_entrega: e.dataEntrega,
+          regiao_entregas: e.regiaoEntregas,
+          cidades_entregas: e.cidadesEntregas,
           importado_em: new Date().toISOString(),
         })),
         { onConflict: 'filial,mapa' }
@@ -391,7 +393,7 @@ export default function DistribuicaoTML() {
 
       const { data: escalas } = await supabase
         .from('escalas_tml')
-        .select('mapa, placa, matricula')
+        .select('mapa, placa, matricula, regiao_entregas')
         .eq('filial', usuario.filial)
         .in('mapa', mapas)
       const escalaPorMapa = new Map((escalas ?? []).map((e) => [e.mapa, e]))
@@ -425,13 +427,14 @@ export default function DistribuicaoTML() {
         const matricula = saida.matricula ?? escala?.matricula ?? null
         const placa = saida.placa ?? escala?.placa ?? null
         const nome = matricula != null ? nomePorMatricula.get(matricula) ?? null : null
+        const regiaoEntregas = escala?.regiao_entregas ?? null
 
         if (!saida.horarioSaida) {
           diag.semHorario++
           historicoImediato.push({
             filial: usuario.filial, mapa: saida.mapa, sala: null, placa, matricula, nome,
             data_saida: saida.dataSaida, horario_saida: null, horario_limite: null, atraso_minutos: null,
-            resultado: 'indefinido', observacao: 'Sem horário de saída na planilha',
+            resultado: 'indefinido', observacao: 'Sem horário de saída na planilha', regiao_entregas: regiaoEntregas,
           })
           continue
         }
@@ -443,7 +446,7 @@ export default function DistribuicaoTML() {
           historicoImediato.push({
             filial: usuario.filial, mapa: saida.mapa, sala: null, placa, matricula, nome,
             data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: null, atraso_minutos: null,
-            resultado: 'indefinido', observacao: 'Matrícula sem sala cadastrada no roster',
+            resultado: 'indefinido', observacao: 'Matrícula sem sala cadastrada no roster', regiao_entregas: regiaoEntregas,
           })
           continue
         }
@@ -453,7 +456,7 @@ export default function DistribuicaoTML() {
           historicoImediato.push({
             filial: usuario.filial, mapa: saida.mapa, sala, placa, matricula, nome,
             data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: null, atraso_minutos: null,
-            resultado: 'invalido', observacao: 'Saída registrada antes do horário matinal da sala',
+            resultado: 'invalido', observacao: 'Saída registrada antes do horário matinal da sala', regiao_entregas: regiaoEntregas,
           })
           continue
         }
@@ -466,7 +469,7 @@ export default function DistribuicaoTML() {
           historicoImediato.push({
             filial: usuario.filial, mapa: saida.mapa, sala, placa, matricula, nome,
             data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: limite, atraso_minutos: atraso,
-            resultado: 'no_prazo', observacao: null,
+            resultado: 'no_prazo', observacao: null, regiao_entregas: regiaoEntregas,
           })
           continue
         }
@@ -483,7 +486,7 @@ export default function DistribuicaoTML() {
           historicoImediato.push({
             filial: usuario.filial, mapa: saida.mapa, sala, placa, matricula, nome,
             data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: limite, atraso_minutos: atraso,
-            resultado: 'atrasado', observacao: 'Nenhum supervisor cadastrado para a sala',
+            resultado: 'atrasado', observacao: 'Nenhum supervisor cadastrado para a sala', regiao_entregas: regiaoEntregas,
           })
           continue
         }
@@ -520,7 +523,7 @@ export default function DistribuicaoTML() {
         historicoImediato.push({
           filial: usuario.filial, mapa: saida.mapa, sala, placa, matricula, nome,
           data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: limite, atraso_minutos: atraso,
-          resultado: 'atrasado', observacao: null, alerta_id: alertaInserido?.id ?? null,
+          resultado: 'atrasado', observacao: null, alerta_id: alertaInserido?.id ?? null, regiao_entregas: regiaoEntregas,
         })
       }
 
