@@ -1742,6 +1742,7 @@ export default function Gsdpq() {
                     <tr>
                       <th className="text-left px-4 py-3 font-medium text-gray-600">Colaborador</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-600">Equipe</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">Admissão</th>
                       <th className="text-left px-4 py-3 font-medium text-gray-600">Última avaliação</th>
                       <th className="text-center px-4 py-3 font-medium text-gray-600">Ciclo</th>
                       <th className="text-center px-4 py-3 font-medium text-gray-600">Dias restantes</th>
@@ -1751,7 +1752,7 @@ export default function Gsdpq() {
                   </thead>
                   <tbody>
                     {vencimentos.length === 0 && (
-                      <tr><td colSpan={7} className="text-center py-10 text-gray-400">Nenhum motorista/ajudante ativo cadastrado</td></tr>
+                      <tr><td colSpan={8} className="text-center py-10 text-gray-400">Nenhum motorista/ajudante ativo cadastrado</td></tr>
                     )}
                     {vencimentos.map(({ colaborador: c, ultimaAvaliacao, info }) => {
                       const farolCfg = {
@@ -1766,6 +1767,7 @@ export default function Gsdpq() {
                             <p className="text-xs text-gray-400">{c.funcao}</p>
                           </td>
                           <td className="px-4 py-3 text-gray-600">{c.equipe ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-600">{c.data_admissao ? formatarDataBR(c.data_admissao) : '—'}</td>
                           <td className="px-4 py-3 text-gray-600">{ultimaAvaliacao ? formatarDataBR(ultimaAvaliacao) : 'Nunca avaliado'}</td>
                           <td className="px-4 py-3 text-center text-gray-600">{info ? `${info.cicloDias}d` : '—'}</td>
                           <td className="px-4 py-3 text-center font-semibold text-gray-900">
