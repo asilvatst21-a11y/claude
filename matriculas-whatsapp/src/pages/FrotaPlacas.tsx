@@ -23,7 +23,7 @@ export default function FrotaPlacas() {
 
   useEffect(() => { fetchPlacas() }, [fetchPlacas])
 
-  async function atualizar(id: string, campos: Partial<Pick<FrotaPlaca, 'ativo' | 'perfil'>>) {
+  async function atualizar(id: string, campos: Partial<Pick<FrotaPlaca, 'ativo' | 'perfil' | 'matricula_motorista'>>) {
     setPlacas(ps => ps.map(p => (p.id === id ? { ...p, ...campos } : p)))
     await supabase.from('frota_placas').update({ ...campos, updated_at: new Date().toISOString() }).eq('id', id)
   }
@@ -41,7 +41,10 @@ export default function FrotaPlacas() {
           </Link>
           <h1 className="text-xl sm:text-2xl font-bold mt-1">Placas da Frota</h1>
           <p className="text-sm text-muted-foreground">
-            Ative/desative placas e classifique o perfil do veículo (VUC, Toco, Truck, Carreta). Placas inativas saem dos cálculos de disponibilidade, ranking e território.
+            Ative/desative placas, classifique o perfil do veículo (VUC, Toco, Truck, Carreta) e registre a matrícula do
+            motorista fixado na placa (usada na fixação de motorista). Placas inativas saem dos cálculos de disponibilidade,
+            ranking e território. A lista é alimentada automaticamente a cada importação do relatório diário (03.11.49.03) ou
+            do Histórico.
           </p>
         </div>
         <button onClick={fetchPlacas} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors shrink-0">
@@ -81,6 +84,7 @@ export default function FrotaPlacas() {
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Placa</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Perfil</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Matrícula do motorista</th>
                   <th className="text-center px-4 py-3 font-medium text-muted-foreground">Ativo</th>
                 </tr>
               </thead>
@@ -97,6 +101,18 @@ export default function FrotaPlacas() {
                         <option value="">— sem perfil —</option>
                         {PERFIS.map(perfil => <option key={perfil} value={perfil}>{perfil}</option>)}
                       </select>
+                    </td>
+                    <td className="px-4 py-2.5">
+                      <input
+                        type="text"
+                        defaultValue={p.matricula_motorista ?? ''}
+                        placeholder="—"
+                        onBlur={e => {
+                          const v = e.target.value.trim()
+                          if (v !== (p.matricula_motorista ?? '')) atualizar(p.id, { matricula_motorista: v || null })
+                        }}
+                        className="w-32 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                      />
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       <input type="checkbox" checked={p.ativo} onChange={e => atualizar(p.id, { ativo: e.target.checked })} className="accent-brand-700" />
