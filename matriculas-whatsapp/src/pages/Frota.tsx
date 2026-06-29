@@ -642,10 +642,10 @@ export default function Frota() {
                         </td>
                         {p.dias.map(dia => {
                           const classes: Record<string, string> = {
-                            disponivel:     'bg-green-100 border border-green-300',
-                            indisponivel:   'bg-red-100 border border-red-300',
-                            parado:         'bg-yellow-100 border border-yellow-300',
-                            nao_contratada: 'bg-gray-100 border border-gray-200',
+                            disponivel:     'bg-green-200 border border-green-400',
+                            indisponivel:   'bg-red-200 border border-red-400',
+                            parado:         'bg-yellow-200 border border-yellow-400',
+                            nao_contratada: 'bg-gray-300 border border-gray-400',
                             sem_dado:       'bg-white border border-dashed border-gray-200',
                           }
                           return (
@@ -677,10 +677,10 @@ export default function Frota() {
               {/* Legenda */}
               <div className="flex flex-wrap gap-4 text-xs text-gray-500">
                 {[
-                  { cls: 'bg-green-100 border border-green-300',              label: 'Disponível' },
-                  { cls: 'bg-red-100 border border-red-300',                  label: 'Indisponível' },
-                  { cls: 'bg-yellow-100 border border-yellow-300',            label: 'Parado' },
-                  { cls: 'bg-gray-100 border border-gray-200',                label: 'Não Contratada' },
+                  { cls: 'bg-green-200 border border-green-400',              label: 'Disponível' },
+                  { cls: 'bg-red-200 border border-red-400',                  label: 'Indisponível' },
+                  { cls: 'bg-yellow-200 border border-yellow-400',            label: 'Parado' },
+                  { cls: 'bg-gray-300 border border-gray-400',                label: 'Não Contratada' },
                   { cls: 'bg-white border border-dashed border-gray-200',     label: 'Sem dado' },
                 ].map(({ cls, label }) => (
                   <div key={label} className="flex items-center gap-1.5">
