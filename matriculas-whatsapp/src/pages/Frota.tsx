@@ -75,6 +75,7 @@ export default function Frota() {
   const [diaTerritorio, setDiaTerritorio] = useState<string>('todos')
   const [exportandoImg, setExportandoImg] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
+  const exportPlacasRef = useRef<HTMLDivElement>(null)
 
   const carregarDados = useCallback(async () => {
     if (!usuario) return
@@ -232,15 +233,35 @@ export default function Frota() {
         alert('Grupo de WhatsApp da Disponibilidade não configurado. Configure em /distribuicao/frota/placas.')
         return
       }
+      const legenda = `🚛 Resumo de Disponibilidade da Frota — ${formatarDataBR(ultimo.data)}`
       const canvas = await html2canvas(exportRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
       const img = canvas.toDataURL('image/png')
-      const legenda = `🚛 Resumo de Disponibilidade da Frota — ${formatarDataBR(ultimo.data)}`
       const { sucesso, erro } = await enviarImagemGrupo(grupoId, img, legenda)
       await supabase.from('disparos').insert({
         filial: usuario.filial, whatsapp: grupoId, mensagem: legenda,
         status: sucesso ? 'enviado' : 'erro', erro: erro ?? null,
       })
-      alert(sucesso ? 'Resumo enviado para o grupo.' : `Falha ao enviar o resumo: ${erro}`)
+
+      let sucessoPlacas = true
+      let erroPlacas: string | undefined
+      if (exportPlacasRef.current && statusPlacas.length > 0) {
+        const legendaPlacas = `📋 Placas da Frota — ${formatarDataBR(ultimo.data)}`
+        const canvasPlacas = await html2canvas(exportPlacasRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+        const imgPlacas = canvasPlacas.toDataURL('image/png')
+        const resultado = await enviarImagemGrupo(grupoId, imgPlacas, legendaPlacas)
+        sucessoPlacas = resultado.sucesso
+        erroPlacas = resultado.erro
+        await supabase.from('disparos').insert({
+          filial: usuario.filial, whatsapp: grupoId, mensagem: legendaPlacas,
+          status: sucessoPlacas ? 'enviado' : 'erro', erro: erroPlacas ?? null,
+        })
+      }
+
+      if (sucesso && sucessoPlacas) {
+        alert('Resumo enviado para o grupo.')
+      } else {
+        alert(`Falha ao enviar o resumo.${!sucesso ? ` Resumo: ${erro}` : ''}${!sucessoPlacas ? ` Placas: ${erroPlacas}` : ''}`)
+      }
     } finally {
       setExportandoImg(false)
     }
@@ -251,7 +272,7 @@ export default function Frota() {
   const ultimo = resumos[resumos.length - 1] ?? null
   const grafico = resumos.map(r => ({ data: formatarDataBR(r.data), percentual: r.percentual }))
   const disponiveis = ultimo ? disponiveisNoDia(registrosAtivos, ultimo.data) : []
-  const statusPlacas = useMemo(() => (ultimo ? statusPlacasNoDia(registrosAtivos, ultimo.data) : []), [registrosAtivos, ultimo])
+  const statusPlacas = useMemo(() => (ultimo ? statusPlacasNoDia(registrosAtivos, ultimo.data, placas) : []), [registrosAtivos, ultimo, placas])
   const ranking = useMemo(() => rankingIndisponibilidadePorPlaca(registrosAtivos).filter(r => r.diasIndisponivel > 0), [registrosAtivos])
   const perfis = ultimo ? resumoPorPerfil(registrosAtivos.filter(r => r.data === ultimo.data), placas) : []
   const cruzamento = useMemo(() => cruzarTerritorio(registrosAtivos, historicoTml), [registrosAtivos, historicoTml])
@@ -360,7 +381,8 @@ export default function Frota() {
                 </div>
               )}
 
-              <FrotaExportTemplate ref={exportRef} filial={usuario?.filial ?? ''} resumo={ultimo} perfis={perfis} placas={statusPlacas} />
+              <FrotaExportTemplate ref={exportRef} filial={usuario?.filial ?? ''} resumo={ultimo} perfis={perfis} />
+              <FrotaPlacasExportTemplate ref={exportPlacasRef} filial={usuario?.filial ?? ''} data={ultimo.data} placas={statusPlacas} />
 
               <div className="grid lg:grid-cols-2 gap-5">
                 <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -562,8 +584,7 @@ const FrotaExportTemplate = forwardRef<HTMLDivElement, {
   filial: string
   resumo: ResumoDiaFrota | null
   perfis: ResumoPerfilFrota[]
-  placas: StatusPlacaFrota[]
-}>(function FrotaExportTemplate({ filial, resumo, perfis, placas }, ref) {
+}>(function FrotaExportTemplate({ filial, resumo, perfis }, ref) {
   const th: React.CSSProperties = { padding: '8px 12px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left', whiteSpace: 'nowrap' }
   const td: React.CSSProperties = { padding: '9px 12px', fontSize: '12px', verticalAlign: 'middle' }
 
@@ -616,31 +637,71 @@ const FrotaExportTemplate = forwardRef<HTMLDivElement, {
         </table>
       )}
 
-      {placas.length > 0 && (
-        <div style={{ marginBottom: '16px' }}>
-          <p style={{ fontSize: '11px', fontWeight: 700, color: '#0f172a', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            Placas ({placas.length})
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-            {placas.map(p => {
-              const cor = p.disponivel ? '#16a34a' : '#dc2626'
-              const fundo = p.disponivel ? '#f0fdf4' : '#fef2f2'
-              const borda = p.disponivel ? '#bbf7d0' : '#fecaca'
-              return (
-                <div key={p.placa} style={{ background: fundo, border: `1px solid ${borda}`, borderRadius: '6px', padding: '6px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
-                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#0f172a' }}>{p.placa}</span>
-                  <span style={{ fontSize: '10px', fontWeight: 600, color: cor, textAlign: 'right' }}>
-                    {p.disponivel ? 'Disponível' : (p.motivo ?? 'Indisponível')}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      )}
-
       <div style={{ paddingTop: '10px', borderTop: '1px solid #e2e8f0', fontSize: '10px', color: '#94a3b8' }}>
         Gerado em {formatarDataBR(resumo.data)}
+      </div>
+    </div>
+  )
+})
+
+function badgeCor(p: StatusPlacaFrota): { bg: string; fg: string; border: string } {
+  if (p.disponivel) return { bg: '#dcfce7', fg: '#15803d', border: '#bbf7d0' }
+  if (p.status.toUpperCase().includes('PARAD')) return { bg: '#fef9c3', fg: '#a16207', border: '#fde68a' }
+  return { bg: '#fee2e2', fg: '#b91c1c', border: '#fecaca' }
+}
+
+const FrotaPlacasExportTemplate = forwardRef<HTMLDivElement, {
+  filial: string
+  data: string
+  placas: StatusPlacaFrota[]
+}>(function FrotaPlacasExportTemplate({ filial, data, placas }, ref) {
+  const th: React.CSSProperties = { padding: '7px 10px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '6px 10px', fontSize: '11px', verticalAlign: 'middle', whiteSpace: 'nowrap' }
+
+  if (placas.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
+
+  return (
+    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '640px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '16px' }}>
+        <div>
+          <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Frota</p>
+          <h1 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Placas ({placas.length})</h1>
+        </div>
+        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0 }}>{filial}<br />{formatarDataBR(data)}</p>
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+        <thead>
+          <tr style={{ background: '#1e3a5f' }}>
+            <th style={th}>Placa</th>
+            <th style={th}>Perfil</th>
+            <th style={th}>Status</th>
+            <th style={th}>Motivo</th>
+            <th style={th}>Rota</th>
+          </tr>
+        </thead>
+        <tbody>
+          {placas.map((p, i) => {
+            const cor = badgeCor(p)
+            return (
+              <tr key={p.placa} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
+                <td style={{ ...td, fontWeight: 700, color: '#0f172a' }}>{p.placa}</td>
+                <td style={{ ...td, color: '#475569' }}>{p.perfil}</td>
+                <td style={td}>
+                  <span style={{ display: 'inline-block', background: cor.bg, color: cor.fg, border: `1px solid ${cor.border}`, borderRadius: '999px', padding: '2px 9px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.02em' }}>
+                    {p.status}
+                  </span>
+                </td>
+                <td style={{ ...td, color: '#475569' }}>{p.motivo ?? ''}</td>
+                <td style={{ ...td, color: '#475569' }}>{p.rota ?? ''}</td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+
+      <div style={{ paddingTop: '10px', fontSize: '10px', color: '#94a3b8' }}>
+        Gerado em {formatarDataBR(data)}
       </div>
     </div>
   )

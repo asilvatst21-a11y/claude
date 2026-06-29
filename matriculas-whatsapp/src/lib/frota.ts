@@ -220,15 +220,19 @@ export function disponiveisNoDia(rows: FrotaDisponibilidade[], data: string): Fr
 export interface StatusPlacaFrota {
   placa: string
   frota: string | null
+  perfil: string
   status: string
   disponivel: boolean
   motivo: string | null
+  rota: string | null
 }
 
-// Lista de todas as placas contratadas (ativas) do dia, com status e motivo
-// de indisponibilidade — usada no resumo enviado para o grupo de WhatsApp,
-// que precisa mostrar disponíveis, indisponíveis (com motivo) e paradas.
-export function statusPlacasNoDia(rows: FrotaDisponibilidade[], data: string): StatusPlacaFrota[] {
+// Lista de todas as placas contratadas (ativas) do dia, com perfil, status e
+// motivo de indisponibilidade — usada no resumo enviado para o grupo de
+// WhatsApp, que precisa mostrar disponíveis, indisponíveis (com motivo) e
+// paradas. Ordenada por disponível primeiro, depois perfil, depois placa.
+export function statusPlacasNoDia(rows: FrotaDisponibilidade[], data: string, placas: FrotaPlaca[]): StatusPlacaFrota[] {
+  const perfilPorPlaca = new Map(placas.map(p => [p.placa, p.perfil?.trim() || 'Sem perfil']))
   return rows
     .filter(r => r.data === data && normalizar(r.status) !== 'NAO CONTRATADA' && normalizar(r.status) !== '')
     .map(r => {
@@ -236,12 +240,18 @@ export function statusPlacasNoDia(rows: FrotaDisponibilidade[], data: string): S
       return {
         placa: r.placa,
         frota: r.frota,
+        perfil: perfilPorPlaca.get(r.placa) ?? 'Sem perfil',
         status: r.status,
         disponivel,
-        motivo: disponivel ? null : (r.justificativa?.trim() || (normalizar(r.status) === 'PARADO' ? 'Parado' : 'Sem justificativa')),
+        motivo: r.justificativa?.trim() || null,
+        rota: r.observacao,
       }
     })
-    .sort((a, b) => (a.disponivel === b.disponivel ? a.placa.localeCompare(b.placa) : a.disponivel ? 1 : -1))
+    .sort((a, b) => {
+      if (a.disponivel !== b.disponivel) return a.disponivel ? -1 : 1
+      const perfilCmp = a.perfil.localeCompare(b.perfil)
+      return perfilCmp !== 0 ? perfilCmp : a.placa.localeCompare(b.placa)
+    })
 }
 
 export interface RankingPlacaFrota {
