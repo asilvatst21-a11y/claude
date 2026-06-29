@@ -504,7 +504,11 @@ export default function DtoDistribuicao() {
 
       <div className="flex gap-2 mb-4">
         {TIPOS.map(t => {
-          const total = avaliacoes.filter(a => a.tipo === t).length
+          // Conta inspeções (colaborador + data únicos), não as linhas
+          // de pergunta/resposta — cada inspeção gera várias linhas.
+          const total = new Set(
+            avaliacoes.filter(a => a.tipo === t).map(a => `${a.colaborador_nome}|${a.data_avaliacao}`)
+          ).size
           return (
             <button
               key={t}
