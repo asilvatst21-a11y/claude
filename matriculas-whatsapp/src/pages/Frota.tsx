@@ -232,7 +232,7 @@ export default function Frota() {
       const { data: filialRow } = await supabase.from('filiais').select('grupo_frota_whatsapp').eq('nome', usuario.filial).maybeSingle()
       const grupoId = filialRow?.grupo_frota_whatsapp
       if (!grupoId) {
-        alert('Grupo de WhatsApp da Disponibilidade não configurado. Configure em /distribuicao/frota/placas.')
+        alert('Grupo de WhatsApp da Disponibilidade não configurado. Configure em /frota/placas.')
         return
       }
       const legenda = `🚛 Resumo de Disponibilidade da Frota — ${formatarDataBR(ultimo.data)}`
@@ -302,7 +302,7 @@ export default function Frota() {
           <h2 className="text-2xl font-bold text-gray-900">Frota</h2>
           {usuario && <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1"><Building2 size={12} /> {usuario.filial}</p>}
         </div>
-        <Link to="/distribuicao/frota/placas" className="flex items-center gap-2 text-sm text-gray-600 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50">
+        <Link to="/frota/placas" className="flex items-center gap-2 text-sm text-gray-600 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50">
           <Settings size={14} /> Cadastro de placas
         </Link>
       </div>

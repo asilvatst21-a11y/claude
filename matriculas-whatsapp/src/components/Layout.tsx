@@ -51,7 +51,11 @@ const distribuicaoItems = [
   { permKey: 'distribuicao', to: '/distribuicao/tml/parametros', label: 'Parâmetros TML', icon: SlidersHorizontal },
   { permKey: 'distribuicao', to: '/matinal-tml', label: 'Timer da Matinal', icon: Clock },
   { permKey: 'distribuicao', to: '/distribuicao/dto',          label: 'DTO Distribuição',     icon: ShieldCheck },
-  { permKey: 'frota',        to: '/distribuicao/frota',        label: 'Frota',                icon: Fuel },
+]
+
+const frotaItems = [
+  { permKey: 'frota', to: '/frota',        label: 'Frota',  icon: Fuel,     end: true },
+  { permKey: 'frota', to: '/frota/placas', label: 'Placas', icon: Settings },
 ]
 
 const armazemItems = [
@@ -158,7 +162,7 @@ export default function Layout() {
   const navigate = useNavigate()
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [sections, setSections] = useState({ seguranca: false, gente: false, financeiro: false, distribuicao: false, armazem: false, gerencia: false, admin: false })
+  const [sections, setSections] = useState({ seguranca: false, gente: false, financeiro: false, distribuicao: false, frota: false, armazem: false, gerencia: false, admin: false })
   const fecharMobile = () => setMobileOpen(false)
 
   function toggleSection(key: keyof typeof sections) {
@@ -175,6 +179,7 @@ export default function Layout() {
   const gente = genteItems.filter(i => temAcesso(p, i.permKey))
   const financeiro = financeiroItems.filter(i => temAcesso(p, i.permKey))
   const distribuicao = distribuicaoItems.filter(i => temAcesso(p, i.permKey))
+  const frota = frotaItems.filter(i => temAcesso(p, i.permKey))
   const armazem = armazemItems.filter(i => temAcesso(p, i.permKey))
   const gerencia = gerenciaItems.filter(i => temAcesso(p, i.permKey))
 
@@ -264,6 +269,17 @@ export default function Layout() {
               items={distribuicao}
               open={sections.distribuicao}
               onToggle={() => toggleSection('distribuicao')}
+              collapsed={!sidebarOpen}
+              onNavigate={fecharMobile}
+            />
+          )}
+          {frota.length > 0 && (
+            <Section
+              label="Frota"
+              icon={Fuel}
+              items={frota}
+              open={sections.frota}
+              onToggle={() => toggleSection('frota')}
               collapsed={!sidebarOpen}
               onNavigate={fecharMobile}
             />

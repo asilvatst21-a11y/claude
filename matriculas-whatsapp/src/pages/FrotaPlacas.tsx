@@ -16,7 +16,7 @@ export default function FrotaPlacas() {
   const [busca, setBusca] = useState('')
 
   // Grupo de WhatsApp que recebe a imagem-resumo da Disponibilidade (botão
-  // manual na aba Disponibilidade de /distribuicao/frota).
+  // manual na aba Disponibilidade de /frota).
   const [grupoFrota, setGrupoFrota] = useState('')
   const [grupoOriginal, setGrupoOriginal] = useState('')
   const [grupos, setGrupos] = useState<GrupoZApi[]>([])
@@ -88,7 +88,7 @@ export default function FrotaPlacas() {
     <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-w-3xl mx-auto">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <Link to="/distribuicao/frota" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <Link to="/frota" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Link>
           <h1 className="text-xl sm:text-2xl font-bold mt-1">Placas da Frota</h1>
