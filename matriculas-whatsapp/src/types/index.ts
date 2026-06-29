@@ -117,6 +117,16 @@ export interface FrotaDisponibilidade {
   created_at: string
 }
 
+export interface FrotaPlaca {
+  id: string
+  filial: string
+  placa: string
+  perfil: string | null
+  ativo: boolean
+  created_at: string
+  updated_at: string
+}
+
 export interface GsdpqSupervisor {
   id: string
   filial: string

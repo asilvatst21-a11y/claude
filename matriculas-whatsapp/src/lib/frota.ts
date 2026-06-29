@@ -1,7 +1,51 @@
 import * as XLSX from 'xlsx'
-import type { FrotaDisponibilidade } from '../types'
+import type { FrotaDisponibilidade, FrotaPlaca } from '../types'
 
 export type FrotaDisponibilidadeInsert = Omit<FrotaDisponibilidade, 'id' | 'created_at'>
+
+// Placas sem registro em frota_placas são consideradas ativas por padrão
+// (registro só existe a partir da primeira importação que viu a placa).
+export function placasAtivasFiltro(rows: FrotaDisponibilidade[], placas: FrotaPlaca[]): FrotaDisponibilidade[] {
+  const inativas = new Set(placas.filter(p => !p.ativo).map(p => p.placa))
+  if (inativas.size === 0) return rows
+  return rows.filter(r => !inativas.has(r.placa))
+}
+
+export interface ResumoPerfilFrota {
+  perfil: string
+  contratada: number
+  disponivel: number
+  indisponivel: number
+  percentual: number
+}
+
+// Quebra do resumo de um dia por perfil de veículo (VUC/Toco/Truck/Carreta),
+// usando o cadastro manual de frota_placas — perfis não classificados caem
+// em "Sem perfil".
+export function resumoPorPerfil(rows: FrotaDisponibilidade[], placas: FrotaPlaca[]): ResumoPerfilFrota[] {
+  const perfilPorPlaca = new Map(placas.map(p => [p.placa, p.perfil?.trim() || 'Sem perfil']))
+  const contratadas = rows.filter(r => normalizar(r.status) !== 'NAO CONTRATADA' && normalizar(r.status) !== '')
+
+  const porPerfil = new Map<string, FrotaDisponibilidade[]>()
+  for (const r of contratadas) {
+    const perfil = perfilPorPlaca.get(r.placa) ?? 'Sem perfil'
+    if (!porPerfil.has(perfil)) porPerfil.set(perfil, [])
+    porPerfil.get(perfil)!.push(r)
+  }
+
+  return Array.from(porPerfil.entries())
+    .map(([perfil, linhas]) => {
+      const disponiveis = linhas.filter(l => normalizar(l.status) === 'DISPONIVEL')
+      return {
+        perfil,
+        contratada: linhas.length,
+        disponivel: disponiveis.length,
+        indisponivel: linhas.length - disponiveis.length,
+        percentual: linhas.length > 0 ? Math.round((disponiveis.length / linhas.length) * 100) : 0,
+      }
+    })
+    .sort((a, b) => b.contratada - a.contratada)
+}
 
 // Remove acentos e normaliza para comparação de status/justificativa, já que
 // a mesma palavra aparece grafada de formas diferentes conforme a origem do
