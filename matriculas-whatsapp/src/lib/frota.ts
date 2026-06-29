@@ -217,6 +217,33 @@ export function disponiveisNoDia(rows: FrotaDisponibilidade[], data: string): Fr
   return rows.filter(r => r.data === data && normalizar(r.status) === 'DISPONIVEL')
 }
 
+export interface StatusPlacaFrota {
+  placa: string
+  frota: string | null
+  status: string
+  disponivel: boolean
+  motivo: string | null
+}
+
+// Lista de todas as placas contratadas (ativas) do dia, com status e motivo
+// de indisponibilidade — usada no resumo enviado para o grupo de WhatsApp,
+// que precisa mostrar disponíveis, indisponíveis (com motivo) e paradas.
+export function statusPlacasNoDia(rows: FrotaDisponibilidade[], data: string): StatusPlacaFrota[] {
+  return rows
+    .filter(r => r.data === data && normalizar(r.status) !== 'NAO CONTRATADA' && normalizar(r.status) !== '')
+    .map(r => {
+      const disponivel = normalizar(r.status) === 'DISPONIVEL'
+      return {
+        placa: r.placa,
+        frota: r.frota,
+        status: r.status,
+        disponivel,
+        motivo: disponivel ? null : (r.justificativa?.trim() || (normalizar(r.status) === 'PARADO' ? 'Parado' : 'Sem justificativa')),
+      }
+    })
+    .sort((a, b) => (a.disponivel === b.disponivel ? a.placa.localeCompare(b.placa) : a.disponivel ? 1 : -1))
+}
+
 export interface RankingPlacaFrota {
   placa: string
   frota: string | null

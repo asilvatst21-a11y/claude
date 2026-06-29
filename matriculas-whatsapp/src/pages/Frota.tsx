@@ -9,10 +9,11 @@ import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadshe
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
+import { enviarImagemGrupo } from '../lib/zapi'
 import {
   parseDisponibilidadeDiariaCsv, parseHistoricoXlsx, resumoPorDia, disponiveisNoDia,
-  rankingIndisponibilidadePorPlaca, cruzarTerritorio, placasAtivasFiltro, resumoPorPerfil,
-  type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota,
+  rankingIndisponibilidadePorPlaca, cruzarTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia,
+  type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
 } from '../lib/frota'
 import { parseEscalaBuffer } from '../lib/tmlParser'
 import type { FrotaDisponibilidade, FrotaPlaca } from '../types'
@@ -221,16 +222,25 @@ export default function Frota() {
     multiple: false,
   })
 
-  async function exportarImagem() {
-    if (!exportRef.current) return
+  async function enviarResumoGrupo() {
+    if (!usuario || !exportRef.current || !ultimo) return
     setExportandoImg(true)
     try {
+      const { data: filialRow } = await supabase.from('filiais').select('grupo_frota_whatsapp').eq('nome', usuario.filial).maybeSingle()
+      const grupoId = filialRow?.grupo_frota_whatsapp
+      if (!grupoId) {
+        alert('Grupo de WhatsApp da Disponibilidade não configurado. Configure em /distribuicao/frota/placas.')
+        return
+      }
       const canvas = await html2canvas(exportRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
-      const url = canvas.toDataURL('image/png')
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `Frota_Disponibilidade_${(ultimo?.data ?? '').split('-').reverse().join('-')}.png`
-      a.click()
+      const img = canvas.toDataURL('image/png')
+      const legenda = `🚛 Resumo de Disponibilidade da Frota — ${formatarDataBR(ultimo.data)}`
+      const { sucesso, erro } = await enviarImagemGrupo(grupoId, img, legenda)
+      await supabase.from('disparos').insert({
+        filial: usuario.filial, whatsapp: grupoId, mensagem: legenda,
+        status: sucesso ? 'enviado' : 'erro', erro: erro ?? null,
+      })
+      alert(sucesso ? 'Resumo enviado para o grupo.' : `Falha ao enviar o resumo: ${erro}`)
     } finally {
       setExportandoImg(false)
     }
@@ -241,6 +251,7 @@ export default function Frota() {
   const ultimo = resumos[resumos.length - 1] ?? null
   const grafico = resumos.map(r => ({ data: formatarDataBR(r.data), percentual: r.percentual }))
   const disponiveis = ultimo ? disponiveisNoDia(registrosAtivos, ultimo.data) : []
+  const statusPlacas = useMemo(() => (ultimo ? statusPlacasNoDia(registrosAtivos, ultimo.data) : []), [registrosAtivos, ultimo])
   const ranking = useMemo(() => rankingIndisponibilidadePorPlaca(registrosAtivos).filter(r => r.diasIndisponivel > 0), [registrosAtivos])
   const perfis = ultimo ? resumoPorPerfil(registrosAtivos.filter(r => r.data === ultimo.data), placas) : []
   const cruzamento = useMemo(() => cruzarTerritorio(registrosAtivos, historicoTml), [registrosAtivos, historicoTml])
@@ -318,12 +329,12 @@ export default function Frota() {
               <div className="flex items-center justify-between">
                 <p className="text-xs text-gray-400">Último dia disponível: {formatarDataBR(ultimo.data)}</p>
                 <button
-                  onClick={exportarImagem}
+                  onClick={enviarResumoGrupo}
                   disabled={exportandoImg}
                   className="flex items-center gap-2 text-sm text-brand-700 border border-brand-200 px-3 py-1.5 rounded-lg hover:bg-brand-50 disabled:opacity-40"
                 >
                   {exportandoImg ? <Loader2 size={14} className="animate-spin" /> : <Image size={14} />}
-                  Exportar resumo (imagem)
+                  Enviar resumo para o grupo
                 </button>
               </div>
 
@@ -349,7 +360,7 @@ export default function Frota() {
                 </div>
               )}
 
-              <FrotaExportTemplate ref={exportRef} filial={usuario?.filial ?? ''} resumo={ultimo} perfis={perfis} />
+              <FrotaExportTemplate ref={exportRef} filial={usuario?.filial ?? ''} resumo={ultimo} perfis={perfis} placas={statusPlacas} />
 
               <div className="grid lg:grid-cols-2 gap-5">
                 <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -551,7 +562,8 @@ const FrotaExportTemplate = forwardRef<HTMLDivElement, {
   filial: string
   resumo: ResumoDiaFrota | null
   perfis: ResumoPerfilFrota[]
-}>(function FrotaExportTemplate({ filial, resumo, perfis }, ref) {
+  placas: StatusPlacaFrota[]
+}>(function FrotaExportTemplate({ filial, resumo, perfis, placas }, ref) {
   const th: React.CSSProperties = { padding: '8px 12px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left', whiteSpace: 'nowrap' }
   const td: React.CSSProperties = { padding: '9px 12px', fontSize: '12px', verticalAlign: 'middle' }
 
@@ -602,6 +614,29 @@ const FrotaExportTemplate = forwardRef<HTMLDivElement, {
             ))}
           </tbody>
         </table>
+      )}
+
+      {placas.length > 0 && (
+        <div style={{ marginBottom: '16px' }}>
+          <p style={{ fontSize: '11px', fontWeight: 700, color: '#0f172a', margin: '0 0 8px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+            Placas ({placas.length})
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+            {placas.map(p => {
+              const cor = p.disponivel ? '#16a34a' : '#dc2626'
+              const fundo = p.disponivel ? '#f0fdf4' : '#fef2f2'
+              const borda = p.disponivel ? '#bbf7d0' : '#fecaca'
+              return (
+                <div key={p.placa} style={{ background: fundo, border: `1px solid ${borda}`, borderRadius: '6px', padding: '6px 8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#0f172a' }}>{p.placa}</span>
+                  <span style={{ fontSize: '10px', fontWeight: 600, color: cor, textAlign: 'right' }}>
+                    {p.disponivel ? 'Disponível' : (p.motivo ?? 'Indisponível')}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
       )}
 
       <div style={{ paddingTop: '10px', borderTop: '1px solid #e2e8f0', fontSize: '10px', color: '#94a3b8' }}>
