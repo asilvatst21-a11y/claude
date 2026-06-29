@@ -28,23 +28,7 @@ ALTER TABLE gsdpq_supervisores ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Acesso total" ON gsdpq_supervisores;
 CREATE POLICY "Acesso total" ON gsdpq_supervisores FOR ALL USING (true);
 
--- 3. Controle de notificações já enviadas — evita repetir o mesmo aviso (mesmo
--- threshold) dentro do mesmo ciclo do colaborador. O ciclo é identificado pela
--- data de início (última avaliação ou data de admissão), então um novo GSD
--- reabre os thresholds para o próximo vencimento.
-CREATE TABLE IF NOT EXISTS gsdpq_vencimento_notificacoes (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  filial TEXT NOT NULL,
-  colaborador_id UUID NOT NULL REFERENCES gsdpq_colaboradores(id) ON DELETE CASCADE,
-  ciclo_inicio DATE NOT NULL,
-  dias_threshold INTEGER NOT NULL,
-  enviado_em TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE (colaborador_id, ciclo_inicio, dias_threshold)
-);
-
-CREATE INDEX IF NOT EXISTS idx_gsdpq_vencimento_notif_colaborador
-  ON gsdpq_vencimento_notificacoes(colaborador_id);
-
-ALTER TABLE gsdpq_vencimento_notificacoes ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Acesso total" ON gsdpq_vencimento_notificacoes;
-CREATE POLICY "Acesso total" ON gsdpq_vencimento_notificacoes FOR ALL USING (true);
+-- 3. Grupo de WhatsApp que recebe a imagem com os vencimentos de GSD (botão
+-- manual em /gsdpq/supervisores — disparo automático via cron não é usado
+-- pois o plano Vercel atual não suporta Cron Jobs).
+ALTER TABLE filiais ADD COLUMN IF NOT EXISTS grupo_gsdpq_whatsapp TEXT;

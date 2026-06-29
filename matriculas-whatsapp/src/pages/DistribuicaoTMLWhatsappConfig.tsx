@@ -5,7 +5,8 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 
 // Seletor de um grupo: lista (filtrável) vinda do Z-API + entrada manual + copiar.
-function GroupPicker({
+// Exportado para reuso em outras páginas de configuração de WhatsApp (ex.: GSDPQ).
+export function GroupPicker({
   label, hint, value, onChange, grupos, onCopy, copiado,
 }: {
   label: string

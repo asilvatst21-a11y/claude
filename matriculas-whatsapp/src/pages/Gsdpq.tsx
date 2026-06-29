@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState, useRef } from 'react'
+import { useCallback, useEffect, useState, useRef, forwardRef } from 'react'
 import { Link } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import * as XLSX from 'xlsx'
+import html2canvas from 'html2canvas'
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar, Cell
 } from 'recharts'
@@ -9,15 +10,15 @@ import {
   FileSpreadsheet, ChevronDown, ChevronUp, AlertTriangle, CheckCircle,
   XCircle, Users, ClipboardList, BarChart2, RefreshCw, Shield, Upload,
   Download, Plus, Loader2, Building2, ShieldCheck, Star, Zap, GitBranch,
-  Settings, UserX
+  Settings, UserX, Send, Pencil
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import { enviarMensagemGrupo } from '../lib/zapi'
+import { enviarMensagemGrupo, enviarMensagemWhatsApp, enviarImagemGrupo } from '../lib/zapi'
 import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
 import { formatarDataBR } from '../lib/utils'
-import { ehMotoristaOuAjudante, calcularVencimento } from '../lib/gsdpqVencimento'
-import type { GsdpqAvaliacao, GsdpqAcao, GsdpqColaborador } from '../types'
+import { ehMotoristaOuAjudante, calcularVencimento, type VencimentoInfo } from '../lib/gsdpqVencimento'
+import type { GsdpqAvaliacao, GsdpqAcao, GsdpqColaborador, GsdpqSupervisor } from '../types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -706,7 +707,13 @@ export default function Gsdpq() {
   const [acoes, setAcoes] = useState<GsdpqAcao[]>([])
   const [questoes, setQuestoes] = useState<string[]>([])
   const [colaboradores, setColaboradores] = useState<GsdpqColaborador[]>([])
+  const [supervisores, setSupervisores] = useState<GsdpqSupervisor[]>([])
   const [desligandoId, setDesligandoId] = useState<string | null>(null)
+  const [enviandoVencimentos, setEnviandoVencimentos] = useState(false)
+  const [editandoEquipe, setEditandoEquipe] = useState<GsdpqColaborador | null>(null)
+  const [novaEquipeValor, setNovaEquipeValor] = useState('')
+  const [salvandoEquipe, setSalvandoEquipe] = useState(false)
+  const exportVencimentosRef = useRef<HTMLDivElement>(null)
   const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'colaboradores' | 'questoes' | 'acoes' | 'completo' | 'vencimentos'>('dashboard')
   const [completoData, setCompletoData] = useState('')
   const [completoColab, setCompletoColab] = useState('')
@@ -725,10 +732,11 @@ export default function Gsdpq() {
   async function carregarDados() {
     if (!usuario) return
     setCarregando(true)
-    const [{ data: avs }, { data: acs }, { data: colab }] = await Promise.all([
+    const [{ data: avs }, { data: acs }, { data: colab }, { data: supers }] = await Promise.all([
       supabase.from('gsdpq_avaliacoes').select('*').eq('filial', usuario.filial).order('data_avaliacao').limit(10000),
       supabase.from('gsdpq_acoes').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
       supabase.from('gsdpq_colaboradores').select('*').eq('filial', usuario.filial),
+      supabase.from('gsdpq_supervisores').select('*').eq('filial', usuario.filial),
     ])
     const colabFuncaoMap = new Map((colab ?? []).map(c => [c.nome.toUpperCase(), c.funcao as string | null]))
     const todasAvs = (avs ?? []).map(av => ({
@@ -738,6 +746,7 @@ export default function Gsdpq() {
     setAvaliacoes(todasAvs)
     setAcoes(acs ?? [])
     setColaboradores(colab ?? [])
+    setSupervisores(supers ?? [])
     const qs = Array.from(new Set(todasAvs.map(a => a.questao)))
     setQuestoes(qs)
     setCarregando(false)
@@ -752,6 +761,85 @@ export default function Gsdpq() {
     setDesligandoId(null)
     if (error) { alert('Erro ao marcar como desligado:\n' + error.message); return }
     await carregarDados()
+  }
+
+  function abrirEditarEquipe(colaborador: GsdpqColaborador) {
+    setEditandoEquipe(colaborador)
+    setNovaEquipeValor(colaborador.equipe ?? '')
+  }
+
+  async function salvarEquipe() {
+    if (!editandoEquipe) return
+    setSalvandoEquipe(true)
+    const { error } = await supabase.from('gsdpq_colaboradores')
+      .update({ equipe: novaEquipeValor.trim() || null, updated_at: new Date().toISOString() })
+      .eq('id', editandoEquipe.id)
+    setSalvandoEquipe(false)
+    if (error) { alert('Erro ao alterar a equipe:\n' + error.message); return }
+    setEditandoEquipe(null)
+    await carregarDados()
+  }
+
+  // Geração manual do farol de vencimentos: o plano atual do Vercel não
+  // suporta Cron Jobs, então o disparo é feito por botão em vez de
+  // automático. Notifica cada supervisor com os colaboradores da própria
+  // equipe e envia uma imagem-resumo (todos os colaboradores, todas as
+  // equipes) para o grupo de WhatsApp configurado em /gsdpq/supervisores.
+  async function gerarEEnviarVencimentos() {
+    if (!usuario) return
+    const alerta = vencimentos.filter(v => v.info && v.info.diasRestantes <= 15)
+    if (alerta.length === 0) { alert('Nenhum colaborador com vencimento dentro de 15 dias.'); return }
+
+    setEnviandoVencimentos(true)
+    try {
+      const porEquipe = new Map<string, typeof alerta>()
+      alerta.forEach(v => {
+        const eq = v.colaborador.equipe
+        if (!eq) return
+        if (!porEquipe.has(eq)) porEquipe.set(eq, [])
+        porEquipe.get(eq)!.push(v)
+      })
+
+      let enviosSupervisor = 0
+      for (const [eq, lista] of porEquipe) {
+        const supervisor = supervisores.find(s => s.equipe === eq)
+        if (!supervisor) continue
+        const linhas = lista.map(v => {
+          const dr = v.info!.diasRestantes
+          const status = dr <= 0 ? `vencido há ${Math.abs(dr)}d` : `faltam ${dr}d`
+          return `👤 ${v.colaborador.nome} — ${status} (ciclo ${v.info!.cicloDias}d)`
+        }).join('\n')
+        const mensagem = `🔔 *Vencimentos de GSD — Equipe ${eq}*\n\n${linhas}\n\nFavor agendar a aplicação do GSD para os colaboradores acima.`
+        const { sucesso, erro } = await enviarMensagemWhatsApp(supervisor.telefone, mensagem)
+        await supabase.from('disparos').insert({
+          filial: usuario.filial, whatsapp: supervisor.telefone, mensagem,
+          status: sucesso ? 'enviado' : 'erro', erro: erro ?? null,
+        })
+        if (sucesso) enviosSupervisor++
+      }
+
+      let imagemEnviada = false
+      const { data: filialRow } = await supabase.from('filiais').select('grupo_gsdpq_whatsapp').eq('nome', usuario.filial).maybeSingle()
+      const grupoId = filialRow?.grupo_gsdpq_whatsapp
+      if (grupoId && exportVencimentosRef.current) {
+        const canvas = await html2canvas(exportVencimentosRef.current, { scale: 1.5, backgroundColor: '#ffffff', useCORS: true, logging: false })
+        const img = canvas.toDataURL('image/png')
+        const legenda = `📋 Vencimentos de GSD — ${formatarDataBR(new Date())}`
+        const { sucesso, erro } = await enviarImagemGrupo(grupoId, img, legenda)
+        await supabase.from('disparos').insert({
+          filial: usuario.filial, whatsapp: grupoId, mensagem: legenda,
+          status: sucesso ? 'enviado' : 'erro', erro: erro ?? null,
+        })
+        imagemEnviada = sucesso
+      }
+
+      alert(
+        `Envio concluído.\nSupervisores notificados: ${enviosSupervisor}/${porEquipe.size}\n` +
+        `Imagem para o grupo: ${grupoId ? (imagemEnviada ? 'enviada' : 'falhou') : 'grupo não configurado em /gsdpq/supervisores'}`
+      )
+    } finally {
+      setEnviandoVencimentos(false)
+    }
   }
 
   // gsdpq_acoes não possui unique(avaliacao_id), então upsert com onConflict
@@ -1629,13 +1717,23 @@ export default function Gsdpq() {
           {/* ── Vencimentos ── */}
           {abaAtiva === 'vencimentos' && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between bg-white rounded-xl border border-gray-200 px-4 py-3">
+              <div className="flex items-center justify-between gap-3 bg-white rounded-xl border border-gray-200 px-4 py-3">
                 <p className="text-xs text-gray-500">
-                  Motoristas e ajudantes ativos · ciclo de 60 dias (ou 30 para quem tem até 3 meses de empresa) · ordenados por urgência
+                  Motoristas e ajudantes de distribuição ativos · ciclo de 60 dias (ou 30 para quem tem até 3 meses de empresa) · ordenados por urgência
                 </p>
-                <Link to="/gsdpq/supervisores" className="flex items-center gap-1.5 text-sm text-brand-700 hover:text-brand-900 border border-brand-200 px-3 py-1.5 rounded-lg hover:bg-brand-50 shrink-0">
-                  <Settings size={14} /> Supervisores por equipe
-                </Link>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={gerarEEnviarVencimentos}
+                    disabled={enviandoVencimentos}
+                    className="flex items-center gap-1.5 text-sm text-white bg-brand-700 hover:bg-brand-600 px-3 py-1.5 rounded-lg disabled:opacity-50"
+                  >
+                    {enviandoVencimentos ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                    {enviandoVencimentos ? 'Enviando...' : 'Gerar e enviar vencimentos'}
+                  </button>
+                  <Link to="/gsdpq/supervisores" className="flex items-center gap-1.5 text-sm text-brand-700 hover:text-brand-900 border border-brand-200 px-3 py-1.5 rounded-lg hover:bg-brand-50">
+                    <Settings size={14} /> Supervisores por equipe
+                  </Link>
+                </div>
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -1683,13 +1781,21 @@ export default function Gsdpq() {
                             {!info && <span className="text-xs text-gray-400">Sem data de admissão</span>}
                           </td>
                           <td className="px-4 py-3 text-center">
-                            <button
-                              onClick={() => marcarDesligado(c)}
-                              disabled={desligandoId === c.id}
-                              className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-600 border border-gray-200 px-2 py-1 rounded hover:bg-red-50 disabled:opacity-50"
-                            >
-                              <UserX size={12} /> {desligandoId === c.id ? 'Salvando...' : 'Desligar'}
-                            </button>
+                            <div className="flex items-center justify-center gap-1.5">
+                              <button
+                                onClick={() => abrirEditarEquipe(c)}
+                                className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-brand-700 border border-gray-200 px-2 py-1 rounded hover:bg-brand-50"
+                              >
+                                <Pencil size={12} /> Equipe
+                              </button>
+                              <button
+                                onClick={() => marcarDesligado(c)}
+                                disabled={desligandoId === c.id}
+                                className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-600 border border-gray-200 px-2 py-1 rounded hover:bg-red-50 disabled:opacity-50"
+                              >
+                                <UserX size={12} /> {desligandoId === c.id ? 'Salvando...' : 'Desligar'}
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       )
@@ -1697,6 +1803,13 @@ export default function Gsdpq() {
                   </tbody>
                 </table>
               </div>
+
+              {/* Template oculto para exportação da imagem de vencimentos */}
+              <VencimentoExportTemplate
+                ref={exportVencimentosRef}
+                dados={vencimentos.filter(v => v.info && v.info.diasRestantes <= 15)}
+                filial={usuario?.filial ?? ''}
+              />
             </div>
           )}
 
@@ -1720,9 +1833,92 @@ export default function Gsdpq() {
         />
       )}
 
+      {editandoEquipe && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-1">Alterar equipe</h3>
+            <p className="text-xs text-gray-500 mb-4">{editandoEquipe.nome}</p>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Equipe</label>
+            <input
+              value={novaEquipeValor}
+              onChange={e => setNovaEquipeValor(e.target.value)}
+              placeholder="Ex: SUB-FÚRIA"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            />
+            <p className="text-xs text-gray-400 mt-1">Use o mesmo nome cadastrado no supervisor responsável pela equipe.</p>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setEditandoEquipe(null)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
+              <button
+                onClick={salvarEquipe}
+                disabled={salvandoEquipe}
+                className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-lg font-medium flex items-center gap-2"
+              >
+                {salvandoEquipe ? <><Loader2 size={14} className="animate-spin" /> Salvando...</> : 'Salvar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
+
+// Template oculto (fora da tela) usado pelo html2canvas para gerar a imagem
+// enviada ao grupo de WhatsApp com os colaboradores a 15 dias ou menos do
+// vencimento do GSD.
+const VencimentoExportTemplate = forwardRef<HTMLDivElement, {
+  dados: { colaborador: GsdpqColaborador; ultimaAvaliacao: string | null; info: VencimentoInfo | null }[]
+  filial: string
+}>(function VencimentoExportTemplate({ dados, filial }, ref) {
+  const th: React.CSSProperties = { padding: '8px 12px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left', whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '9px 12px', fontSize: '12px', verticalAlign: 'middle' }
+
+  return (
+    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '720px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '20px' }}>
+        <div>
+          <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>GSDPQ</p>
+          <h1 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Vencimentos do GSD</h1>
+        </div>
+        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0 }}>{filial}<br />{formatarDataBR(new Date())}</p>
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+        <thead>
+          <tr style={{ background: '#1e3a5f' }}>
+            <th style={th}>Colaborador</th>
+            <th style={th}>Equipe</th>
+            <th style={{ ...th, textAlign: 'center', width: '110px' }}>Vencimento</th>
+          </tr>
+        </thead>
+        <tbody>
+          {dados.map((v, i) => {
+            const dr = v.info?.diasRestantes ?? 0
+            const cor = dr <= 0 ? '#dc2626' : '#d97706'
+            const txt = dr <= 0 ? `Vencido há ${Math.abs(dr)}d` : `Faltam ${dr}d`
+            const bg = i % 2 === 0 ? '#fff' : '#f8fafc'
+            return (
+              <tr key={v.colaborador.id} style={{ background: bg, borderTop: '1px solid #f1f5f9' }}>
+                <td style={td}>
+                  <div style={{ fontWeight: 600, color: '#0f172a' }}>{v.colaborador.nome}</div>
+                  <div style={{ fontSize: '11px', color: '#64748b' }}>{v.colaborador.funcao}</div>
+                </td>
+                <td style={td}>{v.colaborador.equipe ?? '—'}</td>
+                <td style={{ ...td, textAlign: 'center' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: cor, background: `${cor}15`, padding: '3px 8px', borderRadius: '999px', border: `1px solid ${cor}35`, whiteSpace: 'nowrap' }}>{txt}</span>
+                </td>
+              </tr>
+            )
+          })}
+          {dados.length === 0 && (
+            <tr><td colSpan={3} style={{ ...td, textAlign: 'center', color: '#94a3b8' }}>Nenhum colaborador a 15 dias ou menos do vencimento</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+})
 
 // Modal de justificativa da Orientação Verbal (comentário obrigatório).
 function ModalComentarioOrientacao({ onConfirm, onCancel }: {
