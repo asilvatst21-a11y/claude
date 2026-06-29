@@ -5,14 +5,14 @@ import html2canvas from 'html2canvas'
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
-import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings } from 'lucide-react'
+import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import { enviarImagemGrupo } from '../lib/zapi'
 import {
   parseDisponibilidadeDiariaCsv, parseHistoricoXlsx, resumoPorDia, disponiveisNoDia,
-  rankingIndisponibilidadePorPlaca, cruzarTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia,
+  rankingIndisponibilidadePorPlaca, cruzarTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia, matrizDisponibilidade,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
 } from '../lib/frota'
 import { parseEscalaBuffer } from '../lib/tmlParser'
@@ -65,7 +65,7 @@ async function semearPlacas(filial: string, rows: { placa: string }[]) {
 
 export default function Frota() {
   const { usuario } = useAuth()
-  const [aba, setAba] = useState<'disponibilidade' | 'territorio'>('disponibilidade')
+  const [aba, setAba] = useState<'disponibilidade' | 'territorio' | 'matriz'>('disponibilidade')
   const [registros, setRegistros] = useState<FrotaDisponibilidade[]>([])
   const [historicoTml, setHistoricoTml] = useState<HistoricoTmlRegiao[]>([])
   const [placas, setPlacas] = useState<FrotaPlaca[]>([])
@@ -76,6 +76,8 @@ export default function Frota() {
   const [exportandoImg, setExportandoImg] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
   const exportPlacasRef = useRef<HTMLDivElement>(null)
+  const hoje = new Date()
+  const [mesSel, setMesSel] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 })
 
   const carregarDados = useCallback(async () => {
     if (!usuario) return
@@ -273,6 +275,7 @@ export default function Frota() {
   const grafico = resumos.map(r => ({ data: formatarDataBR(r.data), percentual: r.percentual }))
   const disponiveis = ultimo ? disponiveisNoDia(registrosAtivos, ultimo.data) : []
   const statusPlacas = useMemo(() => (ultimo ? statusPlacasNoDia(registrosAtivos, ultimo.data, placas) : []), [registrosAtivos, ultimo, placas])
+  const matriz = useMemo(() => matrizDisponibilidade(registrosAtivos, placas, mesSel.ano, mesSel.mes), [registrosAtivos, placas, mesSel])
   const ranking = useMemo(() => rankingIndisponibilidadePorPlaca(registrosAtivos).filter(r => r.diasIndisponivel > 0), [registrosAtivos])
   const perfis = ultimo ? resumoPorPerfil(registrosAtivos.filter(r => r.data === ultimo.data), placas) : []
   const cruzamento = useMemo(() => cruzarTerritorio(registrosAtivos, historicoTml), [registrosAtivos, historicoTml])
@@ -310,6 +313,9 @@ export default function Frota() {
         </button>
         <button onClick={() => setAba('territorio')} className={`text-sm font-medium px-3 py-2 border-b-2 flex items-center gap-1 ${aba === 'territorio' ? 'border-brand-700 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
           <MapPinned size={14} /> Fixação de Território
+        </button>
+        <button onClick={() => setAba('matriz')} className={`text-sm font-medium px-3 py-2 border-b-2 flex items-center gap-1 ${aba === 'matriz' ? 'border-brand-700 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          <LayoutGrid size={14} /> Matriz Mensal
         </button>
       </div>
 
@@ -571,6 +577,117 @@ export default function Frota() {
                     </tbody>
                   </table>
                 </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {aba === 'matriz' && (
+        <div className="space-y-4">
+          {/* Navegação de mês */}
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setMesSel(m => {
+                const d = new Date(m.ano, m.mes - 2, 1)
+                return { ano: d.getFullYear(), mes: d.getMonth() + 1 }
+              })}
+              className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <span className="text-sm font-semibold text-gray-800 capitalize min-w-[110px] text-center">
+              {new Date(mesSel.ano, mesSel.mes - 1, 1).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })}
+            </span>
+            <button
+              onClick={() => setMesSel(m => {
+                const d = new Date(m.ano, m.mes, 1)
+                return { ano: d.getFullYear(), mes: d.getMonth() + 1 }
+              })}
+              className="p-1.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-600"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+
+          {carregando ? (
+            <div className="flex items-center justify-center py-20 text-gray-400">
+              <Loader2 size={24} className="animate-spin mr-2" /> Carregando dados...
+            </div>
+          ) : matriz.placas.length === 0 ? (
+            <div className="text-center py-16 text-gray-400">
+              <LayoutGrid size={40} className="mx-auto mb-3 opacity-40" />
+              <p className="text-sm">Nenhuma placa ativa no cadastro. Importe o relatório diário para começar.</p>
+            </div>
+          ) : (
+            <>
+              <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+                <table className="border-collapse min-w-full text-xs">
+                  <thead>
+                    <tr className="bg-[#1e3a5f] text-white">
+                      <th className="text-left px-3 py-2.5 font-semibold sticky left-0 bg-[#1e3a5f] z-10 whitespace-nowrap min-w-[80px]">Placa</th>
+                      {matriz.diasDoMes.map(d => (
+                        <th key={d} className="px-1 py-2.5 font-semibold text-center min-w-[30px]">
+                          {d.slice(8)}
+                        </th>
+                      ))}
+                      <th className="px-3 py-2.5 font-semibold text-center whitespace-nowrap min-w-[58px] sticky right-0 bg-[#1e3a5f] z-10">% Disp.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {matriz.placas.map((p, ri) => (
+                      <tr key={p.placa} className={ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className={`px-3 py-1 font-bold text-gray-900 sticky left-0 z-10 whitespace-nowrap border-r border-gray-100 ${ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                          {p.placa}
+                        </td>
+                        {p.dias.map(dia => {
+                          const classes: Record<string, string> = {
+                            disponivel:     'bg-green-100 border border-green-300',
+                            indisponivel:   'bg-red-100 border border-red-300',
+                            parado:         'bg-yellow-100 border border-yellow-300',
+                            nao_contratada: 'bg-gray-100 border border-gray-200',
+                            sem_dado:       'bg-white border border-dashed border-gray-200',
+                          }
+                          return (
+                            <td key={dia.data} className="px-1 py-1 text-center">
+                              <div className={`mx-auto w-5 h-5 rounded-[4px] ${classes[dia.tipo]}`} title={dia.tipo.replace('_', ' ')} />
+                            </td>
+                          )
+                        })}
+                        <td className={`px-3 py-1 text-center font-bold sticky right-0 z-10 border-l border-gray-100 ${ri % 2 === 0 ? 'bg-white' : 'bg-gray-50'} ${p.percentual >= 80 ? 'text-green-700' : p.percentual >= 60 ? 'text-amber-600' : 'text-red-600'}`}>
+                          {p.diasContratadaComDado > 0 ? `${p.percentual}%` : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-[#1e3a5f] text-white">
+                      <td className="px-3 py-2 font-bold sticky left-0 bg-[#1e3a5f] z-10 text-xs whitespace-nowrap">% do dia</td>
+                      {matriz.percentualPorDia.map(d => (
+                        <td key={d.data} className={`px-1 py-2 text-center text-xs font-bold ${d.percentual >= 80 ? 'text-green-300' : d.percentual >= 60 ? 'text-yellow-300' : d.percentual === 0 ? 'text-gray-400' : 'text-red-300'}`}>
+                          {d.percentual > 0 ? `${d.percentual}%` : '—'}
+                        </td>
+                      ))}
+                      <td className="px-3 py-2 sticky right-0 bg-[#1e3a5f] z-10" />
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              {/* Legenda */}
+              <div className="flex flex-wrap gap-4 text-xs text-gray-500">
+                {[
+                  { cls: 'bg-green-100 border border-green-300',              label: 'Disponível' },
+                  { cls: 'bg-red-100 border border-red-300',                  label: 'Indisponível' },
+                  { cls: 'bg-yellow-100 border border-yellow-300',            label: 'Parado' },
+                  { cls: 'bg-gray-100 border border-gray-200',                label: 'Não Contratada' },
+                  { cls: 'bg-white border border-dashed border-gray-200',     label: 'Sem dado' },
+                ].map(({ cls, label }) => (
+                  <div key={label} className="flex items-center gap-1.5">
+                    <div className={`w-4 h-4 rounded-[3px] shrink-0 ${cls}`} />
+                    <span>{label}</span>
+                  </div>
+                ))}
               </div>
             </>
           )}

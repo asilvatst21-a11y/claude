@@ -217,6 +217,97 @@ export function disponiveisNoDia(rows: FrotaDisponibilidade[], data: string): Fr
   return rows.filter(r => r.data === data && normalizar(r.status) === 'DISPONIVEL')
 }
 
+export type TipoCelulaMatriz = 'disponivel' | 'indisponivel' | 'parado' | 'nao_contratada' | 'sem_dado'
+
+export interface MatrizDia {
+  data: string
+  tipo: TipoCelulaMatriz
+}
+
+export interface MatrizPlaca {
+  placa: string
+  perfil: string
+  dias: MatrizDia[]
+  percentual: number
+  diasDisponivel: number
+  diasContratadaComDado: number
+}
+
+export interface MatrizFrota {
+  diasDoMes: string[]
+  placas: MatrizPlaca[]
+  percentualPorDia: { data: string; percentual: number }[]
+}
+
+// Gera a matriz de disponibilidade diária: todas as placas ativas (eixo Y)
+// x todos os dias do mês (eixo X), excluindo domingos. % final por placa
+// usa como denominador só os dias contratados com dado (ignora "Não
+// Contratada" e "Sem dado"). Linha de rodapé traz % disponível por dia.
+export function matrizDisponibilidade(
+  rows: FrotaDisponibilidade[],
+  placas: FrotaPlaca[],
+  ano: number,
+  mes: number,
+): MatrizFrota {
+  const daysInMonth = new Date(ano, mes, 0).getDate()
+  const diasDoMes: string[] = []
+  for (let d = 1; d <= daysInMonth; d++) {
+    if (new Date(ano, mes - 1, d).getDay() !== 0) {
+      diasDoMes.push(`${ano}-${String(mes).padStart(2, '0')}-${String(d).padStart(2, '0')}`)
+    }
+  }
+
+  const rowsMap = new Map<string, FrotaDisponibilidade>()
+  for (const r of rows) rowsMap.set(`${r.placa}|${r.data}`, r)
+
+  const ativas = placas
+    .filter(p => p.ativo)
+    .sort((a, b) => {
+      const pA = a.perfil?.trim() || 'Sem perfil'
+      const pB = b.perfil?.trim() || 'Sem perfil'
+      return pA !== pB ? pA.localeCompare(pB) : a.placa.localeCompare(b.placa)
+    })
+
+  const inativas = new Set(placas.filter(p => !p.ativo).map(p => p.placa))
+
+  const matricePlacas: MatrizPlaca[] = ativas.map(p => {
+    let diasDisponivel = 0
+    let diasContratadaComDado = 0
+    const dias: MatrizDia[] = diasDoMes.map(data => {
+      const r = rowsMap.get(`${p.placa}|${data}`)
+      if (!r) return { data, tipo: 'sem_dado' }
+      const n = normalizar(r.status)
+      if (n === 'NAO CONTRATADA' || n === '') return { data, tipo: 'nao_contratada' }
+      diasContratadaComDado++
+      if (n === 'DISPONIVEL') { diasDisponivel++; return { data, tipo: 'disponivel' } }
+      if (n === 'PARADO') return { data, tipo: 'parado' }
+      return { data, tipo: 'indisponivel' }
+    })
+    return {
+      placa: p.placa,
+      perfil: p.perfil?.trim() || 'Sem perfil',
+      dias,
+      percentual: diasContratadaComDado > 0 ? Math.round((diasDisponivel / diasContratadaComDado) * 100) : 0,
+      diasDisponivel,
+      diasContratadaComDado,
+    }
+  })
+
+  const percentualPorDia = diasDoMes.map(data => {
+    let disp = 0, contratada = 0
+    for (const r of rows) {
+      if (r.data !== data || inativas.has(r.placa)) continue
+      const n = normalizar(r.status)
+      if (n === 'NAO CONTRATADA' || n === '') continue
+      contratada++
+      if (n === 'DISPONIVEL') disp++
+    }
+    return { data, percentual: contratada > 0 ? Math.round((disp / contratada) * 100) : 0 }
+  })
+
+  return { diasDoMes, placas: matricePlacas, percentualPorDia }
+}
+
 export interface StatusPlacaFrota {
   placa: string
   frota: string | null
