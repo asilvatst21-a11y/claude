@@ -125,7 +125,7 @@ function calcularResumos(avaliacoes: DtoDistribuicaoAvaliacao[]): ResumoColabora
       equipe: avs[0]?.equipe ?? '',
       funcao: avs[0]?.funcao ?? '',
       totalNO, totalOK,
-      totalAvaliacoes: totalNO + totalOK,
+      totalAvaliacoes: datasOrdenadas.length,
       percentualConformidade: totalNO + totalOK > 0 ? Math.round((totalOK / (totalNO + totalOK)) * 100) : 100,
       reincidencias,
       evolucao,
@@ -331,6 +331,7 @@ export default function DtoDistribuicao() {
       .select('*')
       .eq('filial', usuario.filial)
       .order('data_avaliacao', { ascending: false })
+      .limit(10000)
     setAvaliacoes(Array.isArray(data) ? data : [])
     setCarregando(false)
   }, [usuario])
