@@ -12,6 +12,7 @@ import DistribuicaoTMLAnalise from './pages/DistribuicaoTMLAnalise'
 import DistribuicaoTMLDeslocamento from './pages/DistribuicaoTMLDeslocamento'
 import DistribuicaoTMLWhatsappConfig from './pages/DistribuicaoTMLWhatsappConfig'
 import DistribuicaoTMLParametros from './pages/DistribuicaoTMLParametros'
+import DtoDistribuicao from './pages/DtoDistribuicao'
 import Home from './pages/Home'
 import Disparos from './pages/Disparos'
 import Matriculas from './pages/Matriculas'
@@ -104,6 +105,7 @@ export default function App() {
             <Route path="/distribuicao/tml/deslocamento" element={<DistribuicaoTMLDeslocamento />} />
             <Route path="/distribuicao/tml/whatsapp" element={<DistribuicaoTMLWhatsappConfig />} />
             <Route path="/distribuicao/tml/parametros" element={<DistribuicaoTMLParametros />} />
+            <Route path="/distribuicao/dto" element={<DtoDistribuicao />} />
             <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
             <Route path="/armazem/operadores" element={<ArmazemOperadores />} />
             <Route path="/armazem/dashboard" element={<ArmazemDashboard />} />

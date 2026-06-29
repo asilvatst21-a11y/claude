@@ -214,6 +214,10 @@ function parseGsdpqExcel(buffer: ArrayBuffer): { rows: Omit<GsdpqAvaliacao, 'id'
 
   raw.forEach(r => {
     const cols = Object.keys(r)
+    // A planilha pode trazer outras categorias (BEES, DEVOLUÇÃO, TML,
+    // RETORNO DE ROTA) na coluna TIPO — só a categoria GSDPQ entra aqui.
+    const tipo = (r[cols[0]] ?? '').toString().trim().toUpperCase()
+    if (tipo && tipo !== 'GSDPQ') return
     const colaborador_nome = (r[cols[5]] ?? '').trim()
     if (!colaborador_nome) return
     const realizado_por = r[cols[3]] ?? ''

@@ -113,6 +113,23 @@ export interface GsdpqAvaliacao {
   created_at: string
 }
 
+export type DtoDistribuicaoTipo = 'BEES' | 'DEVOLUÇÃO' | 'TML' | 'RETORNO DE ROTA'
+
+export interface DtoDistribuicaoAvaliacao {
+  id: string
+  filial: string
+  tipo: DtoDistribuicaoTipo
+  colaborador_nome: string
+  realizado_por: string | null
+  funcao: string | null
+  equipe: string | null
+  data_avaliacao: string | null
+  questao: string
+  resultado: string
+  observacoes: string | null
+  created_at: string
+}
+
 export interface GsdpqAcao {
   id: string
   filial: string
