@@ -12,6 +12,7 @@ import {
   rankingIndisponibilidadePorPlaca, cruzarTerritorio,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao,
 } from '../lib/frota'
+import { parseEscalaBuffer } from '../lib/tmlParser'
 import type { FrotaDisponibilidade } from '../types'
 
 const TOOLTIP_STYLE = { borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12 }
@@ -61,7 +62,7 @@ export default function Frota() {
   const carregarDados = useCallback(async () => {
     if (!usuario) return
     setCarregando(true)
-    const [{ data }, { data: dataTml }] = await Promise.all([
+    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }] = await Promise.all([
       supabase.from('frota_disponibilidade')
         .select('*')
         .eq('filial', usuario.filial)
@@ -70,9 +71,17 @@ export default function Frota() {
         .select('placa, data_saida, regiao_entregas')
         .eq('filial', usuario.filial)
         .not('regiao_entregas', 'is', null),
+      supabase.from('frota_territorio_historico')
+        .select('placa, data, regiao_entregas')
+        .eq('filial', usuario.filial)
+        .not('regiao_entregas', 'is', null),
     ])
     setRegistros((data ?? []) as FrotaDisponibilidade[])
-    setHistoricoTml((dataTml ?? []) as HistoricoTmlRegiao[])
+    setHistoricoTml([
+      ...((dataTml ?? []) as HistoricoTmlRegiao[]),
+      ...((dataTerritorioHist ?? []) as { placa: string | null; data: string | null; regiao_entregas: string | null }[])
+        .map(r => ({ placa: r.placa, data_saida: r.data, regiao_entregas: r.regiao_entregas })),
+    ])
     setCarregando(false)
   }, [usuario])
 
@@ -136,6 +145,44 @@ export default function Frota() {
     }
   }, [usuario, carregarDados])
 
+  // Carga única do histórico de roteirização (PCD/RoadShow) anterior à
+  // captura automática via Escala do dia — mesmo formato de planilha,
+  // por isso reaproveita o parser da Escala (parseEscalaBuffer).
+  const onDropTerritorioHistorico = useCallback(async (files: File[]) => {
+    if (!usuario || !files[0]) return
+    setUploadando(true)
+    setImportResult(null)
+    try {
+      const buffer = await files[0].arrayBuffer()
+      const escalas = parseEscalaBuffer(buffer)
+      const rows = escalas
+        .filter(e => e.placa && e.dataEntrega && e.regiaoEntregas)
+        .map(e => ({ filial: usuario.filial, mapa: e.mapa, placa: e.placa, data: e.dataEntrega, regiao_entregas: e.regiaoEntregas }))
+      if (rows.length === 0) {
+        setImportResult({ tipo: 'erro', mensagem: 'Nenhuma linha com região de entregas encontrada nesta planilha.' })
+        setUploadando(false)
+        return
+      }
+      const rowsDedup = Array.from(new Map(rows.map(r => [`${r.filial}|${r.mapa}`, r])).values())
+      let erro: string | null = null
+      for (let i = 0; i < rowsDedup.length; i += 50) {
+        const lote = rowsDedup.slice(i, i + 50)
+        const { error } = await supabase.from('frota_territorio_historico').upsert(lote, { onConflict: 'filial,mapa' })
+        if (error) { erro = error.message; break }
+      }
+      if (erro) {
+        setImportResult({ tipo: 'erro', mensagem: `Erro ao salvar histórico de território: ${erro}` })
+      } else {
+        setImportResult({ tipo: 'sucesso', mensagem: `✅ ${rowsDedup.length} registros de território histórico importados.` })
+        await carregarDados()
+      }
+    } catch (e) {
+      setImportResult({ tipo: 'erro', mensagem: `Erro inesperado: ${String(e)}` })
+    } finally {
+      setUploadando(false)
+    }
+  }, [usuario, carregarDados])
+
   const { getRootProps: getRootCsv, getInputProps: getInputCsv, isDragActive: isDragCsv } = useDropzone({
     onDrop: onDropCsv,
     accept: { 'text/csv': ['.csv'] },
@@ -144,6 +191,12 @@ export default function Frota() {
 
   const { getRootProps: getRootHistorico, getInputProps: getInputHistorico, isDragActive: isDragHistorico } = useDropzone({
     onDrop: onDropHistorico,
+    accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
+    multiple: false,
+  })
+
+  const { getRootProps: getRootTerritorioHist, getInputProps: getInputTerritorioHist, isDragActive: isDragTerritorioHist } = useDropzone({
+    onDrop: onDropTerritorioHistorico,
     accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] },
     multiple: false,
   })
@@ -289,7 +342,7 @@ export default function Frota() {
                             <tr key={d.id} className="border-b border-gray-50">
                               <td className="py-2 text-gray-900 font-medium">{d.placa}</td>
                               <td className="py-2 text-gray-600">{d.frota ?? '—'}</td>
-                              <td className="py-2 text-gray-600">{d.territorio ?? '—'}</td>
+                              <td className="py-2 text-gray-600">{d.regiao ?? '—'}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -337,8 +390,18 @@ export default function Frota() {
         <div className="space-y-5">
           <p className="text-xs text-gray-500">
             Cruza o território disponibilizado das placas (relatório Frota) com a região realmente executada no dia, vinda da
-            escala importada na tela TML — Carta de Controle (planilha 03.11.49.02). Atualiza automaticamente a cada novo envio da escala diária.
+            escala importada na tela TML — Carta de Controle (planilha 03.11.49.02). A partir do dia 30/06/2026 isso é capturado
+            automaticamente a cada novo envio da escala diária — não precisa de upload aqui.
           </p>
+
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <p className="text-xs font-medium text-gray-500 mb-2">Carga única do histórico de roteirização (PCD), dias anteriores a 30/06/2026 (.xlsx)</p>
+            <div {...getRootTerritorioHist()} className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-colors max-w-md ${isDragTerritorioHist ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-brand-400 hover:bg-gray-50'}`}>
+              <input {...getInputTerritorioHist()} />
+              {uploadando ? <Loader2 size={24} className="mx-auto text-brand-500 animate-spin" /> : <FileSpreadsheet size={24} className="mx-auto text-gray-400 mb-1" />}
+              <p className="text-sm text-gray-600">{uploadando ? 'Importando...' : 'Arraste a planilha histórica de roteirização (.xlsx)'}</p>
+            </div>
+          </div>
 
           {carregando ? (
             <div className="flex items-center justify-center py-20 text-gray-400">
