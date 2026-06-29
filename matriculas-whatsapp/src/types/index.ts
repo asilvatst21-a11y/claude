@@ -29,6 +29,7 @@ export const SECOES_SISTEMA = [
   { key: 'financeiro',      label: 'Financeiro',      grupo: 'Financeiro'   },
   { key: 'reposicoes',      label: 'Reposições (monitoramento)', grupo: 'Financeiro' },
   { key: 'distribuicao',    label: 'Distribuição',    grupo: 'Distribuição' },
+  { key: 'frota',           label: 'Frota',           grupo: 'Distribuição' },
   { key: 'armazem',            label: 'Armazém (operador)',  grupo: 'Armazém' },
   { key: 'armazem-supervisor', label: 'Armazém (supervisor)', grupo: 'Armazém' },
 ] as const
@@ -97,6 +98,23 @@ export interface GsdpqColaborador {
   data_admissao: string | null
   created_at: string
   updated_at: string
+}
+
+export interface FrotaDisponibilidade {
+  id: string
+  filial: string
+  data: string
+  placa: string
+  frota: string | null
+  territorio: string | null
+  regiao: string | null
+  status: string
+  justificativa: string | null
+  observacao: string | null
+  segmento: string | null
+  capacidade_caixas: number | null
+  capacidade_peso: number | null
+  created_at: string
 }
 
 export interface GsdpqSupervisor {

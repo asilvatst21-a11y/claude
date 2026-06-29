@@ -5,7 +5,7 @@ import {
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
   Wallet, Menu, X, Truck, Boxes, LineChart, Timer, Home, Send, SlidersHorizontal,
-  ShieldCheck,
+  ShieldCheck, Fuel,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -51,6 +51,7 @@ const distribuicaoItems = [
   { permKey: 'distribuicao', to: '/distribuicao/tml/parametros', label: 'Parâmetros TML', icon: SlidersHorizontal },
   { permKey: 'distribuicao', to: '/matinal-tml', label: 'Timer da Matinal', icon: Clock },
   { permKey: 'distribuicao', to: '/distribuicao/dto',          label: 'DTO Distribuição',     icon: ShieldCheck },
+  { permKey: 'frota',        to: '/distribuicao/frota',        label: 'Frota',                icon: Fuel },
 ]
 
 const armazemItems = [
