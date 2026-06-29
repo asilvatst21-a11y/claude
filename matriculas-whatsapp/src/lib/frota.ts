@@ -227,24 +227,28 @@ export interface StatusPlacaFrota {
   rota: string | null
 }
 
-// Lista de todas as placas contratadas (ativas) do dia, com perfil, status e
-// motivo de indisponibilidade — usada no resumo enviado para o grupo de
-// WhatsApp, que precisa mostrar disponíveis, indisponíveis (com motivo) e
-// paradas. Ordenada por disponível primeiro, depois perfil, depois placa.
+// Lista de TODAS as placas ativas do cadastro (frota_placas), com perfil,
+// status e motivo de indisponibilidade do dia — usada no resumo enviado
+// para o grupo de WhatsApp. Parte do cadastro (não da contratação do dia),
+// para incluir também placas não contratadas naquele dia e placas sem
+// registro de disponibilidade ainda. Ordenada por disponível primeiro,
+// depois perfil, depois placa.
 export function statusPlacasNoDia(rows: FrotaDisponibilidade[], data: string, placas: FrotaPlaca[]): StatusPlacaFrota[] {
-  const perfilPorPlaca = new Map(placas.map(p => [p.placa, p.perfil?.trim() || 'Sem perfil']))
-  return rows
-    .filter(r => r.data === data && normalizar(r.status) !== 'NAO CONTRATADA' && normalizar(r.status) !== '')
-    .map(r => {
-      const disponivel = normalizar(r.status) === 'DISPONIVEL'
+  const rowsDoDia = new Map(rows.filter(r => r.data === data).map(r => [r.placa, r]))
+
+  return placas
+    .filter(p => p.ativo)
+    .map(p => {
+      const r = rowsDoDia.get(p.placa)
+      const disponivel = !!r && normalizar(r.status) === 'DISPONIVEL'
       return {
-        placa: r.placa,
-        frota: r.frota,
-        perfil: perfilPorPlaca.get(r.placa) ?? 'Sem perfil',
-        status: r.status,
+        placa: p.placa,
+        frota: r?.frota ?? null,
+        perfil: p.perfil?.trim() || 'Sem perfil',
+        status: r?.status ?? 'Sem dado',
         disponivel,
-        motivo: r.justificativa?.trim() || null,
-        rota: r.observacao,
+        motivo: r ? (r.justificativa?.trim() || null) : 'Sem registro no relatório do dia',
+        rota: r?.observacao ?? null,
       }
     })
     .sort((a, b) => {
