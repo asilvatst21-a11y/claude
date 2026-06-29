@@ -261,6 +261,9 @@ export interface CruzamentoTerritorioItem {
 // Cruza, por placa+dia, o território disponibilizado com a(s) região(ões)
 // realmente entregue(s) naquele dia (pode haver mais de um mapa/viagem por
 // placa no mesmo dia). `bate: null` quando não há dado do TML para comparar.
+// Usa a coluna "Região" (ex.: "910 - Correas") — no relatório/histórico de
+// Frota a coluna "Território" vem sempre zerada ("0000"); quem traz o
+// código + nome do bairro disponibilizado é a "Região".
 export function cruzarTerritorio(
   frotaRows: FrotaDisponibilidade[],
   historicoTml: HistoricoTmlRegiao[],
@@ -274,15 +277,15 @@ export function cruzarTerritorio(
   }
 
   return frotaRows
-    .filter(r => normalizar(r.status) === 'DISPONIVEL' && r.territorio)
+    .filter(r => normalizar(r.status) === 'DISPONIVEL' && r.regiao)
     .map(r => {
       const regioes = regioesPorPlacaData.get(`${r.placa}|${r.data}`) ?? []
       return {
         placa: r.placa,
         data: r.data,
-        territorio: r.territorio as string,
+        territorio: r.regiao as string,
         regiaoEntregas: regioes.length > 0 ? regioes.join(' / ') : null,
-        bate: bairroBateNaRegiao(r.territorio, regioes),
+        bate: bairroBateNaRegiao(r.regiao, regioes),
       }
     })
     .sort((a, b) => b.data.localeCompare(a.data) || a.placa.localeCompare(b.placa))
