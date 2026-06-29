@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { useDropzone } from 'react-dropzone'
 import * as XLSX from 'xlsx'
 import {
@@ -7,13 +8,16 @@ import {
 import {
   FileSpreadsheet, ChevronDown, ChevronUp, AlertTriangle, CheckCircle,
   XCircle, Users, ClipboardList, BarChart2, RefreshCw, Shield, Upload,
-  Download, Plus, Loader2, Building2, ShieldCheck, Star, Zap, GitBranch
+  Download, Plus, Loader2, Building2, ShieldCheck, Star, Zap, GitBranch,
+  Settings, UserX
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { enviarMensagemGrupo } from '../lib/zapi'
 import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
-import type { GsdpqAvaliacao, GsdpqAcao } from '../types'
+import { formatarDataBR } from '../lib/utils'
+import { ehMotoristaOuAjudante, calcularVencimento } from '../lib/gsdpqVencimento'
+import type { GsdpqAvaliacao, GsdpqAcao, GsdpqColaborador } from '../types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -237,6 +241,20 @@ function parseGsdpqExcel(buffer: ArrayBuffer): { rows: Omit<GsdpqAvaliacao, 'id'
   return { rows, questoes }
 }
 
+// Converte uma data de admissão vinda da planilha (DD/MM/YYYY ou YYYY-MM-DD)
+// para o formato ISO (YYYY-MM-DD) usado no banco. Retorna null se vazio/inválido.
+function parseDataAdmissao(s: string): string | null {
+  const v = (s ?? '').trim()
+  if (!v) return null
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10)
+  const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+  if (m) {
+    const ano = m[3].length === 2 ? `20${m[3]}` : m[3]
+    return `${ano}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+  }
+  return null
+}
+
 function parseColaboradoresExcel(buffer: ArrayBuffer, filial: string) {
   const wb = XLSX.read(buffer)
   const ws = wb.Sheets[wb.SheetNames[0]]
@@ -250,6 +268,7 @@ function parseColaboradoresExcel(buffer: ArrayBuffer, filial: string) {
       equipe: (r['EQUIPE'] ?? '').trim() || null,
       funcao: (r['FUNCAO'] ?? '').trim() || null,
       status: (r['STATUS'] ?? 'TRABALHANDO').trim(),
+      data_admissao: parseDataAdmissao(r['DATA_ADMISSAO'] ?? r['DATA ADMISSAO'] ?? r['ADMISSAO'] ?? ''),
     }))
 }
 
@@ -686,7 +705,9 @@ export default function Gsdpq() {
   const [avaliacoes, setAvaliacoes] = useState<GsdpqAvaliacao[]>([])
   const [acoes, setAcoes] = useState<GsdpqAcao[]>([])
   const [questoes, setQuestoes] = useState<string[]>([])
-  const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'colaboradores' | 'questoes' | 'acoes' | 'completo'>('dashboard')
+  const [colaboradores, setColaboradores] = useState<GsdpqColaborador[]>([])
+  const [desligandoId, setDesligandoId] = useState<string | null>(null)
+  const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'colaboradores' | 'questoes' | 'acoes' | 'completo' | 'vencimentos'>('dashboard')
   const [completoData, setCompletoData] = useState('')
   const [completoColab, setCompletoColab] = useState('')
   const [filtroEquipe, setFiltroEquipe] = useState('Todas')
@@ -707,7 +728,7 @@ export default function Gsdpq() {
     const [{ data: avs }, { data: acs }, { data: colab }] = await Promise.all([
       supabase.from('gsdpq_avaliacoes').select('*').eq('filial', usuario.filial).order('data_avaliacao').limit(10000),
       supabase.from('gsdpq_acoes').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
-      supabase.from('gsdpq_colaboradores').select('nome, funcao').eq('filial', usuario.filial),
+      supabase.from('gsdpq_colaboradores').select('*').eq('filial', usuario.filial),
     ])
     const colabFuncaoMap = new Map((colab ?? []).map(c => [c.nome.toUpperCase(), c.funcao as string | null]))
     const todasAvs = (avs ?? []).map(av => ({
@@ -716,9 +737,21 @@ export default function Gsdpq() {
     }))
     setAvaliacoes(todasAvs)
     setAcoes(acs ?? [])
+    setColaboradores(colab ?? [])
     const qs = Array.from(new Set(todasAvs.map(a => a.questao)))
     setQuestoes(qs)
     setCarregando(false)
+  }
+
+  async function marcarDesligado(colaborador: GsdpqColaborador) {
+    if (!confirm(`Marcar ${colaborador.nome} como desligado? Ele saí do farol de vencimento e deixa de gerar notificações.`)) return
+    setDesligandoId(colaborador.id)
+    const { error } = await supabase.from('gsdpq_colaboradores')
+      .update({ status: 'DESLIGADO', updated_at: new Date().toISOString() })
+      .eq('id', colaborador.id)
+    setDesligandoId(null)
+    if (error) { alert('Erro ao marcar como desligado:\n' + error.message); return }
+    await carregarDados()
   }
 
   // gsdpq_acoes não possui unique(avaliacao_id), então upsert com onConflict
@@ -989,6 +1022,32 @@ export default function Gsdpq() {
     return { equipe, conformidade: total > 0 ? Math.round((oks / total) * 100) : 0, nos, total: avs.length }
   })
 
+  // Farol de vencimento: motoristas/ajudantes ativos, ordenados pelo mais urgente.
+  // Usa TODAS as avaliações (sem filtro de período) para achar a última de cada um.
+  const hojeVenc = new Date()
+  const ultimaAvaliacaoPorColaborador = new Map<string, string>()
+  avaliacoes.forEach(av => {
+    if (!av.data_avaliacao) return
+    const atual = ultimaAvaliacaoPorColaborador.get(av.colaborador_nome)
+    const dAtual = atual ? parseAvDate(atual) : null
+    const dNovo = parseAvDate(av.data_avaliacao)
+    if (dNovo && (!dAtual || dNovo > dAtual)) ultimaAvaliacaoPorColaborador.set(av.colaborador_nome, av.data_avaliacao)
+  })
+  const vencimentos = colaboradores
+    .filter(c => (c.status ?? '').toUpperCase() !== 'DESLIGADO' && ehMotoristaOuAjudante(c.funcao))
+    .map(c => {
+      const ultimaAvaliacaoStr = ultimaAvaliacaoPorColaborador.get(c.nome) ?? null
+      const ultimaAvaliacaoIso = ultimaAvaliacaoStr ? parseAvDate(ultimaAvaliacaoStr)?.toISOString().slice(0, 10) ?? null : null
+      const info = calcularVencimento(c.data_admissao, ultimaAvaliacaoIso, hojeVenc)
+      return { colaborador: c, ultimaAvaliacao: ultimaAvaliacaoStr, info }
+    })
+    .sort((a, b) => {
+      if (!a.info && !b.info) return 0
+      if (!a.info) return 1
+      if (!b.info) return -1
+      return a.info.diasRestantes - b.info.diasRestantes
+    })
+
   // Registrar ação
   async function salvarAcao(tipo: string, dias: number | null, obs: string) {
     if (!modalAcao || !usuario) return
@@ -1152,7 +1211,7 @@ export default function Gsdpq() {
 
           {/* Abas */}
           <div className="flex gap-1 border-b border-gray-200">
-            {([['dashboard', 'Dashboard'], ['colaboradores', 'Por Colaborador'], ['questoes', 'Questões'], ['acoes', 'Ações Disciplinares'], ['completo', 'GSD Completo']] as const).map(([id, label]) => (
+            {([['dashboard', 'Dashboard'], ['colaboradores', 'Por Colaborador'], ['questoes', 'Questões'], ['acoes', 'Ações Disciplinares'], ['completo', 'GSD Completo'], ['vencimentos', 'Vencimentos']] as const).map(([id, label]) => (
               <button key={id} onClick={() => setAbaAtiva(id)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${abaAtiva === id ? 'border-accent-500 text-accent-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{label}</button>
             ))}
           </div>
@@ -1564,6 +1623,80 @@ export default function Gsdpq() {
                     ))}
                   </div>
               }
+            </div>
+          )}
+
+          {/* ── Vencimentos ── */}
+          {abaAtiva === 'vencimentos' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between bg-white rounded-xl border border-gray-200 px-4 py-3">
+                <p className="text-xs text-gray-500">
+                  Motoristas e ajudantes ativos · ciclo de 60 dias (ou 30 para quem tem até 3 meses de empresa) · ordenados por urgência
+                </p>
+                <Link to="/gsdpq/supervisores" className="flex items-center gap-1.5 text-sm text-brand-700 hover:text-brand-900 border border-brand-200 px-3 py-1.5 rounded-lg hover:bg-brand-50 shrink-0">
+                  <Settings size={14} /> Supervisores por equipe
+                </Link>
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">Colaborador</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">Equipe</th>
+                      <th className="text-left px-4 py-3 font-medium text-gray-600">Última avaliação</th>
+                      <th className="text-center px-4 py-3 font-medium text-gray-600">Ciclo</th>
+                      <th className="text-center px-4 py-3 font-medium text-gray-600">Dias restantes</th>
+                      <th className="text-center px-4 py-3 font-medium text-gray-600">Farol</th>
+                      <th className="text-center px-4 py-3 font-medium text-gray-600">Ação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {vencimentos.length === 0 && (
+                      <tr><td colSpan={7} className="text-center py-10 text-gray-400">Nenhum motorista/ajudante ativo cadastrado</td></tr>
+                    )}
+                    {vencimentos.map(({ colaborador: c, ultimaAvaliacao, info }) => {
+                      const farolCfg = {
+                        verde: { bg: 'bg-brand-50', text: 'text-brand-700', dot: 'bg-brand-500', label: 'OK' },
+                        amarelo: { bg: 'bg-yellow-50', text: 'text-yellow-700', dot: 'bg-yellow-500', label: 'Atenção' },
+                        vermelho: { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500', label: info && info.diasRestantes <= 0 ? 'Vencido' : 'Crítico' },
+                      }
+                      return (
+                        <tr key={c.id} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50">
+                          <td className="px-4 py-3">
+                            <p className="font-medium text-gray-900">{c.nome}</p>
+                            <p className="text-xs text-gray-400">{c.funcao}</p>
+                          </td>
+                          <td className="px-4 py-3 text-gray-600">{c.equipe ?? '—'}</td>
+                          <td className="px-4 py-3 text-gray-600">{ultimaAvaliacao ? formatarDataBR(ultimaAvaliacao) : 'Nunca avaliado'}</td>
+                          <td className="px-4 py-3 text-center text-gray-600">{info ? `${info.cicloDias}d` : '—'}</td>
+                          <td className="px-4 py-3 text-center font-semibold text-gray-900">
+                            {info ? (info.diasRestantes <= 0 ? `${Math.abs(info.diasRestantes)}d vencido` : `${info.diasRestantes}d`) : 'Sem dados'}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            {info && (
+                              <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-1 rounded ${farolCfg[info.farol].bg} ${farolCfg[info.farol].text}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${farolCfg[info.farol].dot}`} />
+                                {farolCfg[info.farol].label}
+                              </span>
+                            )}
+                            {!info && <span className="text-xs text-gray-400">Sem data de admissão</span>}
+                          </td>
+                          <td className="px-4 py-3 text-center">
+                            <button
+                              onClick={() => marcarDesligado(c)}
+                              disabled={desligandoId === c.id}
+                              className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-600 border border-gray-200 px-2 py-1 rounded hover:bg-red-50 disabled:opacity-50"
+                            >
+                              <UserX size={12} /> {desligandoId === c.id ? 'Salvando...' : 'Desligar'}
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
 
