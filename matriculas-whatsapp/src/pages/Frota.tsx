@@ -1,19 +1,21 @@
-import { useCallback, useEffect, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
+import { Link } from 'react-router-dom'
+import html2canvas from 'html2canvas'
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
-import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned } from 'lucide-react'
+import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
   parseDisponibilidadeDiariaCsv, parseHistoricoXlsx, resumoPorDia, disponiveisNoDia,
-  rankingIndisponibilidadePorPlaca, cruzarTerritorio,
-  type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao,
+  rankingIndisponibilidadePorPlaca, cruzarTerritorio, placasAtivasFiltro, resumoPorPerfil,
+  type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota,
 } from '../lib/frota'
 import { parseEscalaBuffer } from '../lib/tmlParser'
-import type { FrotaDisponibilidade } from '../types'
+import type { FrotaDisponibilidade, FrotaPlaca } from '../types'
 
 const TOOLTIP_STYLE = { borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12 }
 
@@ -50,19 +52,33 @@ async function upsertEmLotes(rows: FrotaDisponibilidadeInsert[]): Promise<string
   return null
 }
 
+// Cadastra placas novas em frota_placas (ativo=true, perfil em branco) sem
+// sobrescrever o que já existe — quem edita ativo/perfil é a tela de Placas.
+async function semearPlacas(filial: string, rows: { placa: string }[]) {
+  const placasUnicas = Array.from(new Set(rows.map(r => r.placa)))
+  const inserts = placasUnicas.map(placa => ({ filial, placa }))
+  for (let i = 0; i < inserts.length; i += 50) {
+    await supabase.from('frota_placas').upsert(inserts.slice(i, i + 50), { onConflict: 'filial,placa', ignoreDuplicates: true })
+  }
+}
+
 export default function Frota() {
   const { usuario } = useAuth()
   const [aba, setAba] = useState<'disponibilidade' | 'territorio'>('disponibilidade')
   const [registros, setRegistros] = useState<FrotaDisponibilidade[]>([])
   const [historicoTml, setHistoricoTml] = useState<HistoricoTmlRegiao[]>([])
+  const [placas, setPlacas] = useState<FrotaPlaca[]>([])
   const [carregando, setCarregando] = useState(true)
   const [uploadando, setUploadando] = useState(false)
   const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
+  const [diaTerritorio, setDiaTerritorio] = useState<string>('todos')
+  const [exportandoImg, setExportandoImg] = useState(false)
+  const exportRef = useRef<HTMLDivElement>(null)
 
   const carregarDados = useCallback(async () => {
     if (!usuario) return
     setCarregando(true)
-    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }] = await Promise.all([
+    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }, { data: dataPlacas }] = await Promise.all([
       supabase.from('frota_disponibilidade')
         .select('*')
         .eq('filial', usuario.filial)
@@ -75,6 +91,7 @@ export default function Frota() {
         .select('placa, data, regiao_entregas')
         .eq('filial', usuario.filial)
         .not('regiao_entregas', 'is', null),
+      supabase.from('frota_placas').select('*').eq('filial', usuario.filial),
     ])
     setRegistros((data ?? []) as FrotaDisponibilidade[])
     setHistoricoTml([
@@ -82,6 +99,7 @@ export default function Frota() {
       ...((dataTerritorioHist ?? []) as { placa: string | null; data: string | null; regiao_entregas: string | null }[])
         .map(r => ({ placa: r.placa, data_saida: r.data, regiao_entregas: r.regiao_entregas })),
     ])
+    setPlacas((dataPlacas ?? []) as FrotaPlaca[])
     setCarregando(false)
   }, [usuario])
 
@@ -105,6 +123,7 @@ export default function Frota() {
         if (erro) {
           setImportResult({ tipo: 'erro', mensagem: `Erro ao salvar: ${erro}` })
         } else {
+          await semearPlacas(usuario.filial, rows)
           setImportResult({ tipo: 'sucesso', mensagem: `✅ ${rows.length} placas importadas (${formatarDataBR(rows[0].data)}).` })
           await carregarDados()
         }
@@ -134,6 +153,7 @@ export default function Frota() {
       if (erro) {
         setImportResult({ tipo: 'erro', mensagem: `Erro ao salvar histórico: ${erro}` })
       } else {
+        await semearPlacas(usuario.filial, rowsDedup)
         const duplicados = rows.length - rowsDedup.length
         setImportResult({ tipo: 'sucesso', mensagem: `✅ ${rowsDedup.length} registros do histórico importados.${duplicados > 0 ? ` ${duplicados} linha(s) duplicada(s) foram ignoradas.` : ''}` })
         await carregarDados()
@@ -201,14 +221,33 @@ export default function Frota() {
     multiple: false,
   })
 
-  const resumos = resumoPorDia(registros)
+  async function exportarImagem() {
+    if (!exportRef.current) return
+    setExportandoImg(true)
+    try {
+      const canvas = await html2canvas(exportRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+      const url = canvas.toDataURL('image/png')
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `Frota_Disponibilidade_${(ultimo?.data ?? '').split('-').reverse().join('-')}.png`
+      a.click()
+    } finally {
+      setExportandoImg(false)
+    }
+  }
+
+  const registrosAtivos = useMemo(() => placasAtivasFiltro(registros, placas), [registros, placas])
+  const resumos = useMemo(() => resumoPorDia(registrosAtivos), [registrosAtivos])
   const ultimo = resumos[resumos.length - 1] ?? null
   const grafico = resumos.map(r => ({ data: formatarDataBR(r.data), percentual: r.percentual }))
-  const disponiveis = ultimo ? disponiveisNoDia(registros, ultimo.data) : []
-  const ranking = rankingIndisponibilidadePorPlaca(registros).filter(r => r.diasIndisponivel > 0)
-  const cruzamento = cruzarTerritorio(registros, historicoTml)
-  const comDado = cruzamento.filter(c => c.bate !== null)
-  const aderencia = comDado.length > 0 ? Math.round((comDado.filter(c => c.bate).length / comDado.length) * 100) : null
+  const disponiveis = ultimo ? disponiveisNoDia(registrosAtivos, ultimo.data) : []
+  const ranking = useMemo(() => rankingIndisponibilidadePorPlaca(registrosAtivos).filter(r => r.diasIndisponivel > 0), [registrosAtivos])
+  const perfis = ultimo ? resumoPorPerfil(registrosAtivos.filter(r => r.data === ultimo.data), placas) : []
+  const cruzamento = useMemo(() => cruzarTerritorio(registrosAtivos, historicoTml), [registrosAtivos, historicoTml])
+  const comDado = useMemo(() => cruzamento.filter(c => c.bate !== null), [cruzamento])
+  const diasComDado = useMemo(() => Array.from(new Set(comDado.map(c => c.data))).sort((a, b) => b.localeCompare(a)), [comDado])
+  const comDadoFiltrado = diaTerritorio === 'todos' ? comDado : comDado.filter(c => c.data === diaTerritorio)
+  const aderencia = comDadoFiltrado.length > 0 ? Math.round((comDadoFiltrado.filter(c => c.bate).length / comDadoFiltrado.length) * 100) : null
 
   return (
     <div className="p-8 max-w-6xl">
@@ -228,6 +267,9 @@ export default function Frota() {
           <h2 className="text-2xl font-bold text-gray-900">Frota</h2>
           {usuario && <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1"><Building2 size={12} /> {usuario.filial}</p>}
         </div>
+        <Link to="/distribuicao/frota/placas" className="flex items-center gap-2 text-sm text-gray-600 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50">
+          <Settings size={14} /> Cadastro de placas
+        </Link>
       </div>
 
       <div className="flex gap-4 mb-4 border-b border-gray-200">
@@ -273,7 +315,17 @@ export default function Frota() {
             </div>
           ) : (
             <>
-              <p className="text-xs text-gray-400">Último dia disponível: {formatarDataBR(ultimo.data)}</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs text-gray-400">Último dia disponível: {formatarDataBR(ultimo.data)}</p>
+                <button
+                  onClick={exportarImagem}
+                  disabled={exportandoImg}
+                  className="flex items-center gap-2 text-sm text-brand-700 border border-brand-200 px-3 py-1.5 rounded-lg hover:bg-brand-50 disabled:opacity-40"
+                >
+                  {exportandoImg ? <Loader2 size={14} className="animate-spin" /> : <Image size={14} />}
+                  Exportar resumo (imagem)
+                </button>
+              </div>
 
               <div className="grid sm:grid-cols-4 gap-4">
                 <Card icon={Truck} label="Frota Contratada" value={String(ultimo.contratada)} accent="text-brand-700 bg-brand-50" />
@@ -281,6 +333,23 @@ export default function Frota() {
                 <Card icon={XCircle} label="Indisponível" value={String(ultimo.indisponivel)} accent="text-red-700 bg-red-50" />
                 <Card icon={Truck} label="% Disponibilidade" value={`${ultimo.percentual}%`} accent="text-accent-600 bg-accent/40" />
               </div>
+
+              {perfis.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Disponibilidade por perfil ({formatarDataBR(ultimo.data)})</h3>
+                  <div className="grid sm:grid-cols-4 gap-3">
+                    {perfis.map(p => (
+                      <div key={p.perfil} className="border border-gray-100 rounded-lg p-3">
+                        <p className="text-xs font-medium text-gray-500 truncate">{p.perfil}</p>
+                        <p className="text-lg font-bold text-gray-900">{p.disponivel}<span className="text-xs font-normal text-gray-400">/{p.contratada}</span></p>
+                        <p className={`text-xs font-medium ${p.percentual >= 80 ? 'text-green-600' : p.percentual >= 60 ? 'text-amber-600' : 'text-red-600'}`}>{p.percentual}% disponível</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <FrotaExportTemplate ref={exportRef} filial={usuario?.filial ?? ''} resumo={ultimo} perfis={perfis} />
 
               <div className="grid lg:grid-cols-2 gap-5">
                 <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -356,27 +425,28 @@ export default function Frota() {
                   {ranking.length === 0 ? (
                     <p className="text-sm text-gray-400 py-6 text-center">Nenhuma indisponibilidade registrada no período.</p>
                   ) : (
-                    <div className="max-h-80 overflow-y-auto">
-                      <table className="w-full text-sm">
-                        <thead className="sticky top-0 bg-white">
-                          <tr className="border-b border-gray-100 text-xs text-gray-500">
-                            <th className="text-left py-2 font-medium">Placa</th>
-                            <th className="text-right py-2 font-medium">Dias Indisp.</th>
-                            <th className="text-right py-2 font-medium">% Indisp.</th>
-                            <th className="text-left py-2 font-medium">Principal motivo</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ranking.slice(0, 30).map(r => (
-                            <tr key={r.placa} className="border-b border-gray-50">
-                              <td className="py-2 text-gray-900 font-medium">{r.placa}</td>
-                              <td className="py-2 text-right text-red-700 font-medium">{r.diasIndisponivel}</td>
-                              <td className="py-2 text-right text-gray-600">{r.percentualIndisponibilidade}%</td>
-                              <td className="py-2 text-gray-600">{r.motivos[0]?.motivo ?? '—'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                    <div className="max-h-80 overflow-y-auto -mx-1">
+                      <div className="space-y-1.5 px-1">
+                        {ranking.slice(0, 30).map(r => {
+                          const sev = r.percentualIndisponibilidade >= 50 ? 'red' : r.percentualIndisponibilidade >= 25 ? 'amber' : 'gray'
+                          const sevClasses = sev === 'red'
+                            ? 'bg-red-50 text-red-700 border-red-200'
+                            : sev === 'amber'
+                              ? 'bg-amber-50 text-amber-700 border-amber-200'
+                              : 'bg-gray-50 text-gray-600 border-gray-200'
+                          return (
+                            <div key={r.placa} className="flex items-center gap-3 px-2.5 py-2 rounded-lg border border-gray-100">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-semibold text-gray-900">{r.placa}</p>
+                                <p className="text-xs text-gray-500 truncate">{r.diasIndisponivel} dia(s) indisponível · {r.motivos[0]?.motivo ?? '—'}</p>
+                              </div>
+                              <span className={`text-xs font-bold px-2 py-1 rounded-full border shrink-0 ${sevClasses}`}>
+                                {r.percentualIndisponibilidade}%
+                              </span>
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
@@ -407,16 +477,27 @@ export default function Frota() {
             <div className="flex items-center justify-center py-20 text-gray-400">
               <Loader2 size={24} className="animate-spin mr-2" /> Carregando dados...
             </div>
-          ) : cruzamento.length === 0 ? (
+          ) : comDado.length === 0 ? (
             <div className="text-center py-16 text-gray-400">
               <MapPinned size={40} className="mx-auto mb-3 opacity-40" />
-              <p className="text-sm">Nenhum dado para cruzar ainda. É preciso ter placas disponíveis com território (Frota) e a escala importada na tela TML (Carta de Controle).</p>
+              <p className="text-sm">Nenhuma placa roteirizada no PCD para cruzar ainda. É preciso ter placas disponíveis com território (Frota) e a escala importada na tela TML (Carta de Controle).</p>
             </div>
           ) : (
             <>
-              <div className="grid sm:grid-cols-3 gap-4">
-                <Card icon={MapPinned} label="Placas com território (disponíveis)" value={String(cruzamento.length)} accent="text-brand-700 bg-brand-50" />
-                <Card icon={CheckCircle2} label="Com dado do TML para comparar" value={String(comDado.length)} accent="text-accent-600 bg-accent/40" />
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-gray-500">Dia:</label>
+                <select
+                  value={diaTerritorio}
+                  onChange={e => setDiaTerritorio(e.target.value)}
+                  className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                >
+                  <option value="todos">Todos os dias</option>
+                  {diasComDado.map(d => <option key={d} value={d}>{formatarDataBR(d)}</option>)}
+                </select>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Card icon={CheckCircle2} label="Placas roteirizadas no PCD" value={String(comDadoFiltrado.length)} accent="text-accent-600 bg-accent/40" />
                 <Card
                   icon={aderencia !== null && aderencia >= 80 ? CheckCircle2 : XCircle}
                   label="% Aderência (território x execução)"
@@ -426,7 +507,7 @@ export default function Frota() {
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Cruzamento por placa/dia</h3>
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Cruzamento por placa/dia (somente placas roteirizadas no PCD)</h3>
                 <div className="max-h-[32rem] overflow-y-auto">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-white">
@@ -439,16 +520,14 @@ export default function Frota() {
                       </tr>
                     </thead>
                     <tbody>
-                      {cruzamento.map((c, i) => (
+                      {comDadoFiltrado.map((c, i) => (
                         <tr key={`${c.placa}-${c.data}-${i}`} className="border-b border-gray-50">
                           <td className="py-2 text-gray-600">{formatarDataBR(c.data)}</td>
                           <td className="py-2 text-gray-900 font-medium">{c.placa}</td>
                           <td className="py-2 text-gray-600">{c.territorio}</td>
                           <td className="py-2 text-gray-600">{c.regiaoEntregas ?? '—'}</td>
                           <td className="py-2 text-center">
-                            {c.bate === null ? (
-                              <span className="text-gray-400">—</span>
-                            ) : c.bate ? (
+                            {c.bate ? (
                               <CheckCircle2 size={16} className="inline text-green-600" />
                             ) : (
                               <XCircle size={16} className="inline text-red-600" />
@@ -467,3 +546,67 @@ export default function Frota() {
     </div>
   )
 }
+
+const FrotaExportTemplate = forwardRef<HTMLDivElement, {
+  filial: string
+  resumo: ResumoDiaFrota | null
+  perfis: ResumoPerfilFrota[]
+}>(function FrotaExportTemplate({ filial, resumo, perfis }, ref) {
+  const th: React.CSSProperties = { padding: '8px 12px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: 'left', whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '9px 12px', fontSize: '12px', verticalAlign: 'middle' }
+
+  if (!resumo) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
+
+  return (
+    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '600px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '20px' }}>
+        <div>
+          <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Frota</p>
+          <h1 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Resumo de Disponibilidade</h1>
+        </div>
+        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0 }}>{filial}<br />{formatarDataBR(resumo.data)}</p>
+      </div>
+
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+        {[
+          { label: 'Contratada', valor: resumo.contratada, cor: '#1e3a5f' },
+          { label: 'Disponível', valor: resumo.disponivel, cor: '#16a34a' },
+          { label: 'Indisponível', valor: resumo.indisponivel, cor: '#dc2626' },
+          { label: '% Disp.', valor: `${resumo.percentual}%`, cor: '#2563eb' },
+        ].map(c => (
+          <div key={c.label} style={{ flex: 1, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px', textAlign: 'center' }}>
+            <p style={{ fontSize: '10px', color: '#64748b', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{c.label}</p>
+            <p style={{ fontSize: '20px', fontWeight: 800, color: c.cor, margin: 0 }}>{c.valor}</p>
+          </div>
+        ))}
+      </div>
+
+      {perfis.length > 0 && (
+        <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0', marginBottom: '16px' }}>
+          <thead>
+            <tr style={{ background: '#1e3a5f' }}>
+              <th style={th}>Perfil</th>
+              <th style={{ ...th, textAlign: 'center' }}>Contratada</th>
+              <th style={{ ...th, textAlign: 'center' }}>Disponível</th>
+              <th style={{ ...th, textAlign: 'center' }}>% Disp.</th>
+            </tr>
+          </thead>
+          <tbody>
+            {perfis.map((p, i) => (
+              <tr key={p.perfil} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
+                <td style={{ ...td, fontWeight: 600, color: '#0f172a' }}>{p.perfil}</td>
+                <td style={{ ...td, textAlign: 'center' }}>{p.contratada}</td>
+                <td style={{ ...td, textAlign: 'center', color: '#16a34a', fontWeight: 700 }}>{p.disponivel}</td>
+                <td style={{ ...td, textAlign: 'center', fontWeight: 700 }}>{p.percentual}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div style={{ paddingTop: '10px', borderTop: '1px solid #e2e8f0', fontSize: '10px', color: '#94a3b8' }}>
+        Gerado em {formatarDataBR(resumo.data)}
+      </div>
+    </div>
+  )
+})
