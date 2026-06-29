@@ -94,6 +94,17 @@ export interface GsdpqColaborador {
   equipe: string | null
   funcao: string | null
   status: string
+  data_admissao: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface GsdpqSupervisor {
+  id: string
+  filial: string
+  equipe: string
+  nome: string
+  telefone: string
   created_at: string
   updated_at: string
 }
