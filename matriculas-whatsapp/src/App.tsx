@@ -110,8 +110,8 @@ export default function App() {
             <Route path="/distribuicao/tml/whatsapp" element={<DistribuicaoTMLWhatsappConfig />} />
             <Route path="/distribuicao/tml/parametros" element={<DistribuicaoTMLParametros />} />
             <Route path="/distribuicao/dto" element={<DtoDistribuicao />} />
-            <Route path="/distribuicao/frota" element={<Frota />} />
-            <Route path="/distribuicao/frota/placas" element={<FrotaPlacas />} />
+            <Route path="/frota" element={<Frota />} />
+            <Route path="/frota/placas" element={<FrotaPlacas />} />
             <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
             <Route path="/armazem/operadores" element={<ArmazemOperadores />} />
             <Route path="/armazem/dashboard" element={<ArmazemDashboard />} />
