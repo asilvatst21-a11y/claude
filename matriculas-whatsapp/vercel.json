@@ -9,8 +9,5 @@
   },
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ],
-  "crons": [
-    { "path": "/api/gsdpq-vencimentos-cron", "schedule": "0 9 * * *" }
   ]
 }

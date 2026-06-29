@@ -10,9 +10,11 @@ export const LIMITE_NOVATO_MESES = 3
 export const THRESHOLDS_CICLO_PADRAO = [45, 50, 55, 60]
 export const THRESHOLDS_CICLO_NOVATO = [15, 20, 25, 30]
 
+const FUNCOES_ELEGIVEIS = ['MOTORISTA DE DISTRIBUIÇÃO', 'AJUDANTE DE DISTRIBUIÇÃO']
+
 export function ehMotoristaOuAjudante(funcao: string | null): boolean {
-  const f = (funcao ?? '').toUpperCase()
-  return f.includes('MOTORISTA') || f.includes('AJUDANTE')
+  const f = (funcao ?? '').toUpperCase().trim()
+  return FUNCOES_ELEGIVEIS.includes(f)
 }
 
 export function mesesDeEmpresa(dataAdmissao: string, hoje: Date): number {

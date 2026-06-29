@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Loader2, Pencil, Phone, Plus, RefreshCw, Trash2, X } from 'lucide-react'
+import { ArrowLeft, AlertTriangle, CheckCircle2, Image, Loader2, Pencil, Phone, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
+import { listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import type { GsdpqSupervisor } from '../types'
 
 export default function GsdpqSupervisores() {
@@ -20,19 +22,65 @@ export default function GsdpqSupervisores() {
   const [equipe, setEquipe] = useState('')
   const [telefone, setTelefone] = useState('')
 
+  // Grupo de WhatsApp que recebe a imagem com os vencimentos (botão manual
+  // na aba Vencimentos — não há cron automático no plano atual do Vercel).
+  const [grupoVencimento, setGrupoVencimento] = useState('')
+  const [grupoOriginal, setGrupoOriginal] = useState('')
+  const [grupos, setGrupos] = useState<GrupoZApi[]>([])
+  const [buscandoGrupos, setBuscandoGrupos] = useState(false)
+  const [erroBuscaGrupos, setErroBuscaGrupos] = useState<string | null>(null)
+  const [salvandoGrupo, setSalvandoGrupo] = useState(false)
+  const [grupoSalvo, setGrupoSalvo] = useState(false)
+  const [copiado, setCopiado] = useState<string | null>(null)
+
   const fetchSupervisores = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
-    const { data } = await supabase
-      .from('gsdpq_supervisores')
-      .select('*')
-      .eq('filial', usuario.filial)
-      .order('equipe')
+    const [{ data }, { data: filialRow }] = await Promise.all([
+      supabase.from('gsdpq_supervisores').select('*').eq('filial', usuario.filial).order('equipe'),
+      supabase.from('filiais').select('grupo_gsdpq_whatsapp').eq('nome', usuario.filial).maybeSingle(),
+    ])
     setSupervisores(Array.isArray(data) ? data : [])
+    const g = filialRow?.grupo_gsdpq_whatsapp ?? ''
+    setGrupoVencimento(g)
+    setGrupoOriginal(g)
     setLoading(false)
   }, [usuario])
 
   useEffect(() => { fetchSupervisores() }, [fetchSupervisores])
+
+  async function buscarGrupos() {
+    setBuscandoGrupos(true)
+    setErroBuscaGrupos(null)
+    const { grupos: gs, erro: e } = await listarGrupos()
+    setBuscandoGrupos(false)
+    if (e) { setErroBuscaGrupos(e); return }
+    if (gs.length === 0) { setErroBuscaGrupos('Nenhum grupo encontrado nesta instância Z-API.'); return }
+    setGrupos(gs.sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  async function salvarGrupo() {
+    if (!usuario) return
+    setSalvandoGrupo(true)
+    setGrupoSalvo(false)
+    await supabase.from('filiais').update({ grupo_gsdpq_whatsapp: grupoVencimento.trim() || null }).eq('nome', usuario.filial)
+    setGrupoOriginal(grupoVencimento.trim())
+    setSalvandoGrupo(false)
+    setGrupoSalvo(true)
+    setTimeout(() => setGrupoSalvo(false), 2500)
+  }
+
+  async function copiarGrupo(id: string) {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopiado(id)
+      setTimeout(() => setCopiado((c) => (c === id ? null : c)), 1500)
+    } catch {
+      /* clipboard indisponível */
+    }
+  }
+
+  const grupoAlterado = grupoVencimento.trim() !== grupoOriginal
 
   function abrirCriar() {
     setEditando(null)
@@ -116,6 +164,51 @@ export default function GsdpqSupervisores() {
       </div>
 
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
+
+      <div className="border rounded-lg bg-white">
+        <div className="px-4 py-3 border-b flex items-center justify-between gap-2">
+          <div>
+            <h2 className="font-semibold text-sm flex items-center gap-1.5"><Image className="h-4 w-4" /> Grupo de WhatsApp — Vencimentos</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Recebe a imagem com todos os colaboradores a 15 dias ou menos do vencimento quando você clicar em "Gerar e enviar vencimentos" na aba Vencimentos.
+            </p>
+          </div>
+          <button
+            onClick={buscarGrupos}
+            disabled={buscandoGrupos}
+            className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50 shrink-0"
+          >
+            {buscandoGrupos ? <Loader2 className="h-4 w-4 animate-spin" /> : grupos.length > 0 ? <RefreshCw className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+            {buscandoGrupos ? 'Buscando…' : grupos.length > 0 ? 'Atualizar grupos' : 'Buscar grupos (Z-API)'}
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          {erroBuscaGrupos && (
+            <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-md p-3">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span className="break-all">{erroBuscaGrupos}</span>
+            </div>
+          )}
+          <GroupPicker
+            label="Grupo de vencimentos do GSD"
+            value={grupoVencimento}
+            onChange={setGrupoVencimento}
+            grupos={grupos}
+            onCopy={copiarGrupo}
+            copiado={copiado}
+          />
+          <div className="flex items-center justify-end gap-3">
+            {grupoSalvo && <span className="text-sm text-green-600 flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Salvo!</span>}
+            <button
+              onClick={salvarGrupo}
+              disabled={salvandoGrupo || !grupoAlterado}
+              className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-md font-medium transition-colors"
+            >
+              {salvandoGrupo ? 'Salvando…' : 'Salvar grupo'}
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="border rounded-lg bg-white">
         <div className="px-4 py-3 border-b">
