@@ -427,6 +427,7 @@ export interface HistoricoTmlRegiao {
   placa: string | null
   data_saida: string | null
   regiao_entregas: string | null
+  cidades_entregas: string | null
 }
 
 export interface CruzamentoTerritorioItem {
@@ -449,10 +450,15 @@ export function cruzarTerritorio(
 ): CruzamentoTerritorioItem[] {
   const regioesPorPlacaData = new Map<string, string[]>()
   for (const h of historicoTml) {
-    if (!h.placa || !h.data_saida || !h.regiao_entregas) continue
+    if (!h.placa || !h.data_saida) continue
+    if (!h.regiao_entregas && !h.cidades_entregas) continue
     const key = `${h.placa}|${h.data_saida}`
     if (!regioesPorPlacaData.has(key)) regioesPorPlacaData.set(key, [])
-    regioesPorPlacaData.get(key)!.push(h.regiao_entregas)
+    // Mescla "Região +Entregas" com "Cidades +Entregas": algumas rotas só têm
+    // o bairro do território identificável no texto de cidades, e comparar
+    // apenas a região fazia o cruzamento marcar NOK indevidamente.
+    if (h.regiao_entregas) regioesPorPlacaData.get(key)!.push(h.regiao_entregas)
+    if (h.cidades_entregas) regioesPorPlacaData.get(key)!.push(h.cidades_entregas)
   }
 
   return frotaRows
