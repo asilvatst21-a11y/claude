@@ -379,7 +379,7 @@ export default function Frota() {
                     {perfis.map(p => (
                       <div key={p.perfil} className="border border-gray-100 rounded-lg p-3">
                         <p className="text-xs font-medium text-gray-500 truncate">{p.perfil}</p>
-                        <p className="text-lg font-bold text-gray-900">{p.disponivel}<span className="text-xs font-normal text-gray-400">/{p.contratada}</span></p>
+                        <p className="text-lg font-bold text-gray-900">{p.disponivel}<span className="text-xs font-normal text-gray-400">/{p.ativo}</span></p>
                         <p className={`text-xs font-medium ${p.percentual >= 80 ? 'text-green-600' : p.percentual >= 60 ? 'text-amber-600' : 'text-red-600'}`}>{p.percentual}% disponível</p>
                       </div>
                     ))}
@@ -736,7 +736,7 @@ const FrotaExportTemplate = forwardRef<HTMLDivElement, {
           <thead>
             <tr style={{ background: '#1e3a5f' }}>
               <th style={th}>Perfil</th>
-              <th style={{ ...th, textAlign: 'center' }}>Contratada</th>
+              <th style={{ ...th, textAlign: 'center' }}>Ativo</th>
               <th style={{ ...th, textAlign: 'center' }}>Disponível</th>
               <th style={{ ...th, textAlign: 'center' }}>% Disp.</th>
             </tr>
@@ -745,7 +745,7 @@ const FrotaExportTemplate = forwardRef<HTMLDivElement, {
             {perfis.map((p, i) => (
               <tr key={p.perfil} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
                 <td style={{ ...td, fontWeight: 600, color: '#0f172a' }}>{p.perfil}</td>
-                <td style={{ ...td, textAlign: 'center' }}>{p.contratada}</td>
+                <td style={{ ...td, textAlign: 'center' }}>{p.ativo}</td>
                 <td style={{ ...td, textAlign: 'center', color: '#16a34a', fontWeight: 700 }}>{p.disponivel}</td>
                 <td style={{ ...td, textAlign: 'center', fontWeight: 700 }}>{p.percentual}%</td>
               </tr>
