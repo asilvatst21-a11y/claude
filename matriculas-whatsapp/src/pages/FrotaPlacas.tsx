@@ -23,6 +23,13 @@ export default function FrotaPlacas() {
   // (botão manual na aba Fixação de Motorista de /frota).
   const [grupoFixacao, setGrupoFixacao] = useState('')
   const [grupoFixacaoOriginal, setGrupoFixacaoOriginal] = useState('')
+  // Telefone do supervisor de frota que recebe o resumo de aderência do dia
+  // assim que todas as divergências do dia forem justificadas pelos
+  // supervisores de sala (disparo automático pelo webhook, sem botão manual).
+  const [telefoneSupervisorFrota, setTelefoneSupervisorFrota] = useState('')
+  const [telefoneSupervisorFrotaOriginal, setTelefoneSupervisorFrotaOriginal] = useState('')
+  const [salvandoTelefoneSupervisorFrota, setSalvandoTelefoneSupervisorFrota] = useState(false)
+  const [telefoneSupervisorFrotaSalvo, setTelefoneSupervisorFrotaSalvo] = useState(false)
   const [grupos, setGrupos] = useState<GrupoZApi[]>([])
   const [buscandoGrupos, setBuscandoGrupos] = useState(false)
   const [erroBuscaGrupos, setErroBuscaGrupos] = useState<string | null>(null)
@@ -37,7 +44,7 @@ export default function FrotaPlacas() {
     setLoading(true)
     const [{ data }, { data: filialRow }] = await Promise.all([
       supabase.from('frota_placas').select('*').eq('filial', usuario.filial).order('placa'),
-      supabase.from('filiais').select('grupo_frota_whatsapp, grupo_fixacao_motorista_whatsapp').eq('nome', usuario.filial).maybeSingle(),
+      supabase.from('filiais').select('grupo_frota_whatsapp, grupo_fixacao_motorista_whatsapp, telefone_supervisor_frota').eq('nome', usuario.filial).maybeSingle(),
     ])
     setPlacas((data ?? []) as FrotaPlaca[])
     const g = filialRow?.grupo_frota_whatsapp ?? ''
@@ -46,6 +53,9 @@ export default function FrotaPlacas() {
     const gf = filialRow?.grupo_fixacao_motorista_whatsapp ?? ''
     setGrupoFixacao(gf)
     setGrupoFixacaoOriginal(gf)
+    const tsf = filialRow?.telefone_supervisor_frota ?? ''
+    setTelefoneSupervisorFrota(tsf)
+    setTelefoneSupervisorFrotaOriginal(tsf)
     setLoading(false)
   }, [usuario])
 
@@ -83,6 +93,17 @@ export default function FrotaPlacas() {
     setTimeout(() => setGrupoFixacaoSalvo(false), 2500)
   }
 
+  async function salvarTelefoneSupervisorFrota() {
+    if (!usuario) return
+    setSalvandoTelefoneSupervisorFrota(true)
+    setTelefoneSupervisorFrotaSalvo(false)
+    await supabase.from('filiais').update({ telefone_supervisor_frota: telefoneSupervisorFrota.trim() || null }).eq('nome', usuario.filial)
+    setTelefoneSupervisorFrotaOriginal(telefoneSupervisorFrota.trim())
+    setSalvandoTelefoneSupervisorFrota(false)
+    setTelefoneSupervisorFrotaSalvo(true)
+    setTimeout(() => setTelefoneSupervisorFrotaSalvo(false), 2500)
+  }
+
   async function copiarGrupo(id: string) {
     try {
       await navigator.clipboard.writeText(id)
@@ -95,6 +116,7 @@ export default function FrotaPlacas() {
 
   const grupoAlterado = grupoFrota.trim() !== grupoOriginal
   const grupoFixacaoAlterado = grupoFixacao.trim() !== grupoFixacaoOriginal
+  const telefoneSupervisorFrotaAlterado = telefoneSupervisorFrota.trim() !== telefoneSupervisorFrotaOriginal
 
   async function atualizar(id: string, campos: Partial<Pick<FrotaPlaca, 'ativo' | 'perfil' | 'matricula_motorista' | 'matricula_motorista_2'>>) {
     setPlacas(ps => ps.map(p => (p.id === id ? { ...p, ...campos } : p)))
@@ -211,6 +233,32 @@ export default function FrotaPlacas() {
             >
               {salvandoGrupoFixacao ? 'Salvando…' : 'Salvar grupo'}
             </button>
+          </div>
+
+          <div className="pt-3 border-t space-y-2">
+            <label className="text-sm font-medium">Telefone do supervisor de frota</label>
+            <p className="text-xs text-muted-foreground">
+              Recebe automaticamente o resumo de aderência do dia (geral, por sala e
+              placas com divergência) assim que todas as justificativas do dia forem
+              registradas pelos supervisores de sala. Use o formato DDD + número, sem o 55.
+            </p>
+            <input
+              type="text"
+              value={telefoneSupervisorFrota}
+              onChange={(e) => setTelefoneSupervisorFrota(e.target.value)}
+              placeholder="Ex: 11999998888"
+              className="w-full px-3 py-2 border rounded-md text-sm"
+            />
+            <div className="flex items-center justify-end gap-3">
+              {telefoneSupervisorFrotaSalvo && <span className="text-sm text-green-600 flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Salvo!</span>}
+              <button
+                onClick={salvarTelefoneSupervisorFrota}
+                disabled={salvandoTelefoneSupervisorFrota || !telefoneSupervisorFrotaAlterado}
+                className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-md font-medium transition-colors"
+              >
+                {salvandoTelefoneSupervisorFrota ? 'Salvando…' : 'Salvar telefone'}
+              </button>
+            </div>
           </div>
         </div>
       </div>
