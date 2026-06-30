@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
+} from 'recharts'
+import {
   AlertTriangle, ArrowLeft, BarChart2, Building2, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Loader2, Settings, Target, TrendingUp, Truck,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
@@ -14,6 +17,7 @@ import {
 import type { FrotaDisponibilidade, FrotaPlaca, FrotaIVTratativa } from '../types'
 
 const MESES_PT = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+const TOOLTIP_STYLE = { borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12 }
 
 function farolClasses(farol: 'verde' | 'amarelo' | 'vermelho') {
   return farol === 'verde'
@@ -72,12 +76,17 @@ export default function FrotaIV() {
   const ultimoDia: DuDia | null = duPorDia[duPorDia.length - 1] ?? null
   const acumuladoMesAtual = useMemo(() => calcularDuAcumulado(duPorDia, mesSel.ano, mesSel.mes), [duPorDia, mesSel])
   const evolucaoMeses = useMemo(() => calcularDuMeses(duPorDia, 6), [duPorDia])
+  const duDiarioMes = useMemo(() => {
+    const prefixo = `${mesSel.ano}-${String(mesSel.mes).padStart(2, '0')}`
+    return duPorDia.filter(d => d.data.startsWith(prefixo)).map(d => ({ data: formatarDataBR(d.data), percentual: d.percentual }))
+  }, [duPorDia, mesSel])
   const rankingMotivos = useMemo(() => rankingMotivosVucMes(registrosAtivos, placas, mesSel.ano, mesSel.mes, tratativas), [registrosAtivos, placas, mesSel, tratativas])
   const rankingAusencia = useMemo(() => rankingVucAusenciaMes(registrosAtivos, placas, mesSel.ano, mesSel.mes), [registrosAtivos, placas, mesSel])
 
   const diaSel = diaTratativa || ultimoDia?.data || ''
   const statusVucsDia = useMemo(() => vucStatusNoDia(registrosAtivos, placas, diaSel, tratativas), [registrosAtivos, placas, diaSel, tratativas])
   const indisponiveisDia = statusVucsDia.filter(v => !v.disponivel)
+  const duDiaSel = useMemo(() => duPorDia.find(d => d.data === diaSel) ?? null, [duPorDia, diaSel])
 
   const projecao = useMemo(
     () => calcularProjecaoDu(ultimoDia, ultimoDia ? vucStatusNoDia(registrosAtivos, placas, ultimoDia.data, tratativas) : [], tratativas),
@@ -130,7 +139,10 @@ export default function FrotaIV() {
           <Link to="/frota" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-1">
             <ArrowLeft className="h-4 w-4" /> Voltar
           </Link>
-          <h2 className="text-2xl font-bold text-gray-900">IV da Frota — DU</h2>
+          <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            IV da Frota — DU
+            <span className="text-xs font-medium text-gray-400 border border-gray-200 rounded-full px-2 py-0.5">Disponibilidade de VUC</span>
+          </h2>
           <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
             {usuario && <><Building2 size={12} /> {usuario.filial} ·</>} Disponibilidade de Unidades (VUCs) · meta {META_DU}%
           </p>
@@ -210,6 +222,25 @@ export default function FrotaIV() {
               <div className={`h-full ${corFarolMes.bar} transition-all`} style={{ width: `${Math.min(acumuladoMesAtual.mediaPercentual, 100)}%` }} />
               <div className="absolute top-0 bottom-0 border-l-2 border-dashed border-gray-500" style={{ left: `${META_DU}%` }} title={`Meta ${META_DU}%`} />
             </div>
+          </div>
+
+          {/* % DU dia a dia */}
+          <div className="bg-white rounded-xl border border-gray-200 p-4">
+            <h3 className="text-sm font-semibold text-gray-700 mb-3">% DU dia a dia</h3>
+            {duDiarioMes.length === 0 ? (
+              <p className="text-sm text-gray-400 py-6 text-center">Nenhum dado de DU neste mês.</p>
+            ) : (
+              <ResponsiveContainer width="100%" height={260}>
+                <ComposedChart data={duDiarioMes}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                  <XAxis dataKey="data" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="%" />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} />
+                  <ReferenceLine y={META_DU} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: `Meta ${META_DU}%`, fontSize: 10, fill: '#64748b', position: 'insideTopLeft' }} />
+                  <Line type="monotone" dataKey="percentual" name="% DU" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            )}
           </div>
 
           {/* Evolução mês x mês */}
@@ -344,6 +375,15 @@ export default function FrotaIV() {
             <span className="text-xs text-gray-400 ml-2">
               {indisponiveisDia.length} VUC(s) indisponível(is) de {statusVucsDia.length}
             </span>
+            {duDiaSel && (() => {
+              const farol = farolDu(duDiaSel.percentual)
+              const cor = farolClasses(farol)
+              return (
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ml-auto ${cor.bg} ${cor.text} ${cor.border}`}>
+                  Aderência do dia: {duDiaSel.percentual}% ({duDiaSel.disponiveis}/{duDiaSel.totalVuc})
+                </span>
+              )
+            })()}
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
