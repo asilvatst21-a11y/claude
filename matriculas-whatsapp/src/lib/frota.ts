@@ -501,6 +501,58 @@ export function cruzarTerritorio(
     .sort((a, b) => b.data.localeCompare(a.data) || a.placa.localeCompare(b.placa))
 }
 
+export interface TrocaTerritorioItem {
+  data: string
+  placaA: string
+  territorioA: string
+  executadoA: string | null
+  placaB: string
+  territorioB: string
+  executadoB: string | null
+}
+
+// Identifica possíveis trocas de roteirização: duas placas NOK no mesmo dia
+// em que o território de A bate com o que B executou e vice-versa (ex.: A
+// foi disponibilizada para Itaipava mas rodou em Corrêas, e B foi
+// disponibilizada para Corrêas mas rodou em Itaipava). Isso aponta um erro
+// do roteirizador (trocou os mapas entre as duas placas), não uma falha real
+// de fixação de território — serve de causa-raiz para o indicador.
+export function detectarTrocasTerritorio(cruzamento: CruzamentoTerritorioItem[]): TrocaTerritorioItem[] {
+  const nok = cruzamento.filter(c => c.bate === false && c.regiaoEntregas)
+  const porDia = new Map<string, CruzamentoTerritorioItem[]>()
+  for (const c of nok) {
+    if (!porDia.has(c.data)) porDia.set(c.data, [])
+    porDia.get(c.data)!.push(c)
+  }
+
+  const resultado: TrocaTerritorioItem[] = []
+  for (const [data, itens] of porDia) {
+    const usadas = new Set<string>()
+    for (let i = 0; i < itens.length; i++) {
+      if (usadas.has(itens[i].placa)) continue
+      for (let j = i + 1; j < itens.length; j++) {
+        const a = itens[i]
+        const b = itens[j]
+        if (a.placa === b.placa || usadas.has(b.placa)) continue
+        const aBateComB = bairroBateNaRegiao(a.territorio, [b.regiaoEntregas ?? ''])
+        const bBateComA = bairroBateNaRegiao(b.territorio, [a.regiaoEntregas ?? ''])
+        if (aBateComB && bBateComA) {
+          resultado.push({
+            data,
+            placaA: a.placa, territorioA: a.territorio, executadoA: a.regiaoEntregas,
+            placaB: b.placa, territorioB: b.territorio, executadoB: b.regiaoEntregas,
+          })
+          usadas.add(a.placa)
+          usadas.add(b.placa)
+          break
+        }
+      }
+    }
+  }
+
+  return resultado.sort((a, b) => b.data.localeCompare(a.data))
+}
+
 // ─── IV da Frota — DU (Disponibilidade de Unidades) ────────────────────────
 // Meta: 80% dos VUCs ativos disponíveis para rota. Diferente do resumo geral
 // (resumoPorDia), aqui o denominador é SEMPRE o total de VUCs ativos do

@@ -12,7 +12,7 @@ import { formatarDataBR } from '../lib/utils'
 import { enviarImagemGrupo } from '../lib/zapi'
 import {
   parseDisponibilidadeDiariaCsv, parseHistoricoXlsx, resumoPorDia, disponiveisNoDia,
-  rankingIndisponibilidadePorPlaca, cruzarTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia, matrizDisponibilidade,
+  rankingIndisponibilidadePorPlaca, cruzarTerritorio, detectarTrocasTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia, matrizDisponibilidade,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
 } from '../lib/frota'
 import { parseEscalaBuffer } from '../lib/tmlParser'
@@ -73,6 +73,7 @@ export default function Frota() {
   const [uploadando, setUploadando] = useState(false)
   const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
   const [diaTerritorio, setDiaTerritorio] = useState<string>('todos')
+  const [statusTerritorio, setStatusTerritorio] = useState<'todos' | 'ok' | 'nok'>('todos')
   const [exportandoImg, setExportandoImg] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
   const exportPlacasRef = useRef<HTMLDivElement>(null)
@@ -283,6 +284,8 @@ export default function Frota() {
   const diasComDado = useMemo(() => Array.from(new Set(comDado.map(c => c.data))).sort((a, b) => b.localeCompare(a)), [comDado])
   const comDadoFiltrado = diaTerritorio === 'todos' ? comDado : comDado.filter(c => c.data === diaTerritorio)
   const aderencia = comDadoFiltrado.length > 0 ? Math.round((comDadoFiltrado.filter(c => c.bate).length / comDadoFiltrado.length) * 100) : null
+  const linhasExibidas = statusTerritorio === 'todos' ? comDadoFiltrado : comDadoFiltrado.filter(c => statusTerritorio === 'ok' ? c.bate : !c.bate)
+  const trocas = useMemo(() => detectarTrocasTerritorio(comDadoFiltrado), [comDadoFiltrado])
 
   return (
     <div className="p-8 max-w-6xl">
@@ -523,16 +526,39 @@ export default function Frota() {
             </div>
           ) : (
             <>
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-medium text-gray-500">Dia:</label>
-                <select
-                  value={diaTerritorio}
-                  onChange={e => setDiaTerritorio(e.target.value)}
-                  className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
-                >
-                  <option value="todos">Todos os dias</option>
-                  {diasComDado.map(d => <option key={d} value={d}>{formatarDataBR(d)}</option>)}
-                </select>
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-gray-500">Dia:</label>
+                  <select
+                    value={diaTerritorio}
+                    onChange={e => setDiaTerritorio(e.target.value)}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  >
+                    <option value="todos">Todos os dias</option>
+                    {diasComDado.map(d => <option key={d} value={d}>{formatarDataBR(d)}</option>)}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-gray-500">Status:</label>
+                  <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+                    {([
+                      ['todos', 'Todos'],
+                      ['ok', 'OK'],
+                      ['nok', 'NOK'],
+                    ] as const).map(([valor, rotulo]) => (
+                      <button
+                        key={valor}
+                        onClick={() => setStatusTerritorio(valor)}
+                        className={`px-3 py-1.5 font-medium transition-colors ${
+                          statusTerritorio === valor ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {rotulo}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4">
@@ -544,6 +570,30 @@ export default function Frota() {
                   accent={aderencia !== null && aderencia >= 80 ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}
                 />
               </div>
+
+              {trocas.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                  <h3 className="text-sm font-semibold text-amber-800 mb-1 flex items-center gap-1.5">
+                    <MapPinned size={16} /> Possíveis trocas de roteirização ({trocas.length})
+                  </h3>
+                  <p className="text-xs text-amber-700 mb-3">
+                    Pares de placas NOK no mesmo dia em que o território de uma bateu com o que a outra executou (e
+                    vice-versa) — indício de erro do roteirizador (mapas trocados entre as placas), não de falha real
+                    de fixação.
+                  </p>
+                  <div className="space-y-2">
+                    {trocas.map((t, i) => (
+                      <div key={`${t.data}-${t.placaA}-${t.placaB}-${i}`} className="bg-white rounded-lg border border-amber-100 p-3 text-xs">
+                        <p className="text-gray-500 mb-1.5">{formatarDataBR(t.data)}</p>
+                        <div className="grid sm:grid-cols-2 gap-2">
+                          <p><span className="font-semibold text-gray-900">{t.placaA}</span> — disponibilizada p/ {t.territorioA}, rodou em {t.executadoA}</p>
+                          <p><span className="font-semibold text-gray-900">{t.placaB}</span> — disponibilizada p/ {t.territorioB}, rodou em {t.executadoB}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <h3 className="text-sm font-semibold text-gray-700 mb-3">Cruzamento por placa/dia (somente placas roteirizadas no PCD)</h3>
@@ -559,7 +609,7 @@ export default function Frota() {
                       </tr>
                     </thead>
                     <tbody>
-                      {comDadoFiltrado.map((c, i) => (
+                      {linhasExibidas.map((c, i) => (
                         <tr key={`${c.placa}-${c.data}-${i}`} className="border-b border-gray-50">
                           <td className="py-2 text-gray-600">{formatarDataBR(c.data)}</td>
                           <td className="py-2 text-gray-900 font-medium">{c.placa}</td>
