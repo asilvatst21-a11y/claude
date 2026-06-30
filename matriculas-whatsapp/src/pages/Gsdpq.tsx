@@ -206,6 +206,15 @@ interface SelectedItem {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
+// data_avaliacao pode vir em ISO (yyyy-mm-dd) ou dd/mm/yyyy — nunca ordenar
+// como string pura, pois isso embaralha a ordem cronológica real.
+function parseDataAvaliacaoTs(s: string): number {
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return new Date(s.slice(0, 10) + 'T00:00:00').getTime()
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (m) return new Date(`${m[3]}-${m[2]}-${m[1]}T00:00:00`).getTime()
+  return 0
+}
+
 function parseGsdpqExcel(buffer: ArrayBuffer): { rows: Omit<GsdpqAvaliacao, 'id' | 'created_at' | 'colaborador_id'>[]; questoes: string[] } {
   const wb = XLSX.read(buffer)
   const ws = wb.Sheets[wb.SheetNames[0]]
@@ -300,7 +309,7 @@ function calcularResumos(avaliacoes: GsdpqAvaliacao[], questoes: string[]): Resu
       .map(([questao, vezes]) => ({ questao, vezes }))
       .sort((a, b) => b.vezes - a.vezes)
 
-    const datasOrdenadas = Object.keys(avaliacoesPorData).sort()
+    const datasOrdenadas = Object.keys(avaliacoesPorData).sort((a, b) => parseDataAvaliacaoTs(b) - parseDataAvaliacaoTs(a))
     const evolucao = datasOrdenadas.map(data => {
       const nosNaData = questoes.filter(q => {
         const av = avs.find(a => a.data_avaliacao === data && a.questao === q)
@@ -456,7 +465,7 @@ function ColaboradorRow({
   const [selectedNOs, setSelectedNOs] = useState<Record<string, Set<string>>>({})
   const [submitting, setSubmitting] = useState<string | null>(null)
 
-  const datasOrdenadas = Object.keys(r.avaliacoesPorData).sort()
+  const datasOrdenadas = Object.keys(r.avaliacoesPorData).sort((a, b) => parseDataAvaliacaoTs(b) - parseDataAvaliacaoTs(a))
   const acoesColaborador = acoes.filter(a => a.colaborador_nome === r.nome)
 
   function toggleNO(data: string, questao: string) {
