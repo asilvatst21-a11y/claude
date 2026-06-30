@@ -435,6 +435,7 @@ function ModalRegistrarAcao({ modal, acaoExistente, onClose, onSalvar }: {
 
 function ColaboradorRow({
   r,
+  dataAdmissao,
   avaliacoes,
   acoes,
   onRegistrarAcao,
@@ -443,6 +444,7 @@ function ColaboradorRow({
   onPedirComentario,
 }: {
   r: ResumoColaborador
+  dataAdmissao: string | null
   avaliacoes: GsdpqAvaliacao[]
   acoes: GsdpqAcao[]
   onRegistrarAcao: (modal: ModalAcao) => void
@@ -477,6 +479,7 @@ function ColaboradorRow({
             </div>
           </div>
         </td>
+        <td className="px-4 py-3 text-sm text-gray-600">{dataAdmissao ? formatarDataBR(dataAdmissao) : '—'}</td>
         <td className="px-4 py-3 text-center text-sm text-gray-700">{r.totalAvaliacoes}</td>
         <td className="px-4 py-3 text-center">
           <span className={`text-sm font-bold ${r.totalNO > 0 ? 'text-red-600' : 'text-gray-400'}`}>{r.totalNO}</span>
@@ -500,7 +503,7 @@ function ColaboradorRow({
 
       {open && (
         <tr>
-          <td colSpan={6} className="bg-gray-50 border-b border-gray-200 px-6 py-5">
+          <td colSpan={7} className="bg-gray-50 border-b border-gray-200 px-6 py-5">
             <div className="space-y-5">
 
               {r.evolucao.length > 1 && (
@@ -1420,6 +1423,7 @@ export default function Gsdpq() {
                 <thead className="bg-gray-50 border-b border-gray-200">
                   <tr>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">Colaborador</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">Admissão</th>
                     <th className="text-center px-4 py-3 font-medium text-gray-600">Aval.</th>
                     <th className="text-center px-4 py-3 font-medium text-gray-600">NOs</th>
                     <th className="text-center px-4 py-3 font-medium text-gray-600">Reinc.</th>
@@ -1428,9 +1432,19 @@ export default function Gsdpq() {
                   </tr>
                 </thead>
                 <tbody>
-                  {resumos.length === 0 && <tr><td colSpan={6} className="text-center py-10 text-gray-400">Nenhum dado</td></tr>}
+                  {resumos.length === 0 && <tr><td colSpan={7} className="text-center py-10 text-gray-400">Nenhum dado</td></tr>}
                   {resumos.map(r => (
-                    <ColaboradorRow key={r.nome} r={r} avaliacoes={avaliacoesFiltradas} acoes={acoes} onRegistrarAcao={setModalAcao} onEnviarFluxo={enviarFluxoDia} onOrientacaoVerbal={orientacaoVerbalDia} onPedirComentario={pedirComentario} />
+                    <ColaboradorRow
+                      key={r.nome}
+                      r={r}
+                      dataAdmissao={colaboradores.find(c => c.nome === r.nome)?.data_admissao ?? null}
+                      avaliacoes={avaliacoesFiltradas}
+                      acoes={acoes}
+                      onRegistrarAcao={setModalAcao}
+                      onEnviarFluxo={enviarFluxoDia}
+                      onOrientacaoVerbal={orientacaoVerbalDia}
+                      onPedirComentario={pedirComentario}
+                    />
                   ))}
                 </tbody>
               </table>
