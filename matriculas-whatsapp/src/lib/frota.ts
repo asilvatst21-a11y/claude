@@ -998,7 +998,7 @@ export function calcularAderenciaMotoristaMeses(porDia: AderenciaMotoristaDia[],
 // Opções de motivo enviadas como lista clicável ao supervisor na solicitação
 // de justificativa da Fixação de Motorista. "OUTRO" não finaliza o alerta —
 // pede uma resposta escrita, capturada pelo fluxo de texto livre do webhook.
-export const MOTIVOS_FIXACAO_MOTORISTA = ['ABS DE MOTORISTA', 'ROTA GRADATIVA', 'PLACA EM MANUTENÇÃO', 'MAPA VIRADO', 'ROTA CRÍTICA', 'OUTRO']
+export const MOTIVOS_FIXACAO_MOTORISTA = ['ABS DE MOTORISTA', 'ROTA GRADATIVA', 'PLACA EM MANUTENÇÃO', 'MAPA VIRADO', 'ROTA CRÍTICA', 'ERRO DE ROTEIRIZAÇÃO', 'OUTRO']
 
 async function gerarNumeroFixacao(filial: string): Promise<string> {
   const { count } = await supabase
@@ -1015,19 +1015,18 @@ function montarMensagemFixacaoMotorista(item: {
   placa: string
   data: string
   sala: string
-  matriculaExecutou: number
   nomeExecutou: string | null
-  matriculaEsperada1: string | null
-  matriculaEsperada2: string | null
+  nomeEsperada1: string | null
+  nomeEsperada2: string | null
 }): string {
-  const esperados = [item.matriculaEsperada1, item.matriculaEsperada2].filter(Boolean).join(' ou ')
+  const esperados = [item.nomeEsperada1, item.nomeEsperada2].filter(Boolean).join(' ou ')
   return (
     `⚠️ *FIXAÇÃO DE MOTORISTA — DIVERGÊNCIA*\n\n` +
     `🚛 Placa: ${item.placa}\n` +
     `📅 Data: ${formatarDataBR(item.data)}\n` +
     `🏢 Sala: ${item.sala}\n` +
-    `👤 Motorista que rodou: ${item.nomeExecutou ?? '—'} (matrícula ${item.matriculaExecutou})\n` +
-    `📌 Motorista(s) fixado(s) na placa: matrícula ${esperados || '—'}\n\n` +
+    `👤 Motorista que rodou: ${item.nomeExecutou ?? '—'}\n` +
+    `📌 Motorista(s) fixado(s) na placa: ${esperados || '—'}\n\n` +
     `A placa rodou com um motorista diferente do fixado. *Selecione abaixo o motivo da divergência*:`
   )
 }
@@ -1064,6 +1063,15 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
     .in('placa', nokUnico.map((c) => c.placa))
   const jaAlertados = new Set((existentes ?? []).map((a) => `${a.placa}|${a.data}`))
 
+  // frota_placas só guarda a matrícula do motorista fixado, não o nome — o
+  // nome é resolvido pelo roster cadastrado (motoristas_sala_tml), única
+  // fonte confiável mesmo quando o fixado está ausente no dia da divergência.
+  const matriculasEsperadas = [...new Set(nokUnico.flatMap((c) => [c.matriculaEsperada1, c.matriculaEsperada2]).filter((m): m is string => !!m))]
+  const { data: roster } = matriculasEsperadas.length
+    ? await supabase.from('motoristas_sala_tml').select('matricula, nome').eq('filial', filial).in('matricula', matriculasEsperadas.map(Number))
+    : { data: [] as { matricula: number; nome: string }[] }
+  const nomePorMatricula = new Map((roster ?? []).map((r) => [String(r.matricula), r.nome]))
+
   for (const item of nokUnico) {
     if (jaAlertados.has(`${item.placa}|${item.data}`)) continue
 
@@ -1073,7 +1081,11 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
       .eq('filial', filial)
       .eq('sala', item.sala)
 
-    const mensagem = montarMensagemFixacaoMotorista(item)
+    const mensagem = montarMensagemFixacaoMotorista({
+      ...item,
+      nomeEsperada1: item.matriculaEsperada1 ? nomePorMatricula.get(item.matriculaEsperada1) ?? null : null,
+      nomeEsperada2: item.matriculaEsperada2 ? nomePorMatricula.get(item.matriculaEsperada2) ?? null : null,
+    })
     const numero = await gerarNumeroFixacao(filial)
 
     if (!supervisores?.length) {
