@@ -1127,6 +1127,35 @@ async function registrarRespostaSupervisorFixacaoMotorista(alertaId: string, tex
   return { ok: true, action: 'resposta-registrada' }
 }
 
+// Clique num motivo da lista enviada na Fixação de Motorista. Finaliza o
+// alerta direto com o motivo escolhido — "OUTRO" é tratado à parte (pede
+// resposta escrita em vez de finalizar aqui).
+async function registrarJustificativaFixacaoMotorista(alertaId: string, motivo: string, remetente: string): Promise<{ ok: boolean; action: string }> {
+  const { data: alerta } = await supabase
+    .from('alertas_fixacao_motorista')
+    .select('id, numero, status')
+    .eq('id', alertaId)
+    .maybeSingle()
+
+  if (!alerta) {
+    await enviar(remetente, '⚠️ Não encontrei esse alerta no sistema.')
+    return { ok: true, action: 'alert-not-found' }
+  }
+  if (alerta.status === 'justificado') {
+    await enviar(remetente, `ℹ️ O alerta ${alerta.numero ?? ''} já estava justificado.`)
+    return { ok: true, action: 'already-justified' }
+  }
+
+  await supabase.from('alertas_fixacao_motorista').update({
+    justificativa: motivo,
+    status: 'justificado',
+    justificado_em: new Date().toISOString(),
+  }).eq('id', alertaId)
+
+  await enviar(remetente, `✅ Motivo registrado no sistema: *${motivo}*`)
+  return { ok: true, action: 'justificado' }
+}
+
 // Passo 2 da justificativa: escolhida a área (UGC), manda a lista de motivos
 // daquela área. Pagina de 9 em 9 (limite ~10 linhas da lista do WhatsApp),
 // acrescentando uma linha "Ver mais" quando ainda houver motivos.
@@ -1236,6 +1265,18 @@ async function tratarTml(body: any, remetente: string): Promise<{ ok: boolean; a
     const motivo = resto.slice(37).trim()
     if (!alertaId || !motivo) return { ok: true, action: 'invalid-button' }
     return await registrarJustificativaTml(alertaId, motivo, remetente)
+  }
+  // Clique num motivo da lista da Fixação de Motorista
+  if (rawBtn.startsWith('fixmotivo:')) {
+    const resto = rawBtn.slice('fixmotivo:'.length)
+    const alertaId = resto.slice(0, 36)
+    const motivo = resto.slice(37).trim()
+    if (!alertaId || !motivo) return { ok: true, action: 'invalid-button' }
+    if (motivo === 'OUTRO') {
+      await enviar(remetente, '✍️ Por favor, responda esta mensagem explicando o motivo da divergência.')
+      return { ok: true, action: 'fixacao-outro-solicitado' }
+    }
+    return await registrarJustificativaFixacaoMotorista(alertaId, motivo, remetente)
   }
   // Passo 1 → 2: clicou na área (UGC)
   if (rawBtn.startsWith('tmlugc:')) {
