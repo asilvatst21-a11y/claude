@@ -19,6 +19,11 @@ import { formatarDataBR } from '../lib/utils'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
+// Opções de motivo enviadas como lista clicável ao supervisor na solicitação
+// de justificativa da Fixação de Motorista. "OUTRO" não finaliza o alerta —
+// pede uma resposta escrita, capturada pelo fluxo de texto livre do webhook.
+const MOTIVOS_FIXACAO_MOTORISTA = ['ABS DE MOTORISTA', 'ROTA GRADATIVA', 'PLACA EM MANUTENÇÃO', 'MAPA VIRADO', 'ROTA CRÍTICA', 'OUTRO']
+
 // Ordem de exibição das áreas (UGC) responsáveis pelo atraso. Motivos sem
 // área cadastrada caem em "GERAL".
 const UGC_ORDEM = ['ARMAZÉM', 'DISTRIBUIÇÃO', 'FINANCEIRO', 'FROTA', 'GENTE', 'SEGURANCA', 'GERAL']
@@ -203,7 +208,7 @@ function montarMensagemFixacaoMotorista(item: {
     `🏢 Sala: ${item.sala}\n` +
     `👤 Motorista que rodou: ${item.nomeExecutou ?? '—'} (matrícula ${item.matriculaExecutou})\n` +
     `📌 Motorista(s) fixado(s) na placa: matrícula ${esperados || '—'}\n\n` +
-    `A placa rodou com um motorista diferente do fixado. *Responda esta mensagem explicando o que aconteceu* — o controle vai registrar a justificativa no sistema.`
+    `A placa rodou com um motorista diferente do fixado. *Selecione abaixo o motivo da divergência*:`
   )
 }
 
@@ -258,20 +263,32 @@ async function processarFixacaoMotorista(filial: string, historico: HistoricoTml
       continue
     }
 
-    const errosEnvio: string[] = []
-    for (const sup of supervisores) {
-      const resultado = await enviarMensagemWhatsApp(sup.telefone, mensagem)
-      if (!resultado.sucesso) errosEnvio.push(`${sup.nome}: ${resultado.erro}`)
-    }
-
-    await supabase.from('alertas_fixacao_motorista').insert({
+    // Insere primeiro para ter o id do alerta, usado nas opções da lista
+    // (cada clique já identifica qual alerta deve ser justificado).
+    const { data: novoAlerta } = await supabase.from('alertas_fixacao_motorista').insert({
       filial, numero, placa: item.placa, data: item.data, sala: item.sala,
       matricula_executou: item.matriculaExecutou, nome_executou: item.nomeExecutou,
       matricula_esperada_1: item.matriculaEsperada1, matricula_esperada_2: item.matriculaEsperada2,
       supervisor_id: supervisores[0].id,
       mensagem_enviada: mensagem,
-      status: errosEnvio.length === supervisores.length ? 'erro' : 'enviado',
-    })
+      status: 'pendente',
+    }).select('id').single()
+    if (!novoAlerta) continue
+
+    const opcoes = MOTIVOS_FIXACAO_MOTORISTA.map((motivo) => ({
+      id: `fixmotivo:${novoAlerta.id}:${motivo}`,
+      title: motivo,
+    }))
+
+    const errosEnvio: string[] = []
+    for (const sup of supervisores) {
+      const resultado = await enviarListaOpcoesWhatsApp(sup.telefone, mensagem, 'Motivo da divergência', 'Selecionar motivo', opcoes)
+      if (!resultado.sucesso) errosEnvio.push(`${sup.nome}: ${resultado.erro}`)
+    }
+
+    await supabase.from('alertas_fixacao_motorista')
+      .update({ status: errosEnvio.length === supervisores.length ? 'erro' : 'enviado' })
+      .eq('id', novoAlerta.id)
   }
 }
 
