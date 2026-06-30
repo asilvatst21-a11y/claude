@@ -13,16 +13,11 @@ import {
   horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal, metaMatinalMinutos, MATINAL_AUTO_FINALIZA_MIN,
 } from '../lib/tml'
 import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusSalaTML } from '../lib/tmlResumos'
-import { cruzarMotorista, type HistoricoTmlMotorista } from '../lib/frota'
-import type { AlertaTML, HistoricoTML, MotivoJustificativaTML, FrotaPlaca } from '../types'
+import { processarFixacaoMotorista, type HistoricoTmlMotorista } from '../lib/frota'
+import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
-
-// Opções de motivo enviadas como lista clicável ao supervisor na solicitação
-// de justificativa da Fixação de Motorista. "OUTRO" não finaliza o alerta —
-// pede uma resposta escrita, capturada pelo fluxo de texto livre do webhook.
-const MOTIVOS_FIXACAO_MOTORISTA = ['ABS DE MOTORISTA', 'ROTA GRADATIVA', 'PLACA EM MANUTENÇÃO', 'MAPA VIRADO', 'ROTA CRÍTICA', 'OUTRO']
 
 // Ordem de exibição das áreas (UGC) responsáveis pelo atraso. Motivos sem
 // área cadastrada caem em "GERAL".
@@ -178,118 +173,6 @@ async function gerarNumero(filial: string): Promise<string> {
   const d = new Date()
   const ds = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
   return `TML-${ds}-${n}`
-}
-
-async function gerarNumeroFixacao(filial: string): Promise<string> {
-  const { count } = await supabase
-    .from('alertas_fixacao_motorista')
-    .select('*', { count: 'exact', head: true })
-    .eq('filial', filial)
-  const n = ((count ?? 0) + 1).toString().padStart(4, '0')
-  const d = new Date()
-  const ds = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
-  return `FIX-${ds}-${n}`
-}
-
-function montarMensagemFixacaoMotorista(item: {
-  placa: string
-  data: string
-  sala: string
-  matriculaExecutou: number
-  nomeExecutou: string | null
-  matriculaEsperada1: string | null
-  matriculaEsperada2: string | null
-}): string {
-  const esperados = [item.matriculaEsperada1, item.matriculaEsperada2].filter(Boolean).join(' ou ')
-  return (
-    `⚠️ *FIXAÇÃO DE MOTORISTA — DIVERGÊNCIA*\n\n` +
-    `🚛 Placa: ${item.placa}\n` +
-    `📅 Data: ${formatarDataBR(item.data)}\n` +
-    `🏢 Sala: ${item.sala}\n` +
-    `👤 Motorista que rodou: ${item.nomeExecutou ?? '—'} (matrícula ${item.matriculaExecutou})\n` +
-    `📌 Motorista(s) fixado(s) na placa: matrícula ${esperados || '—'}\n\n` +
-    `A placa rodou com um motorista diferente do fixado. *Selecione abaixo o motivo da divergência*:`
-  )
-}
-
-// Dispara automaticamente, a cada importação de saída, a solicitação de
-// justificativa pro supervisor da sala quando a placa roda com um motorista
-// diferente do fixado em frota_placas. Não bloqueia o import em caso de
-// falha de envio — só registra o alerta com status "erro".
-async function processarFixacaoMotorista(filial: string, historico: HistoricoTmlMotorista[]): Promise<void> {
-  const placasDoLote = [...new Set(historico.map((h) => h.placa).filter((p): p is string => !!p))]
-  if (placasDoLote.length === 0) return
-
-  const { data: placasCadastro } = await supabase
-    .from('frota_placas')
-    .select('*')
-    .eq('filial', filial)
-    .eq('ativo', true)
-    .in('placa', placasDoLote)
-
-  const cruzamento = cruzarMotorista(historico, (placasCadastro ?? []) as FrotaPlaca[])
-  const nok = cruzamento.filter((c) => !c.bate)
-  if (nok.length === 0) return
-
-  // Uma divergência por placa+dia (mesma chave única da tabela de alertas).
-  const nokUnico = Array.from(new Map(nok.map((c) => [`${c.placa}|${c.data}`, c])).values())
-
-  const { data: existentes } = await supabase
-    .from('alertas_fixacao_motorista')
-    .select('placa, data')
-    .eq('filial', filial)
-    .in('placa', nokUnico.map((c) => c.placa))
-  const jaAlertados = new Set((existentes ?? []).map((a) => `${a.placa}|${a.data}`))
-
-  for (const item of nokUnico) {
-    if (jaAlertados.has(`${item.placa}|${item.data}`)) continue
-
-    const { data: supervisores } = await supabase
-      .from('supervisores_tml')
-      .select('id, nome, telefone')
-      .eq('filial', filial)
-      .eq('sala', item.sala)
-
-    const mensagem = montarMensagemFixacaoMotorista(item)
-    const numero = await gerarNumeroFixacao(filial)
-
-    if (!supervisores?.length) {
-      await supabase.from('alertas_fixacao_motorista').insert({
-        filial, numero, placa: item.placa, data: item.data, sala: item.sala,
-        matricula_executou: item.matriculaExecutou, nome_executou: item.nomeExecutou,
-        matricula_esperada_1: item.matriculaEsperada1, matricula_esperada_2: item.matriculaEsperada2,
-        mensagem_enviada: mensagem, status: 'erro',
-      })
-      continue
-    }
-
-    // Insere primeiro para ter o id do alerta, usado nas opções da lista
-    // (cada clique já identifica qual alerta deve ser justificado).
-    const { data: novoAlerta } = await supabase.from('alertas_fixacao_motorista').insert({
-      filial, numero, placa: item.placa, data: item.data, sala: item.sala,
-      matricula_executou: item.matriculaExecutou, nome_executou: item.nomeExecutou,
-      matricula_esperada_1: item.matriculaEsperada1, matricula_esperada_2: item.matriculaEsperada2,
-      supervisor_id: supervisores[0].id,
-      mensagem_enviada: mensagem,
-      status: 'pendente',
-    }).select('id').single()
-    if (!novoAlerta) continue
-
-    const opcoes = MOTIVOS_FIXACAO_MOTORISTA.map((motivo) => ({
-      id: `fixmotivo:${novoAlerta.id}:${motivo}`,
-      title: motivo,
-    }))
-
-    const errosEnvio: string[] = []
-    for (const sup of supervisores) {
-      const resultado = await enviarListaOpcoesWhatsApp(sup.telefone, mensagem, 'Motivo da divergência', 'Selecionar motivo', opcoes)
-      if (!resultado.sucesso) errosEnvio.push(`${sup.nome}: ${resultado.erro}`)
-    }
-
-    await supabase.from('alertas_fixacao_motorista')
-      .update({ status: errosEnvio.length === supervisores.length ? 'erro' : 'enviado' })
-      .eq('id', novoAlerta.id)
-  }
 }
 
 function UploadBox({
