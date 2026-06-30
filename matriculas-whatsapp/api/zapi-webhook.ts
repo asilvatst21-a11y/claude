@@ -1104,6 +1104,29 @@ async function registrarRespostaSupervisorTml(alertaId: string, texto: string, r
   return { ok: true, action: 'resposta-registrada' }
 }
 
+// Mesmo fluxo de resposta livre, só que para a Fixação de Motorista (a placa
+// rodou com um motorista diferente do fixado em frota_placas).
+async function registrarRespostaSupervisorFixacaoMotorista(alertaId: string, texto: string, remetente: string): Promise<{ ok: boolean; action: string }> {
+  const { data: alerta } = await supabase
+    .from('alertas_fixacao_motorista')
+    .select('id, numero, status, resposta_supervisor')
+    .eq('id', alertaId)
+    .maybeSingle()
+  if (!alerta) return { ok: true, action: 'alert-not-found' }
+
+  const anterior = (alerta.resposta_supervisor ?? '').trim()
+  const novo = anterior ? `${anterior}\n${texto}` : texto
+
+  await supabase.from('alertas_fixacao_motorista').update({
+    resposta_supervisor: novo,
+    respondido_em: new Date().toISOString(),
+    ...(alerta.status === 'enviado' ? { status: 'respondido' } : {}),
+  }).eq('id', alertaId)
+
+  await enviar(remetente, '✅ Resposta recebida! O controle vai registrar a justificativa no sistema. Obrigado.')
+  return { ok: true, action: 'resposta-registrada' }
+}
+
 // Passo 2 da justificativa: escolhida a área (UGC), manda a lista de motivos
 // daquela área. Pagina de 9 em 9 (limite ~10 linhas da lista do WhatsApp),
 // acrescentando uma linha "Ver mais" quando ainda houver motivos.
@@ -1245,18 +1268,33 @@ async function tratarTml(body: any, remetente: string): Promise<{ ok: boolean; a
   if (!supervisor) return { ok: true, action: 'no-command' }
 
   // Pega o alerta mais recente aguardando resposta deste supervisor (enviado
-  // ou já respondido, para permitir complementar a resposta).
-  const { data: alerta } = await supabase
-    .from('alertas_tml')
-    .select('id')
-    .eq('supervisor_id', supervisor.id)
-    .in('status', ['enviado', 'respondido'])
-    .order('created_at', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  if (!alerta) return { ok: true, action: 'no-pending-alert' }
+  // ou já respondido, para permitir complementar a resposta). O supervisor
+  // pode ter alertas pendentes de dois tipos — TML perdido e Fixação de
+  // Motorista —, então compara os dois e responde ao mais recente.
+  const [{ data: alertaTml }, { data: alertaFixacao }] = await Promise.all([
+    supabase
+      .from('alertas_tml')
+      .select('id, created_at')
+      .eq('supervisor_id', supervisor.id)
+      .in('status', ['enviado', 'respondido'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    supabase
+      .from('alertas_fixacao_motorista')
+      .select('id, created_at')
+      .eq('supervisor_id', supervisor.id)
+      .in('status', ['enviado', 'respondido'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ])
+  if (!alertaTml && !alertaFixacao) return { ok: true, action: 'no-pending-alert' }
 
-  return await registrarRespostaSupervisorTml(alerta.id, texto, remetente)
+  if (alertaFixacao && (!alertaTml || alertaFixacao.created_at > alertaTml.created_at)) {
+    return await registrarRespostaSupervisorFixacaoMotorista(alertaFixacao.id, texto, remetente)
+  }
+  return await registrarRespostaSupervisorTml(alertaTml!.id, texto, remetente)
 }
 
 // ── Handler ──────────────────────────────────────────────────────────────────────

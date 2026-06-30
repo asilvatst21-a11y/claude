@@ -19,11 +19,17 @@ export default function FrotaPlacas() {
   // manual na aba Disponibilidade de /frota).
   const [grupoFrota, setGrupoFrota] = useState('')
   const [grupoOriginal, setGrupoOriginal] = useState('')
+  // Grupo de WhatsApp que recebe o resumo diário da Fixação de Motorista
+  // (botão manual na aba Fixação de Motorista de /frota).
+  const [grupoFixacao, setGrupoFixacao] = useState('')
+  const [grupoFixacaoOriginal, setGrupoFixacaoOriginal] = useState('')
   const [grupos, setGrupos] = useState<GrupoZApi[]>([])
   const [buscandoGrupos, setBuscandoGrupos] = useState(false)
   const [erroBuscaGrupos, setErroBuscaGrupos] = useState<string | null>(null)
   const [salvandoGrupo, setSalvandoGrupo] = useState(false)
   const [grupoSalvo, setGrupoSalvo] = useState(false)
+  const [salvandoGrupoFixacao, setSalvandoGrupoFixacao] = useState(false)
+  const [grupoFixacaoSalvo, setGrupoFixacaoSalvo] = useState(false)
   const [copiado, setCopiado] = useState<string | null>(null)
 
   const fetchPlacas = useCallback(async () => {
@@ -31,12 +37,15 @@ export default function FrotaPlacas() {
     setLoading(true)
     const [{ data }, { data: filialRow }] = await Promise.all([
       supabase.from('frota_placas').select('*').eq('filial', usuario.filial).order('placa'),
-      supabase.from('filiais').select('grupo_frota_whatsapp').eq('nome', usuario.filial).maybeSingle(),
+      supabase.from('filiais').select('grupo_frota_whatsapp, grupo_fixacao_motorista_whatsapp').eq('nome', usuario.filial).maybeSingle(),
     ])
     setPlacas((data ?? []) as FrotaPlaca[])
     const g = filialRow?.grupo_frota_whatsapp ?? ''
     setGrupoFrota(g)
     setGrupoOriginal(g)
+    const gf = filialRow?.grupo_fixacao_motorista_whatsapp ?? ''
+    setGrupoFixacao(gf)
+    setGrupoFixacaoOriginal(gf)
     setLoading(false)
   }, [usuario])
 
@@ -63,6 +72,17 @@ export default function FrotaPlacas() {
     setTimeout(() => setGrupoSalvo(false), 2500)
   }
 
+  async function salvarGrupoFixacao() {
+    if (!usuario) return
+    setSalvandoGrupoFixacao(true)
+    setGrupoFixacaoSalvo(false)
+    await supabase.from('filiais').update({ grupo_fixacao_motorista_whatsapp: grupoFixacao.trim() || null }).eq('nome', usuario.filial)
+    setGrupoFixacaoOriginal(grupoFixacao.trim())
+    setSalvandoGrupoFixacao(false)
+    setGrupoFixacaoSalvo(true)
+    setTimeout(() => setGrupoFixacaoSalvo(false), 2500)
+  }
+
   async function copiarGrupo(id: string) {
     try {
       await navigator.clipboard.writeText(id)
@@ -74,6 +94,7 @@ export default function FrotaPlacas() {
   }
 
   const grupoAlterado = grupoFrota.trim() !== grupoOriginal
+  const grupoFixacaoAlterado = grupoFixacao.trim() !== grupoFixacaoOriginal
 
   async function atualizar(id: string, campos: Partial<Pick<FrotaPlaca, 'ativo' | 'perfil' | 'matricula_motorista' | 'matricula_motorista_2'>>) {
     setPlacas(ps => ps.map(p => (p.id === id ? { ...p, ...campos } : p)))
@@ -144,6 +165,51 @@ export default function FrotaPlacas() {
               className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-md font-medium transition-colors"
             >
               {salvandoGrupo ? 'Salvando…' : 'Salvar grupo'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="border rounded-lg bg-white">
+        <div className="px-4 py-3 border-b flex items-center justify-between gap-2">
+          <div>
+            <h2 className="font-semibold text-sm flex items-center gap-1.5"><Image className="h-4 w-4" /> Grupo de WhatsApp — Fixação de Motorista</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Recebe o resumo diário de aderência da Fixação de Motorista quando você clicar em "Enviar resumo para o grupo" na aba Fixação de Motorista.
+            </p>
+          </div>
+          <button
+            onClick={buscarGrupos}
+            disabled={buscandoGrupos}
+            className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50 shrink-0"
+          >
+            {buscandoGrupos ? <Loader2 className="h-4 w-4 animate-spin" /> : grupos.length > 0 ? <RefreshCw className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+            {buscandoGrupos ? 'Buscando…' : grupos.length > 0 ? 'Atualizar grupos' : 'Buscar grupos (Z-API)'}
+          </button>
+        </div>
+        <div className="p-4 space-y-3">
+          {erroBuscaGrupos && (
+            <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-md p-3">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span className="break-all">{erroBuscaGrupos}</span>
+            </div>
+          )}
+          <GroupPicker
+            label="Grupo da Fixação de Motorista"
+            value={grupoFixacao}
+            onChange={setGrupoFixacao}
+            grupos={grupos}
+            onCopy={copiarGrupo}
+            copiado={copiado}
+          />
+          <div className="flex items-center justify-end gap-3">
+            {grupoFixacaoSalvo && <span className="text-sm text-green-600 flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Salvo!</span>}
+            <button
+              onClick={salvarGrupoFixacao}
+              disabled={salvandoGrupoFixacao || !grupoFixacaoAlterado}
+              className="px-4 py-2 text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white rounded-md font-medium transition-colors"
+            >
+              {salvandoGrupoFixacao ? 'Salvando…' : 'Salvar grupo'}
             </button>
           </div>
         </div>

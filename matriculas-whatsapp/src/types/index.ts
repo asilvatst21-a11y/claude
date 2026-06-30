@@ -389,6 +389,29 @@ export interface AlertaTML {
   supervisores_tml?: { nome: string; telefone: string } | null
 }
 
+export interface AlertaFixacaoMotorista {
+  id: string
+  filial: string
+  numero: string
+  placa: string
+  data: string
+  sala: 'COLORADO' | 'SUB-FURIA'
+  matricula_executou: number
+  nome_executou: string | null
+  matricula_esperada_1: string | null
+  matricula_esperada_2: string | null
+  supervisor_id: string | null
+  mensagem_enviada: string | null
+  zapi_message_id: string | null
+  status: 'pendente' | 'enviado' | 'respondido' | 'justificado' | 'erro'
+  justificativa: string | null
+  justificado_em: string | null
+  resposta_supervisor: string | null
+  respondido_em: string | null
+  created_at: string
+  supervisores_tml?: { nome: string; telefone: string } | null
+}
+
 export interface HistoricoTML {
   id: string
   filial: string

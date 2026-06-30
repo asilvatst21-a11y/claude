@@ -803,3 +803,160 @@ export function calcularProjecaoDu(
     }
   })
 }
+
+// ─── Fixação de Motorista: motorista fixado na placa (frota_placas) x
+// motorista que realmente rodou no dia (historico_tml) ──────────────────────
+
+export interface HistoricoTmlMotorista {
+  placa: string | null
+  data_saida: string | null
+  matricula: number | null
+  nome: string | null
+  sala: 'COLORADO' | 'SUB-FURIA' | null
+}
+
+export interface CruzamentoMotoristaItem {
+  placa: string
+  data: string
+  sala: 'COLORADO' | 'SUB-FURIA'
+  matriculaExecutou: number
+  nomeExecutou: string | null
+  matriculaEsperada1: string | null
+  matriculaEsperada2: string | null
+  bate: boolean
+}
+
+// Cruza, por placa+dia, a matrícula que realmente rodou com a(s) matrícula(s)
+// fixada(s) no cadastro de placas (frota_placas). Só placas ativas e com
+// pelo menos uma matrícula cadastrada entram na comparação — sem cadastro
+// não há o que comparar.
+export function cruzarMotorista(
+  historicoTml: HistoricoTmlMotorista[],
+  placas: FrotaPlaca[],
+): CruzamentoMotoristaItem[] {
+  const porPlaca = new Map(placas.filter(p => p.ativo).map(p => [p.placa, p]))
+
+  const resultado: CruzamentoMotoristaItem[] = []
+  for (const h of historicoTml) {
+    if (!h.placa || !h.data_saida || !h.sala || h.matricula == null) continue
+    const cad = porPlaca.get(h.placa)
+    if (!cad) continue
+    const m1 = cad.matricula_motorista?.trim() || null
+    const m2 = cad.matricula_motorista_2?.trim() || null
+    if (!m1 && !m2) continue
+
+    const executou = String(h.matricula)
+    resultado.push({
+      placa: h.placa,
+      data: h.data_saida,
+      sala: h.sala,
+      matriculaExecutou: h.matricula,
+      nomeExecutou: h.nome,
+      matriculaEsperada1: m1,
+      matriculaEsperada2: m2,
+      bate: executou === m1 || executou === m2,
+    })
+  }
+
+  return resultado.sort((a, b) => b.data.localeCompare(a.data) || a.placa.localeCompare(b.placa))
+}
+
+export interface RankingMotoristaFixacao {
+  matricula: number
+  nome: string | null
+  perdas: number
+  placas: string[]
+}
+
+// Ranking de motoristas que mais rodaram em placas fixadas para outro
+// motorista — quem mais "tomou" a placa de outro, não quem deixou de rodar.
+export function rankingMotoristasPerdaFixacao(cruzamento: CruzamentoMotoristaItem[]): RankingMotoristaFixacao[] {
+  const porMotorista = new Map<number, { nome: string | null; placas: Set<string>; perdas: number }>()
+  for (const c of cruzamento) {
+    if (c.bate) continue
+    if (!porMotorista.has(c.matriculaExecutou)) {
+      porMotorista.set(c.matriculaExecutou, { nome: c.nomeExecutou, placas: new Set(), perdas: 0 })
+    }
+    const m = porMotorista.get(c.matriculaExecutou)!
+    m.perdas++
+    m.placas.add(c.placa)
+    if (!m.nome && c.nomeExecutou) m.nome = c.nomeExecutou
+  }
+
+  return Array.from(porMotorista.entries())
+    .map(([matricula, v]) => ({ matricula, nome: v.nome, perdas: v.perdas, placas: Array.from(v.placas) }))
+    .sort((a, b) => b.perdas - a.perdas)
+}
+
+export interface AderenciaMotoristaDia {
+  data: string
+  comDado: number
+  ok: number
+  percentual: number
+}
+
+export function calcularAderenciaMotoristaPorDia(cruzamento: CruzamentoMotoristaItem[]): AderenciaMotoristaDia[] {
+  const porDia = new Map<string, CruzamentoMotoristaItem[]>()
+  for (const c of cruzamento) {
+    if (!porDia.has(c.data)) porDia.set(c.data, [])
+    porDia.get(c.data)!.push(c)
+  }
+
+  return Array.from(porDia.entries())
+    .map(([data, itens]) => {
+      const ok = itens.filter(i => i.bate).length
+      return {
+        data,
+        comDado: itens.length,
+        ok,
+        percentual: itens.length > 0 ? Math.round((ok / itens.length) * 100) : 0,
+      }
+    })
+    .sort((a, b) => a.data.localeCompare(b.data))
+}
+
+export interface AderenciaMotoristaAcumulado {
+  ano: number
+  mes: number
+  diasComDado: number
+  mediaPercentual: number
+  totalOk: number
+  totalComDado: number
+}
+
+// Acumulado do mês: média ponderada (soma de OK / soma do total comparado),
+// não média simples dos percentuais diários — mesmo critério do DU.
+export function calcularAderenciaMotoristaAcumulado(
+  porDia: AderenciaMotoristaDia[],
+  ano: number,
+  mes: number,
+): AderenciaMotoristaAcumulado {
+  const prefixo = `${ano}-${String(mes).padStart(2, '0')}`
+  const doMes = porDia.filter(d => d.data.startsWith(prefixo))
+  const totalOk = doMes.reduce((acc, d) => acc + d.ok, 0)
+  const totalComDado = doMes.reduce((acc, d) => acc + d.comDado, 0)
+  return {
+    ano,
+    mes,
+    diasComDado: doMes.length,
+    mediaPercentual: totalComDado > 0 ? Math.round((totalOk / totalComDado) * 100) : 0,
+    totalOk,
+    totalComDado,
+  }
+}
+
+export interface AderenciaMotoristaMes {
+  ano: number
+  mes: number
+  acumulado: AderenciaMotoristaAcumulado
+}
+
+// Evolução mês x mês dos últimos `n` meses com dado, mais recente por último.
+export function calcularAderenciaMotoristaMeses(porDia: AderenciaMotoristaDia[], n = 6): AderenciaMotoristaMes[] {
+  const chaves = Array.from(new Set(porDia.map(d => d.data.slice(0, 7)))).sort()
+  const ultimas = chaves.slice(-n)
+  return ultimas.map(chave => {
+    const [ano, mes] = chave.split('-').map(Number)
+    return { ano, mes, acumulado: calcularAderenciaMotoristaAcumulado(porDia, ano, mes) }
+  })
+}
