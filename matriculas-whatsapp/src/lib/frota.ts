@@ -410,17 +410,42 @@ function extrairBairroTerritorio(territorio: string | null): string | null {
   return (m ? m[1] : territorio).trim() || null
 }
 
+const STOPWORDS_TERRITORIO = new Set(['DE', 'DO', 'DA', 'DOS', 'DAS', 'E'])
+
+// "Cidades +Entregas" agrupa por cidade usando um código entre colchetes
+// (ex.: "[PAR]: CENTRO (7) / ..." para Paraíba do Sul, "[TRE]: ..." para
+// Três Rios) — não repete o nome completo da cidade. Extrai esses códigos.
+function extrairCodigosCidade(texto: string): string[] {
+  const codigos: string[] = []
+  const regex = /\[([^\]]+)\]/g
+  let m: RegExpExecArray | null
+  while ((m = regex.exec(texto)) !== null) {
+    codigos.push(normalizar(m[1]))
+  }
+  return codigos
+}
+
 // Comparação aproximada: tolera pequenas variações de grafia entre as duas
 // origens (ex.: "Quissamé" no território x "QUISSAMA" na roteirização),
-// comparando também o radical sem a última letra.
+// comparando também o radical sem a última letra. Quando o território é uma
+// cidade (ex.: "240 - Paraíba do Sul", "900 - Centro de Três Rios") e a
+// roteirização só traz o código entre colchetes (ex.: "[PAR]", "[TRE]"),
+// compara também os 3 primeiros caracteres de cada palavra significativa do
+// território com os códigos de cidade encontrados no texto.
 function bairroBateNaRegiao(territorio: string | null, regioesEntregas: string[]): boolean | null {
   const bairro = extrairBairroTerritorio(territorio)
   if (!bairro || regioesEntregas.length === 0) return null
   const bairroNorm = normalizar(bairro)
-  const textoNorm = normalizar(regioesEntregas.join(' / '))
+  const textoCompleto = regioesEntregas.join(' / ')
+  const textoNorm = normalizar(textoCompleto)
   if (textoNorm.includes(bairroNorm)) return true
   const radical = bairroNorm.length > 4 ? bairroNorm.slice(0, -1) : bairroNorm
-  return textoNorm.includes(radical)
+  if (textoNorm.includes(radical)) return true
+
+  const codigos = extrairCodigosCidade(textoCompleto)
+  if (codigos.length === 0) return false
+  const palavras = bairroNorm.split(/\s+/).filter(p => p.length >= 3 && !STOPWORDS_TERRITORIO.has(p))
+  return palavras.some(p => codigos.includes(p.slice(0, 3)))
 }
 
 export interface HistoricoTmlRegiao {
