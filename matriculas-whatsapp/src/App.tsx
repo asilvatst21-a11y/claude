@@ -14,6 +14,7 @@ import DistribuicaoTMLWhatsappConfig from './pages/DistribuicaoTMLWhatsappConfig
 import DistribuicaoTMLParametros from './pages/DistribuicaoTMLParametros'
 import DtoDistribuicao from './pages/DtoDistribuicao'
 import Frota from './pages/Frota'
+import FrotaIV from './pages/FrotaIV'
 import FrotaPlacas from './pages/FrotaPlacas'
 import Home from './pages/Home'
 import Disparos from './pages/Disparos'
@@ -111,6 +112,7 @@ export default function App() {
             <Route path="/distribuicao/tml/parametros" element={<DistribuicaoTMLParametros />} />
             <Route path="/distribuicao/dto" element={<DtoDistribuicao />} />
             <Route path="/frota" element={<Frota />} />
+            <Route path="/frota/iv" element={<FrotaIV />} />
             <Route path="/frota/placas" element={<FrotaPlacas />} />
             <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
             <Route path="/armazem/operadores" element={<ArmazemOperadores />} />
