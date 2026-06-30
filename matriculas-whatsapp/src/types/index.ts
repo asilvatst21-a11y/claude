@@ -123,6 +123,7 @@ export interface FrotaPlaca {
   placa: string
   perfil: string | null
   matricula_motorista: string | null
+  matricula_motorista_2: string | null
   ativo: boolean
   created_at: string
   updated_at: string
