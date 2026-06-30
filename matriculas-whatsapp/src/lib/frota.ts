@@ -13,7 +13,7 @@ export function placasAtivasFiltro(rows: FrotaDisponibilidade[], placas: FrotaPl
 
 export interface ResumoPerfilFrota {
   perfil: string
-  contratada: number
+  ativo: number
   disponivel: number
   indisponivel: number
   percentual: number
@@ -21,30 +21,33 @@ export interface ResumoPerfilFrota {
 
 // Quebra do resumo de um dia por perfil de veículo (VUC/Toco/Truck/Carreta),
 // usando o cadastro manual de frota_placas — perfis não classificados caem
-// em "Sem perfil".
+// em "Sem perfil". % é sobre o total de placas ativas do perfil no cadastro
+// (não só as contratadas no dia), para refletir a frota total disponível.
 export function resumoPorPerfil(rows: FrotaDisponibilidade[], placas: FrotaPlaca[]): ResumoPerfilFrota[] {
-  const perfilPorPlaca = new Map(placas.map(p => [p.placa, p.perfil?.trim() || 'Sem perfil']))
-  const contratadas = rows.filter(r => normalizar(r.status) !== 'NAO CONTRATADA' && normalizar(r.status) !== '')
+  const rowsPorPlaca = new Map(rows.map(r => [r.placa, r]))
 
-  const porPerfil = new Map<string, FrotaDisponibilidade[]>()
-  for (const r of contratadas) {
-    const perfil = perfilPorPlaca.get(r.placa) ?? 'Sem perfil'
+  const porPerfil = new Map<string, string[]>()
+  for (const p of placas.filter(p => p.ativo)) {
+    const perfil = p.perfil?.trim() || 'Sem perfil'
     if (!porPerfil.has(perfil)) porPerfil.set(perfil, [])
-    porPerfil.get(perfil)!.push(r)
+    porPerfil.get(perfil)!.push(p.placa)
   }
 
   return Array.from(porPerfil.entries())
-    .map(([perfil, linhas]) => {
-      const disponiveis = linhas.filter(l => normalizar(l.status) === 'DISPONIVEL')
+    .map(([perfil, placasDoPerfil]) => {
+      const disponiveis = placasDoPerfil.filter(placa => {
+        const r = rowsPorPlaca.get(placa)
+        return !!r && normalizar(r.status) === 'DISPONIVEL'
+      })
       return {
         perfil,
-        contratada: linhas.length,
+        ativo: placasDoPerfil.length,
         disponivel: disponiveis.length,
-        indisponivel: linhas.length - disponiveis.length,
-        percentual: linhas.length > 0 ? Math.round((disponiveis.length / linhas.length) * 100) : 0,
+        indisponivel: placasDoPerfil.length - disponiveis.length,
+        percentual: placasDoPerfil.length > 0 ? Math.round((disponiveis.length / placasDoPerfil.length) * 100) : 0,
       }
     })
-    .sort((a, b) => b.contratada - a.contratada)
+    .sort((a, b) => b.ativo - a.ativo)
 }
 
 // Remove acentos e normaliza para comparação de status/justificativa, já que
