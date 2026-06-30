@@ -14,6 +14,7 @@ import {
   parseDisponibilidadeDiariaCsv, parseHistoricoXlsx, resumoPorDia, disponiveisNoDia,
   rankingIndisponibilidadePorPlaca, cruzarTerritorio, detectarTrocasTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia, matrizDisponibilidade,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
+  type CruzamentoTerritorioItem, type TrocaTerritorioItem,
 } from '../lib/frota'
 import { parseEscalaBuffer } from '../lib/tmlParser'
 import type { FrotaDisponibilidade, FrotaPlaca } from '../types'
@@ -77,6 +78,10 @@ export default function Frota() {
   const [exportandoImg, setExportandoImg] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
   const exportPlacasRef = useRef<HTMLDivElement>(null)
+  const [exportandoTrocas, setExportandoTrocas] = useState(false)
+  const [exportandoCruzamento, setExportandoCruzamento] = useState(false)
+  const exportTrocasRef = useRef<HTMLDivElement>(null)
+  const exportCruzamentoRef = useRef<HTMLDivElement>(null)
   const hoje = new Date()
   const [mesSel, setMesSel] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 })
 
@@ -267,6 +272,21 @@ export default function Frota() {
       }
     } finally {
       setExportandoImg(false)
+    }
+  }
+
+  async function baixarImagem(ref: React.RefObject<HTMLDivElement | null>, setLoading: (v: boolean) => void, nomeArquivo: string) {
+    if (!ref.current) return
+    setLoading(true)
+    try {
+      const canvas = await html2canvas(ref.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+      const url = canvas.toDataURL('image/png')
+      const a = document.createElement('a')
+      a.href = url
+      a.download = nomeArquivo
+      a.click()
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -573,9 +593,19 @@ export default function Frota() {
 
               {trocas.length > 0 && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-                  <h3 className="text-sm font-semibold text-amber-800 mb-1 flex items-center gap-1.5">
-                    <MapPinned size={16} /> Possíveis trocas de roteirização ({trocas.length})
-                  </h3>
+                  <div className="flex items-center justify-between mb-1">
+                    <h3 className="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
+                      <MapPinned size={16} /> Possíveis trocas de roteirização ({trocas.length})
+                    </h3>
+                    <button
+                      onClick={() => baixarImagem(exportTrocasRef, setExportandoTrocas, `Frota_Trocas_Territorio_${diaTerritorio === 'todos' ? 'todos' : diaTerritorio}.png`)}
+                      disabled={exportandoTrocas}
+                      className="flex items-center gap-1.5 text-xs text-amber-800 border border-amber-200 px-2.5 py-1 rounded-lg hover:bg-amber-100 disabled:opacity-40 shrink-0"
+                    >
+                      {exportandoTrocas ? <Loader2 size={13} className="animate-spin" /> : <Image size={13} />}
+                      Exportar imagem
+                    </button>
+                  </div>
                   <p className="text-xs text-amber-700 mb-3">
                     Pares de placas NOK no mesmo dia em que o território de uma bateu com o que a outra executou (e
                     vice-versa) — indício de erro do roteirizador (mapas trocados entre as placas), não de falha real
@@ -596,7 +626,17 @@ export default function Frota() {
               )}
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Cruzamento por placa/dia (somente placas roteirizadas no PCD)</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-700">Cruzamento por placa/dia (somente placas roteirizadas no PCD)</h3>
+                  <button
+                    onClick={() => baixarImagem(exportCruzamentoRef, setExportandoCruzamento, `Frota_Cruzamento_Territorio_${diaTerritorio === 'todos' ? 'todos' : diaTerritorio}.png`)}
+                    disabled={exportandoCruzamento}
+                    className="flex items-center gap-1.5 text-xs text-brand-700 border border-brand-200 px-2.5 py-1 rounded-lg hover:bg-brand-50 disabled:opacity-40 shrink-0"
+                  >
+                    {exportandoCruzamento ? <Loader2 size={13} className="animate-spin" /> : <Image size={13} />}
+                    Exportar imagem
+                  </button>
+                </div>
                 <div className="max-h-[32rem] overflow-y-auto">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-white">
@@ -628,6 +668,9 @@ export default function Frota() {
                   </table>
                 </div>
               </div>
+
+              <TerritorioTrocasExportTemplate ref={exportTrocasRef} filial={usuario?.filial ?? ''} dia={diaTerritorio} trocas={trocas} />
+              <TerritorioCruzamentoExportTemplate ref={exportCruzamentoRef} filial={usuario?.filial ?? ''} dia={diaTerritorio} linhas={linhasExibidas} aderencia={aderencia} />
             </>
           )}
         </div>
@@ -869,6 +912,115 @@ const FrotaPlacasExportTemplate = forwardRef<HTMLDivElement, {
 
       <div style={{ paddingTop: '10px', fontSize: '10px', color: '#94a3b8' }}>
         Gerado em {formatarDataBR(data)}
+      </div>
+    </div>
+  )
+})
+
+const TerritorioTrocasExportTemplate = forwardRef<HTMLDivElement, {
+  filial: string
+  dia: string
+  trocas: TrocaTerritorioItem[]
+}>(function TerritorioTrocasExportTemplate({ filial, dia, trocas }, ref) {
+  if (trocas.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
+
+  return (
+    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '640px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '16px' }}>
+        <div>
+          <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Frota</p>
+          <h1 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Possíveis Trocas de Roteirização ({trocas.length})</h1>
+        </div>
+        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0 }}>{filial}<br />{dia === 'todos' ? 'Todos os dias' : formatarDataBR(dia)}</p>
+      </div>
+
+      <p style={{ fontSize: '11px', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 12px', margin: '0 0 16px' }}>
+        Pares de placas NOK no mesmo dia em que o território de uma bateu com o que a outra executou (e vice-versa) —
+        indício de erro do roteirizador (mapas trocados entre as placas), não de falha real de fixação.
+      </p>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+        {trocas.map((t, i) => (
+          <div key={`${t.data}-${t.placaA}-${t.placaB}-${i}`} style={{ background: '#fff', border: '1px solid #fde68a', borderRadius: '8px', padding: '10px 12px' }}>
+            <p style={{ fontSize: '10px', color: '#94a3b8', margin: '0 0 6px' }}>{formatarDataBR(t.data)}</p>
+            <p style={{ fontSize: '12px', color: '#334155', margin: '0 0 4px' }}>
+              <span style={{ fontWeight: 700, color: '#0f172a' }}>{t.placaA}</span> — disponibilizada p/ {t.territorioA}, rodou em {t.executadoA}
+            </p>
+            <p style={{ fontSize: '12px', color: '#334155', margin: 0 }}>
+              <span style={{ fontWeight: 700, color: '#0f172a' }}>{t.placaB}</span> — disponibilizada p/ {t.territorioB}, rodou em {t.executadoB}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ paddingTop: '14px', fontSize: '10px', color: '#94a3b8' }}>
+        Gerado em {formatarDataBR(dia === 'todos' ? trocas[0]?.data ?? '' : dia)}
+      </div>
+    </div>
+  )
+})
+
+const TerritorioCruzamentoExportTemplate = forwardRef<HTMLDivElement, {
+  filial: string
+  dia: string
+  linhas: CruzamentoTerritorioItem[]
+  aderencia: number | null
+}>(function TerritorioCruzamentoExportTemplate({ filial, dia, linhas, aderencia }, ref) {
+  const th: React.CSSProperties = { padding: '7px 10px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '6px 10px', fontSize: '11px', verticalAlign: 'middle' }
+
+  if (linhas.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
+
+  return (
+    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '720px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '16px' }}>
+        <div>
+          <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Frota</p>
+          <h1 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Cruzamento por Placa/Dia</h1>
+        </div>
+        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0 }}>{filial}<br />{dia === 'todos' ? 'Todos os dias' : formatarDataBR(dia)}</p>
+      </div>
+
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+        <div style={{ flex: 1, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px', textAlign: 'center' }}>
+          <p style={{ fontSize: '10px', color: '#64748b', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Placas roteirizadas no PCD</p>
+          <p style={{ fontSize: '20px', fontWeight: 800, color: '#1e3a5f', margin: 0 }}>{linhas.length}</p>
+        </div>
+        <div style={{ flex: 1, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px', textAlign: 'center' }}>
+          <p style={{ fontSize: '10px', color: '#64748b', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>% Aderência (território x execução)</p>
+          <p style={{ fontSize: '20px', fontWeight: 800, color: aderencia !== null && aderencia >= 80 ? '#16a34a' : '#dc2626', margin: 0 }}>{aderencia !== null ? `${aderencia}%` : '—'}</p>
+        </div>
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+        <thead>
+          <tr style={{ background: '#1e3a5f' }}>
+            <th style={th}>Data</th>
+            <th style={th}>Placa</th>
+            <th style={th}>Território (Frota)</th>
+            <th style={th}>Região/Cidades executada (TML)</th>
+            <th style={{ ...th, textAlign: 'center' }}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {linhas.map((c, i) => (
+            <tr key={`${c.placa}-${c.data}-${i}`} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
+              <td style={{ ...td, color: '#475569' }}>{formatarDataBR(c.data)}</td>
+              <td style={{ ...td, fontWeight: 700, color: '#0f172a' }}>{c.placa}</td>
+              <td style={{ ...td, color: '#475569' }}>{c.territorio}</td>
+              <td style={{ ...td, color: '#475569' }}>{c.regiaoEntregas ?? '—'}</td>
+              <td style={{ ...td, textAlign: 'center' }}>
+                <span style={{ display: 'inline-block', background: c.bate ? '#dcfce7' : '#fee2e2', color: c.bate ? '#15803d' : '#b91c1c', border: `1px solid ${c.bate ? '#bbf7d0' : '#fecaca'}`, borderRadius: '999px', padding: '2px 9px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>
+                  {c.bate ? 'OK' : 'NOK'}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div style={{ paddingTop: '10px', fontSize: '10px', color: '#94a3b8' }}>
+        Gerado em {formatarDataBR(dia === 'todos' ? linhas[0]?.data ?? '' : dia)}
       </div>
     </div>
   )
