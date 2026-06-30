@@ -42,6 +42,7 @@ export interface Filial {
   grupo_solicitacao_2_whatsapp: string | null
   grupo_validacao_whatsapp: string | null
   grupo_armazem_whatsapp: string | null
+  telefone_supervisor_frota: string | null
   created_at: string
 }
 

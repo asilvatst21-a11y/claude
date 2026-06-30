@@ -1127,13 +1127,94 @@ async function registrarRespostaSupervisorFixacaoMotorista(alertaId: string, tex
   return { ok: true, action: 'resposta-registrada' }
 }
 
+function formatarDataBRSimples(iso: string): string {
+  const [ano, mes, dia] = iso.split('-')
+  return `${dia}/${mes}/${ano.slice(2)}`
+}
+
+// Resumo de aderência do dia (geral + por sala + placas NOK com motivo) pro
+// supervisor de frota. Recalcula o cruzamento direto do historico_tml x
+// frota_placas (mesma lógica de cruzarMotorista em src/lib/frota.ts) em vez
+// de importar daquele módulo, que carrega xlsx e o client Supabase do
+// browser — incompatíveis com este endpoint serverless.
+async function enviarResumoAderenciaFixacaoMotorista(filial: string, data: string): Promise<void> {
+  const { data: filialRow } = await supabase
+    .from('filiais')
+    .select('telefone_supervisor_frota')
+    .eq('nome', filial)
+    .maybeSingle()
+  const telefone = (filialRow?.telefone_supervisor_frota ?? '').trim()
+  if (!telefone) return
+
+  const [{ data: historico }, { data: placas }, { data: alertas }] = await Promise.all([
+    supabase.from('historico_tml').select('placa, matricula, sala').eq('filial', filial).eq('data_saida', data),
+    supabase.from('frota_placas').select('placa, matricula_motorista, matricula_motorista_2').eq('filial', filial).eq('ativo', true),
+    supabase.from('alertas_fixacao_motorista').select('placa, justificativa').eq('filial', filial).eq('data', data).order('placa'),
+  ])
+
+  const porPlacaCad = new Map((placas ?? []).map((p) => [p.placa, p]))
+  let okGeral = 0
+  let totalGeral = 0
+  const porSala = new Map<string, { ok: number; total: number }>()
+
+  for (const h of historico ?? []) {
+    if (!h.placa || !h.sala || h.matricula == null) continue
+    const cad = porPlacaCad.get(h.placa)
+    if (!cad) continue
+    const m1 = (cad.matricula_motorista ?? '').trim()
+    const m2 = (cad.matricula_motorista_2 ?? '').trim()
+    if (!m1 && !m2) continue
+
+    const bate = String(h.matricula) === m1 || String(h.matricula) === m2
+    totalGeral++
+    if (bate) okGeral++
+    const s = porSala.get(h.sala) ?? { ok: 0, total: 0 }
+    s.total++
+    if (bate) s.ok++
+    porSala.set(h.sala, s)
+  }
+  if (totalGeral === 0) return
+
+  const linhasSala = [...porSala.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([sala, v]) => `• ${sala}: ${Math.round((v.ok / v.total) * 100)}% (${v.ok}/${v.total})`)
+    .join('\n')
+
+  const linhasDivergencia = (alertas ?? [])
+    .map((a) => `• ${a.placa} - ${a.justificativa ?? 'Aguardando justificativa'}`)
+    .join('\n')
+
+  const texto =
+    `📊 *FIXAÇÃO DE MOTORISTA — RESUMO DO DIA*\n` +
+    `📅 ${formatarDataBRSimples(data)}\n\n` +
+    `🎯 Aderência geral: ${Math.round((okGeral / totalGeral) * 100)}% (${okGeral}/${totalGeral} placas)\n\n` +
+    `🏢 Por sala:\n${linhasSala}\n\n` +
+    `🚨 Divergências (PLACA - MOTIVO):\n${linhasDivergencia || 'Nenhuma'}`
+
+  await enviar(telefone, texto)
+}
+
+// Dispara o resumo de aderência pro supervisor de frota assim que a última
+// divergência pendente da filial+dia for justificada — ou seja, quando não
+// sobrar nenhum alerta com status diferente de "justificado" nessa data.
+async function verificarEEnviarResumoFixacaoMotorista(filial: string, data: string): Promise<void> {
+  const { data: pendentes } = await supabase
+    .from('alertas_fixacao_motorista')
+    .select('id')
+    .eq('filial', filial)
+    .eq('data', data)
+    .neq('status', 'justificado')
+  if (pendentes && pendentes.length > 0) return
+  await enviarResumoAderenciaFixacaoMotorista(filial, data)
+}
+
 // Clique num motivo da lista enviada na Fixação de Motorista. Finaliza o
 // alerta direto com o motivo escolhido — "OUTRO" é tratado à parte (pede
 // resposta escrita em vez de finalizar aqui).
 async function registrarJustificativaFixacaoMotorista(alertaId: string, motivo: string, remetente: string): Promise<{ ok: boolean; action: string }> {
   const { data: alerta } = await supabase
     .from('alertas_fixacao_motorista')
-    .select('id, numero, status')
+    .select('id, numero, status, filial, data')
     .eq('id', alertaId)
     .maybeSingle()
 
@@ -1153,6 +1234,7 @@ async function registrarJustificativaFixacaoMotorista(alertaId: string, motivo: 
   }).eq('id', alertaId)
 
   await enviar(remetente, `✅ Motivo registrado no sistema: *${motivo}*`)
+  await verificarEEnviarResumoFixacaoMotorista(alerta.filial, alerta.data)
   return { ok: true, action: 'justificado' }
 }
 
