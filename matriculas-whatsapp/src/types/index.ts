@@ -128,6 +128,17 @@ export interface FrotaPlaca {
   updated_at: string
 }
 
+export interface FrotaIVTratativa {
+  id: string
+  filial: string
+  placa: string
+  data: string
+  motivo_tratativa: string | null
+  previsao_retorno: string | null
+  observacao: string | null
+  updated_at: string
+}
+
 export interface GsdpqSupervisor {
   id: string
   filial: string
