@@ -13,7 +13,7 @@ import { enviarImagemGrupo } from '../lib/zapi'
 import {
   parseDisponibilidadeDiariaCsv, parseHistoricoXlsx, resumoPorDia, disponiveisNoDia,
   rankingIndisponibilidadePorPlaca, cruzarTerritorio, detectarTrocasTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia, matrizDisponibilidade,
-  cruzarMotorista, rankingMotoristasPerdaFixacao, calcularAderenciaMotoristaPorDia, calcularAderenciaMotoristaMeses,
+  cruzarMotorista, rankingMotoristasPerdaFixacao, calcularAderenciaMotoristaPorDia, calcularAderenciaMotoristaMeses, calcularAderenciaMotoristaPorDiaESala,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
   type CruzamentoTerritorioItem, type TrocaTerritorioItem, type HistoricoTmlMotorista, type CruzamentoMotoristaItem,
 } from '../lib/frota'
@@ -372,11 +372,37 @@ export default function Frota() {
   const linhasMotoristaExibidas = statusMotorista === 'todos' ? cruzamentoMotoristaFiltrado : cruzamentoMotoristaFiltrado.filter(c => statusMotorista === 'ok' ? c.bate : !c.bate)
   const rankingMotorista = useMemo(() => rankingMotoristasPerdaFixacao(cruzamentoMotorista), [cruzamentoMotorista])
   const aderenciaMotoristaPorDia = useMemo(() => calcularAderenciaMotoristaPorDia(cruzamentoMotorista), [cruzamentoMotorista])
+  const aderenciaMotoristaPorDiaSala = useMemo(() => calcularAderenciaMotoristaPorDiaESala(cruzamentoMotorista), [cruzamentoMotorista])
   const evolucaoMotoristaMeses = useMemo(() => calcularAderenciaMotoristaMeses(aderenciaMotoristaPorDia, 6), [aderenciaMotoristaPorDia])
   const graficoMotoristaMeses = evolucaoMotoristaMeses.map(m => ({
     mes: new Date(m.ano, m.mes - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
     percentual: m.acumulado.mediaPercentual,
   }))
+  const graficoMotoristaDiario = useMemo(() => {
+    const porData = new Map<string, { data: string; geral?: number; colorado?: number; subFuria?: number }>()
+    for (const d of aderenciaMotoristaPorDia) {
+      if (!porData.has(d.data)) porData.set(d.data, { data: d.data })
+      porData.get(d.data)!.geral = d.percentual
+    }
+    for (const d of aderenciaMotoristaPorDiaSala) {
+      if (!porData.has(d.data)) porData.set(d.data, { data: d.data })
+      const linha = porData.get(d.data)!
+      if (d.sala === 'COLORADO') linha.colorado = d.percentual
+      else linha.subFuria = d.percentual
+    }
+    return Array.from(porData.values())
+      .sort((a, b) => a.data.localeCompare(b.data))
+      .map(r => ({ ...r, dataLabel: new Date(`${r.data}T00:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) }))
+  }, [aderenciaMotoristaPorDia, aderenciaMotoristaPorDiaSala])
+  const aderenciaMotoristaPorSalaAtual = useMemo(() => {
+    const base = diaMotorista === 'todos' ? cruzamentoMotorista : cruzamentoMotorista.filter(c => c.data === diaMotorista)
+    const salas: Array<'COLORADO' | 'SUB-FURIA'> = ['COLORADO', 'SUB-FURIA']
+    return salas.map(sala => {
+      const itens = base.filter(c => c.sala === sala)
+      const ok = itens.filter(c => c.bate).length
+      return { sala, comDado: itens.length, percentual: itens.length > 0 ? Math.round((ok / itens.length) * 100) : null }
+    })
+  }, [cruzamentoMotorista, diaMotorista])
   const alertaPorPlacaData = useMemo(() => new Map(alertasFixacao.map(a => [`${a.placa}|${a.data}`, a])), [alertasFixacao])
 
   return (
@@ -756,7 +782,12 @@ export default function Frota() {
           <p className="text-xs text-gray-500">
             Cruza a matrícula fixada na placa (cadastro em /frota/placas) com a matrícula que realmente rodou no dia, vinda
             da escala/saída importada na tela TML — Carta de Controle. Cada divergência dispara automaticamente uma
-            solicitação de justificativa pro supervisor da sala via WhatsApp.
+            solicitação de justificativa pro supervisor da sala via WhatsApp — o número que recebe a mensagem é o
+            cadastrado em{' '}
+            <Link to="/distribuicao/tml/supervisores" className="text-brand-700 underline hover:text-brand-800">
+              Supervisores — TML
+            </Link>{' '}
+            (um supervisor por sala, COLORADO ou SUB-FURIA).
           </p>
 
           {carregando ? (
@@ -805,7 +836,7 @@ export default function Frota() {
                 </div>
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card icon={CheckCircle2} label="Placas/dia comparadas" value={String(cruzamentoMotoristaFiltrado.length)} accent="text-accent-600 bg-accent/40" />
                 <Card
                   icon={aderenciaMotorista !== null && aderenciaMotorista >= 80 ? CheckCircle2 : XCircle}
@@ -813,7 +844,34 @@ export default function Frota() {
                   value={aderenciaMotorista !== null ? `${aderenciaMotorista}%` : '—'}
                   accent={aderenciaMotorista !== null && aderenciaMotorista >= 80 ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}
                 />
+                {aderenciaMotoristaPorSalaAtual.map(s => (
+                  <Card
+                    key={s.sala}
+                    icon={s.percentual !== null && s.percentual >= 80 ? CheckCircle2 : XCircle}
+                    label={`% Aderência — ${s.sala}`}
+                    value={s.percentual !== null ? `${s.percentual}%` : '—'}
+                    accent={s.percentual !== null && s.percentual >= 80 ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}
+                  />
+                ))}
               </div>
+
+              {graficoMotoristaDiario.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Aderência diária por sala</h3>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <ComposedChart data={graficoMotoristaDiario}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="dataLabel" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="%" />
+                      <Tooltip contentStyle={TOOLTIP_STYLE} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Line type="monotone" dataKey="geral" name="Geral" stroke="#2563eb" strokeWidth={2} dot={false} connectNulls />
+                      <Line type="monotone" dataKey="colorado" name="COLORADO" stroke="#16a34a" strokeWidth={2} dot={false} connectNulls />
+                      <Line type="monotone" dataKey="subFuria" name="SUB-FURIA" stroke="#d97706" strokeWidth={2} dot={false} connectNulls />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
 
               {graficoMotoristaMeses.length > 0 && (
                 <div className="bg-white rounded-xl border border-gray-200 p-4">

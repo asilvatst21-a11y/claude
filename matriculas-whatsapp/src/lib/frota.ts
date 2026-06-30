@@ -915,6 +915,37 @@ export function calcularAderenciaMotoristaPorDia(cruzamento: CruzamentoMotorista
     .sort((a, b) => a.data.localeCompare(b.data))
 }
 
+export interface AderenciaMotoristaDiaSala {
+  data: string
+  sala: 'COLORADO' | 'SUB-FURIA'
+  comDado: number
+  ok: number
+  percentual: number
+}
+
+export function calcularAderenciaMotoristaPorDiaESala(cruzamento: CruzamentoMotoristaItem[]): AderenciaMotoristaDiaSala[] {
+  const porChave = new Map<string, CruzamentoMotoristaItem[]>()
+  for (const c of cruzamento) {
+    const chave = `${c.data}|${c.sala}`
+    if (!porChave.has(chave)) porChave.set(chave, [])
+    porChave.get(chave)!.push(c)
+  }
+
+  return Array.from(porChave.entries())
+    .map(([chave, itens]) => {
+      const [data, sala] = chave.split('|') as [string, 'COLORADO' | 'SUB-FURIA']
+      const ok = itens.filter(i => i.bate).length
+      return {
+        data,
+        sala,
+        comDado: itens.length,
+        ok,
+        percentual: itens.length > 0 ? Math.round((ok / itens.length) * 100) : 0,
+      }
+    })
+    .sort((a, b) => a.data.localeCompare(b.data) || a.sala.localeCompare(b.sala))
+}
+
 export interface AderenciaMotoristaAcumulado {
   ano: number
   mes: number
