@@ -75,7 +75,7 @@ export default function FrotaPlacas() {
 
   const grupoAlterado = grupoFrota.trim() !== grupoOriginal
 
-  async function atualizar(id: string, campos: Partial<Pick<FrotaPlaca, 'ativo' | 'perfil' | 'matricula_motorista'>>) {
+  async function atualizar(id: string, campos: Partial<Pick<FrotaPlaca, 'ativo' | 'perfil' | 'matricula_motorista' | 'matricula_motorista_2'>>) {
     setPlacas(ps => ps.map(p => (p.id === id ? { ...p, ...campos } : p)))
     await supabase.from('frota_placas').update({ ...campos, updated_at: new Date().toISOString() }).eq('id', id)
   }
@@ -200,16 +200,34 @@ export default function FrotaPlacas() {
                       </select>
                     </td>
                     <td className="px-4 py-2.5">
-                      <input
-                        type="text"
-                        defaultValue={p.matricula_motorista ?? ''}
-                        placeholder="—"
-                        onBlur={e => {
-                          const v = e.target.value.trim()
-                          if (v !== (p.matricula_motorista ?? '')) atualizar(p.id, { matricula_motorista: v || null })
-                        }}
-                        className="w-32 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500"
-                      />
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-muted-foreground w-3 shrink-0">1ª</span>
+                          <input
+                            type="text"
+                            defaultValue={p.matricula_motorista ?? ''}
+                            placeholder="—"
+                            onBlur={e => {
+                              const v = e.target.value.trim()
+                              if (v !== (p.matricula_motorista ?? '')) atualizar(p.id, { matricula_motorista: v || null })
+                            }}
+                            className="w-32 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] text-muted-foreground w-3 shrink-0">2ª</span>
+                          <input
+                            type="text"
+                            defaultValue={p.matricula_motorista_2 ?? ''}
+                            placeholder="—"
+                            onBlur={e => {
+                              const v = e.target.value.trim()
+                              if (v !== (p.matricula_motorista_2 ?? '')) atualizar(p.id, { matricula_motorista_2: v || null })
+                            }}
+                            className="w-32 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                          />
+                        </div>
+                      </div>
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       <input type="checkbox" checked={p.ativo} onChange={e => atualizar(p.id, { ativo: e.target.checked })} className="accent-brand-700" />
