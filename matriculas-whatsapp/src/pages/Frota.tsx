@@ -5,7 +5,7 @@ import html2canvas from 'html2canvas'
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
-import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy } from 'lucide-react'
+import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy, Send } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
@@ -14,6 +14,7 @@ import {
   parseDisponibilidadeDiariaCsv, parseHistoricoXlsx, resumoPorDia, disponiveisNoDia,
   rankingIndisponibilidadePorPlaca, cruzarTerritorio, detectarTrocasTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia, matrizDisponibilidade,
   cruzarMotorista, rankingMotoristasPerdaFixacao, calcularAderenciaMotoristaPorDia, calcularAderenciaMotoristaMeses, calcularAderenciaMotoristaPorDiaESala,
+  processarFixacaoMotorista,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
   type CruzamentoTerritorioItem, type TrocaTerritorioItem, type HistoricoTmlMotorista, type CruzamentoMotoristaItem,
 } from '../lib/frota'
@@ -105,6 +106,7 @@ export default function Frota() {
   const exportCruzamentoRef = useRef<HTMLDivElement>(null)
   const [exportandoMotorista, setExportandoMotorista] = useState(false)
   const [exportandoResumoMotorista, setExportandoResumoMotorista] = useState(false)
+  const [forcandoEnvioJustificativa, setForcandoEnvioJustificativa] = useState(false)
   const exportMotoristaRef = useRef<HTMLDivElement>(null)
   const hoje = new Date()
   const [mesSel, setMesSel] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 })
@@ -328,6 +330,29 @@ export default function Frota() {
       alert(sucesso ? 'Resumo enviado para o grupo.' : `Falha ao enviar o resumo: ${erro}`)
     } finally {
       setExportandoResumoMotorista(false)
+    }
+  }
+
+  // Reenvia a solicitação de justificativa pro supervisor sem precisar
+  // reimportar a saída. Reusa o histórico já carregado em memória — só cria
+  // alerta pras divergências do dia que ainda não tiverem um registrado
+  // (mesma dedupe de processarFixacaoMotorista), então rodar de novo não
+  // duplica envios já feitos.
+  async function forcarEnvioJustificativas() {
+    if (!usuario) return
+    const dataAlvo = diaMotorista === 'todos' ? new Date().toISOString().slice(0, 10) : diaMotorista
+    const historicoDoDia = historicoTmlMotorista.filter(h => h.data_saida === dataAlvo)
+    if (historicoDoDia.length === 0) {
+      alert(`Nenhum registro de saída encontrado para ${formatarDataBR(dataAlvo)}.`)
+      return
+    }
+    setForcandoEnvioJustificativa(true)
+    try {
+      await processarFixacaoMotorista(usuario.filial, historicoDoDia)
+      await carregarDados()
+      alert(`Envio forçado concluído para ${formatarDataBR(dataAlvo)}. Confira a coluna "Justificativa" na tabela.`)
+    } finally {
+      setForcandoEnvioJustificativa(false)
     }
   }
 
@@ -931,6 +956,14 @@ export default function Frota() {
                     >
                       {exportandoMotorista ? <Loader2 size={13} className="animate-spin" /> : <Image size={13} />}
                       Exportar imagem
+                    </button>
+                    <button
+                      onClick={forcarEnvioJustificativas}
+                      disabled={forcandoEnvioJustificativa}
+                      className="flex items-center gap-1.5 text-xs text-brand-700 border border-brand-200 px-2.5 py-1 rounded-lg hover:bg-brand-50 disabled:opacity-40"
+                    >
+                      {forcandoEnvioJustificativa ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+                      Forçar envio de justificativas
                     </button>
                   </div>
                 </div>
