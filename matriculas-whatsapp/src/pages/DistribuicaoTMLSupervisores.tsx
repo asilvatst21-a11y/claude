@@ -103,7 +103,9 @@ export default function DistribuicaoTMLSupervisores() {
           </Link>
           <h1 className="text-xl sm:text-2xl font-bold mt-1">Supervisores — TML</h1>
           <p className="text-sm text-muted-foreground">
-            Cadastre o supervisor responsável por sala para receber os alertas de TML
+            Cadastre o supervisor responsável por sala para receber, no WhatsApp, os alertas de atraso do TML e as
+            solicitações automáticas de justificativa da Fixação de Motorista (placa rodou com motorista diferente do
+            fixado).
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
