@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import type { FrotaDisponibilidade, FrotaPlaca } from '../types'
+import type { FrotaDisponibilidade, FrotaPlaca, FrotaIVTratativa } from '../types'
 
 export type FrotaDisponibilidadeInsert = Omit<FrotaDisponibilidade, 'id' | 'created_at'>
 
@@ -465,4 +465,255 @@ export function cruzarTerritorio(
       }
     })
     .sort((a, b) => b.data.localeCompare(a.data) || a.placa.localeCompare(b.placa))
+}
+
+// ─── IV da Frota — DU (Disponibilidade de Unidades) ────────────────────────
+// Meta: 80% dos VUCs ativos disponíveis para rota. Diferente do resumo geral
+// (resumoPorDia), aqui o denominador é SEMPRE o total de VUCs ativos do
+// cadastro que aparecem no relatório do dia — inclui "Não Contratada" como
+// indisponível, pois para o indicador de DU o que importa é se o VUC está
+// rodando ou não, independente do motivo.
+
+export const META_DU = 80
+
+export function farolDu(percentual: number): 'verde' | 'amarelo' | 'vermelho' {
+  return percentual >= 80 ? 'verde' : percentual >= 60 ? 'amarelo' : 'vermelho'
+}
+
+// Placas ativas classificadas como VUC no cadastro.
+export function vucAtivos(placas: FrotaPlaca[]): Set<string> {
+  return new Set(placas.filter(p => p.ativo && (p.perfil?.trim() || '') === 'VUC').map(p => p.placa))
+}
+
+export interface DuDia {
+  data: string
+  totalVuc: number
+  disponiveis: number
+  percentual: number
+}
+
+// DU por dia: para cada data com algum registro de VUC ativo, conta quantos
+// desses VUCs estavam com status "Disponível".
+export function calcularDuPorDia(rows: FrotaDisponibilidade[], placas: FrotaPlaca[]): DuDia[] {
+  const vucs = vucAtivos(placas)
+  if (vucs.size === 0) return []
+
+  const porDia = new Map<string, FrotaDisponibilidade[]>()
+  for (const r of rows) {
+    if (!vucs.has(r.placa)) continue
+    if (!porDia.has(r.data)) porDia.set(r.data, [])
+    porDia.get(r.data)!.push(r)
+  }
+
+  return Array.from(porDia.entries())
+    .map(([data, linhas]) => {
+      const disponiveis = linhas.filter(l => normalizar(l.status) === 'DISPONIVEL').length
+      return {
+        data,
+        totalVuc: linhas.length,
+        disponiveis,
+        percentual: linhas.length > 0 ? Math.round((disponiveis / linhas.length) * 100) : 0,
+      }
+    })
+    .sort((a, b) => a.data.localeCompare(b.data))
+}
+
+export interface DuAcumulado {
+  ano: number
+  mes: number
+  diasComDado: number
+  mediaPercentual: number
+  totalDisponivelDias: number
+  totalVucDias: number
+}
+
+// Acumulado do mês: média ponderada dos dias (soma de disponíveis / soma do
+// total de VUC-dia), não média simples dos percentuais diários.
+export function calcularDuAcumulado(duPorDia: DuDia[], ano: number, mes: number): DuAcumulado {
+  const prefixo = `${ano}-${String(mes).padStart(2, '0')}`
+  const doMes = duPorDia.filter(d => d.data.startsWith(prefixo))
+  const totalDisponivelDias = doMes.reduce((acc, d) => acc + d.disponiveis, 0)
+  const totalVucDias = doMes.reduce((acc, d) => acc + d.totalVuc, 0)
+  return {
+    ano,
+    mes,
+    diasComDado: doMes.length,
+    mediaPercentual: totalVucDias > 0 ? Math.round((totalDisponivelDias / totalVucDias) * 100) : 0,
+    totalDisponivelDias,
+    totalVucDias,
+  }
+}
+
+export interface DuMes {
+  ano: number
+  mes: number
+  acumulado: DuAcumulado
+}
+
+// Evolução mês x mês dos últimos `n` meses com dado, mais recente por último
+// (pronto para alimentar gráfico de barras/linha).
+export function calcularDuMeses(duPorDia: DuDia[], n = 6): DuMes[] {
+  const chaves = Array.from(new Set(duPorDia.map(d => d.data.slice(0, 7)))).sort()
+  const ultimas = chaves.slice(-n)
+  return ultimas.map(chave => {
+    const [ano, mes] = chave.split('-').map(Number)
+    return { ano, mes, acumulado: calcularDuAcumulado(duPorDia, ano, mes) }
+  })
+}
+
+export interface VucStatusDia {
+  placa: string
+  frota: string | null
+  status: string
+  disponivel: boolean
+  motivo: string | null
+  tratativa: FrotaIVTratativa | null
+}
+
+// Lista de todos os VUCs ativos no dia, com status do relatório e tratativa
+// já registrada (se houver) — base da aba "Tratativa do Dia".
+export function vucStatusNoDia(
+  rows: FrotaDisponibilidade[],
+  placas: FrotaPlaca[],
+  data: string,
+  tratativas: FrotaIVTratativa[] = [],
+): VucStatusDia[] {
+  const vucs = vucAtivos(placas)
+  const rowsDoDia = new Map(rows.filter(r => r.data === data && vucs.has(r.placa)).map(r => [r.placa, r]))
+  const tratativasPorPlaca = new Map(tratativas.filter(t => t.data === data).map(t => [t.placa, t]))
+
+  return Array.from(vucs)
+    .map(placa => {
+      const r = rowsDoDia.get(placa)
+      const disponivel = !!r && normalizar(r.status) === 'DISPONIVEL'
+      return {
+        placa,
+        frota: r?.frota ?? null,
+        status: r?.status ?? 'Sem dado',
+        disponivel,
+        motivo: r ? (r.justificativa?.trim() || null) : 'Sem registro no relatório do dia',
+        tratativa: tratativasPorPlaca.get(placa) ?? null,
+      }
+    })
+    .sort((a, b) => {
+      if (a.disponivel !== b.disponivel) return a.disponivel ? 1 : -1
+      return a.placa.localeCompare(b.placa)
+    })
+}
+
+export interface MotivoRanking {
+  motivo: string
+  quantidade: number
+}
+
+// Ranking de motivos de indisponibilidade dos VUCs no mês, priorizando o
+// motivo registrado na tratativa (mais confiável) e caindo para a
+// justificativa do relatório quando não houver tratativa.
+export function rankingMotivosVucMes(
+  rows: FrotaDisponibilidade[],
+  placas: FrotaPlaca[],
+  ano: number,
+  mes: number,
+  tratativas: FrotaIVTratativa[] = [],
+): MotivoRanking[] {
+  const vucs = vucAtivos(placas)
+  const prefixo = `${ano}-${String(mes).padStart(2, '0')}`
+  const tratativasPorChave = new Map(tratativas.map(t => [`${t.placa}|${t.data}`, t]))
+
+  const contagem = new Map<string, number>()
+  for (const r of rows) {
+    if (!vucs.has(r.placa) || !r.data.startsWith(prefixo)) continue
+    if (normalizar(r.status) === 'DISPONIVEL') continue
+    const t = tratativasPorChave.get(`${r.placa}|${r.data}`)
+    const motivo = t?.motivo_tratativa?.trim() || r.justificativa?.trim() || (normalizar(r.status) === 'PARADO' ? 'Parado' : 'Sem justificativa')
+    contagem.set(motivo, (contagem.get(motivo) ?? 0) + 1)
+  }
+
+  return Array.from(contagem.entries())
+    .map(([motivo, quantidade]) => ({ motivo, quantidade }))
+    .sort((a, b) => b.quantidade - a.quantidade)
+}
+
+export interface VucRankingAusencia {
+  placa: string
+  frota: string | null
+  diasIndisponivel: number
+  percentualIndisponibilidade: number
+}
+
+// Ranking dos VUCs que mais ficaram indisponíveis no mês.
+export function rankingVucAusenciaMes(
+  rows: FrotaDisponibilidade[],
+  placas: FrotaPlaca[],
+  ano: number,
+  mes: number,
+): VucRankingAusencia[] {
+  const vucs = vucAtivos(placas)
+  const prefixo = `${ano}-${String(mes).padStart(2, '0')}`
+
+  const porPlaca = new Map<string, FrotaDisponibilidade[]>()
+  for (const r of rows) {
+    if (!vucs.has(r.placa) || !r.data.startsWith(prefixo)) continue
+    if (!porPlaca.has(r.placa)) porPlaca.set(r.placa, [])
+    porPlaca.get(r.placa)!.push(r)
+  }
+
+  return Array.from(porPlaca.entries())
+    .map(([placa, linhas]) => {
+      const indisponiveis = linhas.filter(l => normalizar(l.status) !== 'DISPONIVEL')
+      return {
+        placa,
+        frota: linhas[0]?.frota ?? null,
+        diasIndisponivel: indisponiveis.length,
+        percentualIndisponibilidade: linhas.length > 0 ? Math.round((indisponiveis.length / linhas.length) * 100) : 0,
+      }
+    })
+    .filter(p => p.diasIndisponivel > 0)
+    .sort((a, b) => b.diasIndisponivel - a.diasIndisponivel)
+}
+
+export interface DuProjecaoDia {
+  data: string
+  retornamPrevistos: number
+  totalVuc: number
+  disponiveisProjetado: number
+  percentualProjetado: number
+}
+
+// Projeta a evolução do DU para os próximos dias com base nas previsões de
+// retorno registradas na tratativa: a cada dia em que uma placa indisponível
+// tem previsão de retorno, soma-se ela aos disponíveis projetados a partir
+// daquela data (assume que, uma vez retornada, ela permanece disponível).
+export function calcularProjecaoDu(
+  ultimoDuDia: DuDia | null,
+  vucStatusUltimoDia: VucStatusDia[],
+  tratativas: FrotaIVTratativa[],
+): DuProjecaoDia[] {
+  if (!ultimoDuDia) return []
+
+  const indisponiveis = vucStatusUltimoDia.filter(v => !v.disponivel)
+  const tratativasPorPlaca = new Map(tratativas.map(t => [t.placa, t]))
+
+  const previsoes = indisponiveis
+    .map(v => tratativasPorPlaca.get(v.placa)?.previsao_retorno)
+    .filter((d): d is string => !!d && d > ultimoDuDia.data)
+
+  if (previsoes.length === 0) return []
+
+  const datasOrdenadas = Array.from(new Set(previsoes)).sort()
+  let disponiveisAcumulado = ultimoDuDia.disponiveis
+  const totalVuc = ultimoDuDia.totalVuc
+
+  return datasOrdenadas.map(data => {
+    const retornamPrevistos = previsoes.filter(d => d === data).length
+    disponiveisAcumulado += retornamPrevistos
+    const disponiveisProjetado = Math.min(disponiveisAcumulado, totalVuc)
+    return {
+      data,
+      retornamPrevistos,
+      totalVuc,
+      disponiveisProjetado,
+      percentualProjetado: totalVuc > 0 ? Math.round((disponiveisProjetado / totalVuc) * 100) : 0,
+    }
+  })
 }

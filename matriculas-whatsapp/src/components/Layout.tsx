@@ -55,6 +55,7 @@ const distribuicaoItems = [
 
 const frotaItems = [
   { permKey: 'frota', to: '/frota',        label: 'Frota',  icon: Fuel,     end: true },
+  { permKey: 'frota', to: '/frota/iv',     label: 'IV — DU', icon: BarChart2 },
   { permKey: 'frota', to: '/frota/placas', label: 'Placas', icon: Settings },
 ]
 
