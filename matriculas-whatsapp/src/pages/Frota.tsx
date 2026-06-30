@@ -88,9 +88,9 @@ export default function Frota() {
         .eq('filial', usuario.filial)
         .order('data', { ascending: true }),
       supabase.from('historico_tml')
-        .select('placa, data_saida, regiao_entregas')
+        .select('placa, data_saida, regiao_entregas, cidades_entregas')
         .eq('filial', usuario.filial)
-        .not('regiao_entregas', 'is', null),
+        .or('regiao_entregas.not.is.null,cidades_entregas.not.is.null'),
       supabase.from('frota_territorio_historico')
         .select('placa, data, regiao_entregas')
         .eq('filial', usuario.filial)
@@ -101,7 +101,7 @@ export default function Frota() {
     setHistoricoTml([
       ...((dataTml ?? []) as HistoricoTmlRegiao[]),
       ...((dataTerritorioHist ?? []) as { placa: string | null; data: string | null; regiao_entregas: string | null }[])
-        .map(r => ({ placa: r.placa, data_saida: r.data, regiao_entregas: r.regiao_entregas })),
+        .map(r => ({ placa: r.placa, data_saida: r.data, regiao_entregas: r.regiao_entregas, cidades_entregas: null })),
     ])
     setPlacas((dataPlacas ?? []) as FrotaPlaca[])
     setCarregando(false)
@@ -554,7 +554,7 @@ export default function Frota() {
                         <th className="text-left py-2 font-medium">Data</th>
                         <th className="text-left py-2 font-medium">Placa</th>
                         <th className="text-left py-2 font-medium">Território (Frota)</th>
-                        <th className="text-left py-2 font-medium">Região executada (TML)</th>
+                        <th className="text-left py-2 font-medium">Região/Cidades executada (TML)</th>
                         <th className="text-center py-2 font-medium">Status</th>
                       </tr>
                     </thead>

@@ -404,6 +404,7 @@ export interface HistoricoTML {
   observacao: string | null
   alerta_id: string | null
   regiao_entregas: string | null
+  cidades_entregas: string | null
   created_at: string
 }
 
