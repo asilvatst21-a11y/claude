@@ -13,7 +13,8 @@ import {
   horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal, metaMatinalMinutos, MATINAL_AUTO_FINALIZA_MIN,
 } from '../lib/tml'
 import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusSalaTML } from '../lib/tmlResumos'
-import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
+import { cruzarMotorista, type HistoricoTmlMotorista } from '../lib/frota'
+import type { AlertaTML, HistoricoTML, MotivoJustificativaTML, FrotaPlaca } from '../types'
 import { formatarDataBR } from '../lib/utils'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
@@ -172,6 +173,106 @@ async function gerarNumero(filial: string): Promise<string> {
   const d = new Date()
   const ds = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
   return `TML-${ds}-${n}`
+}
+
+async function gerarNumeroFixacao(filial: string): Promise<string> {
+  const { count } = await supabase
+    .from('alertas_fixacao_motorista')
+    .select('*', { count: 'exact', head: true })
+    .eq('filial', filial)
+  const n = ((count ?? 0) + 1).toString().padStart(4, '0')
+  const d = new Date()
+  const ds = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
+  return `FIX-${ds}-${n}`
+}
+
+function montarMensagemFixacaoMotorista(item: {
+  placa: string
+  data: string
+  sala: string
+  matriculaExecutou: number
+  nomeExecutou: string | null
+  matriculaEsperada1: string | null
+  matriculaEsperada2: string | null
+}): string {
+  const esperados = [item.matriculaEsperada1, item.matriculaEsperada2].filter(Boolean).join(' ou ')
+  return (
+    `⚠️ *FIXAÇÃO DE MOTORISTA — DIVERGÊNCIA*\n\n` +
+    `🚛 Placa: ${item.placa}\n` +
+    `📅 Data: ${formatarDataBR(item.data)}\n` +
+    `🏢 Sala: ${item.sala}\n` +
+    `👤 Motorista que rodou: ${item.nomeExecutou ?? '—'} (matrícula ${item.matriculaExecutou})\n` +
+    `📌 Motorista(s) fixado(s) na placa: matrícula ${esperados || '—'}\n\n` +
+    `A placa rodou com um motorista diferente do fixado. *Responda esta mensagem explicando o que aconteceu* — o controle vai registrar a justificativa no sistema.`
+  )
+}
+
+// Dispara automaticamente, a cada importação de saída, a solicitação de
+// justificativa pro supervisor da sala quando a placa roda com um motorista
+// diferente do fixado em frota_placas. Não bloqueia o import em caso de
+// falha de envio — só registra o alerta com status "erro".
+async function processarFixacaoMotorista(filial: string, historico: HistoricoTmlMotorista[]): Promise<void> {
+  const placasDoLote = [...new Set(historico.map((h) => h.placa).filter((p): p is string => !!p))]
+  if (placasDoLote.length === 0) return
+
+  const { data: placasCadastro } = await supabase
+    .from('frota_placas')
+    .select('*')
+    .eq('filial', filial)
+    .eq('ativo', true)
+    .in('placa', placasDoLote)
+
+  const cruzamento = cruzarMotorista(historico, (placasCadastro ?? []) as FrotaPlaca[])
+  const nok = cruzamento.filter((c) => !c.bate)
+  if (nok.length === 0) return
+
+  // Uma divergência por placa+dia (mesma chave única da tabela de alertas).
+  const nokUnico = Array.from(new Map(nok.map((c) => [`${c.placa}|${c.data}`, c])).values())
+
+  const { data: existentes } = await supabase
+    .from('alertas_fixacao_motorista')
+    .select('placa, data')
+    .eq('filial', filial)
+    .in('placa', nokUnico.map((c) => c.placa))
+  const jaAlertados = new Set((existentes ?? []).map((a) => `${a.placa}|${a.data}`))
+
+  for (const item of nokUnico) {
+    if (jaAlertados.has(`${item.placa}|${item.data}`)) continue
+
+    const { data: supervisores } = await supabase
+      .from('supervisores_tml')
+      .select('id, nome, telefone')
+      .eq('filial', filial)
+      .eq('sala', item.sala)
+
+    const mensagem = montarMensagemFixacaoMotorista(item)
+    const numero = await gerarNumeroFixacao(filial)
+
+    if (!supervisores?.length) {
+      await supabase.from('alertas_fixacao_motorista').insert({
+        filial, numero, placa: item.placa, data: item.data, sala: item.sala,
+        matricula_executou: item.matriculaExecutou, nome_executou: item.nomeExecutou,
+        matricula_esperada_1: item.matriculaEsperada1, matricula_esperada_2: item.matriculaEsperada2,
+        mensagem_enviada: mensagem, status: 'erro',
+      })
+      continue
+    }
+
+    const errosEnvio: string[] = []
+    for (const sup of supervisores) {
+      const resultado = await enviarMensagemWhatsApp(sup.telefone, mensagem)
+      if (!resultado.sucesso) errosEnvio.push(`${sup.nome}: ${resultado.erro}`)
+    }
+
+    await supabase.from('alertas_fixacao_motorista').insert({
+      filial, numero, placa: item.placa, data: item.data, sala: item.sala,
+      matricula_executou: item.matriculaExecutou, nome_executou: item.nomeExecutou,
+      matricula_esperada_1: item.matriculaEsperada1, matricula_esperada_2: item.matriculaEsperada2,
+      supervisor_id: supervisores[0].id,
+      mensagem_enviada: mensagem,
+      status: errosEnvio.length === supervisores.length ? 'erro' : 'enviado',
+    })
+  }
 }
 
 function UploadBox({
@@ -537,7 +638,15 @@ export default function DistribuicaoTML() {
         const { error: histErr } = await supabase
           .from('historico_tml')
           .upsert([...historicoPorMapa.values()], { onConflict: 'filial,mapa,data_saida' })
-        if (histErr) erros.push(`Histórico: ${histErr.message}`)
+        if (histErr) {
+          erros.push(`Histórico: ${histErr.message}`)
+        } else {
+          try {
+            await processarFixacaoMotorista(usuario.filial, [...historicoPorMapa.values()] as unknown as HistoricoTmlMotorista[])
+          } catch (e) {
+            erros.push(`Fixação de motorista: ${String(e)}`)
+          }
+        }
       }
 
       await enviarResumoDiario(usuario.filial, dataMaisFrequente(saidas.map((s) => s.dataSaida)))

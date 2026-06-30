@@ -5,7 +5,7 @@ import html2canvas from 'html2canvas'
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
-import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid } from 'lucide-react'
+import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
@@ -13,11 +13,28 @@ import { enviarImagemGrupo } from '../lib/zapi'
 import {
   parseDisponibilidadeDiariaCsv, parseHistoricoXlsx, resumoPorDia, disponiveisNoDia,
   rankingIndisponibilidadePorPlaca, cruzarTerritorio, detectarTrocasTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia, matrizDisponibilidade,
+  cruzarMotorista, rankingMotoristasPerdaFixacao, calcularAderenciaMotoristaPorDia, calcularAderenciaMotoristaMeses,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
-  type CruzamentoTerritorioItem, type TrocaTerritorioItem,
+  type CruzamentoTerritorioItem, type TrocaTerritorioItem, type HistoricoTmlMotorista, type CruzamentoMotoristaItem,
 } from '../lib/frota'
 import { parseEscalaBuffer } from '../lib/tmlParser'
-import type { FrotaDisponibilidade, FrotaPlaca } from '../types'
+import type { FrotaDisponibilidade, FrotaPlaca, AlertaFixacaoMotorista } from '../types'
+
+const STATUS_FIXACAO_LABEL: Record<AlertaFixacaoMotorista['status'], string> = {
+  pendente: 'Pendente de envio',
+  enviado: 'Aguardando resposta',
+  respondido: 'Respondido — aguardando classificação',
+  justificado: 'Justificado',
+  erro: 'Falha no envio',
+}
+
+const STATUS_FIXACAO_COR: Record<AlertaFixacaoMotorista['status'], string> = {
+  pendente: 'bg-gray-100 text-gray-600 border-gray-200',
+  enviado: 'bg-yellow-50 text-yellow-700 border-yellow-200',
+  respondido: 'bg-blue-50 text-blue-700 border-blue-200',
+  justificado: 'bg-green-50 text-green-700 border-green-200',
+  erro: 'bg-red-50 text-red-700 border-red-200',
+}
 
 const TOOLTIP_STYLE = { borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12 }
 
@@ -66,15 +83,19 @@ async function semearPlacas(filial: string, rows: { placa: string }[]) {
 
 export default function Frota() {
   const { usuario } = useAuth()
-  const [aba, setAba] = useState<'disponibilidade' | 'territorio' | 'matriz'>('disponibilidade')
+  const [aba, setAba] = useState<'disponibilidade' | 'territorio' | 'motorista' | 'matriz'>('disponibilidade')
   const [registros, setRegistros] = useState<FrotaDisponibilidade[]>([])
   const [historicoTml, setHistoricoTml] = useState<HistoricoTmlRegiao[]>([])
+  const [historicoTmlMotorista, setHistoricoTmlMotorista] = useState<HistoricoTmlMotorista[]>([])
+  const [alertasFixacao, setAlertasFixacao] = useState<AlertaFixacaoMotorista[]>([])
   const [placas, setPlacas] = useState<FrotaPlaca[]>([])
   const [carregando, setCarregando] = useState(true)
   const [uploadando, setUploadando] = useState(false)
   const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
   const [diaTerritorio, setDiaTerritorio] = useState<string>('todos')
   const [statusTerritorio, setStatusTerritorio] = useState<'todos' | 'ok' | 'nok'>('todos')
+  const [diaMotorista, setDiaMotorista] = useState<string>('todos')
+  const [statusMotorista, setStatusMotorista] = useState<'todos' | 'ok' | 'nok'>('todos')
   const [exportandoImg, setExportandoImg] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
   const exportPlacasRef = useRef<HTMLDivElement>(null)
@@ -82,13 +103,16 @@ export default function Frota() {
   const [exportandoCruzamento, setExportandoCruzamento] = useState(false)
   const exportTrocasRef = useRef<HTMLDivElement>(null)
   const exportCruzamentoRef = useRef<HTMLDivElement>(null)
+  const [exportandoMotorista, setExportandoMotorista] = useState(false)
+  const [exportandoResumoMotorista, setExportandoResumoMotorista] = useState(false)
+  const exportMotoristaRef = useRef<HTMLDivElement>(null)
   const hoje = new Date()
   const [mesSel, setMesSel] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 })
 
   const carregarDados = useCallback(async () => {
     if (!usuario) return
     setCarregando(true)
-    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }, { data: dataPlacas }] = await Promise.all([
+    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }, { data: dataPlacas }, { data: dataTmlMotorista }, { data: dataAlertasFixacao }] = await Promise.all([
       supabase.from('frota_disponibilidade')
         .select('*')
         .eq('filial', usuario.filial)
@@ -102,6 +126,11 @@ export default function Frota() {
         .eq('filial', usuario.filial)
         .not('regiao_entregas', 'is', null),
       supabase.from('frota_placas').select('*').eq('filial', usuario.filial),
+      supabase.from('historico_tml')
+        .select('placa, data_saida, matricula, nome, sala')
+        .eq('filial', usuario.filial)
+        .not('matricula', 'is', null),
+      supabase.from('alertas_fixacao_motorista').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
     ])
     setRegistros((data ?? []) as FrotaDisponibilidade[])
     setHistoricoTml([
@@ -109,6 +138,8 @@ export default function Frota() {
       ...((dataTerritorioHist ?? []) as { placa: string | null; data: string | null; regiao_entregas: string | null }[])
         .map(r => ({ placa: r.placa, data_saida: r.data, regiao_entregas: r.regiao_entregas, cidades_entregas: null })),
     ])
+    setHistoricoTmlMotorista((dataTmlMotorista ?? []) as HistoricoTmlMotorista[])
+    setAlertasFixacao((dataAlertasFixacao ?? []) as AlertaFixacaoMotorista[])
     setPlacas((dataPlacas ?? []) as FrotaPlaca[])
     setCarregando(false)
   }, [usuario])
@@ -275,6 +306,31 @@ export default function Frota() {
     }
   }
 
+  async function enviarResumoGrupoMotorista() {
+    if (!usuario || !exportMotoristaRef.current) return
+    setExportandoResumoMotorista(true)
+    try {
+      const { data: filialRow } = await supabase.from('filiais').select('grupo_fixacao_motorista_whatsapp').eq('nome', usuario.filial).maybeSingle()
+      const grupoId = filialRow?.grupo_fixacao_motorista_whatsapp
+      if (!grupoId) {
+        alert('Grupo de WhatsApp da Fixação de Motorista não configurado. Configure em /frota/placas.')
+        return
+      }
+      const refData = diaMotorista === 'todos' ? cruzamentoMotorista[0]?.data : diaMotorista
+      const legenda = `🚗 Resumo de Fixação de Motorista — ${refData ? formatarDataBR(refData) : ''}${aderenciaMotorista !== null ? ` — Aderência: ${aderenciaMotorista}%` : ''}`
+      const canvas = await html2canvas(exportMotoristaRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+      const img = canvas.toDataURL('image/png')
+      const { sucesso, erro } = await enviarImagemGrupo(grupoId, img, legenda)
+      await supabase.from('disparos').insert({
+        filial: usuario.filial, whatsapp: grupoId, mensagem: legenda,
+        status: sucesso ? 'enviado' : 'erro', erro: erro ?? null,
+      })
+      alert(sucesso ? 'Resumo enviado para o grupo.' : `Falha ao enviar o resumo: ${erro}`)
+    } finally {
+      setExportandoResumoMotorista(false)
+    }
+  }
+
   async function baixarImagem(ref: React.RefObject<HTMLDivElement | null>, setLoading: (v: boolean) => void, nomeArquivo: string) {
     if (!ref.current) return
     setLoading(true)
@@ -307,6 +363,22 @@ export default function Frota() {
   const linhasExibidas = statusTerritorio === 'todos' ? comDadoFiltrado : comDadoFiltrado.filter(c => statusTerritorio === 'ok' ? c.bate : !c.bate)
   const trocas = useMemo(() => detectarTrocasTerritorio(comDadoFiltrado), [comDadoFiltrado])
 
+  const cruzamentoMotorista = useMemo(() => cruzarMotorista(historicoTmlMotorista, placas), [historicoTmlMotorista, placas])
+  const diasComDadoMotorista = useMemo(() => Array.from(new Set(cruzamentoMotorista.map(c => c.data))).sort((a, b) => b.localeCompare(a)), [cruzamentoMotorista])
+  const cruzamentoMotoristaFiltrado = diaMotorista === 'todos' ? cruzamentoMotorista : cruzamentoMotorista.filter(c => c.data === diaMotorista)
+  const aderenciaMotorista = cruzamentoMotoristaFiltrado.length > 0
+    ? Math.round((cruzamentoMotoristaFiltrado.filter(c => c.bate).length / cruzamentoMotoristaFiltrado.length) * 100)
+    : null
+  const linhasMotoristaExibidas = statusMotorista === 'todos' ? cruzamentoMotoristaFiltrado : cruzamentoMotoristaFiltrado.filter(c => statusMotorista === 'ok' ? c.bate : !c.bate)
+  const rankingMotorista = useMemo(() => rankingMotoristasPerdaFixacao(cruzamentoMotorista), [cruzamentoMotorista])
+  const aderenciaMotoristaPorDia = useMemo(() => calcularAderenciaMotoristaPorDia(cruzamentoMotorista), [cruzamentoMotorista])
+  const evolucaoMotoristaMeses = useMemo(() => calcularAderenciaMotoristaMeses(aderenciaMotoristaPorDia, 6), [aderenciaMotoristaPorDia])
+  const graficoMotoristaMeses = evolucaoMotoristaMeses.map(m => ({
+    mes: new Date(m.ano, m.mes - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
+    percentual: m.acumulado.mediaPercentual,
+  }))
+  const alertaPorPlacaData = useMemo(() => new Map(alertasFixacao.map(a => [`${a.placa}|${a.data}`, a])), [alertasFixacao])
+
   return (
     <div className="p-8 max-w-6xl">
       {importResult && (
@@ -336,6 +408,9 @@ export default function Frota() {
         </button>
         <button onClick={() => setAba('territorio')} className={`text-sm font-medium px-3 py-2 border-b-2 flex items-center gap-1 ${aba === 'territorio' ? 'border-brand-700 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
           <MapPinned size={14} /> Fixação de Território
+        </button>
+        <button onClick={() => setAba('motorista')} className={`text-sm font-medium px-3 py-2 border-b-2 flex items-center gap-1 ${aba === 'motorista' ? 'border-brand-700 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
+          <UserCheck size={14} /> Fixação de Motorista
         </button>
         <button onClick={() => setAba('matriz')} className={`text-sm font-medium px-3 py-2 border-b-2 flex items-center gap-1 ${aba === 'matriz' ? 'border-brand-700 text-brand-700' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
           <LayoutGrid size={14} /> Matriz Mensal
@@ -676,6 +751,182 @@ export default function Frota() {
         </div>
       )}
 
+      {aba === 'motorista' && (
+        <div className="space-y-5">
+          <p className="text-xs text-gray-500">
+            Cruza a matrícula fixada na placa (cadastro em /frota/placas) com a matrícula que realmente rodou no dia, vinda
+            da escala/saída importada na tela TML — Carta de Controle. Cada divergência dispara automaticamente uma
+            solicitação de justificativa pro supervisor da sala via WhatsApp.
+          </p>
+
+          {carregando ? (
+            <div className="flex items-center justify-center py-20 text-gray-400">
+              <Loader2 size={24} className="animate-spin mr-2" /> Carregando dados...
+            </div>
+          ) : cruzamentoMotorista.length === 0 ? (
+            <div className="text-center py-16 text-gray-400">
+              <UserCheck size={40} className="mx-auto mb-3 opacity-40" />
+              <p className="text-sm">Nenhuma placa com matrícula fixada e saída registrada ainda. Cadastre as matrículas em /frota/placas e importe a saída na tela TML.</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-gray-500">Dia:</label>
+                  <select
+                    value={diaMotorista}
+                    onChange={e => setDiaMotorista(e.target.value)}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  >
+                    <option value="todos">Todos os dias</option>
+                    {diasComDadoMotorista.map(d => <option key={d} value={d}>{formatarDataBR(d)}</option>)}
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-gray-500">Status:</label>
+                  <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+                    {([
+                      ['todos', 'Todos'],
+                      ['ok', 'OK'],
+                      ['nok', 'NOK'],
+                    ] as const).map(([valor, rotulo]) => (
+                      <button
+                        key={valor}
+                        onClick={() => setStatusMotorista(valor)}
+                        className={`px-3 py-1.5 font-medium transition-colors ${
+                          statusMotorista === valor ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {rotulo}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-4">
+                <Card icon={CheckCircle2} label="Placas/dia comparadas" value={String(cruzamentoMotoristaFiltrado.length)} accent="text-accent-600 bg-accent/40" />
+                <Card
+                  icon={aderenciaMotorista !== null && aderenciaMotorista >= 80 ? CheckCircle2 : XCircle}
+                  label="% Aderência (motorista fixado x executado)"
+                  value={aderenciaMotorista !== null ? `${aderenciaMotorista}%` : '—'}
+                  accent={aderenciaMotorista !== null && aderenciaMotorista >= 80 ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}
+                />
+              </div>
+
+              {graficoMotoristaMeses.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Evolução mês x mês</h3>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <ComposedChart data={graficoMotoristaMeses}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                      <XAxis dataKey="mes" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="%" />
+                      <Tooltip contentStyle={TOOLTIP_STYLE} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Line type="monotone" dataKey="percentual" name="% Aderência" stroke="#2563eb" strokeWidth={2} dot />
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-1.5"><Trophy size={15} /> Ranking de motoristas com mais perdas de fixação</h3>
+                {rankingMotorista.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">Nenhuma divergência registrada no período.</p>
+                ) : (
+                  <div className="max-h-80 overflow-y-auto -mx-1">
+                    <div className="space-y-1.5 px-1">
+                      {rankingMotorista.slice(0, 30).map(r => (
+                        <div key={r.matricula} className="flex items-center gap-3 px-2.5 py-2 rounded-lg border border-gray-100">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-gray-900">{r.nome ?? `Matrícula ${r.matricula}`}</p>
+                            <p className="text-xs text-gray-500 truncate">Matrícula {r.matricula} · {r.placas.length} placa(s): {r.placas.join(', ')}</p>
+                          </div>
+                          <span className="text-xs font-bold px-2 py-1 rounded-full border shrink-0 bg-red-50 text-red-700 border-red-200">
+                            {r.perdas}x
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-sm font-semibold text-gray-700">Cruzamento por placa/dia</h3>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={enviarResumoGrupoMotorista}
+                      disabled={exportandoResumoMotorista}
+                      className="flex items-center gap-1.5 text-xs text-brand-700 border border-brand-200 px-2.5 py-1 rounded-lg hover:bg-brand-50 disabled:opacity-40"
+                    >
+                      {exportandoResumoMotorista ? <Loader2 size={13} className="animate-spin" /> : <Image size={13} />}
+                      Enviar resumo para o grupo
+                    </button>
+                    <button
+                      onClick={() => baixarImagem(exportMotoristaRef, setExportandoMotorista, `Frota_Fixacao_Motorista_${diaMotorista === 'todos' ? 'todos' : diaMotorista}.png`)}
+                      disabled={exportandoMotorista}
+                      className="flex items-center gap-1.5 text-xs text-brand-700 border border-brand-200 px-2.5 py-1 rounded-lg hover:bg-brand-50 disabled:opacity-40"
+                    >
+                      {exportandoMotorista ? <Loader2 size={13} className="animate-spin" /> : <Image size={13} />}
+                      Exportar imagem
+                    </button>
+                  </div>
+                </div>
+                <div className="max-h-[32rem] overflow-y-auto">
+                  <table className="w-full text-sm">
+                    <thead className="sticky top-0 bg-white">
+                      <tr className="border-b border-gray-100 text-xs text-gray-500">
+                        <th className="text-left py-2 font-medium">Data</th>
+                        <th className="text-left py-2 font-medium">Placa</th>
+                        <th className="text-left py-2 font-medium">Sala</th>
+                        <th className="text-left py-2 font-medium">Motorista fixado</th>
+                        <th className="text-left py-2 font-medium">Motorista que rodou</th>
+                        <th className="text-center py-2 font-medium">Status</th>
+                        <th className="text-left py-2 font-medium">Justificativa</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {linhasMotoristaExibidas.map((c, i) => {
+                        const alerta = alertaPorPlacaData.get(`${c.placa}|${c.data}`)
+                        return (
+                          <tr key={`${c.placa}-${c.data}-${i}`} className="border-b border-gray-50">
+                            <td className="py-2 text-gray-600">{formatarDataBR(c.data)}</td>
+                            <td className="py-2 text-gray-900 font-medium">{c.placa}</td>
+                            <td className="py-2 text-gray-600">{c.sala}</td>
+                            <td className="py-2 text-gray-600">{[c.matriculaEsperada1, c.matriculaEsperada2].filter(Boolean).join(' / ') || '—'}</td>
+                            <td className="py-2 text-gray-600">{c.nomeExecutou ?? '—'} ({c.matriculaExecutou})</td>
+                            <td className="py-2 text-center">
+                              {c.bate ? (
+                                <CheckCircle2 size={16} className="inline text-green-600" />
+                              ) : (
+                                <XCircle size={16} className="inline text-red-600" />
+                              )}
+                            </td>
+                            <td className="py-2 text-gray-600">
+                              {alerta ? (
+                                <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_FIXACAO_COR[alerta.status]}`}>
+                                  {STATUS_FIXACAO_LABEL[alerta.status]}
+                                </span>
+                              ) : c.bate ? '—' : <span className="text-xs text-gray-400">Sem alerta</span>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <FixacaoMotoristaExportTemplate ref={exportMotoristaRef} filial={usuario?.filial ?? ''} dia={diaMotorista} linhas={linhasMotoristaExibidas} aderencia={aderenciaMotorista} />
+            </>
+          )}
+        </div>
+      )}
+
       {aba === 'matriz' && (
         <div className="space-y-4">
           {/* Navegação de mês */}
@@ -1009,6 +1260,74 @@ const TerritorioCruzamentoExportTemplate = forwardRef<HTMLDivElement, {
               <td style={{ ...td, fontWeight: 700, color: '#0f172a' }}>{c.placa}</td>
               <td style={{ ...td, color: '#475569' }}>{c.territorio}</td>
               <td style={{ ...td, color: '#475569' }}>{c.regiaoEntregas ?? '—'}</td>
+              <td style={{ ...td, textAlign: 'center' }}>
+                <span style={{ display: 'inline-block', background: c.bate ? '#dcfce7' : '#fee2e2', color: c.bate ? '#15803d' : '#b91c1c', border: `1px solid ${c.bate ? '#bbf7d0' : '#fecaca'}`, borderRadius: '999px', padding: '2px 9px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>
+                  {c.bate ? 'OK' : 'NOK'}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div style={{ paddingTop: '10px', fontSize: '10px', color: '#94a3b8' }}>
+        Gerado em {formatarDataBR(dia === 'todos' ? linhas[0]?.data ?? '' : dia)}
+      </div>
+    </div>
+  )
+})
+
+const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
+  filial: string
+  dia: string
+  linhas: CruzamentoMotoristaItem[]
+  aderencia: number | null
+}>(function FixacaoMotoristaExportTemplate({ filial, dia, linhas, aderencia }, ref) {
+  const th: React.CSSProperties = { padding: '7px 10px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '6px 10px', fontSize: '11px', verticalAlign: 'middle' }
+
+  if (linhas.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
+
+  return (
+    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '760px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '16px' }}>
+        <div>
+          <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Frota</p>
+          <h1 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Fixação de Motorista — Cruzamento por Placa/Dia</h1>
+        </div>
+        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0 }}>{filial}<br />{dia === 'todos' ? 'Todos os dias' : formatarDataBR(dia)}</p>
+      </div>
+
+      <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
+        <div style={{ flex: 1, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px', textAlign: 'center' }}>
+          <p style={{ fontSize: '10px', color: '#64748b', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Placas/dia comparadas</p>
+          <p style={{ fontSize: '20px', fontWeight: 800, color: '#1e3a5f', margin: 0 }}>{linhas.length}</p>
+        </div>
+        <div style={{ flex: 1, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 12px', textAlign: 'center' }}>
+          <p style={{ fontSize: '10px', color: '#64748b', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.04em' }}>% Aderência (motorista fixado x execução)</p>
+          <p style={{ fontSize: '20px', fontWeight: 800, color: aderencia !== null && aderencia >= 80 ? '#16a34a' : '#dc2626', margin: 0 }}>{aderencia !== null ? `${aderencia}%` : '—'}</p>
+        </div>
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+        <thead>
+          <tr style={{ background: '#1e3a5f' }}>
+            <th style={th}>Data</th>
+            <th style={th}>Placa</th>
+            <th style={th}>Sala</th>
+            <th style={th}>Motorista fixado</th>
+            <th style={th}>Motorista que rodou</th>
+            <th style={{ ...th, textAlign: 'center' }}>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {linhas.map((c, i) => (
+            <tr key={`${c.placa}-${c.data}-${i}`} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
+              <td style={{ ...td, color: '#475569' }}>{formatarDataBR(c.data)}</td>
+              <td style={{ ...td, fontWeight: 700, color: '#0f172a' }}>{c.placa}</td>
+              <td style={{ ...td, color: '#475569' }}>{c.sala}</td>
+              <td style={{ ...td, color: '#475569' }}>{[c.matriculaEsperada1, c.matriculaEsperada2].filter(Boolean).join(' ou ') || '—'}</td>
+              <td style={{ ...td, color: '#475569' }}>{c.nomeExecutou ?? '—'} ({c.matriculaExecutou})</td>
               <td style={{ ...td, textAlign: 'center' }}>
                 <span style={{ display: 'inline-block', background: c.bate ? '#dcfce7' : '#fee2e2', color: c.bate ? '#15803d' : '#b91c1c', border: `1px solid ${c.bate ? '#bbf7d0' : '#fecaca'}`, borderRadius: '999px', padding: '2px 9px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>
                   {c.bate ? 'OK' : 'NOK'}
