@@ -5,7 +5,7 @@ import html2canvas from 'html2canvas'
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
-import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy, Send } from 'lucide-react'
+import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy, Send, Pencil, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { valesSupabase } from '../lib/valesSupabase'
 import { useAuth } from '../lib/auth'
@@ -15,7 +15,7 @@ import {
   parseDisponibilidadeDiariaCsv, parseHistoricoXlsx, resumoPorDia, disponiveisNoDia,
   rankingIndisponibilidadePorPlaca, cruzarTerritorio, detectarTrocasTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia, matrizDisponibilidade,
   cruzarMotorista, rankingMotoristasPerdaFixacao, calcularAderenciaMotoristaPorDia, calcularAderenciaMotoristaMeses, calcularAderenciaMotoristaPorDiaESala,
-  processarFixacaoMotorista, parseBaseMapaTerritorio,
+  processarFixacaoMotorista, parseBaseMapaTerritorio, MOTIVOS_FIXACAO_MOTORISTA,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
   type CruzamentoTerritorioItem, type TrocaTerritorioItem, type HistoricoTmlMotorista, type CruzamentoMotoristaItem,
 } from '../lib/frota'
@@ -110,6 +110,9 @@ export default function Frota() {
   const [exportandoMotorista, setExportandoMotorista] = useState(false)
   const [exportandoResumoMotorista, setExportandoResumoMotorista] = useState(false)
   const [forcandoEnvioJustificativa, setForcandoEnvioJustificativa] = useState(false)
+  const [editandoMotivo, setEditandoMotivo] = useState<{ placa: string; data: string; alertaId: string | null } | null>(null)
+  const [motivoCustom, setMotivoCustom] = useState('')
+  const [salvandoMotivo, setSalvandoMotivo] = useState(false)
   const exportMotoristaRef = useRef<HTMLDivElement>(null)
   const hoje = new Date()
   const [mesSel, setMesSel] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 })
@@ -427,6 +430,38 @@ export default function Frota() {
       alert(`Envio forçado concluído para ${formatarDataBR(dataAlvo)}. Confira a coluna "Justificativa" na tabela.`)
     } finally {
       setForcandoEnvioJustificativa(false)
+    }
+  }
+
+  async function salvarMotivoManual(motivo: string) {
+    if (!usuario || !editandoMotivo || !motivo.trim()) return
+    setSalvandoMotivo(true)
+    try {
+      if (editandoMotivo.alertaId) {
+        await valesSupabase.from('alertas_fixacao_motorista')
+          .update({ justificativa: motivo.trim(), status: 'justificado', justificado_em: new Date().toISOString() })
+          .eq('id', editandoMotivo.alertaId)
+      } else {
+        await valesSupabase.from('alertas_fixacao_motorista').insert({
+          filial: usuario.filial,
+          numero: `MAN-${Date.now()}`,
+          placa: editandoMotivo.placa,
+          data: editandoMotivo.data,
+          sala: null,
+          matricula_executou: 0,
+          nome_executou: null,
+          matricula_esperada_1: null,
+          matricula_esperada_2: null,
+          justificativa: motivo.trim(),
+          status: 'justificado',
+          justificado_em: new Date().toISOString(),
+        })
+      }
+      setEditandoMotivo(null)
+      setMotivoCustom('')
+      await carregarDados()
+    } finally {
+      setSalvandoMotivo(false)
     }
   }
 
@@ -1157,11 +1192,19 @@ export default function Frota() {
                               )}
                             </td>
                             <td className="py-2 text-gray-600">
-                              {alerta ? (
-                                <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_FIXACAO_COR[alerta.status]}`}>
-                                  {STATUS_FIXACAO_LABEL[alerta.status]}
+                              {c.bate ? (
+                                <span className="text-xs text-gray-400">—</span>
+                              ) : alerta?.justificativa ? (
+                                <span className="flex items-center gap-1.5">
+                                  <span className="text-xs text-gray-800 font-medium">{alerta.justificativa}</span>
+                                  <button onClick={() => { setEditandoMotivo({ placa: c.placa, data: c.data, alertaId: alerta.id }); setMotivoCustom('') }} className="text-gray-400 hover:text-brand-600"><Pencil size={11} /></button>
                                 </span>
-                              ) : c.bate ? '—' : <span className="text-xs text-gray-400">Sem alerta</span>}
+                              ) : (
+                                <span className="flex items-center gap-1.5">
+                                  {alerta && <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_FIXACAO_COR[alerta.status]}`}>{STATUS_FIXACAO_LABEL[alerta.status]}</span>}
+                                  <button onClick={() => { setEditandoMotivo({ placa: c.placa, data: c.data, alertaId: alerta?.id ?? null }); setMotivoCustom('') }} className="flex items-center gap-1 text-xs text-brand-600 hover:underline"><Pencil size={11} /> Registrar</button>
+                                </span>
+                              )}
                             </td>
                           </tr>
                         )
@@ -1171,7 +1214,36 @@ export default function Frota() {
                 </div>
               </div>
 
-              <FixacaoMotoristaExportTemplate ref={exportMotoristaRef} filial={usuario?.filial ?? ''} dia={diaMotorista} linhas={linhasMotoristaExibidas} aderencia={aderenciaMotorista} />
+              {editandoMotivo && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setEditandoMotivo(null)}>
+                  <div className="bg-white rounded-xl shadow-xl p-5 w-full max-w-sm mx-4" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-between mb-4">
+                      <h3 className="text-sm font-semibold text-gray-900">Registrar motivo — {editandoMotivo.placa} ({formatarDataBR(editandoMotivo.data)})</h3>
+                      <button onClick={() => setEditandoMotivo(null)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 mb-3">
+                      {MOTIVOS_FIXACAO_MOTORISTA.filter(m => m !== 'OUTRO').map(m => (
+                        <button key={m} onClick={() => salvarMotivoManual(m)} disabled={salvandoMotivo} className="text-left text-xs px-3 py-2 rounded-lg border border-gray-200 hover:border-brand-400 hover:bg-brand-50 text-gray-700 disabled:opacity-40">{m}</button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Outro motivo…"
+                        value={motivoCustom}
+                        onChange={e => setMotivoCustom(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && motivoCustom.trim() && salvarMotivoManual(motivoCustom)}
+                        className="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                      />
+                      <button onClick={() => salvarMotivoManual(motivoCustom)} disabled={!motivoCustom.trim() || salvandoMotivo} className="text-xs px-3 py-2 bg-brand-700 text-white rounded-lg disabled:opacity-40">
+                        {salvandoMotivo ? <Loader2 size={12} className="animate-spin" /> : 'Salvar'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <FixacaoMotoristaExportTemplate ref={exportMotoristaRef} filial={usuario?.filial ?? ''} dia={diaMotorista} linhas={linhasMotoristaExibidas} aderencia={aderenciaMotorista} alertas={alertasFixacao} />
             </>
           )}
         </div>
@@ -1532,9 +1604,11 @@ const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
   dia: string
   linhas: CruzamentoMotoristaItem[]
   aderencia: number | null
-}>(function FixacaoMotoristaExportTemplate({ filial, dia, linhas, aderencia }, ref) {
+  alertas: AlertaFixacaoMotorista[]
+}>(function FixacaoMotoristaExportTemplate({ filial, dia, linhas, aderencia, alertas }, ref) {
   const th: React.CSSProperties = { padding: '7px 10px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', whiteSpace: 'nowrap' }
   const td: React.CSSProperties = { padding: '6px 10px', fontSize: '11px', verticalAlign: 'middle' }
+  const alertaPorChave = new Map(alertas.map(a => [`${a.placa}|${a.data}`, a]))
 
   if (linhas.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
 
@@ -1568,10 +1642,13 @@ const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
             <th style={th}>Motorista fixado</th>
             <th style={th}>Motorista que rodou</th>
             <th style={{ ...th, textAlign: 'center' }}>Status</th>
+            <th style={th}>Justificativa</th>
           </tr>
         </thead>
         <tbody>
-          {linhas.map((c, i) => (
+          {linhas.map((c, i) => {
+            const alerta = alertaPorChave.get(`${c.placa}|${c.data}`)
+            return (
             <tr key={`${c.placa}-${c.data}-${i}`} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
               <td style={{ ...td, color: '#475569' }}>{formatarDataBR(c.data)}</td>
               <td style={{ ...td, fontWeight: 700, color: '#0f172a' }}>{c.placa}</td>
@@ -1583,8 +1660,10 @@ const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
                   {c.bate ? 'OK' : 'NOK'}
                 </span>
               </td>
+              <td style={{ ...td, color: '#475569' }}>{alerta?.justificativa ?? '—'}</td>
             </tr>
-          ))}
+            )
+          })}
         </tbody>
       </table>
 
