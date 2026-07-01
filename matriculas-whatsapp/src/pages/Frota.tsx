@@ -928,7 +928,13 @@ export default function Frota() {
                   <p className="text-sm mt-1">Acesse <Link to="/distribuicao/frota/placas" className="text-brand-600 underline">/frota/placas</Link> e preencha o campo <strong>Motorista Fixado</strong> para pelo menos uma placa.</p>
                 </div>
               ) : (
-                <p className="text-sm">Nenhum cruzamento encontrado para o período selecionado.</p>
+                <div>
+                  <p className="text-sm font-medium text-gray-500 mb-1">
+                    Base: {historicoTmlMotorista.length} registro(s) · Placas configuradas: {placas.filter(p => p.ativo && (p.matricula_motorista?.trim() || p.matricula_motorista_2?.trim())).length}
+                  </p>
+                  <p className="text-sm">As placas da Base do Mapa não correspondem às placas cadastradas. Verifique se o formato da placa (ex.: ABC1D23) é o mesmo nos dois lados.</p>
+                  <p className="text-sm mt-1 text-xs text-gray-400">Placas na Base: {[...new Set(historicoTmlMotorista.map(h => h.placa).filter(Boolean))].slice(0, 5).join(', ')}{historicoTmlMotorista.length > 5 ? '…' : ''}</p>
+                </div>
               )}
             </div>
           ) : (
