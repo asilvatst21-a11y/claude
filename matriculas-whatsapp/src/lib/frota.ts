@@ -855,7 +855,7 @@ export interface HistoricoTmlMotorista {
 export interface CruzamentoMotoristaItem {
   placa: string
   data: string
-  sala: 'COLORADO' | 'SUB-FURIA'
+  sala: 'COLORADO' | 'SUB-FURIA' | null
   matriculaExecutou: number
   nomeExecutou: string | null
   matriculaEsperada1: string | null
@@ -875,7 +875,7 @@ export function cruzarMotorista(
 
   const resultado: CruzamentoMotoristaItem[] = []
   for (const h of historicoTml) {
-    if (!h.placa || !h.data_saida || !h.sala || h.matricula == null) continue
+    if (!h.placa || !h.data_saida || h.matricula == null) continue
     const cad = porPlaca.get(h.placa)
     if (!cad) continue
     const m1 = cad.matricula_motorista?.trim() || null
@@ -963,6 +963,7 @@ export interface AderenciaMotoristaDiaSala {
 export function calcularAderenciaMotoristaPorDiaESala(cruzamento: CruzamentoMotoristaItem[]): AderenciaMotoristaDiaSala[] {
   const porChave = new Map<string, CruzamentoMotoristaItem[]>()
   for (const c of cruzamento) {
+    if (!c.sala) continue
     const chave = `${c.data}|${c.sala}`
     if (!porChave.has(chave)) porChave.set(chave, [])
     porChave.get(chave)!.push(c)
@@ -1048,7 +1049,7 @@ async function gerarNumeroFixacao(filial: string): Promise<string> {
 function montarMensagemFixacaoMotorista(item: {
   placa: string
   data: string
-  sala: string
+  sala: string | null
   nomeExecutou: string | null
   nomeEsperada1: string | null
   nomeEsperada2: string | null
@@ -1058,7 +1059,7 @@ function montarMensagemFixacaoMotorista(item: {
     `⚠️ *FIXAÇÃO DE MOTORISTA — DIVERGÊNCIA*\n\n` +
     `🚛 Placa: ${item.placa}\n` +
     `📅 Data: ${formatarDataBR(item.data)}\n` +
-    `🏢 Sala: ${item.sala}\n` +
+    `🏢 Sala: ${item.sala ?? '—'}\n` +
     `👤 Motorista que rodou: ${item.nomeExecutou ?? '—'}\n` +
     `📌 Motorista(s) fixado(s) na placa: ${esperados || '—'}\n\n` +
     `A placa rodou com um motorista diferente do fixado. *Selecione abaixo o motivo da divergência*:`
@@ -1108,6 +1109,18 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
 
   for (const item of nokUnico) {
     if (jaAlertados.has(`${item.placa}|${item.data}`)) continue
+
+    // Sem sala não é possível identificar o supervisor — registra alerta mas
+    // não envia WhatsApp (sala aparece como "—" na tabela de fixação).
+    if (!item.sala) {
+      await supabase.from('alertas_fixacao_motorista').insert({
+        filial, numero: await gerarNumeroFixacao(filial), placa: item.placa, data: item.data, sala: null,
+        matricula_executou: item.matriculaExecutou, nome_executou: item.nomeExecutou,
+        matricula_esperada_1: item.matriculaEsperada1, matricula_esperada_2: item.matriculaEsperada2,
+        mensagem_enviada: null, status: 'erro',
+      })
+      continue
+    }
 
     const { data: supervisores } = await supabase
       .from('supervisores_tml')
