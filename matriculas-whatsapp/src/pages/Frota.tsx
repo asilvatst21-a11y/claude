@@ -95,6 +95,7 @@ export default function Frota() {
   const [carregando, setCarregando] = useState(true)
   const [uploadando, setUploadando] = useState(false)
   const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
+  const [mesTerritorio, setMesTerritorio] = useState<string>('todos')
   const [diaTerritorio, setDiaTerritorio] = useState<string>('todos')
   const [statusTerritorio, setStatusTerritorio] = useState<'todos' | 'ok' | 'nok'>('todos')
   const [mesMotorista, setMesMotorista] = useState<string>('todos')
@@ -491,8 +492,13 @@ export default function Frota() {
   const perfis = ultimo ? resumoPorPerfil(registrosAtivos.filter(r => r.data === ultimo.data), placas) : []
   const cruzamento = useMemo(() => cruzarTerritorio(registrosAtivos, historicoTml), [registrosAtivos, historicoTml])
   const comDado = useMemo(() => cruzamento.filter(c => c.bate !== null), [cruzamento])
-  const diasComDado = useMemo(() => Array.from(new Set(comDado.map(c => c.data))).sort((a, b) => b.localeCompare(a)), [comDado])
-  const comDadoFiltrado = diaTerritorio === 'todos' ? comDado : comDado.filter(c => c.data === diaTerritorio)
+  const mesesComDadoTerritorio = useMemo(() => Array.from(new Set(comDado.map(c => c.data.slice(0, 7)))).sort((a, b) => b.localeCompare(a)), [comDado])
+  const diasComDado = useMemo(() => Array.from(new Set(
+    comDado.filter(c => mesTerritorio === 'todos' || c.data.slice(0, 7) === mesTerritorio).map(c => c.data)
+  )).sort((a, b) => b.localeCompare(a)), [comDado, mesTerritorio])
+  const comDadoFiltrado = useMemo(() => comDado.filter(c =>
+    diaTerritorio !== 'todos' ? c.data === diaTerritorio : mesTerritorio === 'todos' || c.data.slice(0, 7) === mesTerritorio
+  ), [comDado, diaTerritorio, mesTerritorio])
   const aderencia = comDadoFiltrado.length > 0 ? Math.round((comDadoFiltrado.filter(c => c.bate).length / comDadoFiltrado.length) * 100) : null
   const linhasExibidas = statusTerritorio === 'todos' ? comDadoFiltrado : comDadoFiltrado.filter(c => statusTerritorio === 'ok' ? c.bate : !c.bate)
   const trocas = useMemo(() => detectarTrocasTerritorio(comDadoFiltrado), [comDadoFiltrado])
@@ -816,6 +822,20 @@ export default function Frota() {
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-gray-500">Mês:</label>
+                  <select
+                    value={mesTerritorio}
+                    onChange={e => { setMesTerritorio(e.target.value); setDiaTerritorio('todos') }}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  >
+                    <option value="todos">Todos os meses</option>
+                    {mesesComDadoTerritorio.map(m => {
+                      const [ano, mes] = m.split('-')
+                      return <option key={m} value={m}>{`${mes}/${ano.slice(2)}`}</option>
+                    })}
+                  </select>
+                </div>
                 <div className="flex items-center gap-2">
                   <label className="text-xs font-medium text-gray-500">Dia:</label>
                   <select
