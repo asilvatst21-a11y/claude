@@ -396,7 +396,7 @@ export interface AlertaFixacaoMotorista {
   numero: string
   placa: string
   data: string
-  sala: 'COLORADO' | 'SUB-FURIA'
+  sala: 'COLORADO' | 'SUB-FURIA' | null
   matricula_executou: number
   nome_executou: string | null
   matricula_esperada_1: string | null

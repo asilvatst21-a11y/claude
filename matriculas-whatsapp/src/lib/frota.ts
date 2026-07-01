@@ -1110,23 +1110,11 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
   for (const item of nokUnico) {
     if (jaAlertados.has(`${item.placa}|${item.data}`)) continue
 
-    // Sem sala não é possível identificar o supervisor — registra alerta mas
-    // não envia WhatsApp (sala aparece como "—" na tabela de fixação).
-    if (!item.sala) {
-      await supabase.from('alertas_fixacao_motorista').insert({
-        filial, numero: await gerarNumeroFixacao(filial), placa: item.placa, data: item.data, sala: null,
-        matricula_executou: item.matriculaExecutou, nome_executou: item.nomeExecutou,
-        matricula_esperada_1: item.matriculaEsperada1, matricula_esperada_2: item.matriculaEsperada2,
-        mensagem_enviada: null, status: 'erro',
-      })
-      continue
-    }
-
-    const { data: supervisores } = await supabase
-      .from('supervisores_tml')
-      .select('id, nome, telefone')
-      .eq('filial', filial)
-      .eq('sala', item.sala)
+    // Quando sala é desconhecida (motoristas_sala_tml sem mapeamento), envia
+    // para todos os supervisores ativos da filial em vez de silenciar.
+    const { data: supervisores } = item.sala
+      ? await supabase.from('supervisores_tml').select('id, nome, telefone').eq('filial', filial).eq('sala', item.sala)
+      : await supabase.from('supervisores_tml').select('id, nome, telefone').eq('filial', filial)
 
     const mensagem = montarMensagemFixacaoMotorista({
       ...item,

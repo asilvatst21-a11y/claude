@@ -481,6 +481,16 @@ export default function Frota() {
     : null
   const linhasMotoristaExibidas = statusMotorista === 'todos' ? cruzamentoMotoristaFiltrado : cruzamentoMotoristaFiltrado.filter(c => statusMotorista === 'ok' ? c.bate : !c.bate)
   const rankingMotorista = useMemo(() => rankingMotoristasPerdaFixacao(cruzamentoMotorista), [cruzamentoMotorista])
+  const rankingMotivos = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const a of alertasFixacao) {
+      if (!a.justificativa) continue
+      const inPeriod = diaMotorista !== 'todos' ? a.data === diaMotorista : mesMotorista === 'todos' || a.data.slice(0, 7) === mesMotorista
+      if (!inPeriod) continue
+      map.set(a.justificativa, (map.get(a.justificativa) ?? 0) + 1)
+    }
+    return Array.from(map.entries()).map(([motivo, count]) => ({ motivo, count })).sort((a, b) => b.count - a.count)
+  }, [alertasFixacao, diaMotorista, mesMotorista])
   const aderenciaMotoristaPorDia = useMemo(() => calcularAderenciaMotoristaPorDia(cruzamentoMotorista), [cruzamentoMotorista])
   const aderenciaMotoristaPorDiaSala = useMemo(() => calcularAderenciaMotoristaPorDiaESala(cruzamentoMotorista), [cruzamentoMotorista])
   const evolucaoMotoristaMeses = useMemo(() => calcularAderenciaMotoristaMeses(aderenciaMotoristaPorDia, 6), [aderenciaMotoristaPorDia])
@@ -1064,6 +1074,27 @@ export default function Frota() {
                   </div>
                 )}
               </div>
+
+              {rankingMotivos.length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-4">Principais motivos de divergência</h3>
+                  <div className="space-y-2.5">
+                    {rankingMotivos.map((r, i) => (
+                      <div key={r.motivo} className="flex items-center gap-3">
+                        <span className="text-xs font-medium text-gray-500 w-4 shrink-0">{i + 1}.</span>
+                        <span className="text-xs text-gray-700 w-44 shrink-0 truncate">{r.motivo}</span>
+                        <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                          <div
+                            className="bg-brand-500 h-2 rounded-full transition-all"
+                            style={{ width: `${Math.round((r.count / rankingMotivos[0].count) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-xs font-bold text-gray-800 w-8 text-right shrink-0">{r.count}x</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
