@@ -95,6 +95,7 @@ export default function Frota() {
   const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
   const [diaTerritorio, setDiaTerritorio] = useState<string>('todos')
   const [statusTerritorio, setStatusTerritorio] = useState<'todos' | 'ok' | 'nok'>('todos')
+  const [mesMotorista, setMesMotorista] = useState<string>('todos')
   const [diaMotorista, setDiaMotorista] = useState<string>('todos')
   const [statusMotorista, setStatusMotorista] = useState<'todos' | 'ok' | 'nok'>('todos')
   const [exportandoImg, setExportandoImg] = useState(false)
@@ -389,8 +390,19 @@ export default function Frota() {
   const trocas = useMemo(() => detectarTrocasTerritorio(comDadoFiltrado), [comDadoFiltrado])
 
   const cruzamentoMotorista = useMemo(() => cruzarMotorista(historicoTmlMotorista, placas), [historicoTmlMotorista, placas])
-  const diasComDadoMotorista = useMemo(() => Array.from(new Set(cruzamentoMotorista.map(c => c.data))).sort((a, b) => b.localeCompare(a)), [cruzamentoMotorista])
-  const cruzamentoMotoristaFiltrado = diaMotorista === 'todos' ? cruzamentoMotorista : cruzamentoMotorista.filter(c => c.data === diaMotorista)
+  // Meses com dado (YYYY-MM), mais recente primeiro. O filtro de dia lista só
+  // os dias do mês selecionado; escolher um dia específico refina dentro do mês.
+  const mesesComDadoMotorista = useMemo(() => Array.from(new Set(cruzamentoMotorista.map(c => c.data.slice(0, 7)))).sort((a, b) => b.localeCompare(a)), [cruzamentoMotorista])
+  const diasComDadoMotorista = useMemo(() => Array.from(new Set(
+    cruzamentoMotorista
+      .filter(c => mesMotorista === 'todos' || c.data.slice(0, 7) === mesMotorista)
+      .map(c => c.data),
+  )).sort((a, b) => b.localeCompare(a)), [cruzamentoMotorista, mesMotorista])
+  const cruzamentoMotoristaFiltrado = useMemo(() => cruzamentoMotorista.filter(c =>
+    (diaMotorista !== 'todos'
+      ? c.data === diaMotorista
+      : mesMotorista === 'todos' || c.data.slice(0, 7) === mesMotorista),
+  ), [cruzamentoMotorista, diaMotorista, mesMotorista])
   const aderenciaMotorista = cruzamentoMotoristaFiltrado.length > 0
     ? Math.round((cruzamentoMotoristaFiltrado.filter(c => c.bate).length / cruzamentoMotoristaFiltrado.length) * 100)
     : null
@@ -400,7 +412,7 @@ export default function Frota() {
   const aderenciaMotoristaPorDiaSala = useMemo(() => calcularAderenciaMotoristaPorDiaESala(cruzamentoMotorista), [cruzamentoMotorista])
   const evolucaoMotoristaMeses = useMemo(() => calcularAderenciaMotoristaMeses(aderenciaMotoristaPorDia, 6), [aderenciaMotoristaPorDia])
   const graficoMotoristaMeses = evolucaoMotoristaMeses.map(m => ({
-    mes: new Date(m.ano, m.mes - 1, 1).toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }),
+    mes: `${String(m.mes).padStart(2, '0')}/${String(m.ano).slice(2)}`,
     percentual: m.acumulado.mediaPercentual,
   }))
   const graficoMotoristaDiario = useMemo(() => {
@@ -420,14 +432,13 @@ export default function Frota() {
       .map(r => ({ ...r, dataLabel: new Date(`${r.data}T00:00:00`).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) }))
   }, [aderenciaMotoristaPorDia, aderenciaMotoristaPorDiaSala])
   const aderenciaMotoristaPorSalaAtual = useMemo(() => {
-    const base = diaMotorista === 'todos' ? cruzamentoMotorista : cruzamentoMotorista.filter(c => c.data === diaMotorista)
     const salas: Array<'COLORADO' | 'SUB-FURIA'> = ['COLORADO', 'SUB-FURIA']
     return salas.map(sala => {
-      const itens = base.filter(c => c.sala === sala)
+      const itens = cruzamentoMotoristaFiltrado.filter(c => c.sala === sala)
       const ok = itens.filter(c => c.bate).length
       return { sala, comDado: itens.length, percentual: itens.length > 0 ? Math.round((ok / itens.length) * 100) : null }
     })
-  }, [cruzamentoMotorista, diaMotorista])
+  }, [cruzamentoMotoristaFiltrado])
   const alertaPorPlacaData = useMemo(() => new Map(alertasFixacao.map(a => [`${a.placa}|${a.data}`, a])), [alertasFixacao])
 
   return (
@@ -827,6 +838,21 @@ export default function Frota() {
           ) : (
             <>
               <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-gray-500">Mês:</label>
+                  <select
+                    value={mesMotorista}
+                    onChange={e => { setMesMotorista(e.target.value); setDiaMotorista('todos') }}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
+                  >
+                    <option value="todos">Todos os meses</option>
+                    {mesesComDadoMotorista.map(m => {
+                      const [ano, mes] = m.split('-')
+                      return <option key={m} value={m}>{`${mes}/${ano.slice(2)}`}</option>
+                    })}
+                  </select>
+                </div>
+
                 <div className="flex items-center gap-2">
                   <label className="text-xs font-medium text-gray-500">Dia:</label>
                   <select
