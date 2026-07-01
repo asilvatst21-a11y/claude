@@ -3,6 +3,8 @@ import * as XLSX from 'xlsx'
 import { Upload, CheckCircle2, AlertTriangle, Loader2, ShoppingCart, PackageSearch, Users, HelpCircle } from 'lucide-react'
 import { valesSupabase } from '@/lib/valesSupabase'
 import { useAuth } from '@/lib/auth'
+import { processarFixacaoMotorista, type HistoricoTmlMotorista } from '@/lib/frota'
+import { isSalaTML } from '@/lib/tml'
 
 type Fase = 'idle' | 'lendo' | 'importando' | 'ok' | 'erro'
 interface Log { tipo: 'ok' | 'erro' | 'info'; msg: string }
@@ -133,7 +135,54 @@ async function importarBaseMapa(file: File, filial: string): Promise<{ contagem:
     }
   }
 
-  return { contagem: equipe.length, mensagem: `Data: ${data}. Motorista e ajudantes aparecerão na confirmação; território atualizado na Frota.` }
+  // E também alimenta a Fixação de Motorista da Frota: por mapa (col M), a placa
+  // (col K) e o motorista que rodou — matrícula (col V=21) + nome (col W=22).
+  // A data vem do nome do arquivo (correta), evitando o dia/mês trocado da
+  // planilha de Saída da portaria. A sala (COLORADO/SUB-FURIA) é resolvida por
+  // matrícula em motoristas_sala_tml no momento do cruzamento.
+  const motoristaFrota = rows.slice(headerIdx + 1)
+    .map(r => {
+      const mapa = Number(String(r[12] ?? '').trim())
+      const placa = String(r[10] ?? '').trim()
+      if (!mapa || isNaN(mapa) || !placa) return null
+      const matricula = Number(String(r[21] ?? '').trim())
+      const nome = String(r[22] ?? '').trim() || null
+      return { filial, mapa, placa, data, matricula: isNaN(matricula) ? null : matricula, nome }
+    })
+    .filter(Boolean)
+
+  if (motoristaFrota.length > 0) {
+    const motoristaUnico = [...new Map(motoristaFrota.map(m => [m!.mapa, m!])).values()]
+    for (let i = 0; i < motoristaUnico.length; i += BATCH) {
+      const { error } = await valesSupabase.from('frota_motorista_base')
+        .upsert(motoristaUnico.slice(i, i + BATCH), { onConflict: 'filial,mapa' })
+      if (error) { console.error('frota_motorista_base:', error.message); break }
+    }
+
+    // Dispara a solicitação de justificativa das divergências do dia (placa
+    // rodou com motorista diferente do fixado). Roda a partir da Base — data
+    // correta do nome do arquivo — no lugar do antigo disparo na Saída. A sala
+    // vem de motoristas_sala_tml por matrícula. Não quebra o import se falhar.
+    try {
+      const mats = [...new Set(motoristaUnico.map(m => m!.matricula).filter((x): x is number => x != null))]
+      const { data: roster } = mats.length
+        ? await valesSupabase.from('motoristas_sala_tml').select('matricula, sala').eq('filial', filial).in('matricula', mats)
+        : { data: [] as { matricula: number; sala: string | null }[] }
+      const salaPorMat = new Map((roster ?? []).map(r => [r.matricula, isSalaTML(r.sala) ? r.sala : null]))
+      const historico: HistoricoTmlMotorista[] = motoristaUnico.map(m => ({
+        placa: m!.placa,
+        data_saida: m!.data,
+        matricula: m!.matricula,
+        nome: m!.nome,
+        sala: m!.matricula != null ? salaPorMat.get(m!.matricula) ?? null : null,
+      }))
+      await processarFixacaoMotorista(filial, historico)
+    } catch (e) {
+      console.error('processarFixacaoMotorista (Base):', e)
+    }
+  }
+
+  return { contagem: equipe.length, mensagem: `Data: ${data}. Motorista e ajudantes aparecerão na confirmação; território e fixação de motorista atualizados na Frota.` }
 }
 
 export default function ImportCatalogoPage() {

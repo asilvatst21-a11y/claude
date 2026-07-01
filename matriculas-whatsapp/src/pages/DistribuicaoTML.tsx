@@ -13,7 +13,6 @@ import {
   horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal, metaMatinalMinutos, MATINAL_AUTO_FINALIZA_MIN,
 } from '../lib/tml'
 import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusSalaTML } from '../lib/tmlResumos'
-import { processarFixacaoMotorista, type HistoricoTmlMotorista } from '../lib/frota'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
 
@@ -540,13 +539,11 @@ export default function DistribuicaoTML() {
           .upsert([...historicoPorMapa.values()], { onConflict: 'filial,mapa,data_saida' })
         if (histErr) {
           erros.push(`Histórico: ${histErr.message}`)
-        } else {
-          try {
-            await processarFixacaoMotorista(usuario.filial, [...historicoPorMapa.values()] as unknown as HistoricoTmlMotorista[])
-          } catch (e) {
-            erros.push(`Fixação de motorista: ${String(e)}`)
-          }
         }
+        // A Fixação de Motorista deixou de ser disparada aqui: a fonte passou a
+        // ser a Base do Mapa (Financeiro → Catálogo/Vendas), cuja data vem do
+        // nome do arquivo e não tem o dia/mês trocado da coluna de data desta
+        // planilha de Saída. O disparo agora acontece no import da Base.
       }
 
       await enviarResumoDiario(usuario.filial, dataMaisFrequente(saidas.map((s) => s.dataSaida)))
