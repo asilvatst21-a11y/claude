@@ -422,10 +422,13 @@ async function buscarNomePdv(codigo: string): Promise<string | null> {
   return data?.nome_fantasia?.trim() || null
 }
 
-async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
+// Lança (não retorna null) em falha de infra — sem chave, erro HTTP, exceção —
+// para que tratarReposicao consiga distinguir "não é reposição" (eh_reposicao=
+// false) de "não consegui processar" e avisar o grupo em vez de ficar mudo.
+async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA> {
   if (!ANTHROPIC_API_KEY) {
     console.error('ANTHROPIC_API_KEY não configurada')
-    return null
+    throw new Error('ANTHROPIC_API_KEY não configurada')
   }
   try {
     // Pré-extrai um possível código de PDV do texto bruto para buscar os produtos
@@ -483,17 +486,18 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA | null> {
       }),
     })
     if (!resp.ok) {
-      console.error('Claude HTTP error:', resp.status, await resp.text().catch(() => ''))
-      return null
+      const corpo = await resp.text().catch(() => '')
+      console.error('Claude HTTP error:', resp.status, corpo)
+      throw new Error(`Claude HTTP ${resp.status}`)
     }
     const data: any = await resp.json()
-    if (data.stop_reason === 'refusal') { console.error('Claude refusal'); return null }
+    if (data.stop_reason === 'refusal') { console.error('Claude refusal'); throw new Error('Claude refusal') }
     const bloco = (data.content ?? []).find((b: any) => b.type === 'text')
-    if (!bloco?.text) return null
+    if (!bloco?.text) throw new Error('Claude sem bloco de texto')
     return JSON.parse(bloco.text) as ReposicaoIA
   } catch (e) {
     console.error('extrairReposicaoIA exception:', e)
-    return null
+    throw e
   }
 }
 
@@ -888,8 +892,18 @@ async function tratarReposicao(
   if (!conteudo) return { ok: true, action: 'repos-vazio' }
 
   // 3) IA interpreta a mensagem livre
-  const ia = await extrairReposicaoIA(conteudo)
-  if (!ia || !ia.eh_reposicao) {
+  let ia: ReposicaoIA
+  try {
+    ia = await extrairReposicaoIA(conteudo)
+  } catch (e) {
+    // Falha de infra (sem chave, erro HTTP, exceção) — não dá pra saber se era
+    // reposição. Avisa o grupo em vez de ficar mudo, pra não parecer que o bot
+    // ignorou a solicitação.
+    console.error('Reposição: falha ao interpretar mensagem:', e)
+    await enviar(grupoId, `⚠️ ${senderName || 'Olá'}, não consegui processar sua mensagem agora. Tente reenviar em instantes; se persistir, contate o *monitoramento*.`)
+    return { ok: true, action: 'repos-ia-erro' }
+  }
+  if (!ia.eh_reposicao) {
     // Não é solicitação de reposição → bot fica em silêncio (evita poluir o grupo)
     return { ok: true, action: 'repos-nao-aplicavel' }
   }
