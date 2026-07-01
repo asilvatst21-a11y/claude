@@ -7,6 +7,7 @@ import {
 } from 'recharts'
 import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy, Send } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { valesSupabase } from '../lib/valesSupabase'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import { enviarImagemGrupo } from '../lib/zapi'
@@ -132,11 +133,13 @@ export default function Frota() {
       supabase.from('frota_placas').select('*').eq('filial', usuario.filial),
       // Fonte da Fixação de Motorista: Base do Mapa (data correta do nome do
       // arquivo). A sala vem de motoristas_sala_tml casada por matrícula.
-      supabase.from('frota_motorista_base')
+      // Usa service role (valesSupabase) porque frota_motorista_base não tem
+      // política RLS de leitura para o anon key.
+      valesSupabase.from('frota_motorista_base')
         .select('placa, data, matricula, nome')
         .eq('filial', usuario.filial)
         .not('matricula', 'is', null),
-      supabase.from('motoristas_sala_tml')
+      valesSupabase.from('motoristas_sala_tml')
         .select('matricula, sala')
         .eq('filial', usuario.filial),
       supabase.from('alertas_fixacao_motorista').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
