@@ -920,7 +920,16 @@ export default function Frota() {
           ) : cruzamentoMotorista.length === 0 ? (
             <div className="text-center py-16 text-gray-400">
               <UserCheck size={40} className="mx-auto mb-3 opacity-40" />
-              <p className="text-sm">Nenhuma placa com matrícula fixada e registro do dia ainda. Cadastre as matrículas em /frota/placas e importe a Base do Mapa em Financeiro → Catálogo/Vendas.</p>
+              {historicoTmlMotorista.length === 0 ? (
+                <p className="text-sm">Nenhum registro da Base do Mapa encontrado. Importe a planilha em <strong>Financeiro → Catálogo/Vendas → Importar Base do Mapa</strong>.</p>
+              ) : placas.filter(p => p.ativo && (p.matricula_motorista?.trim() || p.matricula_motorista_2?.trim())).length === 0 ? (
+                <div>
+                  <p className="text-sm"><strong>{historicoTmlMotorista.length} registro(s)</strong> da Base do Mapa carregados, mas nenhuma placa ativa tem matrícula de motorista fixado configurada.</p>
+                  <p className="text-sm mt-1">Acesse <Link to="/distribuicao/frota/placas" className="text-brand-600 underline">/frota/placas</Link> e preencha o campo <strong>Motorista Fixado</strong> para pelo menos uma placa.</p>
+                </div>
+              ) : (
+                <p className="text-sm">Nenhum cruzamento encontrado para o período selecionado.</p>
+              )}
             </div>
           ) : (
             <>
