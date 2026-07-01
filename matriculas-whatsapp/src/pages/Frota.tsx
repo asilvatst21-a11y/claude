@@ -19,6 +19,7 @@ import {
   type CruzamentoTerritorioItem, type TrocaTerritorioItem, type HistoricoTmlMotorista, type CruzamentoMotoristaItem,
 } from '../lib/frota'
 import { parseEscalaBuffer } from '../lib/tmlParser'
+import { isSalaTML } from '../lib/tml'
 import type { FrotaDisponibilidade, FrotaPlaca, AlertaFixacaoMotorista } from '../types'
 
 const STATUS_FIXACAO_LABEL: Record<AlertaFixacaoMotorista['status'], string> = {
@@ -115,7 +116,7 @@ export default function Frota() {
   const carregarDados = useCallback(async () => {
     if (!usuario) return
     setCarregando(true)
-    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }, { data: dataPlacas }, { data: dataTmlMotorista }, { data: dataAlertasFixacao }] = await Promise.all([
+    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }, { data: dataPlacas }, { data: dataMotoristaBase }, { data: dataRosterSala }, { data: dataAlertasFixacao }] = await Promise.all([
       supabase.from('frota_disponibilidade')
         .select('*')
         .eq('filial', usuario.filial)
@@ -129,10 +130,15 @@ export default function Frota() {
         .eq('filial', usuario.filial)
         .not('regiao_entregas', 'is', null),
       supabase.from('frota_placas').select('*').eq('filial', usuario.filial),
-      supabase.from('historico_tml')
-        .select('placa, data_saida, matricula, nome, sala')
+      // Fonte da Fixação de Motorista: Base do Mapa (data correta do nome do
+      // arquivo). A sala vem de motoristas_sala_tml casada por matrícula.
+      supabase.from('frota_motorista_base')
+        .select('placa, data, matricula, nome')
         .eq('filial', usuario.filial)
         .not('matricula', 'is', null),
+      supabase.from('motoristas_sala_tml')
+        .select('matricula, sala')
+        .eq('filial', usuario.filial),
       supabase.from('alertas_fixacao_motorista').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
     ])
     setRegistros((data ?? []) as FrotaDisponibilidade[])
@@ -141,7 +147,20 @@ export default function Frota() {
       ...((dataTerritorioHist ?? []) as { placa: string | null; data: string | null; regiao_entregas: string | null }[])
         .map(r => ({ placa: r.placa, data_saida: r.data, regiao_entregas: r.regiao_entregas, cidades_entregas: null })),
     ])
-    setHistoricoTmlMotorista((dataTmlMotorista ?? []) as HistoricoTmlMotorista[])
+    const salaPorMatricula = new Map(
+      ((dataRosterSala ?? []) as { matricula: number; sala: string | null }[])
+        .map(r => [r.matricula, isSalaTML(r.sala) ? r.sala : null]),
+    )
+    setHistoricoTmlMotorista(
+      ((dataMotoristaBase ?? []) as { placa: string | null; data: string | null; matricula: number | null; nome: string | null }[])
+        .map(r => ({
+          placa: r.placa,
+          data_saida: r.data,
+          matricula: r.matricula,
+          nome: r.nome,
+          sala: r.matricula != null ? salaPorMatricula.get(r.matricula) ?? null : null,
+        })) as HistoricoTmlMotorista[],
+    )
     setAlertasFixacao((dataAlertasFixacao ?? []) as AlertaFixacaoMotorista[])
     setPlacas((dataPlacas ?? []) as FrotaPlaca[])
     setCarregando(false)
@@ -898,7 +917,7 @@ export default function Frota() {
           ) : cruzamentoMotorista.length === 0 ? (
             <div className="text-center py-16 text-gray-400">
               <UserCheck size={40} className="mx-auto mb-3 opacity-40" />
-              <p className="text-sm">Nenhuma placa com matrícula fixada e saída registrada ainda. Cadastre as matrículas em /frota/placas e importe a saída na tela TML.</p>
+              <p className="text-sm">Nenhuma placa com matrícula fixada e registro do dia ainda. Cadastre as matrículas em /frota/placas e importe a Base do Mapa em Financeiro → Catálogo/Vendas.</p>
             </div>
           ) : (
             <>
