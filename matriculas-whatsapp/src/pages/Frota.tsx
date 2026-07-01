@@ -495,7 +495,7 @@ export default function Frota() {
       if (!porData.has(d.data)) porData.set(d.data, { data: d.data })
       const linha = porData.get(d.data)!
       if (d.sala === 'COLORADO') linha.colorado = d.percentual
-      else linha.subFuria = d.percentual
+      else if (d.sala === 'SUB-FURIA') linha.subFuria = d.percentual
     }
     return Array.from(porData.values())
       .sort((a, b) => a.data.localeCompare(b.data))
@@ -1097,7 +1097,7 @@ export default function Frota() {
                           <tr key={`${c.placa}-${c.data}-${i}`} className="border-b border-gray-50">
                             <td className="py-2 text-gray-600">{formatarDataBR(c.data)}</td>
                             <td className="py-2 text-gray-900 font-medium">{c.placa}</td>
-                            <td className="py-2 text-gray-600">{c.sala}</td>
+                            <td className="py-2 text-gray-600">{c.sala ?? '—'}</td>
                             <td className="py-2 text-gray-600">{[c.matriculaEsperada1, c.matriculaEsperada2].filter(Boolean).join(' / ') || '—'}</td>
                             <td className="py-2 text-gray-600">{c.nomeExecutou ?? '—'} ({c.matriculaExecutou})</td>
                             <td className="py-2 text-center">
@@ -1526,7 +1526,7 @@ const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
             <tr key={`${c.placa}-${c.data}-${i}`} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
               <td style={{ ...td, color: '#475569' }}>{formatarDataBR(c.data)}</td>
               <td style={{ ...td, fontWeight: 700, color: '#0f172a' }}>{c.placa}</td>
-              <td style={{ ...td, color: '#475569' }}>{c.sala}</td>
+              <td style={{ ...td, color: '#475569' }}>{c.sala ?? '—'}</td>
               <td style={{ ...td, color: '#475569' }}>{[c.matriculaEsperada1, c.matriculaEsperada2].filter(Boolean).join(' ou ') || '—'}</td>
               <td style={{ ...td, color: '#475569' }}>{c.nomeExecutou ?? '—'} ({c.matriculaExecutou})</td>
               <td style={{ ...td, textAlign: 'center' }}>
