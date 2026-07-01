@@ -458,6 +458,40 @@ export interface HistoricoTmlRegiao {
   cidades_entregas: string | null
 }
 
+// ─── Território executado a partir da aba "Base" da planilha diária ──────────
+// (catálogo/vendas do financeiro). Layout da aba "Base": cabeçalho na linha
+// cuja coluna M (índice 12) é "Mapa". Colunas usadas:
+//   K(10)=Placa · M(12)=Mapa · N(13)=Rota (região principal, ex.: "MIGUEL
+//   PEREIRA (13)") · O(14)=REGIÃO (detalhe de bairros). A rota casa direto com
+//   a "Região" disponibilizada no CSV da Frota (ex.: "174 - Miguel Pereira");
+//   o detalhe de bairros entra junto para aumentar o acerto do cruzamento.
+export interface BaseMapaTerritorioRow {
+  mapa: number
+  placa: string
+  regiao_entregas: string | null
+}
+
+export function parseBaseMapaTerritorio(buffer: ArrayBuffer): BaseMapaTerritorioRow[] {
+  const wb = XLSX.read(buffer)
+  const ws = wb.Sheets['Base']
+  if (!ws) return []
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: false, defval: null }) as unknown[][]
+  const headerIdx = rows.findIndex(r => String(r?.[12] ?? '').trim().toLowerCase() === 'mapa')
+  if (headerIdx < 0) return []
+
+  const out: BaseMapaTerritorioRow[] = []
+  for (const r of rows.slice(headerIdx + 1)) {
+    const placa = String(r[10] ?? '').trim()
+    const mapa = Number(String(r[12] ?? '').trim())
+    if (!placa || !mapa || isNaN(mapa)) continue
+    const rota = String(r[13] ?? '').trim()
+    const detalhe = String(r[14] ?? '').trim()
+    const regiao = [rota, detalhe].filter(Boolean).join(' / ') || null
+    out.push({ mapa, placa, regiao_entregas: regiao })
+  }
+  return out
+}
+
 export interface CruzamentoTerritorioItem {
   placa: string
   data: string
