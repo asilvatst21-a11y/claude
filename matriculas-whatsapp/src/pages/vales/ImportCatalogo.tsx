@@ -106,7 +106,34 @@ async function importarBaseMapa(file: File, filial: string): Promise<{ contagem:
     if (error) throw new Error(`Erro ao salvar equipe do mapa: ${error.message}`)
   }
 
-  return { contagem: equipe.length, mensagem: `Data: ${data}. Motorista e ajudantes aparecerão na confirmação.` }
+  // Além da equipe, esta mesma Base alimenta a Fixação de Território da Frota:
+  // por mapa (col M), a placa (col K) e a região executada — Rota (col N) +
+  // detalhe de bairros (col O). Grava em frota_territorio_historico, lida pelo
+  // cruzamento de território, para o supervisor não precisar reimportar lá.
+  const territorio = rows.slice(headerIdx + 1)
+    .map(r => {
+      const mapa = Number(String(r[12] ?? '').trim())
+      const placa = String(r[10] ?? '').trim()
+      if (!mapa || isNaN(mapa) || !placa) return null
+      const rota = String(r[13] ?? '').trim()
+      const detalhe = String(r[14] ?? '').trim()
+      const regiao = [rota, detalhe].filter(Boolean).join(' / ') || null
+      return { filial, mapa, placa, data, regiao_entregas: regiao }
+    })
+    .filter(Boolean)
+
+  if (territorio.length > 0) {
+    // Dedup por mapa (a chave de conflito é filial,mapa) e upsert em lotes.
+    const territorioUnico = [...new Map(territorio.map(t => [t!.mapa, t!])).values()]
+    for (let i = 0; i < territorioUnico.length; i += BATCH) {
+      const { error } = await valesSupabase.from('frota_territorio_historico')
+        .upsert(territorioUnico.slice(i, i + BATCH), { onConflict: 'filial,mapa' })
+      // Não interrompe o import da equipe se o território falhar — apenas segue.
+      if (error) { console.error('frota_territorio_historico:', error.message); break }
+    }
+  }
+
+  return { contagem: equipe.length, mensagem: `Data: ${data}. Motorista e ajudantes aparecerão na confirmação; território atualizado na Frota.` }
 }
 
 export default function ImportCatalogoPage() {
