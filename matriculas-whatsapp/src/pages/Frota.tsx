@@ -710,26 +710,30 @@ export default function Frota() {
         <div className="space-y-5">
           <p className="text-xs text-gray-500">
             Cruza, por placa, o território disponibilizado (coluna "Região" do relatório Frota Disponibilizada, .csv importado na
-            aba Disponibilidade) com a região realmente executada no dia — vinda da aba "Base" da planilha diária (Base do Mapa,
-            catálogo/vendas). Importe a Base do Mapa do dia abaixo; o cruzamento usa a mesma data do CSV.
+            aba Disponibilidade) com a região realmente executada no dia — vinda da aba "Base" da planilha diária (Base do Mapa).
+            Essa Base já é importada em <span className="font-medium">Financeiro → Catálogo/Vendas</span>: o mesmo import atualiza o
+            território aqui automaticamente, não precisa subir de novo. Basta importar o CSV da Frota do mesmo dia na aba Disponibilidade.
           </p>
 
-          <div className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs font-medium text-gray-500 mb-2">Importar Base do Mapa do dia — território executado (.xlsx)</p>
-            <div {...getRootBaseTerr()} className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-colors max-w-md ${isDragBaseTerr ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-brand-400 hover:bg-gray-50'}`}>
-              <input {...getInputBaseTerr()} />
-              {uploadando ? <Loader2 size={24} className="mx-auto text-brand-500 animate-spin" /> : <FileSpreadsheet size={24} className="mx-auto text-gray-400 mb-1" />}
-              <p className="text-sm text-gray-600">{uploadando ? 'Importando...' : 'Arraste a Base do Mapa do dia (.xlsx com a aba "Base")'}</p>
-              <p className="text-[11px] text-gray-400 mt-1">A data é lida do nome do arquivo (ex.: 01072026).</p>
-            </div>
-          </div>
-
           <details className="bg-white rounded-xl border border-gray-200 p-4">
-            <summary className="text-xs font-medium text-gray-500 cursor-pointer">Carga única do histórico de roteirização (PCD) via escala — dias anteriores (.xlsx)</summary>
-            <div {...getRootTerritorioHist()} className={`mt-3 border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-colors max-w-md ${isDragTerritorioHist ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-brand-400 hover:bg-gray-50'}`}>
-              <input {...getInputTerritorioHist()} />
-              {uploadando ? <Loader2 size={24} className="mx-auto text-brand-500 animate-spin" /> : <FileSpreadsheet size={24} className="mx-auto text-gray-400 mb-1" />}
-              <p className="text-sm text-gray-600">{uploadando ? 'Importando...' : 'Arraste a planilha histórica de roteirização (.xlsx)'}</p>
+            <summary className="text-xs font-medium text-gray-500 cursor-pointer">Importações manuais (fallback) — só se precisar recarregar um dia</summary>
+            <div className="mt-3 space-y-4">
+              <div>
+                <p className="text-xs text-gray-500 mb-2">Base do Mapa do dia — território executado (.xlsx com a aba "Base"). A data vem do nome do arquivo (ex.: 01072026).</p>
+                <div {...getRootBaseTerr()} className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-colors max-w-md ${isDragBaseTerr ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-brand-400 hover:bg-gray-50'}`}>
+                  <input {...getInputBaseTerr()} />
+                  {uploadando ? <Loader2 size={24} className="mx-auto text-brand-500 animate-spin" /> : <FileSpreadsheet size={24} className="mx-auto text-gray-400 mb-1" />}
+                  <p className="text-sm text-gray-600">{uploadando ? 'Importando...' : 'Arraste a Base do Mapa do dia (.xlsx)'}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-2">Carga única do histórico de roteirização (PCD) via escala — dias anteriores (.xlsx).</p>
+                <div {...getRootTerritorioHist()} className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-colors max-w-md ${isDragTerritorioHist ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-brand-400 hover:bg-gray-50'}`}>
+                  <input {...getInputTerritorioHist()} />
+                  {uploadando ? <Loader2 size={24} className="mx-auto text-brand-500 animate-spin" /> : <FileSpreadsheet size={24} className="mx-auto text-gray-400 mb-1" />}
+                  <p className="text-sm text-gray-600">{uploadando ? 'Importando...' : 'Arraste a planilha histórica de roteirização (.xlsx)'}</p>
+                </div>
+              </div>
             </div>
           </details>
 
