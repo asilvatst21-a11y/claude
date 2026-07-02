@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal,
+  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal, Calendar,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -208,7 +208,7 @@ export default function DistribuicaoTML() {
   const [uploadingEscala, setUploadingEscala] = useState(false)
   const [uploadingSaida, setUploadingSaida] = useState(false)
   const [uploadingChecklist, setUploadingChecklist] = useState(false)
-  const [dataSaidaImport, setDataSaidaImport] = useState(hojeISO)
+  const [dataOperacao, setDataOperacao] = useState(hojeISO)
   const [justificando, setJustificando] = useState<AlertaTML | null>(null)
   const [motivos, setMotivos] = useState<MotivoJustificativaTML[]>([])
   const [motivoSelecionado, setMotivoSelecionado] = useState('')
@@ -306,21 +306,21 @@ export default function DistribuicaoTML() {
         throw new Error('Nenhum motorista escalado encontrado na planilha')
       }
 
-      // Mapas cancelados saem da planilha nova, mas como o upsert só
-      // insere/atualiza quem está nela, ficariam presos no banco com a escala
-      // antiga. Por isso, antes de upsertar, removemos da(s) data(s) que essa
-      // planilha cobre qualquer mapa que não esteja mais nela.
-      const datas = [...new Set(escalas.map((e) => e.dataEntrega).filter((d): d is string => d != null))]
+      // Usa a data confirmada pelo usuário (mesmo fix da portaria: o Excel com
+      // locale brasileiro inverte mm/dd, tornando impossível confiar na coluna
+      // de data do arquivo).
+      const dataEscalaDefinitiva = dataOperacao || hojeISO()
+
+      // Mapas cancelados saem da planilha nova — remove da data atual qualquer
+      // mapa que não esteja mais na escala para não deixar registros velhos.
       const mapasNovos = escalas.map((e) => e.mapa)
-      if (datas.length > 0) {
-        const { error: delErr } = await supabase
-          .from('escalas_tml')
-          .delete()
-          .eq('filial', usuario.filial)
-          .in('data_entrega', datas)
-          .not('mapa', 'in', `(${mapasNovos.join(',')})`)
-        if (delErr) throw new Error(delErr.message)
-      }
+      const { error: delErr } = await supabase
+        .from('escalas_tml')
+        .delete()
+        .eq('filial', usuario.filial)
+        .eq('data_entrega', dataEscalaDefinitiva)
+        .not('mapa', 'in', `(${mapasNovos.join(',')})`)
+      if (delErr) throw new Error(delErr.message)
 
       // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time"
       // quando o mesmo mapa aparece mais de uma vez na planilha importada.
@@ -331,7 +331,7 @@ export default function DistribuicaoTML() {
           mapa: e.mapa,
           placa: e.placa,
           matricula: e.matricula,
-          data_entrega: e.dataEntrega,
+          data_entrega: dataEscalaDefinitiva,
           regiao_entregas: e.regiaoEntregas,
           cidades_entregas: e.cidadesEntregas,
           importado_em: new Date().toISOString(),
@@ -339,7 +339,7 @@ export default function DistribuicaoTML() {
         { onConflict: 'filial,mapa' }
       )
       if (error) throw new Error(error.message)
-      alert(`${escalas.length} registro(s) de escala importado(s).`)
+      alert(`${escalas.length} registro(s) de escala importado(s) — data: ${formatarDataBR(dataEscalaDefinitiva)}.`)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar escala')
     } finally {
@@ -363,7 +363,7 @@ export default function DistribuicaoTML() {
       // A data do arquivo é ignorada porque o Excel com locale brasileiro
       // auto-converte strings mm/dd (ex: "07/02/2026") para o serial de
       // fevereiro 7, tornando impossível recuperar julho 2 do arquivo.
-      const dataSaidaDefinitiva = dataSaidaImport || hojeISO()
+      const dataSaidaDefinitiva = dataOperacao || hojeISO()
       const saidasComData = saidas.map((s) => ({ ...s, dataSaida: dataSaidaDefinitiva }))
 
       // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time"
@@ -999,6 +999,20 @@ export default function DistribuicaoTML() {
 
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
 
+      <div className="border rounded-lg bg-white px-4 py-3 flex flex-wrap items-center gap-3">
+        <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+        <label className="text-sm font-medium whitespace-nowrap">Data da operação</label>
+        <input
+          type="date"
+          value={dataOperacao}
+          onChange={(e) => setDataOperacao(e.target.value)}
+          className="px-2 py-1.5 border border-gray-200 rounded-lg text-sm"
+        />
+        <p className="text-xs text-muted-foreground">
+          Usada em todos os imports abaixo — o Excel pode inverter dd/mm, confirme a data antes de subir os arquivos.
+        </p>
+      </div>
+
       <div className="grid gap-4 md:grid-cols-3">
         <UploadBox
           titulo="1. Escala do dia (03.11.49.02)"
@@ -1006,42 +1020,12 @@ export default function DistribuicaoTML() {
           onFile={handleEscala}
           isUploading={uploadingEscala}
         />
-        <div className="border rounded-lg bg-white p-4 flex flex-col">
-          <h3 className="text-sm font-semibold">2. Saída na portaria (03.11.20)</h3>
-          <p className="text-xs text-muted-foreground mt-0.5 mb-3">
-            Compara o horário de saída com o limite da sala. Motoristas que perderem o TML ficam pendentes de envio do alerta na tabela abaixo.
-          </p>
-          <label className="text-xs font-medium text-gray-700 mb-1">Data da operação</label>
-          <input
-            type="date"
-            value={dataSaidaImport}
-            onChange={(e) => setDataSaidaImport(e.target.value)}
-            className="mb-3 px-2 py-1.5 border border-gray-200 rounded-lg text-sm w-full"
-          />
-          <div
-            className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-accent-500 hover:bg-accent/30 transition-colors flex-1 flex flex-col items-center justify-center"
-            onClick={() => {
-              const input = document.createElement('input')
-              input.type = 'file'
-              input.accept = '.xlsx,.xls,.csv'
-              input.onchange = (e) => {
-                const file = (e.target as HTMLInputElement).files?.[0]
-                if (file) handleSaida(file)
-              }
-              input.click()
-            }}
-          >
-            {uploadingSaida ? (
-              <Loader2 className="h-8 w-8 mx-auto mb-2 animate-spin text-accent-500" />
-            ) : (
-              <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
-            )}
-            <p className="text-sm font-medium">
-              {uploadingSaida ? 'Processando...' : 'Clique para selecionar o arquivo'}
-            </p>
-            <p className="text-xs text-muted-foreground mt-1">.xlsx, .xls ou .csv</p>
-          </div>
-        </div>
+        <UploadBox
+          titulo="2. Saída na portaria (03.11.20)"
+          descricao="Compara o horário de saída com o limite da sala. Motoristas que perderem o TML ficam pendentes de envio do alerta na tabela abaixo."
+          onFile={handleSaida}
+          isUploading={uploadingSaida}
+        />
         <UploadBox
           titulo="3. Checklist (HR INICIO)"
           descricao="Mede o tempo de deslocamento: quanto tempo depois da matinal o motorista começou o checklist."
