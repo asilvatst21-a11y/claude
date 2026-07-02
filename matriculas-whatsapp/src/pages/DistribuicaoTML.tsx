@@ -120,20 +120,6 @@ function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
-function dataMaisFrequente(datas: (string | null | undefined)[]): string {
-  const contagem = new Map<string, number>()
-  for (const d of datas) {
-    if (!d) continue
-    contagem.set(d, (contagem.get(d) ?? 0) + 1)
-  }
-  let melhor = ''
-  let max = 0
-  for (const [d, c] of contagem) {
-    if (c > max) { melhor = d; max = c }
-  }
-  return melhor || new Date().toISOString().slice(0, 10)
-}
-
 // Resumo automático enviado ao grupo de WhatsApp configurado em
 // /distribuicao/tml/whatsapp toda vez que a planilha de saída é importada.
 // Se nenhum grupo estiver configurado, não falha — apenas não envia.
@@ -222,6 +208,7 @@ export default function DistribuicaoTML() {
   const [uploadingEscala, setUploadingEscala] = useState(false)
   const [uploadingSaida, setUploadingSaida] = useState(false)
   const [uploadingChecklist, setUploadingChecklist] = useState(false)
+  const [dataSaidaImport, setDataSaidaImport] = useState(hojeISO)
   const [justificando, setJustificando] = useState<AlertaTML | null>(null)
   const [motivos, setMotivos] = useState<MotivoJustificativaTML[]>([])
   const [motivoSelecionado, setMotivoSelecionado] = useState('')
@@ -372,9 +359,16 @@ export default function DistribuicaoTML() {
         return
       }
 
+      // Usa a data confirmada pelo usuário no campo "Data da operação".
+      // A data do arquivo é ignorada porque o Excel com locale brasileiro
+      // auto-converte strings mm/dd (ex: "07/02/2026") para o serial de
+      // fevereiro 7, tornando impossível recuperar julho 2 do arquivo.
+      const dataSaidaDefinitiva = dataSaidaImport || hojeISO()
+      const saidasComData = saidas.map((s) => ({ ...s, dataSaida: dataSaidaDefinitiva }))
+
       // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time"
       // quando o mesmo mapa aparece mais de uma vez na planilha importada.
-      const saidasPorMapa = new Map(saidas.map((s) => [s.mapa, s]))
+      const saidasPorMapa = new Map(saidasComData.map((s) => [s.mapa, s]))
       const { error: upsertErr } = await supabase.from('saidas_tml').upsert(
         [...saidasPorMapa.values()].map((s) => ({
           filial: usuario.filial,
@@ -389,7 +383,7 @@ export default function DistribuicaoTML() {
       )
       if (upsertErr) throw new Error(upsertErr.message)
 
-      const mapas = saidas.map((s) => s.mapa)
+      const mapas = saidasComData.map((s) => s.mapa)
 
       const { data: escalas } = await supabase
         .from('escalas_tml')
@@ -420,7 +414,7 @@ export default function DistribuicaoTML() {
       const diag = { jaAlertado: 0, semHorario: 0, semSala: 0, noPrazo: 0, semSupervisor: 0, pendentes: 0, invalido: 0 }
       const historicoImediato: Record<string, unknown>[] = []
 
-      for (const saida of saidas) {
+      for (const saida of saidasComData) {
         if (mapasJaAlertados.has(`${saida.mapa}|${saida.dataSaida}`)) { diag.jaAlertado++; continue }
 
         const escala = escalaPorMapa.get(saida.mapa)
@@ -550,7 +544,7 @@ export default function DistribuicaoTML() {
       // um import anterior pode ter criado os alertas mas falhado no upsert do
       // histórico (ex.: constraint ainda não existia). Sem isso um reimport
       // skipa esses mapas inteiros e o histórico fica vazio para a data.
-      const saidasJaAlertadas = saidas.filter((s) => mapasJaAlertados.has(`${s.mapa}|${s.dataSaida}`))
+      const saidasJaAlertadas = saidasComData.filter((s) => mapasJaAlertados.has(`${s.mapa}|${s.dataSaida}`))
       if (saidasJaAlertadas.length > 0) {
         const historicoRecup = saidasJaAlertadas.map((saida) => {
           const escala = escalaPorMapa.get(saida.mapa)
@@ -582,24 +576,10 @@ export default function DistribuicaoTML() {
         if (recupErr) erros.push(`Histórico (recuperação): ${recupErr.message}`)
       }
 
-      const dataPrincipal = dataMaisFrequente(saidas.map((s) => s.dataSaida))
-      await enviarResumoDiario(usuario.filial, dataPrincipal)
-
-      // Diagnóstico de datas: mostra todas as datas lidas da planilha para
-      // detectar rapidamente se o parsing está errado (null, mês invertido etc.)
-      const contagemDatas = new Map<string, number>()
-      for (const s of saidas) {
-        const d = s.dataSaida ?? '(sem data — coluna não encontrada ou formato inválido)'
-        contagemDatas.set(d, (contagemDatas.get(d) ?? 0) + 1)
-      }
-      const infoData = [...contagemDatas.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .map(([d, n]) => `   ${d}: ${n} mapas`)
-        .join('\n')
+      await enviarResumoDiario(usuario.filial, dataSaidaDefinitiva)
 
       alert(
-        `${saidas.length} saída(s) processada(s).\n\n` +
-        `📅 Data(s) lida(s) da planilha:\n${infoData}\n\n` +
+        `${saidasComData.length} saída(s) processada(s) — data: ${formatarDataBR(dataSaidaDefinitiva)}\n\n` +
         `• ${diag.pendentes} motorista(s) perderam o TML — pendente de envio (use o botão "Enviar" na tela)\n` +
         `• ${diag.noPrazo} dentro do prazo (sem atraso)\n` +
         `• ${diag.semSala} sem sala (matrícula não está no roster)\n` +
@@ -1026,12 +1006,42 @@ export default function DistribuicaoTML() {
           onFile={handleEscala}
           isUploading={uploadingEscala}
         />
-        <UploadBox
-          titulo="2. Saída na portaria (03.11.20)"
-          descricao="Compara o horário de saída com o limite da sala. Motoristas que perderem o TML ficam pendentes de envio do alerta na tabela abaixo."
-          onFile={handleSaida}
-          isUploading={uploadingSaida}
-        />
+        <div className="border rounded-lg bg-white p-4 flex flex-col">
+          <h3 className="text-sm font-semibold">2. Saída na portaria (03.11.20)</h3>
+          <p className="text-xs text-muted-foreground mt-0.5 mb-3">
+            Compara o horário de saída com o limite da sala. Motoristas que perderem o TML ficam pendentes de envio do alerta na tabela abaixo.
+          </p>
+          <label className="text-xs font-medium text-gray-700 mb-1">Data da operação</label>
+          <input
+            type="date"
+            value={dataSaidaImport}
+            onChange={(e) => setDataSaidaImport(e.target.value)}
+            className="mb-3 px-2 py-1.5 border border-gray-200 rounded-lg text-sm w-full"
+          />
+          <div
+            className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-accent-500 hover:bg-accent/30 transition-colors flex-1 flex flex-col items-center justify-center"
+            onClick={() => {
+              const input = document.createElement('input')
+              input.type = 'file'
+              input.accept = '.xlsx,.xls,.csv'
+              input.onchange = (e) => {
+                const file = (e.target as HTMLInputElement).files?.[0]
+                if (file) handleSaida(file)
+              }
+              input.click()
+            }}
+          >
+            {uploadingSaida ? (
+              <Loader2 className="h-8 w-8 mx-auto mb-2 animate-spin text-accent-500" />
+            ) : (
+              <Upload className="h-8 w-8 mx-auto mb-2 text-muted-foreground" />
+            )}
+            <p className="text-sm font-medium">
+              {uploadingSaida ? 'Processando...' : 'Clique para selecionar o arquivo'}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">.xlsx, .xls ou .csv</p>
+          </div>
+        </div>
         <UploadBox
           titulo="3. Checklist (HR INICIO)"
           descricao="Mede o tempo de deslocamento: quanto tempo depois da matinal o motorista começou o checklist."
