@@ -12,7 +12,7 @@ import {
   isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, SALA_TML_LABEL, type SalaTML,
   horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal, metaMatinalMinutos, MATINAL_AUTO_FINALIZA_MIN,
 } from '../lib/tml'
-import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusGlobalTML } from '../lib/tmlResumos'
+import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusGlobalTML, type SemSalaDetalhe } from '../lib/tmlResumos'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
 
@@ -1063,9 +1063,40 @@ export default function DistribuicaoTML() {
           <div className="px-4 py-3 border-t bg-muted/30 flex flex-wrap gap-4 text-sm">
             <span className="font-semibold">Total CDD: {statusSaida.totalSaidas} saída(s)</span>
             {statusSaida.semSala > 0 && (
-              <span className="text-muted-foreground">{statusSaida.semSala} sem sala cadastrada</span>
+              <span className="text-amber-700 font-medium">{statusSaida.semSala} sem sala — matrícula não encontrada no roster</span>
             )}
           </div>
+          {statusSaida.semSalaDetalhes.length > 0 && (
+            <div className="border-t px-4 py-3">
+              <p className="text-xs font-semibold text-amber-700 mb-2">
+                Mapas sem sala — verifique se a matrícula abaixo está cadastrada em "Motoristas":
+              </p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="text-left text-muted-foreground">
+                      <th className="pr-4 py-1 font-medium">Mapa</th>
+                      <th className="pr-4 py-1 font-medium">Matrícula</th>
+                      <th className="pr-4 py-1 font-medium">Nome</th>
+                      <th className="pr-4 py-1 font-medium">Placa</th>
+                      <th className="py-1 font-medium">Obs.</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {(statusSaida.semSalaDetalhes as SemSalaDetalhe[]).sort((a, b) => a.mapa - b.mapa).map((d) => (
+                      <tr key={d.mapa}>
+                        <td className="pr-4 py-1">{d.mapa}</td>
+                        <td className="pr-4 py-1">{d.matricula ?? '—'}</td>
+                        <td className="pr-4 py-1">{d.nome ?? '—'}</td>
+                        <td className="pr-4 py-1">{d.placa ?? '—'}</td>
+                        <td className="py-1 text-muted-foreground">{d.observacao ?? '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

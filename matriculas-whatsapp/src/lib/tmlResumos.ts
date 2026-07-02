@@ -91,9 +91,18 @@ export interface StatusSalaTML {
   tmlMedio: number
 }
 
+export interface SemSalaDetalhe {
+  mapa: number
+  matricula: number | null
+  nome: string | null
+  placa: string | null
+  observacao: string | null
+}
+
 export interface StatusGlobalTML {
   porSala: Map<SalaTML, StatusSalaTML>
   semSala: number
+  semSalaDetalhes: SemSalaDetalhe[]
   totalSaidas: number
 }
 
@@ -104,15 +113,21 @@ export async function statusSaidaPorSala(filial: string, data: string): Promise<
 
   const { data: hist } = await supabase
     .from('historico_tml')
-    .select('sala, resultado, horario_saida')
+    .select('mapa, sala, resultado, horario_saida, matricula, nome, placa, observacao')
     .eq('filial', filial)
     .eq('data_saida', data)
 
   const porSala = new Map<SalaTML, { saidas: number; perdidos: number; somaTml: number; nTml: number }>()
-  let semSala = 0
+  const semSalaDetalhes: SemSalaDetalhe[] = []
   for (const h of hist ?? []) {
     if (!isSalaTML(h.sala)) {
-      semSala++
+      semSalaDetalhes.push({
+        mapa: h.mapa,
+        matricula: h.matricula ?? null,
+        nome: h.nome ?? null,
+        placa: h.placa ?? null,
+        observacao: h.observacao ?? null,
+      })
       continue
     }
     const k = porSala.get(h.sala) ?? { saidas: 0, perdidos: 0, somaTml: 0, nTml: 0 }
@@ -138,9 +153,9 @@ export async function statusSaidaPorSala(filial: string, data: string): Promise<
     }]
   }))
 
-  const totalSaidas = [...statusPorSala.values()].reduce((sum, s) => sum + s.saidas, 0) + semSala
+  const totalSaidas = [...statusPorSala.values()].reduce((sum, s) => sum + s.saidas, 0) + semSalaDetalhes.length
 
-  return { porSala: statusPorSala, semSala, totalSaidas }
+  return { porSala: statusPorSala, semSala: semSalaDetalhes.length, semSalaDetalhes, totalSaidas }
 }
 
 // ── Resumo 1: disparado a cada importação da planilha de saída ────────────
