@@ -1354,7 +1354,7 @@ export default function DistribuicaoTML() {
               </tbody>
             </table>
           </div>
-        )}
+        ))}
       </div>
 
       <div className="border rounded-lg bg-white">

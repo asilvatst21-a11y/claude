@@ -375,6 +375,7 @@ export interface AlertaTML {
   placa: string | null
   matricula: number | null
   nome: string | null
+  data_saida: string | null
   horario_limite: string
   horario_saida: string
   atraso_minutos: number
