@@ -1083,11 +1083,17 @@ async function registrarJustificativaTml(alertaId: string, motivo: string, remet
     return { ok: true, action: 'already-justified' }
   }
 
-  await supabase.from('alertas_tml').update({
+  const { error: errUpdate } = await supabase.from('alertas_tml').update({
     justificativa: motivo,
     status: 'justificado',
     justificado_em: new Date().toISOString(),
   }).eq('id', alertaId)
+
+  if (errUpdate) {
+    console.error('[webhook] alertas_tml update error:', errUpdate.message)
+    await enviar(remetente, '⚠️ Ocorreu um erro ao salvar o motivo no sistema. Tente novamente ou avise o controle.')
+    return { ok: false, action: 'db-error', error: errUpdate.message } as any
+  }
 
   await enviar(remetente, `✅ Motivo registrado no sistema: *${motivo}*`)
   return { ok: true, action: 'justificado' }
@@ -1107,12 +1113,18 @@ async function registrarRespostaSupervisorTml(alertaId: string, texto: string, r
   const anterior = (alerta.resposta_supervisor ?? '').trim()
   const novo = anterior ? `${anterior}\n${texto}` : texto
 
-  await supabase.from('alertas_tml').update({
+  const { error: errUpdate } = await supabase.from('alertas_tml').update({
     resposta_supervisor: novo,
     respondido_em: new Date().toISOString(),
     // Só muda o status se ainda estava aguardando; não reabre um já justificado.
     ...(alerta.status === 'enviado' ? { status: 'respondido' } : {}),
   }).eq('id', alertaId)
+
+  if (errUpdate) {
+    console.error('[webhook] alertas_tml resposta update error:', errUpdate.message)
+    await enviar(remetente, '⚠️ Erro ao registrar sua resposta. Tente novamente ou avise o controle.')
+    return { ok: false, action: 'db-error', error: errUpdate.message } as any
+  }
 
   await enviar(remetente, '✅ Resposta recebida! O controle vai classificar o motivo no sistema. Obrigado.')
   return { ok: true, action: 'resposta-registrada' }
@@ -1131,11 +1143,17 @@ async function registrarRespostaSupervisorFixacaoMotorista(alertaId: string, tex
   const anterior = (alerta.resposta_supervisor ?? '').trim()
   const novo = anterior ? `${anterior}\n${texto}` : texto
 
-  await supabase.from('alertas_fixacao_motorista').update({
+  const { error: errUpdate } = await supabase.from('alertas_fixacao_motorista').update({
     resposta_supervisor: novo,
     respondido_em: new Date().toISOString(),
     ...(alerta.status === 'enviado' ? { status: 'respondido' } : {}),
   }).eq('id', alertaId)
+
+  if (errUpdate) {
+    console.error('[webhook] alertas_fixacao_motorista resposta update error:', errUpdate.message)
+    await enviar(remetente, '⚠️ Erro ao registrar sua resposta. Tente novamente ou avise o controle.')
+    return { ok: false, action: 'db-error', error: errUpdate.message } as any
+  }
 
   await enviar(remetente, '✅ Resposta recebida! O controle vai registrar a justificativa no sistema. Obrigado.')
   return { ok: true, action: 'resposta-registrada' }
@@ -1241,11 +1259,17 @@ async function registrarJustificativaFixacaoMotorista(alertaId: string, motivo: 
     return { ok: true, action: 'already-justified' }
   }
 
-  await supabase.from('alertas_fixacao_motorista').update({
+  const { error: errUpdate } = await supabase.from('alertas_fixacao_motorista').update({
     justificativa: motivo,
     status: 'justificado',
     justificado_em: new Date().toISOString(),
   }).eq('id', alertaId)
+
+  if (errUpdate) {
+    console.error('[webhook] alertas_fixacao_motorista justificativa update error:', errUpdate.message)
+    await enviar(remetente, '⚠️ Erro ao salvar o motivo no sistema. Tente novamente ou avise o controle.')
+    return { ok: false, action: 'db-error', error: errUpdate.message } as any
+  }
 
   await enviar(remetente, `✅ Motivo registrado no sistema: *${motivo}*`)
   await verificarEEnviarResumoFixacaoMotorista(alerta.filial, alerta.data)
