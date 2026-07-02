@@ -389,15 +389,21 @@ export default function DistribuicaoTML() {
         .from('escalas_tml')
         .select('mapa, placa, matricula, regiao_entregas, cidades_entregas')
         .eq('filial', usuario.filial)
+        .eq('data_entrega', dataSaidaDefinitiva)
         .in('mapa', mapas)
       const escalaPorMapa = new Map((escalas ?? []).map((e) => [e.mapa, e]))
 
-      const matriculas = [...new Set(saidas.map((s) => s.matricula).filter((m): m is number => m != null))]
+      // Fonte primária de matrícula: escala do dia (mapa → matrícula oficial).
+      // Portaria entra como fallback porque a coluna M é posição fixa e pode
+      // estar vazia em alguns layouts. O roster precisa cobrir ambas as fontes.
+      const matriculasEscala = (escalas ?? []).map((e) => e.matricula).filter((m): m is number => m != null)
+      const matriculasPortaria = saidas.map((s) => s.matricula).filter((m): m is number => m != null)
+      const matriculas = [...new Set([...matriculasEscala, ...matriculasPortaria])]
       const { data: roster } = await supabase
         .from('motoristas_sala_tml')
         .select('matricula, nome, sala')
         .eq('filial', usuario.filial)
-        .in('matricula', matriculas)
+        .in('matricula', matriculas.length > 0 ? matriculas : [-1])
       const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
       const nomePorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.nome]))
 
@@ -418,8 +424,9 @@ export default function DistribuicaoTML() {
         if (mapasJaAlertados.has(`${saida.mapa}|${saida.dataSaida}`)) { diag.jaAlertado++; continue }
 
         const escala = escalaPorMapa.get(saida.mapa)
-        const matricula = saida.matricula ?? escala?.matricula ?? null
-        const placa = saida.placa ?? escala?.placa ?? null
+        // Escala é a fonte oficial do mapa→matrícula; portaria como fallback.
+        const matricula = escala?.matricula ?? saida.matricula ?? null
+        const placa = escala?.placa ?? saida.placa ?? null
         const nome = matricula != null ? nomePorMatricula.get(matricula) ?? null : null
         const regiaoEntregas = escala?.regiao_entregas ?? null
         const cidadesEntregas = escala?.cidades_entregas ?? null
@@ -548,8 +555,8 @@ export default function DistribuicaoTML() {
       if (saidasJaAlertadas.length > 0) {
         const historicoRecup = saidasJaAlertadas.map((saida) => {
           const escala = escalaPorMapa.get(saida.mapa)
-          const matricula = saida.matricula ?? escala?.matricula ?? null
-          const placa = saida.placa ?? escala?.placa ?? null
+          const matricula = escala?.matricula ?? saida.matricula ?? null
+          const placa = escala?.placa ?? saida.placa ?? null
           const nome = matricula != null ? nomePorMatricula.get(matricula) ?? null : null
           const sala = matricula != null ? salaPorMatricula.get(matricula) : undefined
           const salaValida = isSalaTML(sala) ? sala : null
