@@ -12,7 +12,7 @@ import {
   isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, SALA_TML_LABEL, type SalaTML,
   horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal, metaMatinalMinutos, MATINAL_AUTO_FINALIZA_MIN,
 } from '../lib/tml'
-import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusSalaTML } from '../lib/tmlResumos'
+import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusGlobalTML } from '../lib/tmlResumos'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
 
@@ -230,7 +230,7 @@ export default function DistribuicaoTML() {
   const [historico, setHistorico] = useState<HistoricoTML[]>([])
   const [loadingHistorico, setLoadingHistorico] = useState(true)
 
-  const [statusSaida, setStatusSaida] = useState<Map<SalaTML, StatusSalaTML> | null>(null)
+  const [statusSaida, setStatusSaida] = useState<StatusGlobalTML | null>(null)
 
   const fetchAlertas = useCallback(async () => {
     if (!usuario) return
@@ -1040,7 +1040,7 @@ export default function DistribuicaoTML() {
             <h2 className="font-semibold text-sm">Status de saída — hoje</h2>
           </div>
           <div className="grid sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x">
-            {[...statusSaida.entries()].map(([sala, s]) => (
+            {[...statusSaida.porSala.entries()].map(([sala, s]) => (
               <div key={sala} className="p-4">
                 <p className="text-sm font-medium mb-2">{SALA_TML_LABEL[sala]}</p>
                 <div className="grid grid-cols-3 gap-3">
@@ -1059,6 +1059,12 @@ export default function DistribuicaoTML() {
                 </div>
               </div>
             ))}
+          </div>
+          <div className="px-4 py-3 border-t bg-muted/30 flex flex-wrap gap-4 text-sm">
+            <span className="font-semibold">Total CDD: {statusSaida.totalSaidas} saída(s)</span>
+            {statusSaida.semSala > 0 && (
+              <span className="text-muted-foreground">{statusSaida.semSala} sem sala cadastrada</span>
+            )}
           </div>
         </div>
       )}

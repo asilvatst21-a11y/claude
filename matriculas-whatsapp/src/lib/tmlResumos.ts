@@ -91,9 +91,15 @@ export interface StatusSalaTML {
   tmlMedio: number
 }
 
+export interface StatusGlobalTML {
+  porSala: Map<SalaTML, StatusSalaTML>
+  semSala: number
+  totalSaidas: number
+}
+
 // Status de saída do dia por sala — usado tanto pelo resumo diário quanto
 // pelos cards da tela principal da Carta de Controle.
-export async function statusSaidaPorSala(filial: string, data: string): Promise<Map<SalaTML, StatusSalaTML>> {
+export async function statusSaidaPorSala(filial: string, data: string): Promise<StatusGlobalTML> {
   const esperado = await esperadoPorSala(filial, data)
 
   const { data: hist } = await supabase
@@ -103,8 +109,12 @@ export async function statusSaidaPorSala(filial: string, data: string): Promise<
     .eq('data_saida', data)
 
   const porSala = new Map<SalaTML, { saidas: number; perdidos: number; somaTml: number; nTml: number }>()
+  let semSala = 0
   for (const h of hist ?? []) {
-    if (!isSalaTML(h.sala)) continue
+    if (!isSalaTML(h.sala)) {
+      semSala++
+      continue
+    }
     const k = porSala.get(h.sala) ?? { saidas: 0, perdidos: 0, somaTml: 0, nTml: 0 }
     k.saidas++
     if (h.resultado === 'atrasado') k.perdidos++
@@ -115,7 +125,7 @@ export async function statusSaidaPorSala(filial: string, data: string): Promise<
     porSala.set(h.sala, k)
   }
 
-  return new Map(SALAS.map((sala) => {
+  const statusPorSala = new Map(SALAS.map((sala) => {
     const total = esperado.get(sala) ?? 0
     const s = porSala.get(sala) ?? { saidas: 0, perdidos: 0, somaTml: 0, nTml: 0 }
     return [sala, {
@@ -127,6 +137,10 @@ export async function statusSaidaPorSala(filial: string, data: string): Promise<
       tmlMedio: s.nTml > 0 ? Math.round(s.somaTml / s.nTml) : 0,
     }]
   }))
+
+  const totalSaidas = [...statusPorSala.values()].reduce((sum, s) => sum + s.saidas, 0) + semSala
+
+  return { porSala: statusPorSala, semSala, totalSaidas }
 }
 
 // ── Resumo 1: disparado a cada importação da planilha de saída ────────────
@@ -154,7 +168,7 @@ export async function gerarResumoDiario(filial: string, data: string): Promise<s
   let totalPerderam = 0
 
   for (const sala of SALAS) {
-    const s = status.get(sala)!
+    const s = status.porSala.get(sala)!
     const pctSaiu = s.esperado > 0 ? Math.round((s.saidas / s.esperado) * 100) : 0
     totalBateram += s.bateram
     totalPerderam += s.perdidos
@@ -180,6 +194,10 @@ export async function gerarResumoDiario(filial: string, data: string): Promise<s
   }
   texto += `🕗 Aguardando justificativa: ${aguardando}\n`
   texto += `\n📊 Total geral: ${totalBateram} bateram o TML | ${totalPerderam} perderam`
+  if (status.semSala > 0) {
+    texto += `\n🚛 Sem sala cadastrada: ${status.semSala} saída(s)`
+  }
+  texto += `\n🏭 Total CDD: ${status.totalSaidas} saída(s)`
 
   const { parados, placasFreteiros } = await mapasParadosEFreteiros(filial, data)
   if (placasFreteiros.length > 0) {
