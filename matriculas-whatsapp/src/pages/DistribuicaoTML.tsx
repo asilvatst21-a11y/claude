@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal, Calendar,
+  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal, Calendar, ChevronDown,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -231,6 +231,9 @@ export default function DistribuicaoTML() {
   const [loadingHistorico, setLoadingHistorico] = useState(true)
 
   const [statusSaida, setStatusSaida] = useState<StatusGlobalTML | null>(null)
+  const [nominaAberta, setNominaAberta] = useState(true)
+  const [alertasAbertos, setAlertasAbertos] = useState(true)
+  const [historicoAberto, setHistoricoAberto] = useState(false)
 
   const fetchAlertas = useCallback(async () => {
     if (!usuario) return
@@ -278,6 +281,19 @@ export default function DistribuicaoTML() {
     const status = await statusSaidaPorSala(usuario.filial, hojeISO())
     setStatusSaida(status)
   }, [usuario])
+
+  // TML Nominal: todos os registros do dia com saída antes das 12h (ou sem horário),
+  // ordenados por mapa. Saídas após 12h são omitidas (viagens administrativas/especiais).
+  const historicoNominal = useMemo(
+    () => historico.filter((h) => !h.horario_saida || h.horario_saida < '12:00').sort((a, b) => a.mapa - b.mapa),
+    [historico],
+  )
+  const statsNominal = useMemo(() => {
+    const bateram = historicoNominal.filter((h) => h.resultado === 'no_prazo').length
+    const perderam = historicoNominal.filter((h) => h.resultado === 'atrasado').length
+    const indefinido = historicoNominal.filter((h) => h.resultado === 'indefinido' || h.resultado === 'invalido').length
+    return { bateram, perderam, indefinido, total: historicoNominal.length }
+  }, [historicoNominal])
 
   useEffect(() => { fetchAlertas() }, [fetchAlertas])
   useEffect(() => { fetchMotivos() }, [fetchMotivos])
@@ -584,6 +600,64 @@ export default function DistribuicaoTML() {
       }
 
       await enviarResumoDiario(usuario.filial, dataSaidaDefinitiva)
+
+      // Envia ao supervisor de cada sala a lista de mapas que ainda não saíram.
+      // A mensagem é regenerada a cada import, refletindo o estado atual do CDD.
+      try {
+        const { data: todasEscalasHoje } = await supabase
+          .from('escalas_tml')
+          .select('mapa, placa, matricula')
+          .eq('filial', usuario.filial)
+          .eq('data_entrega', dataSaidaDefinitiva)
+        const { data: todasSaidasDB } = await supabase
+          .from('saidas_tml')
+          .select('mapa')
+          .eq('filial', usuario.filial)
+          .eq('data_saida', dataSaidaDefinitiva)
+        const mapasSaidosDB = new Set((todasSaidasDB ?? []).map((s) => s.mapa))
+
+        // Roster completo para todas as matrículas da escala do dia
+        const mtsEscala = [...new Set((todasEscalasHoje ?? [])
+          .map((e) => e.matricula).filter((m): m is number => m != null))]
+        const { data: rosterHoje } = await supabase
+          .from('motoristas_sala_tml')
+          .select('matricula, nome, sala')
+          .eq('filial', usuario.filial)
+          .in('matricula', mtsEscala.length > 0 ? mtsEscala : [-1])
+        const salaPorMtHoje = new Map((rosterHoje ?? []).map((r) => [r.matricula, r.sala]))
+        const nomePorMtHoje = new Map((rosterHoje ?? []).map((r) => [r.matricula, r.nome]))
+
+        const faltamPorSala = new Map<SalaTML, Array<{ mapa: number; placa: string | null; nome: string | null }>>()
+        for (const e of todasEscalasHoje ?? []) {
+          if (mapasSaidosDB.has(e.mapa)) continue
+          if (e.placa?.toUpperCase().startsWith('CRW')) continue
+          const sala = e.matricula != null ? salaPorMtHoje.get(e.matricula) : undefined
+          if (!isSalaTML(sala)) continue
+          const nome = e.matricula != null ? nomePorMtHoje.get(e.matricula) ?? null : null
+          if (!faltamPorSala.has(sala)) faltamPorSala.set(sala, [])
+          faltamPorSala.get(sala)!.push({ mapa: e.mapa, placa: e.placa ?? null, nome })
+        }
+
+        if (faltamPorSala.size > 0) {
+          const now = new Date()
+          const hora = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+          for (const [sala, pendentes] of faltamPorSala) {
+            const { data: sups } = await supabase
+              .from('supervisores_tml')
+              .select('telefone')
+              .eq('filial', usuario.filial)
+              .eq('sala', sala)
+            if (!sups?.length) continue
+            const lista = pendentes.sort((a, b) => a.mapa - b.mapa)
+            let msg = `🚛 *PENDENTES NO CDD — ${hora}*\n`
+            msg += `${SALA_TML_LABEL[sala]} — ${lista.length} ainda não saíram:\n\n`
+            for (const p of lista) msg += `• Mapa ${p.mapa} — ${p.placa ?? '—'} — ${p.nome ?? '—'}\n`
+            for (const sup of sups) await enviarMensagemWhatsApp(sup.telefone, msg)
+          }
+        }
+      } catch {
+        // falha no envio de pendentes não derruba o import
+      }
 
       alert(
         `${saidasComData.length} saída(s) processada(s) — data: ${formatarDataBR(dataSaidaDefinitiva)}\n\n` +
@@ -1126,12 +1200,75 @@ export default function DistribuicaoTML() {
         </div>
       </div>
 
+      {/* ── TML Nominal ─────────────────────────────────────────────── */}
       <div className="border rounded-lg bg-white">
-        <div className="px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">Alertas de TML</h2>
-          <p className="text-xs text-muted-foreground">Motoristas que saíram após o limite de tolerância</p>
-        </div>
-        {loading ? (
+        <button
+          onClick={() => setNominaAberta((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 border-b text-left hover:bg-muted/20 transition-colors"
+        >
+          <div>
+            <h2 className="font-semibold text-sm">TML Nominal — hoje</h2>
+            <p className="text-xs text-muted-foreground">
+              {historicoNominal.length > 0
+                ? `${statsNominal.total} mapas · ✅ ${statsNominal.bateram} bateram · ⚠️ ${statsNominal.perderam} perderam · ⏳ ${statsNominal.indefinido} indefinidos`
+                : 'Saídas até 12h — exclui viagens administrativas'}
+            </p>
+          </div>
+          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${nominaAberta ? 'rotate-180' : ''}`} />
+        </button>
+        {nominaAberta && (
+          loadingHistorico ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
+            </div>
+          ) : historicoNominal.length === 0 ? (
+            <div className="text-center py-10 text-muted-foreground text-sm">
+              Nenhum registro. Importe a escala e a saída do dia.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mapa</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Sala</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Placa</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Motorista</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Saída</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Resultado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {historicoNominal.map((h) => (
+                    <tr key={h.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-2">{h.mapa}</td>
+                      <td className="px-4 py-2">{h.sala ?? '—'}</td>
+                      <td className="px-4 py-2">{h.placa ?? '—'}</td>
+                      <td className="px-4 py-2">{h.nome ?? '—'} {h.matricula != null && <span className="text-muted-foreground text-xs">({h.matricula})</span>}</td>
+                      <td className="px-4 py-2">{h.horario_saida ?? '—'}</td>
+                      <td className="px-4 py-2"><ResultadoBadge resultado={h.resultado} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
+      </div>
+
+      {/* ── Alertas de TML ───────────────────────────────────────────── */}
+      <div className="border rounded-lg bg-white">
+        <button
+          onClick={() => setAlertasAbertos((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 border-b text-left hover:bg-muted/20 transition-colors"
+        >
+          <div>
+            <h2 className="font-semibold text-sm">Alertas de TML</h2>
+            <p className="text-xs text-muted-foreground">Motoristas que saíram após o limite de tolerância</p>
+          </div>
+          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${alertasAbertos ? 'rotate-180' : ''}`} />
+        </button>
+        {alertasAbertos && (loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
           </div>
@@ -1147,6 +1284,7 @@ export default function DistribuicaoTML() {
               <thead className="bg-muted/50">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Número</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Data</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mapa</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Sala</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Placa</th>
@@ -1162,6 +1300,7 @@ export default function DistribuicaoTML() {
                 {alertas.map((a) => (
                   <tr key={a.id} className="hover:bg-muted/30 transition-colors align-top">
                     <td className="px-4 py-3 font-mono text-xs">{a.numero}</td>
+                    <td className="px-4 py-3 text-xs">{formatarDataBR(a.data_saida)}</td>
                     <td className="px-4 py-3">{a.mapa}</td>
                     <td className="px-4 py-3">{SALA_TML_LABEL[a.sala] ?? a.sala}</td>
                     <td className="px-4 py-3">{a.placa ?? '—'}</td>
@@ -1219,14 +1358,20 @@ export default function DistribuicaoTML() {
       </div>
 
       <div className="border rounded-lg bg-white">
-        <div className="px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">Histórico TML</h2>
-          <p className="text-xs text-muted-foreground">
-            Saídas processadas hoje, dentro ou fora da meta. Para consultar outros dias, acesse a{' '}
-            <Link to="/distribuicao/tml/analise" className="text-accent-600 underline">Análise</Link>.
-          </p>
-        </div>
-        {loadingHistorico ? (
+        <button
+          onClick={() => setHistoricoAberto((v) => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 border-b text-left hover:bg-muted/20 transition-colors"
+        >
+          <div>
+            <h2 className="font-semibold text-sm">Histórico TML</h2>
+            <p className="text-xs text-muted-foreground">
+              Saídas processadas hoje. Para outros dias acesse a{' '}
+              <Link to="/distribuicao/tml/analise" className="text-accent-600 underline" onClick={(e) => e.stopPropagation()}>Análise</Link>.
+            </p>
+          </div>
+          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${historicoAberto ? 'rotate-180' : ''}`} />
+        </button>
+        {historicoAberto && (loadingHistorico ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
           </div>
@@ -1275,7 +1420,7 @@ export default function DistribuicaoTML() {
               </tbody>
             </table>
           </div>
-        )}
+        ))}
       </div>
 
       {justificando && (
