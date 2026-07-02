@@ -288,11 +288,11 @@ export interface SaidaTML {
   horarioSaida: string | null;
 }
 
-// Comparação tolerante: a fase de saída pode vir como "Saida Cdd/Fab",
-// "Saida Cdd_Fab", "Saída CDD FAB" etc. Basta conter "saida" + "cdd"/"fab".
+// Aceita qualquer variante de fase de saída da portaria:
+// "Saida Cdd/Fab", "Saída CDD FAB", "Saida Portaria", "Saída Portaria" etc.
 function isFaseSaida(value: unknown): boolean {
   const n = normalize(value);
-  return n.includes("saida") && (n.includes("cdd") || n.includes("fab"));
+  return n.includes("saida") && (n.includes("cdd") || n.includes("fab") || n.includes("portaria"));
 }
 
 // Posições fixas na planilha 03.11.20: Fase = coluna B, Placa = coluna D,
