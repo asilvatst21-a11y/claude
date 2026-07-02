@@ -16,7 +16,8 @@ function excelDateToISO(value: unknown): string | null {
     return `${y}-${m}-${d}`;
   }
   if (typeof value === "string") {
-    const m = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    // Aceita "DD/MM/YYYY" e também "DD/MM/YYYY HH:MM[:SS]" (data+hora na mesma célula).
+    const m = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+\d{1,2}:\d{2}(?::\d{2})?)?$/);
     if (m) {
       const a = Number(m[1]);
       const b = Number(m[2]);
@@ -319,8 +320,12 @@ export function parseSaidaBuffer(buffer: ArrayBuffer): SaidaTML[] {
 
   const header = rows[headerRow].map(normalize);
   const mapaIdx = header.findIndex((c) => c.includes("mapa"));
-  const dtOperIdx = header.findIndex((c) => c.includes("dtoper") || c.includes("data oper"));
-  const hrOperIdx = header.findIndex((c) => c.includes("hroper") || c.includes("hora oper"));
+  const dtOperIdx = header.findIndex(
+    (c) => c.includes("dtoper") || c.includes("dt oper") || c.includes("data oper") || c.includes("data saida"),
+  );
+  const hrOperIdx = header.findIndex(
+    (c) => c.includes("hroper") || c.includes("hr oper") || c.includes("hora oper") || c.includes("horario"),
+  );
 
   if (mapaIdx === -1) return [];
 

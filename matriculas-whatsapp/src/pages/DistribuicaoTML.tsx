@@ -582,10 +582,24 @@ export default function DistribuicaoTML() {
         if (recupErr) erros.push(`Histórico (recuperação): ${recupErr.message}`)
       }
 
-      await enviarResumoDiario(usuario.filial, dataMaisFrequente(saidas.map((s) => s.dataSaida)))
+      const dataPrincipal = dataMaisFrequente(saidas.map((s) => s.dataSaida))
+      await enviarResumoDiario(usuario.filial, dataPrincipal)
+
+      // Diagnóstico de datas: mostra todas as datas lidas da planilha para
+      // detectar rapidamente se o parsing está errado (null, mês invertido etc.)
+      const contagemDatas = new Map<string, number>()
+      for (const s of saidas) {
+        const d = s.dataSaida ?? '(sem data — coluna não encontrada ou formato inválido)'
+        contagemDatas.set(d, (contagemDatas.get(d) ?? 0) + 1)
+      }
+      const infoData = [...contagemDatas.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([d, n]) => `   ${d}: ${n} mapas`)
+        .join('\n')
 
       alert(
         `${saidas.length} saída(s) processada(s).\n\n` +
+        `📅 Data(s) lida(s) da planilha:\n${infoData}\n\n` +
         `• ${diag.pendentes} motorista(s) perderam o TML — pendente de envio (use o botão "Enviar" na tela)\n` +
         `• ${diag.noPrazo} dentro do prazo (sem atraso)\n` +
         `• ${diag.semSala} sem sala (matrícula não está no roster)\n` +
@@ -593,7 +607,7 @@ export default function DistribuicaoTML() {
         `• ${diag.semHorario} sem horário de saída\n` +
         `• ${diag.invalido} com saída inválida (antes da matinal — não entram na conta)\n` +
         `• ${diag.jaAlertado} já tinham alerta` +
-        (erros.length ? `\n\nDetalhes:\n${erros.slice(0, 15).join('\n')}` : '')
+        (erros.length ? `\n\nErros:\n${erros.slice(0, 15).join('\n')}` : '')
       )
 
       await fetchAlertas()
