@@ -546,6 +546,42 @@ export default function DistribuicaoTML() {
         // planilha de Saída. O disparo agora acontece no import da Base.
       }
 
+      // Garante que mapas já alertados também tenham registro no histórico —
+      // um import anterior pode ter criado os alertas mas falhado no upsert do
+      // histórico (ex.: constraint ainda não existia). Sem isso um reimport
+      // skipa esses mapas inteiros e o histórico fica vazio para a data.
+      const saidasJaAlertadas = saidas.filter((s) => mapasJaAlertados.has(`${s.mapa}|${s.dataSaida}`))
+      if (saidasJaAlertadas.length > 0) {
+        const historicoRecup = saidasJaAlertadas.map((saida) => {
+          const escala = escalaPorMapa.get(saida.mapa)
+          const matricula = saida.matricula ?? escala?.matricula ?? null
+          const placa = saida.placa ?? escala?.placa ?? null
+          const nome = matricula != null ? nomePorMatricula.get(matricula) ?? null : null
+          const sala = matricula != null ? salaPorMatricula.get(matricula) : undefined
+          const salaValida = isSalaTML(sala) ? sala : null
+          const regiaoEntregas = escala?.regiao_entregas ?? null
+          const cidadesEntregas = escala?.cidades_entregas ?? null
+          const invalido = salaValida && saida.horarioSaida ? saidaInvalida(salaValida, saida.horarioSaida) : false
+          const atraso = salaValida && saida.horarioSaida && !invalido ? atrasoMinutos(salaValida, saida.horarioSaida) : null
+          const limite = salaValida && saida.horarioSaida ? horarioLimite(salaValida) : null
+          const resultado = !saida.horarioSaida ? 'indefinido'
+            : !salaValida ? 'indefinido'
+            : invalido ? 'invalido'
+            : atraso! <= 0 ? 'no_prazo' : 'atrasado'
+          return {
+            filial: usuario.filial, mapa: saida.mapa, sala: salaValida, placa, matricula, nome,
+            data_saida: saida.dataSaida, horario_saida: saida.horarioSaida, horario_limite: limite,
+            atraso_minutos: atraso, resultado, observacao: null,
+            regiao_entregas: regiaoEntregas, cidades_entregas: cidadesEntregas,
+          }
+        })
+        const porChaveRecup = new Map(historicoRecup.map((h) => [`${h.mapa}|${h.data_saida}`, h]))
+        const { error: recupErr } = await supabase
+          .from('historico_tml')
+          .upsert([...porChaveRecup.values()], { onConflict: 'filial,mapa,data_saida' })
+        if (recupErr) erros.push(`Histórico (recuperação): ${recupErr.message}`)
+      }
+
       await enviarResumoDiario(usuario.filial, dataMaisFrequente(saidas.map((s) => s.dataSaida)))
 
       alert(
