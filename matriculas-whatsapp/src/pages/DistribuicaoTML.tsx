@@ -12,7 +12,7 @@ import {
   isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, SALA_TML_LABEL, type SalaTML,
   horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal, metaMatinalMinutos, MATINAL_AUTO_FINALIZA_MIN,
 } from '../lib/tml'
-import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, type StatusGlobalTML, type SemSalaDetalhe } from '../lib/tmlResumos'
+import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, mapasPendentes, type StatusGlobalTML, type SemSalaDetalhe, type PendenteTML } from '../lib/tmlResumos'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
 
@@ -28,7 +28,9 @@ function ordenarUgcs(ugcs: string[]): string[] {
   })
 }
 
-function ResultadoBadge({ resultado }: { resultado: HistoricoTML['resultado'] }) {
+type ResultadoNominal = HistoricoTML['resultado'] | 'pendente'
+
+function ResultadoBadge({ resultado }: { resultado: ResultadoNominal }) {
   if (resultado === 'no_prazo') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-green-700 bg-green-100">
@@ -46,7 +48,14 @@ function ResultadoBadge({ resultado }: { resultado: HistoricoTML['resultado'] })
   if (resultado === 'invalido') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-purple-700 bg-purple-100">
-        <X className="h-3 w-3" /> Inválido (saiu antes da matinal)
+        <X className="h-3 w-3" /> Inválido (fora do horário)
+      </span>
+    )
+  }
+  if (resultado === 'pendente') {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-orange-700 bg-orange-100">
+        <Clock className="h-3 w-3" /> Aguardando saída
       </span>
     )
   }
@@ -231,9 +240,11 @@ export default function DistribuicaoTML() {
   const [loadingHistorico, setLoadingHistorico] = useState(true)
 
   const [statusSaida, setStatusSaida] = useState<StatusGlobalTML | null>(null)
+  const [pendentes, setPendentes] = useState<PendenteTML[]>([])
   const [nominaAberta, setNominaAberta] = useState(true)
   const [alertasAbertos, setAlertasAbertos] = useState(true)
   const [historicoAberto, setHistoricoAberto] = useState(false)
+  const [filtroNominal, setFiltroNominal] = useState<ResultadoNominal | 'todos'>('todos')
 
   const fetchAlertas = useCallback(async () => {
     if (!usuario) return
@@ -282,34 +293,56 @@ export default function DistribuicaoTML() {
     setStatusSaida(status)
   }, [usuario])
 
-  // TML Nominal: todos os registros do dia com saída antes das 12h (ou sem horário),
-  // ordenados por mapa. Saídas após 12h são omitidas (viagens administrativas/especiais).
-  const historicoNominal = useMemo(
-    () => historico.filter((h) => !h.horario_saida || h.horario_saida < '12:00').sort((a, b) => a.mapa - b.mapa),
-    [historico],
-  )
+  const fetchPendentes = useCallback(async () => {
+    if (!usuario) return
+    const lista = await mapasPendentes(usuario.filial, hojeISO())
+    setPendentes(lista)
+  }, [usuario])
+
+  // A página não atualiza sozinha — só ao importar um arquivo ou clicar aqui.
+  const atualizarTudo = useCallback(async () => {
+    await Promise.all([fetchAlertas(), fetchHistorico(), fetchStatusSaida(), fetchPendentes()])
+  }, [fetchAlertas, fetchHistorico, fetchStatusSaida, fetchPendentes])
+
+  // TML Nominal: todos os registros do dia (bateram/perderam/indefinidos/
+  // inválidos, já vindos com o resultado calculado no import) + os mapas da
+  // escala que ainda não saíram (pendentes), unificados numa única lista.
+  const nominalCombinado = useMemo(() => {
+    type LinhaNominal = {
+      key: string; mapa: number; sala: string | null; placa: string | null
+      nome: string | null; matricula: number | null; horario_saida: string | null
+      resultado: ResultadoNominal
+    }
+    const doHistorico: LinhaNominal[] = historico.map((h) => ({
+      key: `h-${h.mapa}`, mapa: h.mapa, sala: h.sala, placa: h.placa, nome: h.nome,
+      matricula: h.matricula, horario_saida: h.horario_saida, resultado: h.resultado,
+    }))
+    const doPendentes: LinhaNominal[] = pendentes.map((p) => ({
+      key: `p-${p.mapa}`, mapa: p.mapa, sala: p.sala, placa: p.placa, nome: p.nome,
+      matricula: p.matricula, horario_saida: null, resultado: 'pendente' as const,
+    }))
+    return [...doHistorico, ...doPendentes].sort((a, b) => a.mapa - b.mapa)
+  }, [historico, pendentes])
+
   const statsNominal = useMemo(() => {
-    const bateram = historicoNominal.filter((h) => h.resultado === 'no_prazo').length
-    const perderam = historicoNominal.filter((h) => h.resultado === 'atrasado').length
-    const indefinido = historicoNominal.filter((h) => h.resultado === 'indefinido' || h.resultado === 'invalido').length
-    return { bateram, perderam, indefinido, total: historicoNominal.length }
-  }, [historicoNominal])
+    const bateram = nominalCombinado.filter((h) => h.resultado === 'no_prazo').length
+    const perderam = nominalCombinado.filter((h) => h.resultado === 'atrasado').length
+    const pendente = nominalCombinado.filter((h) => h.resultado === 'pendente').length
+    const invalido = nominalCombinado.filter((h) => h.resultado === 'invalido').length
+    const indefinido = nominalCombinado.filter((h) => h.resultado === 'indefinido').length
+    return { bateram, perderam, pendente, invalido, indefinido, total: nominalCombinado.length }
+  }, [nominalCombinado])
+
+  const nominalFiltrado = useMemo(
+    () => filtroNominal === 'todos' ? nominalCombinado : nominalCombinado.filter((h) => h.resultado === filtroNominal),
+    [nominalCombinado, filtroNominal],
+  )
 
   useEffect(() => { fetchAlertas() }, [fetchAlertas])
   useEffect(() => { fetchMotivos() }, [fetchMotivos])
   useEffect(() => { fetchHistorico() }, [fetchHistorico])
   useEffect(() => { fetchStatusSaida() }, [fetchStatusSaida])
-
-  // Atualiza sozinho a cada 15s para refletir respostas do supervisor pelo
-  // WhatsApp (clique no motivo) sem precisar apertar "Atualizar".
-  useEffect(() => {
-    const id = setInterval(() => {
-      fetchAlertas()
-      fetchHistorico()
-      fetchStatusSaida()
-    }, 15000)
-    return () => clearInterval(id)
-  }, [fetchAlertas, fetchHistorico, fetchStatusSaida])
+  useEffect(() => { fetchPendentes() }, [fetchPendentes])
 
   async function handleEscala(file: File) {
     if (!usuario) return
@@ -356,6 +389,8 @@ export default function DistribuicaoTML() {
       )
       if (error) throw new Error(error.message)
       alert(`${escalas.length} registro(s) de escala importado(s) — data: ${formatarDataBR(dataEscalaDefinitiva)}.`)
+      await fetchStatusSaida()
+      await fetchPendentes()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar escala')
     } finally {
@@ -666,7 +701,7 @@ export default function DistribuicaoTML() {
         `• ${diag.semSala} sem sala (matrícula não está no roster)\n` +
         `• ${diag.semSupervisor} sem supervisor cadastrado na sala\n` +
         `• ${diag.semHorario} sem horário de saída\n` +
-        `• ${diag.invalido} com saída inválida (antes da matinal — não entram na conta)\n` +
+        `• ${diag.invalido} com saída inválida (antes da matinal ou após 11h59 — não entram em nenhuma conta)\n` +
         `• ${diag.jaAlertado} já tinham alerta` +
         (erros.length ? `\n\nErros:\n${erros.slice(0, 15).join('\n')}` : '')
       )
@@ -674,6 +709,7 @@ export default function DistribuicaoTML() {
       await fetchAlertas()
       await fetchHistorico()
       await fetchStatusSaida()
+      await fetchPendentes()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar saída')
     } finally {
@@ -1050,7 +1086,7 @@ export default function DistribuicaoTML() {
           <Link to="/distribuicao/tml/parametros" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <SlidersHorizontal className="h-4 w-4" /> Parâmetros
           </Link>
-          <button onClick={fetchAlertas} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
+          <button onClick={atualizarTudo} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
           </button>
           <button
@@ -1209,50 +1245,72 @@ export default function DistribuicaoTML() {
           <div>
             <h2 className="font-semibold text-sm">TML Nominal — hoje</h2>
             <p className="text-xs text-muted-foreground">
-              {historicoNominal.length > 0
-                ? `${statsNominal.total} mapas · ✅ ${statsNominal.bateram} bateram · ⚠️ ${statsNominal.perderam} perderam · ⏳ ${statsNominal.indefinido} indefinidos`
-                : 'Saídas até 12h — exclui viagens administrativas'}
+              {statsNominal.total > 0
+                ? `${statsNominal.total} mapas · ✅ ${statsNominal.bateram} bateram · ⚠️ ${statsNominal.perderam} perderam · ⏳ ${statsNominal.pendente} aguardando · 🚫 ${statsNominal.invalido} inválidos`
+                : 'Todos os mapas do dia — bateram, perderam, aguardando e inválidos'}
             </p>
           </div>
           <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${nominaAberta ? 'rotate-180' : ''}`} />
         </button>
         {nominaAberta && (
-          loadingHistorico ? (
-            <div className="flex items-center justify-center py-10">
-              <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
+          <>
+            <div className="px-4 py-2 border-b flex flex-wrap gap-1.5">
+              {([
+                ['todos', `Todos (${statsNominal.total})`],
+                ['no_prazo', `✅ Bateram (${statsNominal.bateram})`],
+                ['atrasado', `⚠️ Perderam (${statsNominal.perderam})`],
+                ['pendente', `⏳ Aguardando (${statsNominal.pendente})`],
+                ['invalido', `🚫 Inválidos (${statsNominal.invalido})`],
+                ['indefinido', `❔ Indefinidos (${statsNominal.indefinido})`],
+              ] as const).map(([valor, label]) => (
+                <button
+                  key={valor}
+                  onClick={() => setFiltroNominal(valor)}
+                  className={`px-3 py-1 rounded-full text-xs border transition-colors ${
+                    filtroNominal === valor ? 'bg-accent-500 text-white border-accent-500' : 'hover:bg-accent'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
-          ) : historicoNominal.length === 0 ? (
-            <div className="text-center py-10 text-muted-foreground text-sm">
-              Nenhum registro. Importe a escala e a saída do dia.
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mapa</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Sala</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Placa</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Motorista</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Saída</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Resultado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {historicoNominal.map((h) => (
-                    <tr key={h.id} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-4 py-2">{h.mapa}</td>
-                      <td className="px-4 py-2">{h.sala ?? '—'}</td>
-                      <td className="px-4 py-2">{h.placa ?? '—'}</td>
-                      <td className="px-4 py-2">{h.nome ?? '—'} {h.matricula != null && <span className="text-muted-foreground text-xs">({h.matricula})</span>}</td>
-                      <td className="px-4 py-2">{h.horario_saida ?? '—'}</td>
-                      <td className="px-4 py-2"><ResultadoBadge resultado={h.resultado} /></td>
+            {loadingHistorico ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
+              </div>
+            ) : nominalFiltrado.length === 0 ? (
+              <div className="text-center py-10 text-muted-foreground text-sm">
+                {statsNominal.total === 0 ? 'Nenhum registro. Importe a escala e a saída do dia.' : 'Nenhum mapa nesse filtro.'}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-muted/50">
+                    <tr>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mapa</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Sala</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Placa</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Motorista</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Saída</th>
+                      <th className="text-left px-4 py-3 font-medium text-muted-foreground">Resultado</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
+                  </thead>
+                  <tbody className="divide-y">
+                    {nominalFiltrado.map((h) => (
+                      <tr key={h.key} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-2">{h.mapa}</td>
+                        <td className="px-4 py-2">{h.sala ?? '—'}</td>
+                        <td className="px-4 py-2">{h.placa ?? '—'}</td>
+                        <td className="px-4 py-2">{h.nome ?? '—'} {h.matricula != null && <span className="text-muted-foreground text-xs">({h.matricula})</span>}</td>
+                        <td className="px-4 py-2">{h.horario_saida ?? '—'}</td>
+                        <td className="px-4 py-2"><ResultadoBadge resultado={h.resultado} /></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
         )}
       </div>
 

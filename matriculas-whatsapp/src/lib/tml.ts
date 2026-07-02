@@ -35,10 +35,18 @@ export function atrasoMinutos(sala: SalaTML, horarioSaida: string): number {
   return horarioParaMinutos(horarioSaida) - horarioParaMinutos(horarioLimite(sala));
 }
 
-// Saída registrada antes do início da matinal não é uma saída de TML válida
-// (o motorista não pode ter saído antes do turno começar) — não entra na conta.
+// Saída registrada antes do início da matinal (motorista não pode ter saído
+// antes do turno começar) OU depois das 11h59 (viagem tardia/administrativa,
+// fora do ciclo normal de TML) não é uma saída de TML válida — não entra em
+// nenhuma conta (saídas, TML médio, alertas de atraso).
+export const LIMITE_SAIDA_TARDIA = "12:00";
+
 export function saidaInvalida(sala: SalaTML, horarioSaida: string): boolean {
-  return horarioParaMinutos(horarioSaida) < horarioParaMinutos(REGRAS_TML[sala].matinal);
+  const minutos = horarioParaMinutos(horarioSaida);
+  return (
+    minutos < horarioParaMinutos(REGRAS_TML[sala].matinal) ||
+    minutos >= horarioParaMinutos(LIMITE_SAIDA_TARDIA)
+  );
 }
 
 // Tempo de deslocamento: quanto tempo depois da matinal o motorista começou

@@ -99,15 +99,69 @@ export interface SemSalaDetalhe {
   observacao: string | null
 }
 
+export interface PendenteTML {
+  mapa: number
+  placa: string | null
+  matricula: number | null
+  nome: string | null
+  sala: SalaTML
+}
+
+// Mapas escalados para a data que ainda não têm registro em historico_tml —
+// motoristas que ainda não passaram pela portaria. Freteiros (placa CRW) e
+// mapas sem sala cadastrada ficam de fora (já cobertos por outras listas).
+export async function mapasPendentes(filial: string, data: string): Promise<PendenteTML[]> {
+  const { data: escalas } = await supabase
+    .from('escalas_tml')
+    .select('mapa, matricula, placa')
+    .eq('filial', filial)
+    .eq('data_entrega', data)
+
+  const { data: hist } = await supabase
+    .from('historico_tml')
+    .select('mapa')
+    .eq('filial', filial)
+    .eq('data_saida', data)
+  const mapasComHistorico = new Set((hist ?? []).map((h) => h.mapa))
+
+  const matriculas = [...new Set((escalas ?? []).map((e) => e.matricula).filter((m): m is number => m != null))]
+  const { data: roster } = await supabase
+    .from('motoristas_sala_tml')
+    .select('matricula, nome, sala')
+    .eq('filial', filial)
+    .in('matricula', matriculas.length > 0 ? matriculas : [-1])
+  const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
+  const nomePorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.nome]))
+
+  const pendentes: PendenteTML[] = []
+  for (const e of escalas ?? []) {
+    if (mapasComHistorico.has(e.mapa)) continue
+    if (e.placa?.toUpperCase().startsWith('CRW')) continue
+    const sala = e.matricula != null ? salaPorMatricula.get(e.matricula) : undefined
+    if (!isSalaTML(sala)) continue
+    pendentes.push({
+      mapa: e.mapa,
+      placa: e.placa ?? null,
+      matricula: e.matricula ?? null,
+      nome: e.matricula != null ? nomePorMatricula.get(e.matricula) ?? null : null,
+      sala,
+    })
+  }
+  return pendentes.sort((a, b) => a.mapa - b.mapa)
+}
+
 export interface StatusGlobalTML {
   porSala: Map<SalaTML, StatusSalaTML>
   semSala: number
   semSalaDetalhes: SemSalaDetalhe[]
+  invalidos: number
   totalSaidas: number
 }
 
 // Status de saída do dia por sala — usado tanto pelo resumo diário quanto
-// pelos cards da tela principal da Carta de Controle.
+// pelos cards da tela principal da Carta de Controle. Saídas com
+// resultado='invalido' (antes da matinal ou depois de 11h59) não entram em
+// nenhuma conta — nem saídas, nem TML médio, nem atraso.
 export async function statusSaidaPorSala(filial: string, data: string): Promise<StatusGlobalTML> {
   const esperado = await esperadoPorSala(filial, data)
 
@@ -119,7 +173,9 @@ export async function statusSaidaPorSala(filial: string, data: string): Promise<
 
   const porSala = new Map<SalaTML, { saidas: number; perdidos: number; somaTml: number; nTml: number }>()
   const semSalaDetalhes: SemSalaDetalhe[] = []
+  let invalidos = 0
   for (const h of hist ?? []) {
+    if (h.resultado === 'invalido') { invalidos++; continue }
     if (!isSalaTML(h.sala)) {
       semSalaDetalhes.push({
         mapa: h.mapa,
@@ -133,7 +189,7 @@ export async function statusSaidaPorSala(filial: string, data: string): Promise<
     const k = porSala.get(h.sala) ?? { saidas: 0, perdidos: 0, somaTml: 0, nTml: 0 }
     k.saidas++
     if (h.resultado === 'atrasado') k.perdidos++
-    if (h.resultado !== 'invalido' && h.horario_saida) {
+    if (h.horario_saida) {
       k.somaTml += tempoTmlMinutos(h.sala, h.horario_saida)
       k.nTml++
     }
@@ -155,7 +211,7 @@ export async function statusSaidaPorSala(filial: string, data: string): Promise<
 
   const totalSaidas = [...statusPorSala.values()].reduce((sum, s) => sum + s.saidas, 0) + semSalaDetalhes.length
 
-  return { porSala: statusPorSala, semSala: semSalaDetalhes.length, semSalaDetalhes, totalSaidas }
+  return { porSala: statusPorSala, semSala: semSalaDetalhes.length, semSalaDetalhes, invalidos, totalSaidas }
 }
 
 // ── Resumo 1: disparado a cada importação da planilha de saída ────────────
@@ -212,6 +268,9 @@ export async function gerarResumoDiario(filial: string, data: string): Promise<s
   if (status.semSala > 0) {
     texto += `\n🚛 Sem sala cadastrada: ${status.semSala} saída(s)`
   }
+  if (status.invalidos > 0) {
+    texto += `\n🚫 Inválidas (antes da matinal ou após 11h59): ${status.invalidos} saída(s)`
+  }
   texto += `\n🏭 Total CDD: ${status.totalSaidas} saída(s)`
 
   const { parados, placasFreteiros } = await mapasParadosEFreteiros(filial, data)
@@ -249,6 +308,7 @@ export async function gerarResumoGerencial(filial: string, data: string): Promis
   const mes = new Map<SalaTML, { saidas: number; perdidos: number }>()
   for (const h of histMes ?? []) {
     if (!isSalaTML(h.sala)) continue
+    if (h.resultado === 'invalido') continue
 
     const km = mes.get(h.sala) ?? { saidas: 0, perdidos: 0 }
     km.saidas++
@@ -259,7 +319,7 @@ export async function gerarResumoGerencial(filial: string, data: string): Promis
       const kh = hoje.get(h.sala) ?? { saidas: 0, perdidos: 0, somaTml: 0, nTml: 0 }
       kh.saidas++
       if (h.resultado === 'atrasado') kh.perdidos++
-      if (h.resultado !== 'invalido' && h.horario_saida) {
+      if (h.horario_saida) {
         kh.somaTml += tempoTmlMinutos(h.sala, h.horario_saida)
         kh.nTml++
       }
