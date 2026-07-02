@@ -18,10 +18,28 @@ function excelDateToISO(value: unknown): string | null {
   if (typeof value === "string") {
     const m = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
     if (m) {
-      const d = m[1].padStart(2, "0");
-      const mo = m[2].padStart(2, "0");
+      const a = Number(m[1]);
+      const b = Number(m[2]);
       const y = m[3].length === 2 ? `20${m[3]}` : m[3];
-      return `${y}-${mo}-${d}`;
+      // Se a > 12 → a é o dia (dd/mm). Se b > 12 → a é o mês (mm/dd).
+      // Se ambos ≤ 12 (ambíguo), escolhe a interpretação cuja data é mais
+      // próxima de hoje — dados de operação são sempre recentes.
+      let day: string, month: string;
+      if (a > 12) {
+        day = m[1].padStart(2, "0"); month = m[2].padStart(2, "0"); // dd/mm
+      } else if (b > 12) {
+        month = m[1].padStart(2, "0"); day = m[2].padStart(2, "0"); // mm/dd
+      } else {
+        const ddmm = Date.parse(`${y}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`);
+        const mmdd = Date.parse(`${y}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`);
+        const now = Date.now();
+        if (Math.abs(mmdd - now) < Math.abs(ddmm - now)) {
+          month = m[1].padStart(2, "0"); day = m[2].padStart(2, "0"); // mm/dd
+        } else {
+          day = m[1].padStart(2, "0"); month = m[2].padStart(2, "0"); // dd/mm
+        }
+      }
+      return `${y}-${month}-${day}`;
     }
   }
   const num = Number(value);
