@@ -137,8 +137,7 @@ export async function gerarResumoDiario(filial: string, data: string): Promise<s
     .from('alertas_tml')
     .select('justificativa, status')
     .eq('filial', filial)
-    .gte('created_at', `${data}T00:00:00`)
-    .lte('created_at', `${data}T23:59:59`)
+    .eq('data_saida', data)
 
   const motivos = new Map<string, number>()
   let aguardando = 0
@@ -210,8 +209,7 @@ export async function gerarResumoGerencial(filial: string, data: string): Promis
     .from('alertas_tml')
     .select('sala, justificativa')
     .eq('filial', filial)
-    .gte('created_at', `${data}T00:00:00`)
-    .lte('created_at', `${data}T23:59:59`)
+    .eq('data_saida', data)
     .not('justificativa', 'is', null)
 
   const hoje = new Map<SalaTML, { saidas: number; perdidos: number; somaTml: number; nTml: number }>()

@@ -731,7 +731,18 @@ export default function DistribuicaoTML() {
         return
       }
 
-      const hoje = new Date().toISOString().slice(0, 10)
+      // Usa a data da saída mais recente em historico_tml para não depender do
+      // relógio do navegador — se a planilha importada tiver uma data diferente
+      // de hoje, o gerencial ainda mostra os dados corretos.
+      const { data: ultimaH } = await supabase
+        .from('historico_tml')
+        .select('data_saida')
+        .eq('filial', usuario.filial)
+        .not('data_saida', 'is', null)
+        .order('data_saida', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      const hoje = ultimaH?.data_saida ?? new Date().toISOString().slice(0, 10)
       const resumo = await gerarResumoGerencial(usuario.filial, hoje)
       const resultado = await enviarMensagemGrupo(grupoId, resumo)
       if (!resultado.sucesso) throw new Error(resultado.erro)
