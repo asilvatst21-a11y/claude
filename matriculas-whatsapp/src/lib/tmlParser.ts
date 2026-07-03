@@ -85,6 +85,7 @@ export interface EscalaTML {
   dataEntrega: string | null;
   regiaoEntregas: string | null;
   cidadesEntregas: string | null;
+  pesoCarregado: number | null;
 }
 
 /**
@@ -116,6 +117,11 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
   const dataEntregaIdx = header.indexOf("data entrega");
   const regiaoIdx = header.findIndex((c) => c.includes("regiao") && c.includes("entregas"));
   const cidadesIdx = header.findIndex((c) => c.includes("cidades") && c.includes("entregas"));
+  // Peso carregado no mapa (kg) — usado pelo módulo de Excesso de Peso
+  // (Segurança). Nome da coluna varia ("peso", "peso kg", "peso carregado"),
+  // por isso a busca é por substring. Se a planilha não trouxer peso, o
+  // módulo simplesmente não calcula excesso pra esses mapas.
+  const pesoIdx = header.findIndex((c) => c.includes("peso"));
 
   const out: EscalaTML[] = [];
   for (let i = headerRow + 1; i < rows.length; i++) {
@@ -124,6 +130,7 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
     if (!mapa || isNaN(mapa)) continue;
 
     const matricula = motoristaIdx !== -1 ? Number(row[motoristaIdx]) : NaN;
+    const peso = pesoIdx !== -1 ? Number(row[pesoIdx]) : NaN;
 
     out.push({
       mapa,
@@ -132,7 +139,50 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
       dataEntrega: dataEntregaIdx !== -1 ? excelDateToISO(row[dataEntregaIdx]) : null,
       regiaoEntregas: regiaoIdx !== -1 ? String(row[regiaoIdx] ?? "").trim() || null : null,
       cidadesEntregas: cidadesIdx !== -1 ? String(row[cidadesIdx] ?? "").trim() || null : null,
+      pesoCarregado: !isNaN(peso) ? peso : null,
     });
+  }
+  return out;
+}
+
+/**
+ * Planilha de peso cadastrado por placa (Freightech ou Frota Legal) —
+ * mesma estrutura simples nas duas fontes: uma coluna de placa e uma de
+ * peso (kg). Usada pelo módulo de Excesso de Peso (Segurança).
+ */
+export interface PesoPlacaImportado {
+  placa: string;
+  peso: number;
+}
+
+export function parsePesoPlacaBuffer(buffer: ArrayBuffer): PesoPlacaImportado[] {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+
+  let headerRow = -1;
+  let placaIdx = -1;
+  let pesoIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const header = rows[i].map(normalize);
+    const pIdx = header.findIndex((c) => c.includes("placa"));
+    if (pIdx === -1) continue;
+    const wIdx = header.findIndex((c) => c.includes("peso") || c.includes("tara") || c.includes("kg"));
+    if (wIdx === -1) continue;
+    headerRow = i;
+    placaIdx = pIdx;
+    pesoIdx = wIdx;
+    break;
+  }
+  if (headerRow === -1) return [];
+
+  const out: PesoPlacaImportado[] = [];
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i];
+    const placa = String(row[placaIdx] ?? "").trim().toUpperCase();
+    const peso = Number(row[pesoIdx]);
+    if (!placa || !peso || isNaN(peso)) continue;
+    out.push({ placa, peso });
   }
   return out;
 }

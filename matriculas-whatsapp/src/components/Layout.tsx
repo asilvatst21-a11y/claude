@@ -5,7 +5,7 @@ import {
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
   Wallet, Menu, X, Truck, Boxes, LineChart, Timer, Home, Send, SlidersHorizontal,
-  ShieldCheck, Fuel,
+  ShieldCheck, Fuel, Scale,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -21,6 +21,7 @@ const segItems = [
   { permKey: 'prontuario',      to: '/prontuario',      label: 'Prontuário',      icon: FileText               },
   { permKey: 'relatos',         to: '/relatos',         label: 'Relatos',         icon: Flag                   },
   { permKey: 'telemetria',      to: '/telemetria',      label: 'Telemetria',      icon: Gauge                  },
+  { permKey: 'excesso-peso',    to: '/seguranca/excesso-peso', label: 'Excesso de Peso', icon: Scale           },
 ]
 
 const genteItems = [

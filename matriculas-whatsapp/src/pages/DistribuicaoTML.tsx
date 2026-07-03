@@ -383,6 +383,7 @@ export default function DistribuicaoTML() {
           data_entrega: dataEscalaDefinitiva,
           regiao_entregas: e.regiaoEntregas,
           cidades_entregas: e.cidadesEntregas,
+          peso_carregado: e.pesoCarregado,
           importado_em: new Date().toISOString(),
         })),
         { onConflict: 'filial,mapa' }
