@@ -10,7 +10,8 @@ import { parseBeesBuffer, parseRoteirizadorBuffer } from '../lib/tmlParser'
 import { enviarMensagemWhatsApp, enviarMensagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
-  buscarJornadaDoDia, calcularKpis, agruparPorSala, montarMensagemSala, montarMensagemCdd,
+  buscarJornadaDoDia, calcularKpis, agruparPorSala, montarMensagemCdd,
+  montarMensagemJornadaSala, montarMensagemIvSala, montarMensagemAderenciaSala,
   SALAS_JORNADA, SALA_JORNADA_LABEL, SALA_JORNADA_PARA_TML,
   type LinhaJornada, type SalaJornada, type SituacaoJornada,
 } from '../lib/jornada'
@@ -321,9 +322,16 @@ export default function JornadaRota() {
         .select('telefone')
         .eq('filial', usuario.filial)
         .eq('sala', salaTml)
-      const mensagem = montarMensagemSala(sala, linhasSala, dataOperacao)
+
+      // 3 mensagens curtas por sala — cada uma só com o Top 5 do seu
+      // indicador, em vez de uma mensagem única com tudo.
+      const msgJornada = montarMensagemJornadaSala(sala, linhasSala, dataOperacao)
+      const msgIv = montarMensagemIvSala(sala, linhasSala, dataOperacao)
+      const msgAderencia = montarMensagemAderenciaSala(sala, linhasSala, dataOperacao)
       for (const sup of supervisores ?? []) {
-        await enviarMensagemWhatsApp(sup.telefone, mensagem)
+        await enviarMensagemWhatsApp(sup.telefone, msgJornada)
+        await enviarMensagemWhatsApp(sup.telefone, msgIv)
+        await enviarMensagemWhatsApp(sup.telefone, msgAderencia)
       }
     }
 
@@ -364,6 +372,13 @@ export default function JornadaRota() {
     () => filtroSala === 'todos' ? linhas : linhas.filter((l) => l.sala === filtroSala),
     [linhas, filtroSala],
   )
+  // Sem tempo previsto/entregas previstas não dá pra calcular previsão de
+  // chegada, aderência nem % conclusão — geralmente porque essa escala foi
+  // importada antes do parser ler essas 3 colunas novas.
+  const semDadosDePlano = useMemo(
+    () => linhas.filter((l) => l.tempoPrevMin == null || l.entregasPrevistas == null).length,
+    [linhas],
+  )
 
   return (
     <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-w-6xl mx-auto">
@@ -398,6 +413,18 @@ export default function JornadaRota() {
       </div>
 
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
+
+      {!loading && semDadosDePlano > 0 && (
+        <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm rounded-lg px-3 py-2 flex items-start gap-2">
+          <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+          <span>
+            {semDadosDePlano} mapa(s) sem tempo previsto/entregas previstas — por isso a previsão de chegada,
+            a aderência e o % de conclusão ficam vazios pra eles. Isso acontece quando a escala foi importada
+            antes dessas 3 colunas existirem. Reimporte a escala de hoje (03.11.49.02) em{' '}
+            <Link to="/distribuicao/tml" className="underline font-medium">Carta de Controle TML</Link> pra corrigir.
+          </span>
+        </div>
+      )}
 
       {configAberta && (
         <div className="border rounded-lg bg-white p-4 space-y-3">

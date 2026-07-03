@@ -237,28 +237,69 @@ function formatarPct(x: number | null): string {
 }
 
 // ── Mensagens de WhatsApp — disparadas automaticamente a cada import do BEES ──
+// Curtas de propósito: 3 mensagens separadas por sala (Jornada / IV +
+// Devolução / Aderência), cada uma só com o Top 5 do indicador — os dados
+// já vêm filtrados pela sala do supervisor (nunca o total do CDD).
 
-export function montarMensagemSala(sala: SalaJornada, linhas: LinhaJornada[], data: string): string {
-  const kpi = calcularKpis(linhas)
-  const naoBatem = linhas.filter((l) => l.situacao === 'nao_bate')
+function formatarDuracao(min: number): string {
+  const h = Math.floor(min / 60)
+  const m = Math.round(min % 60)
+  return `${h}h${String(m).padStart(2, '0')}`
+}
 
-  let texto = `🚚 *JORNADA — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)}\n\n`
-  texto += `📍 Mapas: ${kpi.mapas}\n`
-  texto += `📦 Entregas: ${kpi.entregasRealizadas}/${kpi.entregasTotal} (${formatarPct(kpi.percConclusaoMedio)} concl.)\n`
-  texto += `↩️ Devoluções: ${formatarPct(kpi.devolucaoPct)}\n`
-  texto += `⚡ IV (<4min): ${formatarPct(kpi.iv)}\n`
+export function montarMensagemJornadaSala(sala: SalaJornada, linhas: LinhaJornada[], data: string): string {
+  const emRota = linhas
+    .filter((l): l is LinhaJornada & { trRealMin: number } => l.trRealMin != null)
+    .sort((a, b) => b.trRealMin - a.trRealMin)
+    .slice(0, 5)
 
-  if (naoBatem.length > 0) {
-    texto += `\n🔴 *Não batem a jornada (${naoBatem.length}, limite ${minutosParaHorario(JORNADA_LIMITE_MIN)}):*\n`
-    for (const l of naoBatem.slice(0, 12)) {
-      const tr = l.trRealMin != null ? minutosParaHorario(l.trRealMin) : '—'
-      texto += `• ${l.mapa} ${l.placa ?? '—'} ${l.nome ?? '—'} — em rota há ${tr}\n`
-    }
-    if (naoBatem.length > 12) texto += `_+ ${naoBatem.length - 12} mapa(s)_\n`
-  } else {
-    texto += `\n✅ Todos os mapas dentro da jornada até agora.`
+  let texto = `🚚 *JORNADA — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)} · limite ${formatarDuracao(JORNADA_LIMITE_MIN)}\n\n`
+  if (emRota.length === 0) {
+    texto += `Nenhum mapa em rota ainda.`
+    return texto
   }
+  texto += `Top 5 — tempo em rota:\n`
+  emRota.forEach((l, i) => {
+    const estourou = l.trRealMin > JORNADA_LIMITE_MIN ? ' ⚠️' : ''
+    texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — ${formatarDuracao(l.trRealMin)}${estourou}\n`
+  })
+  return texto
+}
 
+export function montarMensagemIvSala(sala: SalaJornada, linhas: LinhaJornada[], data: string): string {
+  const kpi = calcularKpis(linhas)
+  const top = linhas.filter((l) => l.menos4min > 0).sort((a, b) => b.menos4min - a.menos4min).slice(0, 5)
+
+  let texto = `⚡ *IV E DEVOLUÇÃO — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)}\n\n`
+  texto += `IV da sala: ${formatarPct(kpi.iv)}\n`
+  texto += `Devolução da sala: ${formatarPct(kpi.devolucaoPct)}\n`
+  if (top.length === 0) {
+    texto += `\nNenhuma entrega marcada como rápida demais (<4min).`
+    return texto
+  }
+  texto += `\nTop 5 — entregas <4min:\n`
+  top.forEach((l, i) => {
+    texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — ${l.menos4min} entrega(s)\n`
+  })
+  return texto
+}
+
+export function montarMensagemAderenciaSala(sala: SalaJornada, linhas: LinhaJornada[], data: string): string {
+  const top = linhas
+    .filter((l): l is LinhaJornada & { aderencia: number } => l.aderencia != null)
+    .sort((a, b) => a.aderencia - b.aderencia)
+    .slice(0, 5)
+
+  let texto = `🎯 *ADERÊNCIA — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)} · meta ${formatarPct(ADERENCIA_MINIMA)}\n\n`
+  if (top.length === 0) {
+    texto += `Sem dados de aderência ainda.`
+    return texto
+  }
+  texto += `Top 5 — menor aderência:\n`
+  top.forEach((l, i) => {
+    const abaixo = l.aderencia < ADERENCIA_MINIMA ? ' ⚠️' : ''
+    texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — ${formatarPct(l.aderencia)}${abaixo}\n`
+  })
   return texto
 }
 
