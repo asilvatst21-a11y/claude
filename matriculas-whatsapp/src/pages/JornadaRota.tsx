@@ -2,12 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Upload, Loader2, RefreshCw, Link2, CheckCircle, AlertTriangle, Clock,
-  Route, Send, Calendar, Settings2,
+  Route, Send, Calendar, Settings2, Search,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { parseBeesBuffer, parseRoteirizadorBuffer } from '../lib/tmlParser'
-import { enviarMensagemWhatsApp, enviarMensagemGrupo } from '../lib/zapi'
+import { enviarMensagemWhatsApp, enviarMensagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   buscarJornadaDoDia, calcularKpis, agruparPorSala, montarMensagemSala, montarMensagemCdd,
   SALAS_JORNADA, SALA_JORNADA_LABEL, SALA_JORNADA_PARA_TML,
@@ -147,8 +148,13 @@ export default function JornadaRota() {
   const [filtroSala, setFiltroSala] = useState<SalaJornada | 'todos'>('todos')
   const [configAberta, setConfigAberta] = useState(false)
   const [grupoJornada, setGrupoJornada] = useState('')
+  const [grupoJornadaOriginal, setGrupoJornadaOriginal] = useState('')
   const [ultimoImportBees, setUltimoImportBees] = useState<string | null>(null)
   const [ultimoImportRot, setUltimoImportRot] = useState<string | null>(null)
+  const [grupos, setGrupos] = useState<GrupoZApi[]>([])
+  const [buscandoGrupos, setBuscandoGrupos] = useState(false)
+  const [erroGrupos, setErroGrupos] = useState<string | null>(null)
+  const [copiado, setCopiado] = useState<string | null>(null)
 
   const fetchJornada = useCallback(async () => {
     if (!usuario) return
@@ -165,8 +171,30 @@ export default function JornadaRota() {
       .select('grupo_jornada_whatsapp')
       .eq('nome', usuario.filial)
       .maybeSingle()
-    setGrupoJornada(data?.grupo_jornada_whatsapp ?? '')
+    const v = data?.grupo_jornada_whatsapp ?? ''
+    setGrupoJornada(v)
+    setGrupoJornadaOriginal(v)
   }, [usuario])
+
+  async function buscarGruposZapi() {
+    setBuscandoGrupos(true)
+    setErroGrupos(null)
+    const { grupos: gs, erro } = await listarGrupos()
+    setBuscandoGrupos(false)
+    if (erro) { setErroGrupos(erro); return }
+    if (gs.length === 0) { setErroGrupos('Nenhum grupo encontrado nesta instância Z-API.'); return }
+    setGrupos(gs.sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  async function copiarId(id: string) {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopiado(id)
+      setTimeout(() => setCopiado((c) => (c === id ? null : c)), 1500)
+    } catch {
+      /* clipboard indisponível */
+    }
+  }
 
   const fetchUltimosImports = useCallback(async () => {
     if (!usuario) return
@@ -324,7 +352,9 @@ export default function JornadaRota() {
 
   async function handleSalvarGrupo() {
     if (!usuario) return
-    await supabase.from('filiais').update({ grupo_jornada_whatsapp: grupoJornada.trim() || null }).eq('nome', usuario.filial)
+    const v = grupoJornada.trim()
+    await supabase.from('filiais').update({ grupo_jornada_whatsapp: v || null }).eq('nome', usuario.filial)
+    setGrupoJornadaOriginal(v)
     alert('Grupo salvo.')
   }
 
@@ -370,21 +400,48 @@ export default function JornadaRota() {
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
 
       {configAberta && (
-        <div className="border rounded-lg bg-white p-4 space-y-2">
-          <label className="block text-sm font-medium">Grupo de WhatsApp — resumo do CDD</label>
-          <p className="text-xs text-muted-foreground">
-            O envio por sala já usa o telefone de cada supervisor cadastrado em{' '}
-            <Link to="/distribuicao/tml/supervisores" className="text-accent-600 underline">Supervisores TML</Link>.
-            Este grupo recebe só o resumo consolidado do CDD.
-          </p>
-          <div className="flex gap-2">
-            <input
-              value={grupoJornada}
-              onChange={(e) => setGrupoJornada(e.target.value)}
-              placeholder="Ex: 120363019502650977-group"
-              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono"
-            />
-            <button onClick={handleSalvarGrupo} className="px-4 py-2 rounded-lg text-sm bg-accent-500 hover:bg-accent-600 text-white transition-colors">
+        <div className="border rounded-lg bg-white p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <label className="block text-sm font-medium">Grupo de WhatsApp — resumo do CDD</label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                O envio por sala já usa o telefone de cada supervisor cadastrado em{' '}
+                <Link to="/distribuicao/tml/supervisores" className="text-accent-600 underline">Supervisores TML</Link>.
+                Este grupo recebe só o resumo consolidado do CDD.
+              </p>
+            </div>
+            <button
+              onClick={buscarGruposZapi}
+              disabled={buscandoGrupos}
+              className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50 shrink-0"
+            >
+              {buscandoGrupos ? <Loader2 className="h-4 w-4 animate-spin" /> : grupos.length > 0 ? <RefreshCw className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+              {buscandoGrupos ? 'Buscando…' : grupos.length > 0 ? 'Atualizar grupos' : 'Buscar grupos (Z-API)'}
+            </button>
+          </div>
+
+          {erroGrupos && (
+            <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-md p-3">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span className="break-all">{erroGrupos}</span>
+            </div>
+          )}
+
+          <GroupPicker
+            label="Grupo do resumo do CDD"
+            value={grupoJornada}
+            onChange={setGrupoJornada}
+            grupos={grupos}
+            onCopy={copiarId}
+            copiado={copiado}
+          />
+
+          <div className="flex justify-end">
+            <button
+              onClick={handleSalvarGrupo}
+              disabled={grupoJornada.trim() === grupoJornadaOriginal}
+              className="px-4 py-2 rounded-lg text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white transition-colors"
+            >
               Salvar
             </button>
           </div>

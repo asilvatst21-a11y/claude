@@ -24,6 +24,14 @@ export const SALA_JORNADA_PARA_TML: Record<SalaJornada, 'COLORADO' | 'SUB-FURIA'
   EXTERNOS: null,
 }
 
+// Parâmetros de negócio da Jornada — confirmados com o cliente:
+//   • Limite de jornada: 10h20 (620 min) desde a saída da portaria.
+//   • Meta de aderência (entregas dentro do raio): > 95%.
+// Hoje fixos aqui; se precisar variar por sala/dia, dá pra mover pra uma
+// tabela de parâmetros como já existe pro TML (tml_meta_matinal).
+export const JORNADA_LIMITE_MIN = 10 * 60 + 20
+export const ADERENCIA_MINIMA = 0.95
+
 export function salaJornada(
   placa: string | null,
   matricula: number | null,
@@ -149,14 +157,16 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
       const aderencia = entregasPrevistas ? 1 - (devForaRaio + entregaForaRaio) / entregasPrevistas : null
       const percConclusao = entregasPrevistas ? 1 - (pendentes ?? 0) / entregasPrevistas : null
 
-      // "Bate jornada": considera batendo quando a rota está ~concluída
-      // (≥99%); senão compara a previsão de chegada com o horário atual.
-      // É uma aproximação da fórmula original da planilha (que usa um
-      // parâmetro de horário-limite não replicado aqui) — ajustável depois
-      // que o cliente validar contra um dia real de operação.
+      // "Bate jornada": estourou o limite de 10h20 desde a saída → não bate,
+      // não importa o quanto já entregou. Dentro do limite: bate quando a
+      // rota está ~concluída (≥99%) com aderência acima da meta (>95%);
+      // senão ainda está em rota.
       let situacao: SituacaoJornada = 'em_rota'
-      if (percConclusao != null && percConclusao >= 0.99) situacao = 'batendo'
-      else if (previsaoChegada != null) situacao = agoraMin > horarioParaMinutos(previsaoChegada) ? 'nao_bate' : 'em_rota'
+      if (trRealMin != null && trRealMin > JORNADA_LIMITE_MIN) {
+        situacao = 'nao_bate'
+      } else if (percConclusao != null && percConclusao >= 0.99 && (aderencia == null || aderencia >= ADERENCIA_MINIMA)) {
+        situacao = 'batendo'
+      }
 
       return {
         mapa: e.mapa,
@@ -239,9 +249,10 @@ export function montarMensagemSala(sala: SalaJornada, linhas: LinhaJornada[], da
   texto += `⚡ IV (<4min): ${formatarPct(kpi.iv)}\n`
 
   if (naoBatem.length > 0) {
-    texto += `\n🔴 *Não batem a jornada (${naoBatem.length}):*\n`
+    texto += `\n🔴 *Não batem a jornada (${naoBatem.length}, limite ${minutosParaHorario(JORNADA_LIMITE_MIN)}):*\n`
     for (const l of naoBatem.slice(0, 12)) {
-      texto += `• ${l.mapa} ${l.placa ?? '—'} ${l.nome ?? '—'} — prev ${l.previsaoChegada ?? '—'}\n`
+      const tr = l.trRealMin != null ? minutosParaHorario(l.trRealMin) : '—'
+      texto += `• ${l.mapa} ${l.placa ?? '—'} ${l.nome ?? '—'} — em rota há ${tr}\n`
     }
     if (naoBatem.length > 12) texto += `_+ ${naoBatem.length - 12} mapa(s)_\n`
   } else {
