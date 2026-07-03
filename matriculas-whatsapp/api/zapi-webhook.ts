@@ -1351,6 +1351,75 @@ async function enviarMotivosUgcTesteTml(filial: string, ugc: string, offset: num
   return { ok: true, action: 'teste-motivos' }
 }
 
+// ── Conversa humanizada com o motorista que perdeu o TML ──────────────────────────
+// Disparada manualmente pelo controle (tela de Alertas TML). O bot conduz
+// duas perguntas em sequência — o que aconteceu, e que solução ele propõe —
+// aceitando resposta em texto OU áudio (transcrito via Whisper/Groq). O
+// estado da conversa fica em conversas_motorista_tml e avança a cada
+// resposta. Retorna null se o número não tem conversa aberta (aí o webhook
+// cai no fluxo normal de supervisor em tratarTml).
+async function tratarConversaMotorista(body: any, remetente: string): Promise<{ ok: boolean; action: string } | null> {
+  const digitos = ultimosDigitos(remetente)
+  if (!digitos) return null
+
+  const { data: conversas } = await supabase
+    .from('conversas_motorista_tml')
+    .select('id, nome, estado, telefone')
+    .neq('estado', 'concluido')
+    .order('iniciado_em', { ascending: false })
+  const conversa = (conversas ?? []).find((c: any) => ultimosDigitos(c.telefone) === digitos)
+  if (!conversa) return null
+
+  // Resposta do motorista: texto digitado OU áudio (transcrito).
+  let texto = extrairTexto(body).trim()
+  let porAudio = false
+  if (!texto && temAudioSemTexto(body)) {
+    const transcrito = await transcreverAudio(extrairAudioUrl(body))
+    if (!transcrito) {
+      await enviar(remetente, 'Recebi seu áudio, mas não consegui entender direito aqui. 😕 Pode mandar de novo ou escrever em texto, por favor?')
+      return { ok: true, action: 'motorista-audio-falhou' }
+    }
+    texto = transcrito
+    porAudio = true
+  }
+  if (!texto) return { ok: true, action: 'motorista-sem-conteudo' }
+
+  const primeiro = String(conversa.nome ?? '').trim().split(/\s+/)[0] ?? ''
+  const nomeCap = primeiro ? primeiro.charAt(0).toUpperCase() + primeiro.slice(1).toLowerCase() : ''
+
+  if (conversa.estado === 'aguardando_motivo') {
+    const { error } = await supabase.from('conversas_motorista_tml').update({
+      motivo: texto, motivo_por_audio: porAudio, estado: 'aguardando_solucao',
+    }).eq('id', conversa.id)
+    if (error) {
+      console.error('[webhook] conversa motorista motivo error:', error.message)
+      await enviar(remetente, 'Ops, tive um probleminha pra registrar aqui. Pode tentar mandar de novo?')
+      return { ok: false, action: 'db-error' } as any
+    }
+    await enviar(remetente,
+      'Entendi, obrigado por contar. 🙏\n\n' +
+      'Pensando pra frente: você acha que dá pra fazer alguma coisa diferente pra isso não se repetir? Pode ser algo simples, qualquer ideia sua ajuda.')
+    return { ok: true, action: 'motorista-motivo-registrado' }
+  }
+
+  if (conversa.estado === 'aguardando_solucao') {
+    const { error } = await supabase.from('conversas_motorista_tml').update({
+      solucao: texto, solucao_por_audio: porAudio, estado: 'concluido', concluido_em: new Date().toISOString(),
+    }).eq('id', conversa.id)
+    if (error) {
+      console.error('[webhook] conversa motorista solucao error:', error.message)
+      await enviar(remetente, 'Ops, tive um probleminha pra registrar aqui. Pode tentar mandar de novo?')
+      return { ok: false, action: 'db-error' } as any
+    }
+    const saud = nomeCap ? `Show, ${nomeCap}!` : 'Show!'
+    await enviar(remetente,
+      `${saud} Anotei aqui certinho. Valeu por dividir isso com a gente — é assim que a operação melhora. Bom trabalho hoje e boa rota! 🚛`)
+    return { ok: true, action: 'motorista-solucao-registrada' }
+  }
+
+  return { ok: true, action: 'motorista-estado-desconhecido' }
+}
+
 async function tratarTml(body: any, remetente: string): Promise<{ ok: boolean; action: string }> {
   const rawBtn = String(body?.listResponseMessage?.selectedRowId ?? body?.buttonsResponseMessage?.buttonId ?? '')
   // ── Modo teste (botão "Enviar teste" do painel): não mexe em alertas reais ──
@@ -1489,9 +1558,15 @@ export default async function handler(req: any, res: any) {
       return
     }
 
-    // Conversa individual (não-grupo): hoje só usada pelos alertas de TML,
-    // em que o supervisor toca no botão com o motivo ou responde em texto.
+    // Conversa individual (não-grupo). Primeiro checa se o número tem uma
+    // conversa aberta de motorista (TML perdido); se não tiver, cai no fluxo
+    // do supervisor (botão/texto do alerta) em tratarTml.
     if (!isGroup) {
+      const rConv = await tratarConversaMotorista(body, grupoId)
+      if (rConv) {
+        res.status(200).json(rConv)
+        return
+      }
       const r = await tratarTml(body, grupoId)
       res.status(200).json(r)
       return

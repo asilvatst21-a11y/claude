@@ -22,6 +22,7 @@ export default function DistribuicaoTMLMotoristas() {
   const [matricula, setMatricula] = useState('')
   const [nome, setNome] = useState('')
   const [sala, setSala] = useState<'COLORADO' | 'SUB-FURIA' | ''>('')
+  const [telefone, setTelefone] = useState('')
 
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -44,6 +45,7 @@ export default function DistribuicaoTMLMotoristas() {
     setMatricula('')
     setNome('')
     setSala('')
+    setTelefone('')
     setErro('')
     setModal(true)
   }
@@ -53,6 +55,7 @@ export default function DistribuicaoTMLMotoristas() {
     setMatricula(String(m.matricula))
     setNome(m.nome)
     setSala(m.sala)
+    setTelefone(m.telefone ?? '')
     setErro('')
     setModal(true)
   }
@@ -65,17 +68,18 @@ export default function DistribuicaoTMLMotoristas() {
       const matriculaNum = Number(matricula.trim())
       if (!matriculaNum || isNaN(matriculaNum)) throw new Error('Matrícula inválida')
 
+      const telLimpo = telefone.trim() || null
       if (editando) {
         const { error } = await supabase
           .from('motoristas_sala_tml')
-          .update({ matricula: matriculaNum, nome: nome.trim(), sala })
+          .update({ matricula: matriculaNum, nome: nome.trim(), sala, telefone: telLimpo })
           .eq('id', editando.id)
         if (error) throw new Error(error.message)
       } else {
         const { error } = await supabase
           .from('motoristas_sala_tml')
           .upsert(
-            { filial: usuario.filial, matricula: matriculaNum, nome: nome.trim(), sala, importado_em: new Date().toISOString() },
+            { filial: usuario.filial, matricula: matriculaNum, nome: nome.trim(), sala, telefone: telLimpo, importado_em: new Date().toISOString() },
             { onConflict: 'filial,matricula' }
           )
         if (error) throw new Error(error.message)
@@ -194,6 +198,7 @@ export default function DistribuicaoTMLMotoristas() {
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Matrícula</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Nome</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Sala</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Telefone</th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground">Ações</th>
                 </tr>
               </thead>
@@ -203,6 +208,7 @@ export default function DistribuicaoTMLMotoristas() {
                     <td className="px-4 py-3 font-mono">{m.matricula}</td>
                     <td className="px-4 py-3 font-medium">{m.nome}</td>
                     <td className="px-4 py-3">{SALA_TML_LABEL[m.sala] ?? m.sala}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{m.telefone || <span className="text-yellow-600">— sem telefone</span>}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
                         <button onClick={() => abrirEditar(m)} className="flex items-center gap-1 px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors">
@@ -244,6 +250,11 @@ export default function DistribuicaoTMLMotoristas() {
                   <option value="COLORADO">COLORADO (7H)</option>
                   <option value="SUB-FURIA">SUB-FURIA (8H)</option>
                 </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">Telefone (WhatsApp)</label>
+                <input value={telefone} onChange={(e) => setTelefone(e.target.value)} placeholder="Ex: 27999998888 (com DDD)" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                <p className="text-xs text-muted-foreground mt-1">Usado para o bot perguntar o motivo do TML perdido.</p>
               </div>
               {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
             </div>

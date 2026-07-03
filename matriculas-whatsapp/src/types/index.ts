@@ -364,7 +364,28 @@ export interface MotoristaSalaTML {
   matricula: number
   nome: string
   sala: 'COLORADO' | 'SUB-FURIA'
+  telefone: string | null
   importado_em: string
+}
+
+export interface ConversaMotoristaTML {
+  id: string
+  filial: string
+  alerta_id: string | null
+  matricula: number | null
+  nome: string | null
+  telefone: string
+  mapa: number | null
+  data_saida: string | null
+  atraso_minutos: number | null
+  estado: 'aguardando_motivo' | 'aguardando_solucao' | 'concluido'
+  motivo: string | null
+  motivo_por_audio: boolean
+  solucao: string | null
+  solucao_por_audio: boolean
+  iniciado_em: string
+  concluido_em: string | null
+  created_at: string
 }
 
 export interface AlertaTML {

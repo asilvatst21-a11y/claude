@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal, Calendar, ChevronDown,
+  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal, Calendar, ChevronDown, MessageCircle, Mic,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -13,7 +13,8 @@ import {
   horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal, metaMatinalMinutos, MATINAL_AUTO_FINALIZA_MIN,
 } from '../lib/tml'
 import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, mapasPendentes, type StatusGlobalTML, type SemSalaDetalhe, type PendenteTML } from '../lib/tmlResumos'
-import type { AlertaTML, HistoricoTML, MotivoJustificativaTML } from '../types'
+import { iniciarConversaMotorista, buscarConversasPorAlertas } from '../lib/tmlConversaMotorista'
+import type { AlertaTML, HistoricoTML, MotivoJustificativaTML, ConversaMotoristaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
@@ -235,6 +236,8 @@ export default function DistribuicaoTML() {
   const [testeAberto, setTesteAberto] = useState(false)
   const [telefoneTeste, setTelefoneTeste] = useState('')
   const [enviandoTeste, setEnviandoTeste] = useState(false)
+  const [conversas, setConversas] = useState<Map<string, ConversaMotoristaTML>>(new Map())
+  const [perguntandoAlertaId, setPerguntandoAlertaId] = useState<string | null>(null)
 
   const [historico, setHistorico] = useState<HistoricoTML[]>([])
   const [loadingHistorico, setLoadingHistorico] = useState(true)
@@ -255,7 +258,9 @@ export default function DistribuicaoTML() {
       .eq('filial', usuario.filial)
       .order('created_at', { ascending: false })
       .limit(200)
-    setAlertas(Array.isArray(data) ? data : [])
+    const lista = Array.isArray(data) ? data : []
+    setAlertas(lista)
+    setConversas(await buscarConversasPorAlertas(lista.map((a) => a.id)))
     setLoading(false)
   }, [usuario])
 
@@ -971,6 +976,45 @@ export default function DistribuicaoTML() {
     }
   }
 
+  // Dispara a conversa humanizada com o motorista (pergunta o motivo do TML
+  // perdido e depois pede uma sugestão de solução). O telefone vem do
+  // cadastro em Motoristas; se não houver, avisa o controle.
+  async function handlePerguntarMotorista(alerta: AlertaTML) {
+    if (!usuario) return
+    setPerguntandoAlertaId(alerta.id)
+    setErro('')
+    try {
+      if (alerta.matricula == null) {
+        setErro('Este alerta não tem matrícula de motorista — não dá pra iniciar a conversa.')
+        return
+      }
+      const { data: motorista } = await supabase
+        .from('motoristas_sala_tml')
+        .select('telefone, nome')
+        .eq('filial', usuario.filial)
+        .eq('matricula', alerta.matricula)
+        .maybeSingle()
+
+      const telefone = motorista?.telefone?.trim()
+      if (!telefone) {
+        setErro(`Motorista ${alerta.nome ?? alerta.matricula} está sem telefone cadastrado. Cadastre em "Motoristas" antes de perguntar.`)
+        return
+      }
+
+      const r = await iniciarConversaMotorista(alerta, telefone)
+      if (!r.ok) {
+        setErro(r.erro ?? 'Não foi possível iniciar a conversa com o motorista.')
+        return
+      }
+      alert(`Mensagem enviada para ${alerta.nome ?? 'o motorista'}. As respostas vão aparecer aqui conforme ele responder.`)
+      await fetchAlertas()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao perguntar ao motorista')
+    } finally {
+      setPerguntandoAlertaId(null)
+    }
+  }
+
   async function handleSalvarJustificativa() {
     if (!justificando || !textoJustificativa.trim()) return
     setSalvando(true)
@@ -1379,34 +1423,74 @@ export default function DistribuicaoTML() {
                           Motivo: {a.justificativa}
                         </p>
                       )}
+                      {(() => {
+                        const c = conversas.get(a.id)
+                        if (!c) return null
+                        return (
+                          <div className="mt-1.5 rounded-md bg-purple-50 border border-purple-100 px-2 py-1.5 max-w-[260px] space-y-1">
+                            <p className="text-[10px] font-semibold text-purple-700 uppercase tracking-wide flex items-center gap-1">
+                              <MessageCircle className="h-3 w-3" /> Conversa com o motorista
+                              {c.estado !== 'concluido' && <span className="ml-auto text-purple-500 normal-case font-normal">aguardando…</span>}
+                            </p>
+                            {c.motivo && (
+                              <p className="text-[11px] text-purple-900" title={c.motivo}>
+                                <span className="font-medium">Motivo:</span> {c.motivo} {c.motivo_por_audio && <Mic className="inline h-2.5 w-2.5" />}
+                              </p>
+                            )}
+                            {c.solucao && (
+                              <p className="text-[11px] text-purple-900" title={c.solucao}>
+                                <span className="font-medium">Solução:</span> {c.solucao} {c.solucao_por_audio && <Mic className="inline h-2.5 w-2.5" />}
+                              </p>
+                            )}
+                          </div>
+                        )
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-right">
-                      {a.status === 'pendente' && (
-                        <button
-                          onClick={() => handleEnviarAlerta(a)}
-                          disabled={enviandoAlertaId === a.id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white text-xs transition-colors ml-auto"
-                        >
-                          {enviandoAlertaId === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
-                          {enviandoAlertaId === a.id ? 'Enviando...' : 'Enviar'}
-                        </button>
-                      )}
-                      {(a.status === 'enviado' || a.status === 'respondido') && (
-                        <button
-                          onClick={() => abrirJustificativa(a)}
-                          className="px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors"
-                        >
-                          Classificar motivo
-                        </button>
-                      )}
-                      {a.status === 'justificado' && (
-                        <button
-                          onClick={() => abrirJustificativa(a)}
-                          className="px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors"
-                        >
-                          Editar motivo
-                        </button>
-                      )}
+                      <div className="flex flex-col items-end gap-1.5">
+                        {a.status === 'pendente' && (
+                          <button
+                            onClick={() => handleEnviarAlerta(a)}
+                            disabled={enviandoAlertaId === a.id}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white text-xs transition-colors"
+                          >
+                            {enviandoAlertaId === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                            {enviandoAlertaId === a.id ? 'Enviando...' : 'Enviar'}
+                          </button>
+                        )}
+                        {(a.status === 'enviado' || a.status === 'respondido') && (
+                          <button
+                            onClick={() => abrirJustificativa(a)}
+                            className="px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors"
+                          >
+                            Classificar motivo
+                          </button>
+                        )}
+                        {a.status === 'justificado' && (
+                          <button
+                            onClick={() => abrirJustificativa(a)}
+                            className="px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors"
+                          >
+                            Editar motivo
+                          </button>
+                        )}
+                        {(() => {
+                          const c = conversas.get(a.id)
+                          const concluida = c?.estado === 'concluido'
+                          const emAndamento = c && c.estado !== 'concluido'
+                          return (
+                            <button
+                              onClick={() => handlePerguntarMotorista(a)}
+                              disabled={perguntandoAlertaId === a.id || concluida}
+                              title={concluida ? 'O motorista já respondeu' : emAndamento ? 'Reenviar a mensagem ao motorista' : 'Perguntar ao motorista o motivo'}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors disabled:opacity-50"
+                            >
+                              {perguntandoAlertaId === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageCircle className="h-3.5 w-3.5" />}
+                              {concluida ? 'Motorista respondeu' : emAndamento ? 'Reenviar ao motorista' : 'Perguntar ao motorista'}
+                            </button>
+                          )
+                        })()}
+                      </div>
                     </td>
                   </tr>
                 ))}
