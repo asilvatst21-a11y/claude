@@ -154,14 +154,17 @@ export default function SegurancaExcessoPeso() {
     return lista
   }, [usuario])
 
+  // Não depende do estado `pesos` (evita recriar a função a cada fetch, o
+  // que disparava o useEffect de novo em loop) — se a lista não vier
+  // explícita, busca direto do banco.
   const fetchExcessoHoje = useCallback(async (pesosAtualizados?: PesoCadastradoPlaca[]) => {
     if (!usuario) return
     setLoadingExcesso(true)
-    const base = pesosAtualizados ?? pesos
+    const base = pesosAtualizados ?? await buscarPesoCadastrado(usuario.filial)
     const escalas = await buscarEscalaComPesoHoje(usuario.filial, hojeISO())
     setExcessoHoje(calcularExcessoPeso(escalas, base))
     setLoadingExcesso(false)
-  }, [usuario, pesos])
+  }, [usuario])
 
   const fetchEscalaSync = useCallback(async () => {
     if (!usuario) return
