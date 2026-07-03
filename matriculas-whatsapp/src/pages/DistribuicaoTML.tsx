@@ -389,6 +389,9 @@ export default function DistribuicaoTML() {
           regiao_entregas: e.regiaoEntregas,
           cidades_entregas: e.cidadesEntregas,
           peso_carregado: e.pesoCarregado,
+          tempo_prev_min: e.tempoPrevMin,
+          hora_saida_prev: e.horaSaidaPrev,
+          entregas_previstas: e.entregasPrevistas,
           importado_em: new Date().toISOString(),
         })),
         { onConflict: 'filial,mapa' }

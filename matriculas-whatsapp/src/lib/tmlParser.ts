@@ -86,6 +86,9 @@ export interface EscalaTML {
   regiaoEntregas: string | null;
   cidadesEntregas: string | null;
   pesoCarregado: number | null;
+  tempoPrevMin: number | null;
+  horaSaidaPrev: string | null;
+  entregasPrevistas: number | null;
 }
 
 /**
@@ -122,6 +125,12 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
   // por isso a busca é por substring. Se a planilha não trouxer peso, o
   // módulo simplesmente não calcula excesso pra esses mapas.
   const pesoIdx = header.findIndex((c) => c.includes("peso"));
+  // Colunas usadas pelo módulo Jornada e Tempo em Rota (Distribuição) — o
+  // 03.11.49.02 já traz o tempo previsto, a hora de saída prevista (MPD) e o
+  // total de entregas planejadas; até aqui elas eram ignoradas pelo parser.
+  const tempoPrevIdx = header.findIndex((c) => c.includes("tempo prev"));
+  const horaMpdIdx = header.indexOf("hora mpd");
+  const entregasIdx = header.indexOf("entregas");
 
   const out: EscalaTML[] = [];
   for (let i = headerRow + 1; i < rows.length; i++) {
@@ -131,6 +140,8 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
 
     const matricula = motoristaIdx !== -1 ? Number(row[motoristaIdx]) : NaN;
     const peso = pesoIdx !== -1 ? Number(row[pesoIdx]) : NaN;
+    const tempoPrevFracao = tempoPrevIdx !== -1 ? Number(row[tempoPrevIdx]) : NaN;
+    const entregas = entregasIdx !== -1 ? Number(row[entregasIdx]) : NaN;
 
     out.push({
       mapa,
@@ -140,6 +151,9 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
       regiaoEntregas: regiaoIdx !== -1 ? String(row[regiaoIdx] ?? "").trim() || null : null,
       cidadesEntregas: cidadesIdx !== -1 ? String(row[cidadesIdx] ?? "").trim() || null : null,
       pesoCarregado: !isNaN(peso) ? peso : null,
+      tempoPrevMin: !isNaN(tempoPrevFracao) ? Math.round(tempoPrevFracao * 24 * 60) : null,
+      horaSaidaPrev: horaMpdIdx !== -1 ? excelTimeToHorario(row[horaMpdIdx]) : null,
+      entregasPrevistas: !isNaN(entregas) ? entregas : null,
     });
   }
   return out;
@@ -441,6 +455,151 @@ export function parseSaidaBuffer(buffer: ArrayBuffer): SaidaTML[] {
       dataSaida: dtOperIdx !== -1 ? excelDateToISO(row[dtOperIdx]) : null,
       horarioSaida: hrOperIdx !== -1 ? excelTimeToHorario(row[hrOperIdx]) : null,
     });
+  }
+  return out;
+}
+
+export interface BeesMapaAgregado {
+  mapa: number;
+  data: string | null;
+  placa: string | null;
+  realizadas: number;
+  devolucao: number;
+  repasse: number;
+  entregaForaRaio: number;
+  devForaRaio: number;
+  menos4min: number;
+  not10s: number;
+  tempoRealMedioMin: number | null;
+}
+
+/**
+ * BEES (Aderência AMBEV / Tracking) — export bruto, uma linha por PDV
+ * visitado. Agrega por mapa (tour_display_id): realizadas/devolução/repasse
+ * pelo status, fora do raio pelo within_radius, e os dois indicadores de
+ * qualidade da entrega:
+ *  - "< 4 min": finished_at - arrived_at menor que o parâmetro (padrão 4 min)
+ *  - "< 10 s": arrived_at - driver_notification_time menor que 10 s
+ * Usado pelo módulo Jornada e Tempo em Rota (Distribuição).
+ */
+export function parseBeesBuffer(buffer: ArrayBuffer): BeesMapaAgregado[] {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+  if (rows.length === 0) return [];
+
+  const header = rows[0].map(normalize);
+  const mapaIdx = header.indexOf("tour_display_id");
+  const dataIdx = header.indexOf("tour_date");
+  const placaIdx = header.indexOf("truck_license_plate");
+  const statusIdx = header.indexOf("status");
+  const withinIdx = header.indexOf("within_radius");
+  const notifIdx = header.indexOf("driver_notification_time");
+  const arrivedIdx = header.indexOf("arrived_at");
+  const finishedIdx = header.indexOf("finished_at");
+  if (mapaIdx === -1 || statusIdx === -1) return [];
+
+  interface Acc {
+    data: string | null; placa: string | null;
+    realizadas: number; devolucao: number; repasse: number;
+    entregaForaRaio: number; devForaRaio: number; menos4min: number; not10s: number;
+    somaTempoReal: number; nTempoReal: number;
+  }
+  const porMapa = new Map<number, Acc>();
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const mapa = Number(row[mapaIdx]);
+    if (!mapa || isNaN(mapa)) continue;
+
+    const acc = porMapa.get(mapa) ?? {
+      data: null, placa: null, realizadas: 0, devolucao: 0, repasse: 0,
+      entregaForaRaio: 0, devForaRaio: 0, menos4min: 0, not10s: 0,
+      somaTempoReal: 0, nTempoReal: 0,
+    };
+    if (!acc.data && dataIdx !== -1) acc.data = String(row[dataIdx] ?? "").slice(0, 10) || null;
+    if (!acc.placa && placaIdx !== -1) acc.placa = String(row[placaIdx] ?? "").trim().toUpperCase() || null;
+
+    const status = String(row[statusIdx] ?? "").trim().toUpperCase();
+    const dentroRaio = withinIdx !== -1 ? String(row[withinIdx] ?? "").trim().toLowerCase() === "true" : true;
+
+    if (status === "CONCLUDED") {
+      acc.realizadas++;
+      if (!dentroRaio) acc.entregaForaRaio++;
+    } else if (status === "DEFINITELY_RETURNED") {
+      acc.devolucao++;
+      if (!dentroRaio) acc.devForaRaio++;
+    } else if (status === "RESCHEDULED") {
+      acc.repasse++;
+    }
+
+    const arrivedAt = arrivedIdx !== -1 ? Date.parse(String(row[arrivedIdx] ?? "")) : NaN;
+    const finishedAt = finishedIdx !== -1 ? Date.parse(String(row[finishedIdx] ?? "")) : NaN;
+    const notifAt = notifIdx !== -1 ? Date.parse(String(row[notifIdx] ?? "")) : NaN;
+
+    if (!isNaN(arrivedAt) && !isNaN(finishedAt)) {
+      const minutos = (finishedAt - arrivedAt) / 60000;
+      if (minutos >= 0) {
+        acc.somaTempoReal += minutos;
+        acc.nTempoReal++;
+        if (minutos < 4) acc.menos4min++;
+      }
+    }
+    if (!isNaN(arrivedAt) && !isNaN(notifAt)) {
+      const segundos = (arrivedAt - notifAt) / 1000;
+      if (segundos >= 0 && segundos < 10) acc.not10s++;
+    }
+
+    porMapa.set(mapa, acc);
+  }
+
+  return [...porMapa.entries()].map(([mapa, acc]) => ({
+    mapa,
+    data: acc.data,
+    placa: acc.placa,
+    realizadas: acc.realizadas,
+    devolucao: acc.devolucao,
+    repasse: acc.repasse,
+    entregaForaRaio: acc.entregaForaRaio,
+    devForaRaio: acc.devForaRaio,
+    menos4min: acc.menos4min,
+    not10s: acc.not10s,
+    tempoRealMedioMin: acc.nTempoReal > 0 ? acc.somaTempoReal / acc.nTempoReal : null,
+  }));
+}
+
+export interface RoteirizadorLinha {
+  placa: string;
+  tempoDirigindoMin: number | null;
+}
+
+/**
+ * Roteirizador — export bruto, uma linha por rota/placa. Não traz o número
+ * do mapa (só a placa); quem importa precisa casar a placa com a escala do
+ * mesmo dia (escalas_tml) para descobrir o mapa — replica a mesma lógica
+ * que a planilha original faz via VLOOKUP(Placa → PCD ORIGINAL → Mapa).
+ * Só extraímos "Tempo Dirigindo (HH:MM:SS)" (fração de dia → minutos); o
+ * resto (entregas planejadas, tempo médio por entrega) é derivado da
+ * escala na hora do cálculo, não duplicado aqui.
+ */
+export function parseRoteirizadorBuffer(buffer: ArrayBuffer): RoteirizadorLinha[] {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+  if (rows.length === 0) return [];
+
+  const header = rows[0].map(normalize);
+  const placaIdx = header.indexOf("placa");
+  const tempoIdx = header.findIndex((c) => c.includes("tempo dirigindo"));
+  if (placaIdx === -1) return [];
+
+  const out: RoteirizadorLinha[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const placa = String(row[placaIdx] ?? "").trim().toUpperCase();
+    if (!placa) continue;
+    const tempo = tempoIdx !== -1 ? Number(row[tempoIdx]) : NaN;
+    out.push({ placa, tempoDirigindoMin: !isNaN(tempo) ? Math.round(tempo * 24 * 60) : null });
   }
   return out;
 }

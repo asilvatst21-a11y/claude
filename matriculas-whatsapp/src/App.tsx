@@ -13,6 +13,7 @@ import DistribuicaoTMLDeslocamento from './pages/DistribuicaoTMLDeslocamento'
 import DistribuicaoTMLWhatsappConfig from './pages/DistribuicaoTMLWhatsappConfig'
 import DistribuicaoTMLParametros from './pages/DistribuicaoTMLParametros'
 import DtoDistribuicao from './pages/DtoDistribuicao'
+import JornadaRota from './pages/JornadaRota'
 import Frota from './pages/Frota'
 import FrotaIV from './pages/FrotaIV'
 import FrotaPlacas from './pages/FrotaPlacas'
@@ -117,6 +118,7 @@ export default function App() {
             <Route path="/distribuicao/tml/whatsapp" element={<DistribuicaoTMLWhatsappConfig />} />
             <Route path="/distribuicao/tml/parametros" element={<DistribuicaoTMLParametros />} />
             <Route path="/distribuicao/dto" element={<DtoDistribuicao />} />
+            <Route path="/distribuicao/jornada-rota" element={<JornadaRota />} />
             <Route path="/frota" element={<Frota />} />
             <Route path="/frota/iv" element={<FrotaIV />} />
             <Route path="/frota/placas" element={<FrotaPlacas />} />
