@@ -30,3 +30,10 @@ ALTER TABLE peso_cadastrado_placas ADD COLUMN IF NOT EXISTS peso_lotacao NUMERIC
 ALTER TABLE peso_cadastrado_placas ADD COLUMN IF NOT EXISTS importado_em TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_peso_cadastrado_placas_filial ON peso_cadastrado_placas (filial);
+
+-- Mesmo padrão de RLS usado em escalas_tml/alertas_tml (ver
+-- supabase-migration-distribuicao-tml.sql): controle de acesso fica no
+-- app, não no banco.
+ALTER TABLE peso_cadastrado_placas ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Acesso total" ON peso_cadastrado_placas;
+CREATE POLICY "Acesso total" ON peso_cadastrado_placas FOR ALL USING (true) WITH CHECK (true);
