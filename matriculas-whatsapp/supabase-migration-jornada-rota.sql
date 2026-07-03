@@ -1,23 +1,29 @@
 -- Módulo "Jornada e Tempo em Rota" (Distribuição) — reproduz a aba FAROL da
--- Carta de Controle de Jornada. Cruza:
---   • plano (03.11.49.02, já importado na Carta de Controle TML → escalas_tml)
---   • saída real da portaria (03.11.20 → historico_tml/saidas_tml)
---   • execução das entregas (BEES / Tracking AMBEV) — upload novo, diário
---   • tempo planejado por mapa (Roteirizador) — upload novo, diário
+-- Carta de Controle de Jornada.
 --
--- A matrícula do motorista vem SEMPRE do escalas_tml mais recente: o import
--- do 03.11.49.02 roda pelo menos 2x/dia (upsert por filial+mapa em
--- handleEscala), então a última importação já sobrescreve a matrícula do
--- mapa. A Jornada lê escalas_tml ao vivo a cada carregamento — nunca
--- guarda snapshot da matrícula, só do resultado calculado do dia.
+-- IMPORTANTE: rode cada PARTE separadamente (selecione o bloco e clique em
+-- "Run" isoladamente, ou rode em execuções distintas), em vez de colar o
+-- arquivo inteiro de uma vez. O SQL Editor do Supabase roda o script
+-- colado como uma transação só; como a PARTE 1 pede um lock exclusivo em
+-- escalas_tml (tabela usada o tempo todo pelo app), rodar tudo junto numa
+-- transação longa aumenta a chance de deadlock com alguma sessão aberta do
+-- painel. Rodando em partes menores, cada lock é liberado rápido.
+--
+-- Se ainda assim der deadlock: feche outras abas do painel (principalmente
+-- a Carta de Controle TML e o SQL Editor com resultado antigo aberto) e
+-- tente de novo — é um problema de timing, o script em si é idempotente
+-- (pode rodar de novo sem problema, "IF NOT EXISTS" em tudo).
 
--- 1. Colunas de plano no escalas_tml (03.11.49.02 já traz, hoje ignoradas
---    pelo parser da Carta de Controle TML).
+-- ── PARTE 1 — colunas de plano em escalas_tml ─────────────────────────────
+-- 03.11.49.02 já traz essas colunas, hoje ignoradas pelo parser da Carta
+-- de Controle TML.
 ALTER TABLE escalas_tml ADD COLUMN IF NOT EXISTS tempo_prev_min INTEGER;   -- Tempo Prev.(+almoço), em minutos
 ALTER TABLE escalas_tml ADD COLUMN IF NOT EXISTS hora_saida_prev TEXT;     -- Hora MPD prevista (HH:MM)
 ALTER TABLE escalas_tml ADD COLUMN IF NOT EXISTS entregas_previstas INTEGER;
 
--- 2. Execução das entregas por mapa (agregado do BEES no import do dia).
+
+-- ── PARTE 2 — tabelas novas (execute em separado da parte 1) ─────────────
+-- Execução das entregas por mapa (agregado do BEES no import do dia).
 CREATE TABLE IF NOT EXISTS jornada_bees (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   filial TEXT NOT NULL,
@@ -35,12 +41,12 @@ CREATE TABLE IF NOT EXISTS jornada_bees (
   UNIQUE (filial, mapa, data)
 );
 
--- 3. Tempo planejado por mapa (Roteirizador) — base da dispersão de tempo.
---    O arquivo do Roteirizador não traz o número do mapa, só a PLACA — o
---    mapa é resolvido no import casando a placa com a escala do mesmo dia
---    (escalas_tml). "Entregas planejadas" e "tempo médio por entrega" não
---    são guardados aqui: são derivados de escalas_tml.entregas_previstas
---    na hora do cálculo, evitando duplicar/desatualizar o dado.
+-- Tempo planejado por mapa (Roteirizador) — base da dispersão de tempo.
+-- O arquivo do Roteirizador não traz o número do mapa, só a PLACA — o mapa
+-- é resolvido no import casando a placa com a escala do mesmo dia
+-- (escalas_tml). "Entregas planejadas" e "tempo médio por entrega" não são
+-- guardados aqui: são derivados de escalas_tml.entregas_previstas na hora
+-- do cálculo, evitando duplicar/desatualizar o dado.
 CREATE TABLE IF NOT EXISTS jornada_roteirizador (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   filial TEXT NOT NULL,
@@ -55,11 +61,14 @@ CREATE TABLE IF NOT EXISTS jornada_roteirizador (
 CREATE INDEX IF NOT EXISTS idx_jornada_bees_filial_data ON jornada_bees (filial, data);
 CREATE INDEX IF NOT EXISTS idx_jornada_rot_filial_data ON jornada_roteirizador (filial, data);
 
--- 4. Grupo de WhatsApp para o resumo do CDD (o envio por sala usa o grupo
---    já cadastrado por sala em supervisores_tml — nada novo ali).
+
+-- ── PARTE 3 — coluna em filiais (execute em separado das partes 1 e 2) ───
+-- Grupo de WhatsApp para o resumo do CDD (o envio por sala usa o grupo já
+-- cadastrado por sala em supervisores_tml — nada novo ali).
 ALTER TABLE filiais ADD COLUMN IF NOT EXISTS grupo_jornada_whatsapp TEXT;
 
--- 5. RLS (controle de acesso é feito no app, como as demais tabelas TML).
+
+-- ── PARTE 4 — RLS (execute em separado, depois que as tabelas da parte 2 existirem) ──
 ALTER TABLE jornada_bees ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Acesso total" ON jornada_bees;
 CREATE POLICY "Acesso total" ON jornada_bees FOR ALL USING (true) WITH CHECK (true);
