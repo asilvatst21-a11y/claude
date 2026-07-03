@@ -8,7 +8,7 @@ import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { parsePesoPlacaBuffer } from '../lib/tmlParser'
 import {
-  buscarPesoCadastrado, buscarEscalaComPesoHoje, calcularExcessoPeso, pesoReferencia, divergente,
+  buscarPesoCadastrado, buscarEscalaComPesoHoje, calcularExcessoPeso,
   type PesoCadastradoPlaca, type LinhaExcessoPeso, type SituacaoExcesso,
 } from '../lib/pesoExcesso'
 import { formatarDataBR } from '../lib/utils'
@@ -20,35 +20,6 @@ function hojeISO(): string {
 function formatarKg(valor: number | null): string {
   if (valor == null) return '—'
   return `${valor.toLocaleString('pt-BR')} kg`
-}
-
-type SituacaoConfronto = 'igual' | 'divergente' | 'incompleto'
-
-function situacaoConfronto(p: PesoCadastradoPlaca): SituacaoConfronto {
-  if (p.peso_freightech == null || p.peso_frota_legal == null) return 'incompleto'
-  return divergente(p) ? 'divergente' : 'igual'
-}
-
-function ConfrontoBadge({ situacao }: { situacao: SituacaoConfronto }) {
-  if (situacao === 'igual') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-green-700 bg-green-100">
-        <CheckCircle className="h-3 w-3" /> Igual nas 2 bases
-      </span>
-    )
-  }
-  if (situacao === 'divergente') {
-    return (
-      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-yellow-700 bg-yellow-100">
-        <AlertTriangle className="h-3 w-3" /> Divergente
-      </span>
-    )
-  }
-  return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-yellow-700 bg-yellow-100">
-      <Clock className="h-3 w-3" /> Falta cadastro
-    </span>
-  )
 }
 
 function ExcessoBadge({ situacao }: { situacao: SituacaoExcesso }) {
@@ -131,12 +102,11 @@ export default function SegurancaExcessoPeso() {
   const [loadingExcesso, setLoadingExcesso] = useState(true)
   const [escalaSync, setEscalaSync] = useState<{ total: number; ultimoImport: string | null } | null>(null)
 
-  const [uploadingFreightech, setUploadingFreightech] = useState(false)
   const [uploadingFrotaLegal, setUploadingFrotaLegal] = useState(false)
   const [erro, setErro] = useState('')
 
   const [taraAberto, setTaraAberto] = useState(true)
-  const [confrontoAberto, setConfrontoAberto] = useState(true)
+  const [cadastroAberto, setCadastroAberto] = useState(true)
   const [excessoAberto, setExcessoAberto] = useState(true)
   const [filtroExcesso, setFiltroExcesso] = useState<SituacaoExcesso | 'todos'>('todos')
 
@@ -190,36 +160,37 @@ export default function SegurancaExcessoPeso() {
 
   useEffect(() => { atualizarTudo() }, [atualizarTudo])
 
-  async function handleImportarPeso(file: File, fonte: 'freightech' | 'frotaLegal') {
+  async function handleImportarPeso(file: File) {
     if (!usuario) return
-    const setUploading = fonte === 'freightech' ? setUploadingFreightech : setUploadingFrotaLegal
-    setUploading(true)
+    setUploadingFrotaLegal(true)
     setErro('')
     try {
       const buffer = await file.arrayBuffer()
       const linhas = parsePesoPlacaBuffer(buffer)
       if (linhas.length === 0) {
-        throw new Error('Nenhuma placa/peso encontrado na planilha.')
+        throw new Error('Nenhuma placa/Tara/Lotação encontrada na planilha. Confira se é o export "Equipamentos" do Frota Legal.')
       }
 
       const porPlaca = new Map(linhas.map((l) => [l.placa, l]))
       const agora = new Date().toISOString()
-      const rows = [...porPlaca.values()].map((l) => (
-        fonte === 'freightech'
-          ? { filial: usuario.filial, placa: l.placa, peso_freightech: l.peso, importado_freightech_em: agora }
-          : { filial: usuario.filial, placa: l.placa, peso_frota_legal: l.peso, importado_frota_legal_em: agora }
-      ))
+      const rows = [...porPlaca.values()].map((l) => ({
+        filial: usuario.filial,
+        placa: l.placa,
+        peso_tara: l.pesoTara,
+        peso_lotacao: l.pesoLotacao,
+        importado_em: agora,
+      }))
 
       const { error } = await supabase.from('peso_cadastrado_placas').upsert(rows, { onConflict: 'filial,placa' })
       if (error) throw new Error(error.message)
 
-      alert(`${linhas.length} placa(s) importada(s) de ${fonte === 'freightech' ? 'Freightech' : 'Frota Legal'}.`)
+      alert(`${linhas.length} placa(s) importada(s) do Frota Legal.`)
       const lista = await fetchPesos()
       await fetchExcessoHoje(lista ?? undefined)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar planilha de peso')
     } finally {
-      setUploading(false)
+      setUploadingFrotaLegal(false)
     }
   }
 
@@ -261,7 +232,6 @@ export default function SegurancaExcessoPeso() {
 
   const stats = useMemo(() => ({
     placasCadastradas: pesos.length,
-    divergencias: pesos.filter(divergente).length,
     fotosPendentes: pesos.filter((p) => !p.foto_tara_url).length,
     excessosHoje: excessoHoje.filter((l) => l.situacao === 'excesso').length,
   }), [pesos, excessoHoje])
@@ -312,8 +282,8 @@ export default function SegurancaExcessoPeso() {
             <Scale className="h-5 w-5 text-accent-600" /> Excesso de Peso
           </h1>
           <p className="text-sm text-muted-foreground">
-            Confronta o peso cadastrado no Freightech e no Frota Legal, cobra foto da TARA de placa
-            nova, e cruza com o peso carregado do dia — já importado em{' '}
+            Cadastro de Tara e Lotação por placa (Frota Legal), foto da TARA por placa, e cruzamento
+            da Lotação com o peso carregado do dia — já importado em{' '}
             <Link to="/distribuicao/tml" className="text-accent-600 underline">Distribuição → Carta de Controle TML</Link>.
           </p>
         </div>
@@ -326,23 +296,16 @@ export default function SegurancaExcessoPeso() {
 
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
 
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2">
         <ImportBox
-          titulo="1. Freightech"
-          descricao="Placa + peso cadastrado (kg) — planilha mensal."
-          onFile={(f) => handleImportarPeso(f, 'freightech')}
-          isUploading={uploadingFreightech}
-          statusLine={`${pesos.filter((p) => p.peso_freightech != null).length} placa(s) cadastrada(s)`}
-        />
-        <ImportBox
-          titulo="2. Frota Legal"
-          descricao="Placa + peso cadastrado (kg) — planilha mensal."
-          onFile={(f) => handleImportarPeso(f, 'frotaLegal')}
+          titulo="1. Frota Legal (Equipamentos)"
+          descricao="Placa (Identificador) + Peso Tara + Peso Lotação — planilha mensal."
+          onFile={handleImportarPeso}
           isUploading={uploadingFrotaLegal}
-          statusLine={`${pesos.filter((p) => p.peso_frota_legal != null).length} placa(s) cadastrada(s)`}
+          statusLine={`${pesos.length} placa(s) cadastrada(s)`}
         />
         <div className="border rounded-lg bg-white p-4">
-          <h3 className="text-sm font-semibold">3. Escala do dia (03.11.49.02)</h3>
+          <h3 className="text-sm font-semibold">2. Escala do dia (03.11.49.02)</h3>
           <p className="text-xs text-muted-foreground mt-0.5 mb-3">Peso carregado por mapa/placa — vem de outra tela.</p>
           <div className="border rounded-lg bg-muted/40 p-6 text-center">
             <Link2 className="h-6 w-6 mx-auto mb-2 text-accent-600" />
@@ -358,14 +321,10 @@ export default function SegurancaExcessoPeso() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <div className="border rounded-lg bg-white p-4">
           <p className="text-xs text-muted-foreground mb-1">Placas cadastradas</p>
           <p className="text-2xl font-bold">{stats.placasCadastradas}</p>
-        </div>
-        <div className="border rounded-lg bg-white p-4">
-          <p className="text-xs text-muted-foreground mb-1">Divergência de cadastro</p>
-          <p className="text-2xl font-bold text-yellow-600">{stats.divergencias}</p>
         </div>
         <div className="border rounded-lg bg-white p-4">
           <p className="text-xs text-muted-foreground mb-1">Foto da TARA pendente</p>
@@ -396,7 +355,7 @@ export default function SegurancaExcessoPeso() {
             </div>
           ) : pesos.length === 0 ? (
             <div className="text-center py-10 text-muted-foreground text-sm">
-              Nenhuma placa cadastrada ainda. Importe Freightech ou Frota Legal.
+              Nenhuma placa cadastrada ainda. Importe a planilha do Frota Legal.
             </div>
           ) : (
             <div className="grid gap-3 p-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
@@ -419,7 +378,7 @@ export default function SegurancaExcessoPeso() {
                       )}
                     </div>
                     <p className="text-[11px] text-muted-foreground">
-                      Referência: {formatarKg(pesoReferencia(p))}
+                      Tara: {formatarKg(p.peso_tara)} · Lotação: {formatarKg(p.peso_lotacao)}
                     </p>
                     {!p.foto_tara_url && (
                       <div className="flex gap-1.5">
@@ -448,19 +407,19 @@ export default function SegurancaExcessoPeso() {
         )}
       </div>
 
-      {/* ── Confronto de cadastro ────────────────────────────────── */}
+      {/* ── Cadastro de peso por placa ───────────────────────────── */}
       <div className="border rounded-lg bg-white">
         <button
-          onClick={() => setConfrontoAberto((v) => !v)}
+          onClick={() => setCadastroAberto((v) => !v)}
           className="w-full flex items-center justify-between px-4 py-3 border-b text-left hover:bg-muted/20 transition-colors"
         >
           <div>
-            <h2 className="font-semibold text-sm">Confronto de Peso Cadastrado</h2>
-            <p className="text-xs text-muted-foreground">Mesma placa, peso diferente entre Freightech e Frota Legal</p>
+            <h2 className="font-semibold text-sm">Cadastro de Peso por Placa</h2>
+            <p className="text-xs text-muted-foreground">Tara e Lotação importados do Frota Legal</p>
           </div>
-          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${confrontoAberto ? 'rotate-180' : ''}`} />
+          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${cadastroAberto ? 'rotate-180' : ''}`} />
         </button>
-        {confrontoAberto && (
+        {cadastroAberto && (
           loadingPesos ? (
             <div className="flex items-center justify-center py-10">
               <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
@@ -473,35 +432,28 @@ export default function SegurancaExcessoPeso() {
                 <thead className="bg-muted/50">
                   <tr>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Placa</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Freightech</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Frota Legal</th>
-                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Diferença</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Peso Tara</th>
+                    <th className="text-right px-4 py-3 font-medium text-muted-foreground">Peso Lotação</th>
                     <th className="text-left px-4 py-3 font-medium text-muted-foreground">Foto TARA</th>
-                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Situação</th>
+                    <th className="text-left px-4 py-3 font-medium text-muted-foreground">Importado</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
-                  {pesos.map((p) => {
-                    const diff = p.peso_freightech != null && p.peso_frota_legal != null
-                      ? Math.abs(p.peso_freightech - p.peso_frota_legal)
-                      : null
-                    return (
-                      <tr key={p.id} className="hover:bg-muted/30 transition-colors">
-                        <td className="px-4 py-2 font-mono text-xs font-semibold">{p.placa}</td>
-                        <td className="px-4 py-2 text-right">{formatarKg(p.peso_freightech)}</td>
-                        <td className="px-4 py-2 text-right">{formatarKg(p.peso_frota_legal)}</td>
-                        <td className="px-4 py-2 text-right font-medium">{diff && diff > 0 ? formatarKg(diff) : '—'}</td>
-                        <td className="px-4 py-2">
-                          {p.foto_tara_url ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-green-700 bg-green-100">Enviada</span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-yellow-700 bg-yellow-100">Pendente</span>
-                          )}
-                        </td>
-                        <td className="px-4 py-2"><ConfrontoBadge situacao={situacaoConfronto(p)} /></td>
-                      </tr>
-                    )
-                  })}
+                  {pesos.map((p) => (
+                    <tr key={p.id} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-4 py-2 font-mono text-xs font-semibold">{p.placa}</td>
+                      <td className="px-4 py-2 text-right">{formatarKg(p.peso_tara)}</td>
+                      <td className="px-4 py-2 text-right font-medium">{formatarKg(p.peso_lotacao)}</td>
+                      <td className="px-4 py-2">
+                        {p.foto_tara_url ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-green-700 bg-green-100">Enviada</span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-yellow-700 bg-yellow-100">Pendente</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-xs text-muted-foreground">{p.importado_em ? formatarDataBR(p.importado_em) : '—'}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
@@ -517,7 +469,7 @@ export default function SegurancaExcessoPeso() {
         >
           <div>
             <h2 className="font-semibold text-sm">Excesso de Peso — hoje ({formatarDataBR(hojeISO())})</h2>
-            <p className="text-xs text-muted-foreground">Peso de referência × peso carregado, puxado da escala já importada</p>
+            <p className="text-xs text-muted-foreground">Peso Lotação × peso carregado, puxado da escala já importada</p>
           </div>
           <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${excessoAberto ? 'rotate-180' : ''}`} />
         </button>
@@ -558,7 +510,7 @@ export default function SegurancaExcessoPeso() {
                     <tr>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mapa</th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground">Placa</th>
-                      <th className="text-right px-4 py-3 font-medium text-muted-foreground">Peso de referência</th>
+                      <th className="text-right px-4 py-3 font-medium text-muted-foreground">Peso Lotação</th>
                       <th className="text-right px-4 py-3 font-medium text-muted-foreground">Peso carregado</th>
                       <th className="text-right px-4 py-3 font-medium text-muted-foreground">Excesso</th>
                       <th className="text-left px-4 py-3 font-medium text-muted-foreground">Situação</th>

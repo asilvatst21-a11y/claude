@@ -4,28 +4,18 @@ export interface PesoCadastradoPlaca {
   id: string
   filial: string
   placa: string
-  peso_freightech: number | null
-  peso_frota_legal: number | null
-  importado_freightech_em: string | null
-  importado_frota_legal_em: string | null
+  peso_tara: number | null
+  peso_lotacao: number | null
+  importado_em: string | null
   foto_tara_url: string | null
   foto_tara_em: string | null
   created_at: string
 }
 
-// Peso de referência usado no cálculo de excesso: o menor valor cadastrado
-// entre Freightech e Frota Legal (mais conservador — evita deixar passar
-// excesso enquanto a divergência de cadastro não é corrigida). Se só uma
-// fonte tem a placa cadastrada, usa essa; se nenhuma tem, não há referência.
-export function pesoReferencia(p: Pick<PesoCadastradoPlaca, 'peso_freightech' | 'peso_frota_legal'>): number | null {
-  if (p.peso_freightech != null && p.peso_frota_legal != null) {
-    return Math.min(p.peso_freightech, p.peso_frota_legal)
-  }
-  return p.peso_freightech ?? p.peso_frota_legal ?? null
-}
-
-export function divergente(p: Pick<PesoCadastradoPlaca, 'peso_freightech' | 'peso_frota_legal'>): boolean {
-  return p.peso_freightech != null && p.peso_frota_legal != null && p.peso_freightech !== p.peso_frota_legal
+// Peso de referência usado no cálculo de excesso: a Lotação cadastrada no
+// Frota Legal (peso máximo de carga da placa).
+export function pesoReferencia(p: Pick<PesoCadastradoPlaca, 'peso_lotacao'>): number | null {
+  return p.peso_lotacao ?? null
 }
 
 export async function buscarPesoCadastrado(filial: string): Promise<PesoCadastradoPlaca[]> {

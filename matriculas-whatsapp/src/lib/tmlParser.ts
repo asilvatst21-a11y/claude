@@ -146,13 +146,18 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
 }
 
 /**
- * Planilha de peso cadastrado por placa (Freightech ou Frota Legal) —
- * mesma estrutura simples nas duas fontes: uma coluna de placa e uma de
- * peso (kg). Usada pelo módulo de Excesso de Peso (Segurança).
+ * Planilha "Equipamentos" do Frota Legal — cadastro de peso por placa.
+ * A placa vem na coluna "Identificador" (não "Placa": essa palavra também
+ * aparece em "Município Placa", que é outra coisa). Traz duas colunas de
+ * peso: "Tara" (peso vazio) e "Lotação" (peso máximo de carga — é essa
+ * que vira a referência comparada com o peso carregado do 03.11.49.02).
+ * O cabeçalho aparece repetido nas primeiras linhas do export; a busca por
+ * conteúdo (não por número de linha fixo) resolve isso sozinha.
  */
 export interface PesoPlacaImportado {
   placa: string;
-  peso: number;
+  pesoTara: number | null;
+  pesoLotacao: number | null;
 }
 
 export function parsePesoPlacaBuffer(buffer: ArrayBuffer): PesoPlacaImportado[] {
@@ -162,16 +167,19 @@ export function parsePesoPlacaBuffer(buffer: ArrayBuffer): PesoPlacaImportado[] 
 
   let headerRow = -1;
   let placaIdx = -1;
-  let pesoIdx = -1;
+  let taraIdx = -1;
+  let lotacaoIdx = -1;
   for (let i = 0; i < Math.min(rows.length, 20); i++) {
     const header = rows[i].map(normalize);
-    const pIdx = header.findIndex((c) => c.includes("placa"));
+    const pIdx = header.indexOf("identificador");
     if (pIdx === -1) continue;
-    const wIdx = header.findIndex((c) => c.includes("peso") || c.includes("tara") || c.includes("kg"));
-    if (wIdx === -1) continue;
+    const tIdx = header.indexOf("tara");
+    const lIdx = header.findIndex((c) => c.includes("lotacao"));
+    if (tIdx === -1 && lIdx === -1) continue;
     headerRow = i;
     placaIdx = pIdx;
-    pesoIdx = wIdx;
+    taraIdx = tIdx;
+    lotacaoIdx = lIdx;
     break;
   }
   if (headerRow === -1) return [];
@@ -180,9 +188,15 @@ export function parsePesoPlacaBuffer(buffer: ArrayBuffer): PesoPlacaImportado[] 
   for (let i = headerRow + 1; i < rows.length; i++) {
     const row = rows[i];
     const placa = String(row[placaIdx] ?? "").trim().toUpperCase();
-    const peso = Number(row[pesoIdx]);
-    if (!placa || !peso || isNaN(peso)) continue;
-    out.push({ placa, peso });
+    if (!placa) continue;
+    const tara = taraIdx !== -1 ? Number(row[taraIdx]) : NaN;
+    const lotacao = lotacaoIdx !== -1 ? Number(row[lotacaoIdx]) : NaN;
+    if (isNaN(tara) && isNaN(lotacao)) continue;
+    out.push({
+      placa,
+      pesoTara: !isNaN(tara) ? tara : null,
+      pesoLotacao: !isNaN(lotacao) ? lotacao : null,
+    });
   }
   return out;
 }
