@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Upload, FileSpreadsheet, Loader2, RefreshCw, Link2, ChevronDown,
-  CheckCircle, AlertTriangle, Clock, Camera, Scale, Grid3x3,
+  CheckCircle, AlertTriangle, Clock, Scale, Grid3x3, Image,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -102,16 +102,10 @@ export default function SegurancaExcessoPeso() {
   const [uploadingFrotaLegal, setUploadingFrotaLegal] = useState(false)
   const [erro, setErro] = useState('')
 
-  const [taraAberto, setTaraAberto] = useState(true)
   const [confrontoAberto, setConfrontoAberto] = useState(true)
   const [cadastroAberto, setCadastroAberto] = useState(true)
   const [excessoAberto, setExcessoAberto] = useState(true)
   const [filtroExcesso, setFiltroExcesso] = useState<SituacaoExcesso | 'todos'>('todos')
-
-  const [placaFotoAtiva, setPlacaFotoAtiva] = useState<string | null>(null)
-  const [enviandoFoto, setEnviandoFoto] = useState<string | null>(null)
-  const cameraInputRef = useRef<HTMLInputElement>(null)
-  const uploadInputRef = useRef<HTMLInputElement>(null)
 
   const fetchPesos = useCallback(async () => {
     if (!usuario) return
@@ -223,42 +217,6 @@ export default function SegurancaExcessoPeso() {
     }
   }
 
-  function abrirCaptura(placa: string, modo: 'camera' | 'upload') {
-    setPlacaFotoAtiva(placa)
-    if (modo === 'camera') cameraInputRef.current?.click()
-    else uploadInputRef.current?.click()
-  }
-
-  async function onFotoSelecionada(file: File) {
-    if (!usuario || !placaFotoAtiva) return
-    setEnviandoFoto(placaFotoAtiva)
-    setErro('')
-    try {
-      const ext = file.name.split('.').pop() || 'jpg'
-      const path = `${usuario.filial}/${placaFotoAtiva}-${Date.now()}.${ext}`
-      const { data: upload, error: uploadErr } = await supabase.storage
-        .from('fotos-tara')
-        .upload(path, file, { upsert: true })
-      if (uploadErr || !upload) throw new Error(uploadErr?.message ?? 'Falha no upload da foto')
-
-      const { data: urlData } = supabase.storage.from('fotos-tara').getPublicUrl(upload.path)
-
-      const { error: updateErr } = await supabase
-        .from('peso_cadastrado_placas')
-        .update({ foto_tara_url: urlData.publicUrl, foto_tara_em: new Date().toISOString() })
-        .eq('filial', usuario.filial)
-        .eq('placa', placaFotoAtiva)
-      if (updateErr) throw new Error(updateErr.message)
-
-      await fetchPesos()
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : 'Erro ao enviar foto da TARA')
-    } finally {
-      setEnviandoFoto(null)
-      setPlacaFotoAtiva(null)
-    }
-  }
-
   const placasFreightech = useMemo(() => pesos.filter(veioDoFreightech), [pesos])
   const faltandoNoFrotaLegal = useMemo(
     () => placasFreightech.filter((p) => p.peso_lotacao == null),
@@ -287,30 +245,6 @@ export default function SegurancaExcessoPeso() {
 
   return (
     <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-w-6xl mx-auto">
-      <input
-        ref={cameraInputRef}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) onFotoSelecionada(file)
-          if (cameraInputRef.current) cameraInputRef.current.value = ''
-        }}
-      />
-      <input
-        ref={uploadInputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0]
-          if (file) onFotoSelecionada(file)
-          if (uploadInputRef.current) uploadInputRef.current.value = ''
-        }}
-      />
-
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs text-muted-foreground mb-0.5">Segurança</p>
@@ -325,6 +259,9 @@ export default function SegurancaExcessoPeso() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Link to="/seguranca/excesso-peso/fotos-tara" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
+            <Image className="h-4 w-4" /> Foto da TARA
+          </Link>
           <Link to="/seguranca/excesso-peso/matriz" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <Grid3x3 className="h-4 w-4" /> Matriz mensal
           </Link>
@@ -377,10 +314,10 @@ export default function SegurancaExcessoPeso() {
           <p className="text-xs text-muted-foreground mb-1">Faltando no Frota Legal</p>
           <p className="text-2xl font-bold text-yellow-600">{stats.faltandoFrotaLegal}</p>
         </div>
-        <div className="border rounded-lg bg-white p-4">
+        <Link to="/seguranca/excesso-peso/fotos-tara" className="border rounded-lg bg-white p-4 hover:bg-muted/20 transition-colors">
           <p className="text-xs text-muted-foreground mb-1">Foto da TARA pendente</p>
           <p className="text-2xl font-bold text-yellow-600">{stats.fotosPendentes}</p>
-        </div>
+        </Link>
         <div className="border rounded-lg bg-white p-4">
           <p className="text-xs text-muted-foreground mb-1">Excesso de peso — hoje</p>
           <p className="text-2xl font-bold text-red-600">{stats.excessosHoje}</p>
@@ -435,77 +372,6 @@ export default function SegurancaExcessoPeso() {
                   ))}
                 </tbody>
               </table>
-            </div>
-          )
-        )}
-      </div>
-
-      {/* ── Foto da TARA ─────────────────────────────────────────── */}
-      <div className="border rounded-lg bg-white">
-        <button
-          onClick={() => setTaraAberto((v) => !v)}
-          className="w-full flex items-center justify-between px-4 py-3 border-b text-left hover:bg-muted/20 transition-colors"
-        >
-          <div>
-            <h2 className="font-semibold text-sm">Foto da TARA por placa</h2>
-            <p className="text-xs text-muted-foreground">Toda placa cadastrada precisa de uma foto da plaqueta de TARA</p>
-          </div>
-          <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${taraAberto ? 'rotate-180' : ''}`} />
-        </button>
-        {taraAberto && (
-          loadingPesos ? (
-            <div className="flex items-center justify-center py-10">
-              <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
-            </div>
-          ) : pesos.length === 0 ? (
-            <div className="text-center py-10 text-muted-foreground text-sm">
-              Nenhuma placa cadastrada ainda. Importe a planilha do Frota Legal.
-            </div>
-          ) : (
-            <div className="grid gap-3 p-4" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}>
-              {pesos.map((p) => (
-                <div key={p.id} className="border rounded-lg overflow-hidden bg-white">
-                  {p.foto_tara_url ? (
-                    <img src={p.foto_tara_url} alt={`TARA ${p.placa}`} className="w-full aspect-[4/3] object-cover" />
-                  ) : (
-                    <div className="w-full aspect-[4/3] bg-muted/40 flex items-center justify-center text-xs text-muted-foreground">
-                      Sem foto ainda
-                    </div>
-                  )}
-                  <div className="p-2.5 space-y-1.5">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-xs font-semibold bg-muted/50 border rounded px-1.5 py-0.5">{p.placa}</span>
-                      {p.foto_tara_url ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium text-green-700 bg-green-100">Enviada</span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium text-yellow-700 bg-yellow-100">Pendente</span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Tara: {formatarKg(p.peso_tara)} · Lotação: {formatarKg(p.peso_lotacao)}
-                    </p>
-                    {!p.foto_tara_url && (
-                      <div className="flex gap-1.5">
-                        <button
-                          onClick={() => abrirCaptura(p.placa, 'camera')}
-                          disabled={enviandoFoto === p.placa}
-                          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white text-[11px] transition-colors"
-                        >
-                          {enviandoFoto === p.placa ? <Loader2 className="h-3 w-3 animate-spin" /> : <Camera className="h-3 w-3" />}
-                          Tirar foto
-                        </button>
-                        <button
-                          onClick={() => abrirCaptura(p.placa, 'upload')}
-                          disabled={enviandoFoto === p.placa}
-                          className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 rounded-md border text-[11px] hover:bg-accent transition-colors disabled:opacity-50"
-                        >
-                          <Upload className="h-3 w-3" /> Enviar
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
             </div>
           )
         )}
