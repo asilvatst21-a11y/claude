@@ -101,3 +101,57 @@ export function calcularExcessoPeso(
     })
     .sort((a, b) => a.mapa - b.mapa)
 }
+
+export function formatarKg(valor: number | null): string {
+  if (valor == null) return '—'
+  return `${valor.toLocaleString('pt-BR')} kg`
+}
+
+export interface HistoricoExcessoPeso {
+  placa: string
+  mapa: number | null
+  data: string
+  peso_referencia: number | null
+  peso_carregado: number | null
+  excesso: number | null
+  situacao: SituacaoExcesso
+}
+
+// Grava o resultado do dia — chamado toda vez que a tela de Excesso de
+// Peso recalcula "hoje" (ao abrir a página, atualizar, ou importar
+// arquivo). Upsert por placa+dia: se a mesma placa for recalculada de
+// novo no mesmo dia, sobrescreve com o valor mais recente.
+export async function salvarHistoricoExcessoPeso(
+  filial: string,
+  data: string,
+  linhas: LinhaExcessoPeso[],
+): Promise<void> {
+  if (linhas.length === 0) return
+  const rows = linhas.map((l) => ({
+    filial,
+    placa: l.placa,
+    mapa: l.mapa,
+    data,
+    peso_referencia: l.pesoReferencia,
+    peso_carregado: l.pesoCarregado,
+    excesso: l.excesso,
+    situacao: l.situacao,
+  }))
+  await supabase.from('historico_excesso_peso').upsert(rows, { onConflict: 'filial,placa,data' })
+}
+
+// Usado pela matriz mensal (placa x dia).
+export async function buscarHistoricoExcessoPeso(
+  filial: string,
+  dataInicio: string,
+  dataFim: string,
+): Promise<HistoricoExcessoPeso[]> {
+  const { data } = await supabase
+    .from('historico_excesso_peso')
+    .select('placa, mapa, data, peso_referencia, peso_carregado, excesso, situacao')
+    .eq('filial', filial)
+    .gte('data', dataInicio)
+    .lte('data', dataFim)
+    .order('placa')
+  return data ?? []
+}

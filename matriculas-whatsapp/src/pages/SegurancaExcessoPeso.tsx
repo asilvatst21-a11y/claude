@@ -2,24 +2,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Upload, FileSpreadsheet, Loader2, RefreshCw, Link2, ChevronDown,
-  CheckCircle, AlertTriangle, Clock, Camera, Scale,
+  CheckCircle, AlertTriangle, Clock, Camera, Scale, Grid3x3,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { parsePesoPlacaBuffer, parsePlacasFreightechBuffer } from '../lib/tmlParser'
 import {
   buscarPesoCadastrado, buscarEscalaComPesoHoje, calcularExcessoPeso, veioDoFreightech,
+  salvarHistoricoExcessoPeso, formatarKg,
   type PesoCadastradoPlaca, type LinhaExcessoPeso, type SituacaoExcesso,
 } from '../lib/pesoExcesso'
 import { formatarDataBR } from '../lib/utils'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
-}
-
-function formatarKg(valor: number | null): string {
-  if (valor == null) return '—'
-  return `${valor.toLocaleString('pt-BR')} kg`
 }
 
 function ExcessoBadge({ situacao }: { situacao: SituacaoExcesso }) {
@@ -133,8 +129,12 @@ export default function SegurancaExcessoPeso() {
     if (!usuario) return
     setLoadingExcesso(true)
     const base = pesosAtualizados ?? await buscarPesoCadastrado(usuario.filial)
-    const escalas = await buscarEscalaComPesoHoje(usuario.filial, hojeISO())
-    setExcessoHoje(calcularExcessoPeso(escalas, base))
+    const hoje = hojeISO()
+    const escalas = await buscarEscalaComPesoHoje(usuario.filial, hoje)
+    const resultado = calcularExcessoPeso(escalas, base)
+    setExcessoHoje(resultado)
+    // Snapshot do dia — alimenta a matriz mensal (histórico_excesso_peso).
+    await salvarHistoricoExcessoPeso(usuario.filial, hoje, resultado)
     setLoadingExcesso(false)
   }, [usuario])
 
@@ -325,6 +325,9 @@ export default function SegurancaExcessoPeso() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <Link to="/seguranca/excesso-peso/matriz" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
+            <Grid3x3 className="h-4 w-4" /> Matriz mensal
+          </Link>
           <button onClick={atualizarTudo} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <RefreshCw className="h-4 w-4" /> Atualizar
           </button>
