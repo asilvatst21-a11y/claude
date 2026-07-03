@@ -201,6 +201,38 @@ export function parsePesoPlacaBuffer(buffer: ArrayBuffer): PesoPlacaImportado[] 
   return out;
 }
 
+/**
+ * Export "ag-grid" do Freightech — não tem peso (é uma base de custos de
+ * leasing/frota), mas serve como base inicial de placas: a lista de placas
+ * que realmente pertencem à filial. Usada pra filtrar ruído do 03.11.49.02
+ * (placas REC de recarga, placas de outra unidade) e pra apontar quando uma
+ * placa do Freightech ainda não tem peso cadastrado no Frota Legal.
+ */
+export function parsePlacasFreightechBuffer(buffer: ArrayBuffer): string[] {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+
+  let headerRow = -1;
+  let placaIdx = -1;
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    const idx = rows[i].findIndex((c) => normalize(c) === "placa");
+    if (idx !== -1) {
+      headerRow = i;
+      placaIdx = idx;
+      break;
+    }
+  }
+  if (headerRow === -1) return [];
+
+  const placas = new Set<string>();
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const placa = String(rows[i][placaIdx] ?? "").trim().toUpperCase();
+    if (placa) placas.add(placa);
+  }
+  return [...placas];
+}
+
 export interface MotoristaSalaTML {
   matricula: number;
   nome: string;

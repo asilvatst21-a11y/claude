@@ -7,6 +7,7 @@ export interface PesoCadastradoPlaca {
   peso_tara: number | null
   peso_lotacao: number | null
   importado_em: string | null
+  importado_freightech_em: string | null
   foto_tara_url: string | null
   foto_tara_em: string | null
   created_at: string
@@ -16,6 +17,13 @@ export interface PesoCadastradoPlaca {
 // Frota Legal (peso máximo de carga da placa).
 export function pesoReferencia(p: Pick<PesoCadastradoPlaca, 'peso_lotacao'>): number | null {
   return p.peso_lotacao ?? null
+}
+
+// Freightech é a base inicial de placas (não tem peso — só confirma quais
+// placas realmente pertencem à filial). Uma placa "veio do Freightech"
+// quando já foi importada de lá pelo menos uma vez.
+export function veioDoFreightech(p: Pick<PesoCadastradoPlaca, 'importado_freightech_em'>): boolean {
+  return p.importado_freightech_em != null
 }
 
 export async function buscarPesoCadastrado(filial: string): Promise<PesoCadastradoPlaca[]> {
@@ -56,6 +64,10 @@ export async function buscarEscalaComPesoHoje(filial: string, data: string): Pro
   return escalas ?? []
 }
 
+// Só entram no cálculo mapas cuja placa está cadastrada no Freightech — a
+// escala do dia (03.11.49.02) traz junto placas REC (recarga) e de outras
+// unidades, que não fazem parte da frota da filial e viram ruído se
+// entrarem na conta de excesso.
 export function calcularExcessoPeso(
   escalas: EscalaComPeso[],
   pesosCadastrados: PesoCadastradoPlaca[],
@@ -64,10 +76,14 @@ export function calcularExcessoPeso(
 
   return escalas
     .filter((e) => e.placa)
+    .map((e) => ({ mapa: e.mapa, placa: e.placa!.toUpperCase(), peso_carregado: e.peso_carregado }))
+    .filter((e) => {
+      const cadastro = pesoPorPlaca.get(e.placa)
+      return cadastro && veioDoFreightech(cadastro)
+    })
     .map((e) => {
-      const placa = e.placa!.toUpperCase()
-      const cadastro = pesoPorPlaca.get(placa)
-      const referencia = cadastro ? pesoReferencia(cadastro) : null
+      const cadastro = pesoPorPlaca.get(e.placa)!
+      const referencia = pesoReferencia(cadastro)
       const carregado = e.peso_carregado
 
       let situacao: SituacaoExcesso
@@ -81,7 +97,7 @@ export function calcularExcessoPeso(
         situacao = excesso > 0 ? 'excesso' : 'dentro_limite'
       }
 
-      return { mapa: e.mapa, placa, pesoReferencia: referencia, pesoCarregado: carregado, excesso, situacao }
+      return { mapa: e.mapa, placa: e.placa, pesoReferencia: referencia, pesoCarregado: carregado, excesso, situacao }
     })
     .sort((a, b) => a.mapa - b.mapa)
 }
