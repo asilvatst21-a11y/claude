@@ -112,26 +112,42 @@ function SituacaoBadge({ situacao, rotaFinalizada }: { situacao: SituacaoJornada
 // Compara a previsão dinâmica (ritmo real projetado) ou o horário real de
 // chegada (quando já finalizou) contra a previsão estática do plano. Sem
 // entregas suficientes ainda pra confiar no ritmo, mostra "—".
-function StatusPrevisaoBadge({ status, previsaoDinamica }: { status: StatusPrevisao | null; previsaoDinamica: string | null }) {
-  const titulo = previsaoDinamica ? `Previsão dinâmica: ${previsaoDinamica}` : undefined
+// O horário entra no próprio texto do badge (não só no title/tooltip) —
+// a imagem enviada ao grupo não tem como passar o mouse em cima.
+function StatusPrevisaoBadge({
+  status, previsaoDinamica, concluido,
+}: {
+  status: StatusPrevisao | null
+  previsaoDinamica: string | null
+  concluido: boolean
+}) {
+  const horario = previsaoDinamica ? ` (${previsaoDinamica})` : ''
+  if (concluido) {
+    const atrasado = status === 'atrasado'
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${atrasado ? 'text-red-700 bg-red-100' : 'text-green-700 bg-green-100'}`}>
+        <CheckCircle className="h-3 w-3" /> Finalizado{horario}
+      </span>
+    )
+  }
   if (status === 'adiantado') {
     return (
-      <span title={titulo} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-green-700 bg-green-100">
-        <CheckCircle className="h-3 w-3" /> Adiantado
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-green-700 bg-green-100">
+        <CheckCircle className="h-3 w-3" /> Adiantado{horario}
       </span>
     )
   }
   if (status === 'atrasado') {
     return (
-      <span title={titulo} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-red-700 bg-red-100">
-        <AlertTriangle className="h-3 w-3" /> Atrasado
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-red-700 bg-red-100">
+        <AlertTriangle className="h-3 w-3" /> Atrasado{horario}
       </span>
     )
   }
   if (status === 'no_prazo') {
     return (
-      <span title={titulo} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-gray-700 bg-gray-100">
-        <Clock className="h-3 w-3" /> No Prazo
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-gray-700 bg-gray-100">
+        <Clock className="h-3 w-3" /> No Prazo{horario}
       </span>
     )
   }
@@ -411,13 +427,30 @@ const JornadaExportTemplate = forwardRef<HTMLDivElement, {
                 <td style={td}>{l.horaSaidaReal ?? l.horaSaidaPrev ?? '—'}</td>
                 <td style={{ ...td, ...(alerta.prevChegada ? bad : {}) }}>{l.previsaoChegada ?? '—'}</td>
                 <td style={td}>
-                  <span style={{
-                    display: 'inline-block', padding: '1px 7px', borderRadius: '999px', fontSize: '8px', fontWeight: 700, textTransform: 'uppercase',
-                    background: l.statusPrevisao === 'adiantado' ? '#dcfce7' : l.statusPrevisao === 'atrasado' ? '#fee2e2' : '#f1f5f9',
-                    color: l.statusPrevisao === 'adiantado' ? '#15803d' : l.statusPrevisao === 'atrasado' ? '#b91c1c' : '#475569',
-                  }}>
-                    {l.statusPrevisao === 'adiantado' ? 'Adiantado' : l.statusPrevisao === 'atrasado' ? 'Atrasado' : l.statusPrevisao === 'no_prazo' ? 'No Prazo' : '—'}
-                  </span>
+                  {(() => {
+                    const concluido = l.percConclusao != null && l.percConclusao >= 1
+                    const horario = l.previsaoChegadaDinamica ? ` (${l.previsaoChegadaDinamica})` : ''
+                    const atrasado = l.statusPrevisao === 'atrasado'
+                    let texto: string
+                    let bg: string, fg: string
+                    if (concluido) {
+                      texto = `Finalizado${horario}`
+                      bg = atrasado ? '#fee2e2' : '#dcfce7'; fg = atrasado ? '#b91c1c' : '#15803d'
+                    } else if (l.statusPrevisao === 'adiantado') {
+                      texto = `Adiantado${horario}`; bg = '#dcfce7'; fg = '#15803d'
+                    } else if (l.statusPrevisao === 'atrasado') {
+                      texto = `Atrasado${horario}`; bg = '#fee2e2'; fg = '#b91c1c'
+                    } else if (l.statusPrevisao === 'no_prazo') {
+                      texto = `No Prazo${horario}`; bg = '#f1f5f9'; fg = '#475569'
+                    } else {
+                      texto = '—'; bg = '#f1f5f9'; fg = '#475569'
+                    }
+                    return (
+                      <span style={{ display: 'inline-block', padding: '1px 7px', borderRadius: '999px', fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', background: bg, color: fg }}>
+                        {texto}
+                      </span>
+                    )
+                  })()}
                 </td>
                 <td style={{ ...td, textAlign: 'right' }}>{l.trRealMin != null ? formatarDuracao(l.trRealMin) : '—'}</td>
                 <td style={td}>
@@ -998,7 +1031,13 @@ export default function JornadaRota() {
                     <td className="px-2 py-1.5">{SALA_JORNADA_LABEL[l.sala]}</td>
                     <td className="px-2 py-1.5">{l.horaSaidaReal ?? l.horaSaidaPrev ?? '—'}</td>
                     <td className={`px-2 py-1.5 ${alerta.prevChegada ? ruim : ''}`}>{l.previsaoChegada ?? '—'}</td>
-                    <td className="px-2 py-1.5"><StatusPrevisaoBadge status={l.statusPrevisao} previsaoDinamica={l.previsaoChegadaDinamica} /></td>
+                    <td className="px-2 py-1.5">
+                      <StatusPrevisaoBadge
+                        status={l.statusPrevisao}
+                        previsaoDinamica={l.previsaoChegadaDinamica}
+                        concluido={l.percConclusao != null && l.percConclusao >= 1}
+                      />
+                    </td>
                     <td className="px-2 py-1.5 text-right">{l.trRealMin != null ? formatarDuracao(l.trRealMin) : '—'}</td>
                     <td className="px-2 py-1.5"><SituacaoBadge situacao={l.situacao} rotaFinalizada={l.rotaFinalizada} /></td>
                     <td className="px-2 py-1.5 text-right">{l.entregasPrevistas ?? '—'}</td>

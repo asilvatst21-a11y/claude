@@ -219,34 +219,38 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
       }
 
       // Previsão dinâmica: a previsão estática (saída + tempo do plano) não
-      // reflete como o mapa está indo de verdade — um mapa que já finalizou
-      // ou está com muita pendência/nota deveria "puxar" a previsão pra
+      // reflete como o mapa está indo de verdade — um mapa que já entregou
+      // tudo ou está com muita pendência/nota deveria "puxar" a previsão pra
       // frente ou pra trás, não ficar travada no valor do plano. Mantém a
       // previsão estática como está (previsaoChegada) e calcula essa outra
       // em cima do ritmo real:
-      //  - rota já finalizada: usa o horário real de chegada (mesma base do
-      //    TR Real, via última entrega do BEES);
+      //  - 100% concluído (por % de conclusão, não depende do MPD ainda ter
+      //    confirmado "PC Financeira"): usa o horário real da última
+      //    entrega do BEES;
       //  - ainda em rota, com entregas suficientes pra confiar no ritmo
       //    (RITMO_MIN_ENTREGAS): projeta (tempo decorrido / entregas
       //    feitas) sobre o que falta.
       // Com poucas entregas feitas ainda, não dá pra confiar no ritmo — fica
       // sem previsão dinâmica e sem status (mostra "—" na tela).
+      const concluido = percConclusao != null && percConclusao >= 1
       let previsaoChegadaDinamica: string | null = null
       let statusPrevisao: StatusPrevisao | null = null
       if (previsaoChegada != null && horaSaidaReal) {
         const previstoMin = horarioParaMinutos(previsaoChegada)
         let referenciaMin: number | null = null
 
-        if (rotaFinalizada && trRealMin != null) {
-          referenciaMin = horarioParaMinutos(horaSaidaReal) + trRealMin
-        } else if (!rotaFinalizada && pendentes != null && pendentes > 0 && realizadas >= RITMO_MIN_ENTREGAS) {
+        if (concluido && b?.ultima_finalizacao) {
+          const saidaDt = new Date(`${data}T${horaSaidaReal}:00`)
+          const fimDt = new Date(b.ultima_finalizacao)
+          referenciaMin = horarioParaMinutos(horaSaidaReal) + Math.round((fimDt.getTime() - saidaDt.getTime()) / 60000)
+        } else if (!concluido && pendentes != null && pendentes > 0 && realizadas >= RITMO_MIN_ENTREGAS) {
           const decorrido = agoraMin - horarioParaMinutos(horaSaidaReal)
           const ritmoPorEntrega = decorrido / realizadas
           referenciaMin = agoraMin + pendentes * ritmoPorEntrega
-          previsaoChegadaDinamica = minutosParaHorario(referenciaMin)
         }
 
         if (referenciaMin != null) {
+          previsaoChegadaDinamica = minutosParaHorario(referenciaMin)
           const diff = referenciaMin - previstoMin
           statusPrevisao = diff < -TOLERANCIA_PREVISAO_MIN ? 'adiantado' : diff > TOLERANCIA_PREVISAO_MIN ? 'atrasado' : 'no_prazo'
         }
