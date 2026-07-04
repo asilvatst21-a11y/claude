@@ -209,20 +209,17 @@ function CartaControle({ linhas }: { linhas: LinhaJornada[] }) {
   const horasEixo: number[] = []
   for (let m = Math.ceil(minMin / 60) * 60; m <= maxMin; m += 60) horasEixo.push(m)
 
-  // Zonas de horário: melhor até 16h, ruim depois de 18h30 — mesma ideia das
-  // faixas de %, só que aplicada no eixo Y (previsão de chegada).
+  // Zonas de horário (única faixa de fundo, no eixo Y): melhor até 16h,
+  // meio-termo até 18h30, ruim depois disso.
   const clampMin = (m: number) => Math.min(Math.max(m, minMin), maxMin)
   const yMelhor = y(clampMin(16 * 60))
   const yRuim = y(clampMin(18 * 60 + 30))
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }} fontFamily="system-ui" fontSize="10">
-      <rect x={padL} y={padT} width={plotW * 0.33} height={plotH} fill="#fee2e2" opacity={0.35} />
-      <rect x={padL + plotW * 0.33} y={padT} width={plotW * 0.34} height={plotH} fill="#fef9c3" opacity={0.35} />
-      <rect x={padL + plotW * 0.67} y={padT} width={plotW * 0.33} height={plotH} fill="#dcfce7" opacity={0.35} />
-      <rect x={padL} y={padT} width={plotW} height={yMelhor - padT} fill="#dcfce7" opacity={0.35} />
-      <rect x={padL} y={yMelhor} width={plotW} height={yRuim - yMelhor} fill="#fef9c3" opacity={0.35} />
-      <rect x={padL} y={yRuim} width={plotW} height={H - padB - yRuim} fill="#fee2e2" opacity={0.35} />
+      <rect x={padL} y={padT} width={plotW} height={yMelhor - padT} fill="#dcfce7" opacity={0.5} />
+      <rect x={padL} y={yMelhor} width={plotW} height={yRuim - yMelhor} fill="#fef9c3" opacity={0.5} />
+      <rect x={padL} y={yRuim} width={plotW} height={H - padB - yRuim} fill="#fee2e2" opacity={0.5} />
       {Array.from({ length: 11 }, (_, i) => i * 10).map((pct) => (
         <line key={pct} x1={x(pct / 100)} y1={padT} x2={x(pct / 100)} y2={H - padB} stroke="#e2e8f0" strokeDasharray={pct === 0 || pct === 100 ? undefined : '2 3'} />
       ))}
