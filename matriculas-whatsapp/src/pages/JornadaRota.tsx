@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 import { Link } from 'react-router-dom'
 import html2canvas from 'html2canvas'
 import {
@@ -8,10 +9,10 @@ import {
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { parseBeesBuffer, parseRoteirizadorBuffer } from '../lib/tmlParser'
-import { enviarMensagemWhatsApp, enviarMensagemGrupo, enviarImagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { enviarMensagemWhatsApp, enviarImagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
-  buscarJornadaDoDia, calcularKpis, agruparPorSala, montarMensagemCdd,
+  buscarJornadaDoDia, calcularKpis, agruparPorSala,
   montarMensagemJornadaSala, montarMensagemIvSala, montarMensagemAderenciaSala,
   montarMensagemAlertaAderenciaMotorista, ADERENCIA_MINIMA, JORNADA_LIMITE_MIN,
   SALAS_JORNADA, SALA_JORNADA_LABEL, SALA_JORNADA_PARA_TML, formatarDuracao,
@@ -198,16 +199,18 @@ function CartaControle({ linhas }: { linhas: LinhaJornada[] }) {
   )
 }
 
-// Imagem enviada ao grupo do CDD junto da mensagem de texto (montarMensagemCdd)
-// — acumulado da filial no topo, depois a relação de mapas ordenada por %
-// de conclusão (do menor pro maior, pra quem está mais atrasado aparecer
-// primeiro). Mesmo critério de "fora da meta" da tela, em vermelho.
+// Imagem enviada ao grupo do CDD no lugar da mensagem de texto — acumulado
+// (geral ou só da sala, conforme `titulo`) no topo, depois a relação de
+// mapas ordenada por % de conclusão (do menor pro maior, pra quem está mais
+// atrasado aparecer primeiro). Mesmo critério de "fora da meta" da tela, em
+// vermelho.
 const JornadaExportTemplate = forwardRef<HTMLDivElement, {
+  titulo: string
   filial: string
   data: string
   kpis: KpisJornada
   linhas: LinhaJornada[]
-}>(function JornadaExportTemplate({ filial, data, kpis, linhas }, ref) {
+}>(function JornadaExportTemplate({ titulo, filial, data, kpis, linhas }, ref) {
   const th: React.CSSProperties = { padding: '5px 6px', fontSize: '8px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.02em', textAlign: 'left', whiteSpace: 'nowrap' }
   const td: React.CSSProperties = { padding: '4px 6px', fontSize: '9px', color: '#334155', verticalAlign: 'middle', whiteSpace: 'nowrap' }
   const bad: React.CSSProperties = { color: '#dc2626', fontWeight: 700 }
@@ -229,7 +232,7 @@ const JornadaExportTemplate = forwardRef<HTMLDivElement, {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '18px' }}>
         <div>
           <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Jornada e Tempo em Rota</p>
-          <h1 style={{ fontSize: '19px', fontWeight: 800, color: '#0f172a', margin: 0 }}>Resumo da Operação — CDD</h1>
+          <h1 style={{ fontSize: '19px', fontWeight: 800, color: '#0f172a', margin: 0 }}>Resumo da Operação — {titulo}</h1>
         </div>
         <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0, lineHeight: 1.5 }}>{filial}<br />{formatarDataBR(data)}</p>
       </div>
@@ -331,6 +334,7 @@ export default function JornadaRota() {
   const [erroGrupos, setErroGrupos] = useState<string | null>(null)
   const [copiado, setCopiado] = useState<string | null>(null)
   const exportRef = useRef<HTMLDivElement>(null)
+  const [imagemAtual, setImagemAtual] = useState<{ titulo: string; kpis: KpisJornada; linhas: LinhaJornada[] } | null>(null)
 
   const fetchJornada = useCallback(async () => {
     if (!usuario) return
@@ -525,15 +529,29 @@ export default function JornadaRota() {
       .eq('nome', usuario.filial)
       .maybeSingle()
     if (filialRow?.grupo_jornada_whatsapp) {
-      await enviarMensagemGrupo(filialRow.grupo_jornada_whatsapp, montarMensagemCdd(porSala, dataOperacao))
+      // No lugar da mensagem de texto: 3 imagens em sequência — geral +
+      // uma por sala (só as salas com supervisor mapeado; EXTERNOS entra
+      // apenas no geral). Cada imagem substitui o `imagemAtual` via
+      // flushSync (aplica o DOM na hora, sem esperar o próximo render) e
+      // só então é capturada com html2canvas.
+      const imagens: { titulo: string; kpis: KpisJornada; linhas: LinhaJornada[] }[] = [
+        { titulo: 'Geral', kpis: calcularKpis(lista), linhas: lista },
+      ]
+      for (const sala of SALAS_JORNADA) {
+        if (!SALA_JORNADA_PARA_TML[sala]) continue
+        const linhasSala = porSala.get(sala) ?? []
+        if (linhasSala.length === 0) continue
+        imagens.push({ titulo: SALA_JORNADA_LABEL[sala], kpis: calcularKpis(linhasSala), linhas: linhasSala })
+      }
 
-      // Imagem com o acumulado + relação de mapas, complementando a mensagem
-      // de texto (mesmo padrão da Frota: texto primeiro, depois a imagem).
-      if (exportRef.current) {
+      for (const item of imagens) {
+        flushSync(() => setImagemAtual(item))
+        if (!exportRef.current) continue
         const canvas = await html2canvas(exportRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
         const img = canvas.toDataURL('image/png')
-        await enviarImagemGrupo(filialRow.grupo_jornada_whatsapp, img, `📊 Resumo da Jornada — ${formatarDataBR(dataOperacao)}`)
+        await enviarImagemGrupo(filialRow.grupo_jornada_whatsapp, img, `📊 Jornada — ${item.titulo} — ${formatarDataBR(dataOperacao)}`)
       }
+      setImagemAtual(null)
     }
   }
 
@@ -848,7 +866,14 @@ export default function JornadaRota() {
         )}
       </div>
 
-      <JornadaExportTemplate ref={exportRef} filial={usuario?.filial ?? ''} data={dataOperacao} kpis={kpis} linhas={linhas} />
+      <JornadaExportTemplate
+        ref={exportRef}
+        titulo={imagemAtual?.titulo ?? 'Geral'}
+        filial={usuario?.filial ?? ''}
+        data={dataOperacao}
+        kpis={imagemAtual?.kpis ?? kpis}
+        linhas={imagemAtual?.linhas ?? []}
+      />
     </div>
   )
 }
