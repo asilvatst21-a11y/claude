@@ -175,58 +175,73 @@ function CaminhaoMarcador({ x, y, cor, titulo }: { x: number; y: number; cor: st
   )
 }
 
-// Carta de controle: X = previsão de chegada, Y = % de conclusão da rota.
+// Cor do caminhão na Carta de Controle: verde = 100% concluído (dentro do
+// prazo), amarelo = ainda em rota mas dentro do limite de 10h20, vermelho =
+// estourou o limite de 10h20 — em rota ou já concluído depois da hora.
+function corConclusao(l: { concl: number; trRealMin: number | null }): string {
+  const estourou = l.trRealMin != null && l.trRealMin > JORNADA_LIMITE_MIN
+  if (estourou) return '#ef4444'
+  return l.concl >= 1 ? '#22c55e' : '#eab308'
+}
+
+// Carta de controle: X = % de conclusão da rota, Y = previsão de chegada
+// (horário), esticado até 21h pra cobrir entregas até o fim da noite.
 function CartaControle({ linhas }: { linhas: LinhaJornada[] }) {
   const pontos = linhas
     .map((l) => {
       if (!l.previsaoChegada || l.percConclusao == null) return null
       const [h, m] = l.previsaoChegada.split(':').map(Number)
-      return { mapa: l.mapa, minutos: h * 60 + m, concl: l.percConclusao, situacao: l.situacao }
+      return { mapa: l.mapa, minutos: h * 60 + m, concl: l.percConclusao, trRealMin: l.trRealMin }
     })
-    .filter((p): p is { mapa: number; minutos: number; concl: number; situacao: SituacaoJornada } => p !== null)
+    .filter((p): p is { mapa: number; minutos: number; concl: number; trRealMin: number | null } => p !== null)
 
   if (pontos.length === 0) {
     return <p className="text-sm text-muted-foreground py-8 text-center">Sem dados suficientes pra desenhar a carta ainda.</p>
   }
 
   const minMin = Math.min(...pontos.map((p) => p.minutos)) - 30
-  const maxMin = Math.max(...pontos.map((p) => p.minutos)) + 30
-  const W = 720, H = 220, padL = 46, padR = 20, padT = 10, padB = 26
+  const maxMin = Math.max(21 * 60, Math.max(...pontos.map((p) => p.minutos)) + 30)
+  const W = 720, H = 300, padL = 50, padR = 20, padT = 14, padB = 30
   const plotW = W - padL - padR, plotH = H - padT - padB
-  const x = (min: number) => padL + ((min - minMin) / Math.max(maxMin - minMin, 1)) * plotW
-  const y = (concl: number) => padT + (1 - concl) * plotH
-
-  const cor = (s: SituacaoJornada) => (s === 'batendo' ? '#22c55e' : s === 'nao_bate' ? '#ef4444' : '#eab308')
+  const x = (concl: number) => padL + concl * plotW
+  const y = (min: number) => padT + ((min - minMin) / Math.max(maxMin - minMin, 1)) * plotH
 
   const horasEixo: number[] = []
   for (let m = Math.ceil(minMin / 60) * 60; m <= maxMin; m += 60) horasEixo.push(m)
 
   return (
     <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: 'block' }} fontFamily="system-ui" fontSize="10">
-      <rect x={padL} y={padT} width={plotW} height={plotH * 0.34} fill="#dcfce7" opacity={0.5} />
-      <rect x={padL} y={padT + plotH * 0.34} width={plotW} height={plotH * 0.33} fill="#fef9c3" opacity={0.5} />
-      <rect x={padL} y={padT + plotH * 0.67} width={plotW} height={plotH * 0.33} fill="#fee2e2" opacity={0.5} />
+      <rect x={padL} y={padT} width={plotW * 0.33} height={plotH} fill="#fee2e2" opacity={0.5} />
+      <rect x={padL + plotW * 0.33} y={padT} width={plotW * 0.34} height={plotH} fill="#fef9c3" opacity={0.5} />
+      <rect x={padL + plotW * 0.67} y={padT} width={plotW * 0.33} height={plotH} fill="#dcfce7" opacity={0.5} />
       {Array.from({ length: 11 }, (_, i) => i * 10).map((pct) => (
-        <line key={pct} x1={padL} y1={y(pct / 100)} x2={W - padR} y2={y(pct / 100)} stroke="#e2e8f0" strokeDasharray={pct === 0 || pct === 100 ? undefined : '2 3'} />
+        <line key={pct} x1={x(pct / 100)} y1={padT} x2={x(pct / 100)} y2={H - padB} stroke="#e2e8f0" strokeDasharray={pct === 0 || pct === 100 ? undefined : '2 3'} />
+      ))}
+      {horasEixo.map((m) => (
+        <line key={m} x1={padL} y1={y(m)} x2={W - padR} y2={y(m)} stroke="#f1f5f9" />
       ))}
       <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke="#cbd5e1" />
       <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="#cbd5e1" />
       {Array.from({ length: 11 }, (_, i) => i * 10).map((pct) => (
-        <text key={pct} x={padL - 6} y={y(pct / 100) + 3} textAnchor="end" fill="#94a3b8">{pct}%</text>
+        <text key={pct} x={x(pct / 100)} y={H - padB + 14} textAnchor="middle" fill="#94a3b8">{pct}%</text>
       ))}
       {horasEixo.map((m) => (
-        <text key={m} x={x(m)} y={H - padB + 14} textAnchor="middle" fill="#94a3b8">
+        <text key={m} x={padL - 6} y={y(m) + 3} textAnchor="end" fill="#94a3b8">
           {String(Math.floor(m / 60) % 24).padStart(2, '0')}:00
         </text>
       ))}
       {pontos.map((p) => (
-        <CaminhaoMarcador
-          key={p.mapa}
-          x={x(p.minutos)}
-          y={y(p.concl)}
-          cor={cor(p.situacao)}
-          titulo={`Mapa ${p.mapa} — ${formatarPct(p.concl)} conclusão, prev. ${String(Math.floor(p.minutos / 60)).padStart(2, '0')}:${String(p.minutos % 60).padStart(2, '0')}`}
-        />
+        <g key={p.mapa}>
+          <text x={x(p.concl)} y={y(p.minutos) - 8} textAnchor="middle" fill="#64748b" fontSize="8.5">
+            {String(Math.floor(p.minutos / 60)).padStart(2, '0')}:{String(p.minutos % 60).padStart(2, '0')}
+          </text>
+          <CaminhaoMarcador
+            x={x(p.concl)}
+            y={y(p.minutos)}
+            cor={corConclusao(p)}
+            titulo={`Mapa ${p.mapa} — ${formatarPct(p.concl)} conclusão, prev. ${String(Math.floor(p.minutos / 60)).padStart(2, '0')}:${String(p.minutos % 60).padStart(2, '0')}`}
+          />
+        </g>
       ))}
     </svg>
   )
@@ -244,9 +259,9 @@ const CartaControleExportTemplate = forwardRef<HTMLDivElement, {
   if (linhas.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
 
   const legenda: { cor: string; label: string }[] = [
-    { cor: '#22c55e', label: 'Batendo jornada' },
-    { cor: '#eab308', label: 'Em rota' },
-    { cor: '#ef4444', label: 'Não bate jornada' },
+    { cor: '#22c55e', label: '100% concluído' },
+    { cor: '#eab308', label: 'Em rota (< 10h20)' },
+    { cor: '#ef4444', label: '> 10h20 (em rota ou concluído)' },
   ]
 
   return (
@@ -272,7 +287,7 @@ const CartaControleExportTemplate = forwardRef<HTMLDivElement, {
             </span>
           ))}
         </div>
-        <p style={{ fontSize: '9.5px', color: '#94a3b8', margin: 0 }}>Eixo X: previsão de chegada · Eixo Y: % de conclusão</p>
+        <p style={{ fontSize: '9.5px', color: '#94a3b8', margin: 0 }}>Eixo X: % de conclusão · Eixo Y: previsão de chegada</p>
       </div>
     </div>
   )
@@ -844,9 +859,9 @@ export default function JornadaRota() {
             <p className="text-xs text-muted-foreground">Cada bolinha é um mapa — previsão de chegada × % de conclusão</p>
           </div>
           <div className="flex gap-3 text-xs text-muted-foreground flex-wrap">
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" /> Batendo</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block" /> Em rota</span>
-            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" /> Não bate</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" /> 100% concluído</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-yellow-500 inline-block" /> Em rota (&lt; 10h20)</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" /> &gt; 10h20 (em rota ou concluído)</span>
           </div>
         </div>
         <div className="p-4">
