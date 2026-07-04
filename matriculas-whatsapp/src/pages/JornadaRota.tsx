@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
+import html2canvas from 'html2canvas'
 import {
   Upload, Loader2, RefreshCw, Link2, CheckCircle, AlertTriangle, Clock,
   Route, Send, Calendar, Settings2, Search,
@@ -7,14 +8,14 @@ import {
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { parseBeesBuffer, parseRoteirizadorBuffer } from '../lib/tmlParser'
-import { enviarMensagemWhatsApp, enviarMensagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { enviarMensagemWhatsApp, enviarMensagemGrupo, enviarImagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   buscarJornadaDoDia, calcularKpis, agruparPorSala, montarMensagemCdd,
   montarMensagemJornadaSala, montarMensagemIvSala, montarMensagemAderenciaSala,
   montarMensagemAlertaAderenciaMotorista, ADERENCIA_MINIMA, JORNADA_LIMITE_MIN,
   SALAS_JORNADA, SALA_JORNADA_LABEL, SALA_JORNADA_PARA_TML, formatarDuracao,
-  type LinhaJornada, type SalaJornada, type SituacaoJornada,
+  type LinhaJornada, type SalaJornada, type SituacaoJornada, type KpisJornada,
 } from '../lib/jornada'
 import { formatarDataBR } from '../lib/utils'
 
@@ -197,6 +198,103 @@ function CartaControle({ linhas }: { linhas: LinhaJornada[] }) {
   )
 }
 
+// Imagem enviada ao grupo do CDD junto da mensagem de texto (montarMensagemCdd)
+// — acumulado da filial no topo, depois a relação de mapas ordenada por %
+// de conclusão (do menor pro maior, pra quem está mais atrasado aparecer
+// primeiro). Mesmo critério de "fora da meta" da tela, em vermelho.
+const JornadaExportTemplate = forwardRef<HTMLDivElement, {
+  filial: string
+  data: string
+  kpis: KpisJornada
+  linhas: LinhaJornada[]
+}>(function JornadaExportTemplate({ filial, data, kpis, linhas }, ref) {
+  const th: React.CSSProperties = { padding: '7px 8px', fontSize: '9px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.03em', textAlign: 'left', whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '6px 8px', fontSize: '10.5px', color: '#334155', verticalAlign: 'middle', whiteSpace: 'nowrap' }
+  const bad: React.CSSProperties = { color: '#dc2626', fontWeight: 700 }
+
+  if (linhas.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
+
+  const ordenadas = [...linhas].sort((a, b) => (a.percConclusao ?? -1) - (b.percConclusao ?? -1))
+
+  const stats: { label: string; valor: string; cor?: string }[] = [
+    { label: 'Mapas', valor: String(kpis.mapas) },
+    { label: 'Entregas', valor: `${kpis.entregasRealizadas}/${kpis.entregasTotal}` },
+    { label: '% Concl.', valor: formatarPct(kpis.percConclusaoMedio), cor: '#16a34a' },
+    { label: 'Devolução', valor: formatarPct(kpis.devolucaoPct), cor: '#dc2626' },
+    { label: 'IV', valor: formatarPct(kpis.iv), cor: '#dc2626' },
+  ]
+
+  return (
+    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '640px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '18px' }}>
+        <div>
+          <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Jornada e Tempo em Rota</p>
+          <h1 style={{ fontSize: '19px', fontWeight: 800, color: '#0f172a', margin: 0 }}>Resumo da Operação — CDD</h1>
+        </div>
+        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0, lineHeight: 1.5 }}>{filial}<br />{formatarDataBR(data)}</p>
+      </div>
+
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
+        {stats.map((c) => (
+          <div key={c.label} style={{ flex: 1, background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '10px 8px', textAlign: 'center' }}>
+            <p style={{ fontSize: '9px', color: '#64748b', margin: '0 0 4px', textTransform: 'uppercase', letterSpacing: '0.03em', fontWeight: 700 }}>{c.label}</p>
+            <p style={{ fontSize: '17px', fontWeight: 800, color: c.cor ?? '#0f172a', margin: 0 }}>{c.valor}</p>
+          </div>
+        ))}
+      </div>
+
+      <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', overflow: 'hidden' }}>
+        <thead>
+          <tr style={{ background: '#1e3a5f' }}>
+            <th style={th}>Mapa</th>
+            <th style={th}>Motorista</th>
+            <th style={th}>Sala</th>
+            <th style={{ ...th, textAlign: 'right' }}>Devol.</th>
+            <th style={{ ...th, textAlign: 'right' }}>F.Raio</th>
+            <th style={{ ...th, textAlign: 'right' }}>&lt;4min</th>
+            <th style={{ ...th, textAlign: 'right' }}>Not&lt;10s</th>
+            <th style={{ ...th, textAlign: 'right' }}>Aderênc.</th>
+            <th style={{ ...th, textAlign: 'right' }}>% Concl.</th>
+            <th style={th}>Jornada</th>
+          </tr>
+        </thead>
+        <tbody>
+          {ordenadas.map((l, i) => {
+            const alerta = foraDaMeta(l)
+            const foraRaio = l.entregaForaRaio + l.devForaRaio
+            return (
+              <tr key={l.mapa} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
+                <td style={{ ...td, fontWeight: 700, color: '#0f172a' }}>{l.mapa}</td>
+                <td style={td}>{l.nome ?? l.placa ?? '—'}</td>
+                <td style={td}>{SALA_JORNADA_LABEL[l.sala]}</td>
+                <td style={{ ...td, textAlign: 'right', ...(alerta.devolucao ? bad : {}) }}>{l.devolucao}</td>
+                <td style={{ ...td, textAlign: 'right', ...(alerta.foraRaio ? bad : {}) }}>{foraRaio}</td>
+                <td style={{ ...td, textAlign: 'right', ...(alerta.menos4min ? bad : {}) }}>{l.menos4min}</td>
+                <td style={{ ...td, textAlign: 'right', ...(alerta.not10s ? bad : {}) }}>{l.not10s}</td>
+                <td style={{ ...td, textAlign: 'right', ...(alerta.aderencia ? bad : {}) }}>{formatarPct(l.aderencia)}</td>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{formatarPct(l.percConclusao)}</td>
+                <td style={td}>
+                  <span style={{
+                    display: 'inline-block', padding: '1px 7px', borderRadius: '999px', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase',
+                    background: l.situacao === 'batendo' ? '#dcfce7' : l.situacao === 'nao_bate' ? '#fee2e2' : '#f1f5f9',
+                    color: l.situacao === 'batendo' ? '#15803d' : l.situacao === 'nao_bate' ? '#b91c1c' : '#475569',
+                  }}>
+                    {l.situacao === 'batendo' ? 'Batendo' : l.situacao === 'nao_bate' ? 'Não bate' : 'Em rota'}
+                  </span>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+
+      <div style={{ paddingTop: '10px', marginTop: '14px', borderTop: '1px solid #e2e8f0', fontSize: '9.5px', color: '#94a3b8' }}>
+        Gerado em {formatarDataBR(data)} · ordenado por % de conclusão (menor pro maior)
+      </div>
+    </div>
+  )
+})
+
 export default function JornadaRota() {
   const { usuario } = useAuth()
   const [dataOperacao, setDataOperacao] = useState(hojeISO)
@@ -218,6 +316,7 @@ export default function JornadaRota() {
   const [buscandoGrupos, setBuscandoGrupos] = useState(false)
   const [erroGrupos, setErroGrupos] = useState<string | null>(null)
   const [copiado, setCopiado] = useState<string | null>(null)
+  const exportRef = useRef<HTMLDivElement>(null)
 
   const fetchJornada = useCallback(async () => {
     if (!usuario) return
@@ -413,6 +512,14 @@ export default function JornadaRota() {
       .maybeSingle()
     if (filialRow?.grupo_jornada_whatsapp) {
       await enviarMensagemGrupo(filialRow.grupo_jornada_whatsapp, montarMensagemCdd(porSala, dataOperacao))
+
+      // Imagem com o acumulado + relação de mapas, complementando a mensagem
+      // de texto (mesmo padrão da Frota: texto primeiro, depois a imagem).
+      if (exportRef.current) {
+        const canvas = await html2canvas(exportRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+        const img = canvas.toDataURL('image/png')
+        await enviarImagemGrupo(filialRow.grupo_jornada_whatsapp, img, `📊 Resumo da Jornada — ${formatarDataBR(dataOperacao)}`)
+      }
     }
   }
 
@@ -726,6 +833,8 @@ export default function JornadaRota() {
           </div>
         )}
       </div>
+
+      <JornadaExportTemplate ref={exportRef} filial={usuario?.filial ?? ''} data={dataOperacao} kpis={kpis} linhas={linhas} />
     </div>
   )
 }
