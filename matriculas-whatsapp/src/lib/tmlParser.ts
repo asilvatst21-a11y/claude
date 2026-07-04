@@ -504,6 +504,7 @@ export interface BeesMapaAgregado {
   menos4min: number;
   not10s: number;
   tempoRealMedioMin: number | null;
+  ultimaFinalizacao: string | null;
 }
 
 /**
@@ -536,7 +537,7 @@ export function parseBeesBuffer(buffer: ArrayBuffer): BeesMapaAgregado[] {
     data: string | null; placa: string | null;
     realizadas: number; devolucao: number; repasse: number;
     entregaForaRaio: number; devForaRaio: number; menos4min: number; not10s: number;
-    somaTempoReal: number; nTempoReal: number;
+    somaTempoReal: number; nTempoReal: number; ultimoFinishedAt: number;
   }
   const porMapa = new Map<number, Acc>();
 
@@ -548,7 +549,7 @@ export function parseBeesBuffer(buffer: ArrayBuffer): BeesMapaAgregado[] {
     const acc = porMapa.get(mapa) ?? {
       data: null, placa: null, realizadas: 0, devolucao: 0, repasse: 0,
       entregaForaRaio: 0, devForaRaio: 0, menos4min: 0, not10s: 0,
-      somaTempoReal: 0, nTempoReal: 0,
+      somaTempoReal: 0, nTempoReal: 0, ultimoFinishedAt: NaN,
     };
     if (!acc.data && dataIdx !== -1) acc.data = String(row[dataIdx] ?? "").slice(0, 10) || null;
     if (!acc.placa && placaIdx !== -1) acc.placa = String(row[placaIdx] ?? "").trim().toUpperCase() || null;
@@ -582,6 +583,12 @@ export function parseBeesBuffer(buffer: ArrayBuffer): BeesMapaAgregado[] {
       const segundos = (arrivedAt - notifAt) / 1000;
       if (segundos >= 0 && segundos < 10) acc.not10s++;
     }
+    // Última entrega finalizada do mapa = hora real de encerramento da rota,
+    // usada pra calcular o TR Real de mapas já finalizados (evita comparar
+    // com "agora", que só faz sentido pra quem ainda está em rota).
+    if (!isNaN(finishedAt) && (isNaN(acc.ultimoFinishedAt) || finishedAt > acc.ultimoFinishedAt)) {
+      acc.ultimoFinishedAt = finishedAt;
+    }
 
     porMapa.set(mapa, acc);
   }
@@ -598,6 +605,7 @@ export function parseBeesBuffer(buffer: ArrayBuffer): BeesMapaAgregado[] {
     menos4min: acc.menos4min,
     not10s: acc.not10s,
     tempoRealMedioMin: acc.nTempoReal > 0 ? acc.somaTempoReal / acc.nTempoReal : null,
+    ultimaFinalizacao: !isNaN(acc.ultimoFinishedAt) ? new Date(acc.ultimoFinishedAt).toISOString() : null,
   }));
 }
 

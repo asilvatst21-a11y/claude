@@ -106,7 +106,7 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
       .eq('data_saida', data),
     supabase
       .from('jornada_bees')
-      .select('mapa, realizadas, devolucao, repasse, entrega_fora_raio, dev_fora_raio, menos_4min, not_10s')
+      .select('mapa, realizadas, devolucao, repasse, entrega_fora_raio, dev_fora_raio, menos_4min, not_10s, ultima_finalizacao')
       .eq('filial', filial)
       .eq('data', data),
     supabase
@@ -140,8 +140,24 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
         ? minutosParaHorario(horarioParaMinutos(horaBase) + e.tempo_prev_min)
         : null
 
+      // MPD (coluna Q do 03.11.49.02) = "PC Financeira" → a rota já foi
+      // prestada contas/finalizada. É o sinal mais confiável de que o mapa
+      // encerrou, melhor que estimar por % de conclusão. Normaliza acento e
+      // caixa e casa por prefixo ("pc financ...") pra tolerar variação de
+      // pontuação da planilha (ex.: "PC Financ.").
+      const mpdNormalizado = (e.mpd_status ?? '')
+        .normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
+      const rotaFinalizada = mpdNormalizado.includes('pc financ')
+
       let trRealMin: number | null = null
-      if (horaSaidaReal) {
+      if (horaSaidaReal && rotaFinalizada && b?.ultima_finalizacao) {
+        // Rota já encerrada: usa a hora real da última entrega do BEES, não
+        // "agora" — senão o TR Real infla conforme o dia passa e o sistema
+        // acaba prevendo "não bate jornada" pra rota que já bateu há horas.
+        const saidaDt = new Date(`${data}T${horaSaidaReal}:00`)
+        const fimDt = new Date(b.ultima_finalizacao)
+        trRealMin = Math.round((fimDt.getTime() - saidaDt.getTime()) / 60000)
+      } else if (horaSaidaReal) {
         trRealMin = agoraMin - horarioParaMinutos(horaSaidaReal)
         if (trRealMin < 0) trRealMin += 1440
       }
@@ -158,11 +174,6 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
       const pendentes = entregasPrevistas != null ? Math.max(entregasPrevistas - realizadas - devolucao, 0) : null
       const aderencia = entregasPrevistas ? 1 - (devForaRaio + entregaForaRaio) / entregasPrevistas : null
       const percConclusao = entregasPrevistas ? 1 - (pendentes ?? 0) / entregasPrevistas : null
-
-      // MPD (coluna Q do 03.11.49.02) = "PC Financeira" → a rota já foi
-      // prestada contas/finalizada. É o sinal mais confiável de que o mapa
-      // encerrou, melhor que estimar por % de conclusão.
-      const rotaFinalizada = (e.mpd_status ?? '').toLowerCase().includes('pc financeira')
 
       // "Bate jornada": se a rota já foi finalizada (MPD = PC Financeira),
       // o resultado é definitivo — bateu se o tempo em rota ficou dentro do

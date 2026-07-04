@@ -240,6 +240,7 @@ export default function JornadaRota() {
         menos_4min: a.menos4min,
         not_10s: a.not10s,
         tempo_real_medio_min: a.tempoRealMedioMin,
+        ultima_finalizacao: a.ultimaFinalizacao,
         importado_em: agora,
       }))
       const { error } = await supabase.from('jornada_bees').upsert(rows, { onConflict: 'filial,mapa,data' })
