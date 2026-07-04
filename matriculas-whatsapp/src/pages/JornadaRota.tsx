@@ -208,8 +208,8 @@ const JornadaExportTemplate = forwardRef<HTMLDivElement, {
   kpis: KpisJornada
   linhas: LinhaJornada[]
 }>(function JornadaExportTemplate({ filial, data, kpis, linhas }, ref) {
-  const th: React.CSSProperties = { padding: '7px 8px', fontSize: '9px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.03em', textAlign: 'left', whiteSpace: 'nowrap' }
-  const td: React.CSSProperties = { padding: '6px 8px', fontSize: '10.5px', color: '#334155', verticalAlign: 'middle', whiteSpace: 'nowrap' }
+  const th: React.CSSProperties = { padding: '5px 6px', fontSize: '8px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.02em', textAlign: 'left', whiteSpace: 'nowrap' }
+  const td: React.CSSProperties = { padding: '4px 6px', fontSize: '9px', color: '#334155', verticalAlign: 'middle', whiteSpace: 'nowrap' }
   const bad: React.CSSProperties = { color: '#dc2626', fontWeight: 700 }
 
   if (linhas.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
@@ -225,7 +225,7 @@ const JornadaExportTemplate = forwardRef<HTMLDivElement, {
   ]
 
   return (
-    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '640px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
+    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '1080px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '18px' }}>
         <div>
           <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Jornada e Tempo em Rota</p>
@@ -247,15 +247,22 @@ const JornadaExportTemplate = forwardRef<HTMLDivElement, {
         <thead>
           <tr style={{ background: '#1e3a5f' }}>
             <th style={th}>Mapa</th>
+            <th style={th}>Placa</th>
             <th style={th}>Motorista</th>
             <th style={th}>Sala</th>
+            <th style={th}>Saída</th>
+            <th style={th}>Prev. cheg.</th>
+            <th style={{ ...th, textAlign: 'right' }}>TR Real</th>
+            <th style={th}>Bate Jornada?</th>
+            <th style={{ ...th, textAlign: 'right' }}>Entr.</th>
+            <th style={{ ...th, textAlign: 'right' }}>Realiz.</th>
+            <th style={{ ...th, textAlign: 'right' }}>Pend.</th>
             <th style={{ ...th, textAlign: 'right' }}>Devol.</th>
             <th style={{ ...th, textAlign: 'right' }}>F.Raio</th>
             <th style={{ ...th, textAlign: 'right' }}>&lt;4min</th>
             <th style={{ ...th, textAlign: 'right' }}>Not&lt;10s</th>
             <th style={{ ...th, textAlign: 'right' }}>Aderênc.</th>
             <th style={{ ...th, textAlign: 'right' }}>% Concl.</th>
-            <th style={th}>Jornada</th>
           </tr>
         </thead>
         <tbody>
@@ -265,23 +272,30 @@ const JornadaExportTemplate = forwardRef<HTMLDivElement, {
             return (
               <tr key={l.mapa} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
                 <td style={{ ...td, fontWeight: 700, color: '#0f172a' }}>{l.mapa}</td>
-                <td style={td}>{l.nome ?? l.placa ?? '—'}</td>
+                <td style={{ ...td, fontFamily: 'monospace', fontWeight: 700 }}>{l.placa ?? '—'}</td>
+                <td style={td}>{l.nome ?? '—'}</td>
                 <td style={td}>{SALA_JORNADA_LABEL[l.sala]}</td>
-                <td style={{ ...td, textAlign: 'right', ...(alerta.devolucao ? bad : {}) }}>{l.devolucao}</td>
-                <td style={{ ...td, textAlign: 'right', ...(alerta.foraRaio ? bad : {}) }}>{foraRaio}</td>
-                <td style={{ ...td, textAlign: 'right', ...(alerta.menos4min ? bad : {}) }}>{l.menos4min}</td>
-                <td style={{ ...td, textAlign: 'right', ...(alerta.not10s ? bad : {}) }}>{l.not10s}</td>
-                <td style={{ ...td, textAlign: 'right', ...(alerta.aderencia ? bad : {}) }}>{formatarPct(l.aderencia)}</td>
-                <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{formatarPct(l.percConclusao)}</td>
+                <td style={td}>{l.horaSaidaReal ?? l.horaSaidaPrev ?? '—'}</td>
+                <td style={{ ...td, ...(alerta.prevChegada ? bad : {}) }}>{l.previsaoChegada ?? '—'}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{l.trRealMin != null ? formatarDuracao(l.trRealMin) : '—'}</td>
                 <td style={td}>
                   <span style={{
-                    display: 'inline-block', padding: '1px 7px', borderRadius: '999px', fontSize: '9px', fontWeight: 700, textTransform: 'uppercase',
+                    display: 'inline-block', padding: '1px 7px', borderRadius: '999px', fontSize: '8px', fontWeight: 700, textTransform: 'uppercase',
                     background: l.situacao === 'batendo' ? '#dcfce7' : l.situacao === 'nao_bate' ? '#fee2e2' : '#f1f5f9',
                     color: l.situacao === 'batendo' ? '#15803d' : l.situacao === 'nao_bate' ? '#b91c1c' : '#475569',
                   }}>
                     {l.situacao === 'batendo' ? 'Batendo' : l.situacao === 'nao_bate' ? 'Não bate' : 'Em rota'}
                   </span>
                 </td>
+                <td style={{ ...td, textAlign: 'right' }}>{l.entregasPrevistas ?? '—'}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{l.realizadas}</td>
+                <td style={{ ...td, textAlign: 'right' }}>{l.pendentes ?? '—'}</td>
+                <td style={{ ...td, textAlign: 'right', ...(alerta.devolucao ? bad : {}) }}>{l.devolucao}</td>
+                <td style={{ ...td, textAlign: 'right', ...(alerta.foraRaio ? bad : {}) }}>{foraRaio}</td>
+                <td style={{ ...td, textAlign: 'right', ...(alerta.menos4min ? bad : {}) }}>{l.menos4min}</td>
+                <td style={{ ...td, textAlign: 'right', ...(alerta.not10s ? bad : {}) }}>{l.not10s}</td>
+                <td style={{ ...td, textAlign: 'right', ...(alerta.aderencia ? bad : {}) }}>{formatarPct(l.aderencia)}</td>
+                <td style={{ ...td, textAlign: 'right', fontWeight: 700 }}>{formatarPct(l.percConclusao)}</td>
               </tr>
             )
           })}
