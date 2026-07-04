@@ -206,10 +206,14 @@ function CartaControle({ linhas }: { linhas: LinhaJornada[] }) {
       <rect x={padL} y={padT} width={plotW} height={plotH * 0.34} fill="#dcfce7" opacity={0.5} />
       <rect x={padL} y={padT + plotH * 0.34} width={plotW} height={plotH * 0.33} fill="#fef9c3" opacity={0.5} />
       <rect x={padL} y={padT + plotH * 0.67} width={plotW} height={plotH * 0.33} fill="#fee2e2" opacity={0.5} />
-      <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke="#e2e8f0" />
-      <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="#e2e8f0" />
-      <text x={padL - 6} y={padT + 4} textAnchor="end" fill="#94a3b8">100%</text>
-      <text x={padL - 6} y={H - padB + 4} textAnchor="end" fill="#94a3b8">0%</text>
+      {Array.from({ length: 11 }, (_, i) => i * 10).map((pct) => (
+        <line key={pct} x1={padL} y1={y(pct / 100)} x2={W - padR} y2={y(pct / 100)} stroke="#e2e8f0" strokeDasharray={pct === 0 || pct === 100 ? undefined : '2 3'} />
+      ))}
+      <line x1={padL} y1={padT} x2={padL} y2={H - padB} stroke="#cbd5e1" />
+      <line x1={padL} y1={H - padB} x2={W - padR} y2={H - padB} stroke="#cbd5e1" />
+      {Array.from({ length: 11 }, (_, i) => i * 10).map((pct) => (
+        <text key={pct} x={padL - 6} y={y(pct / 100) + 3} textAnchor="end" fill="#94a3b8">{pct}%</text>
+      ))}
       {horasEixo.map((m) => (
         <text key={m} x={x(m)} y={H - padB + 14} textAnchor="middle" fill="#94a3b8">
           {String(Math.floor(m / 60) % 24).padStart(2, '0')}:00
