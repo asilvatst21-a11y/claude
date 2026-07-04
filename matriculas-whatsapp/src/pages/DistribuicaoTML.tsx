@@ -1387,43 +1387,43 @@ export default function DistribuicaoTML() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Número</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Data</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Mapa</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Sala</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Placa</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Motorista</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Limite</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Saída</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Atraso</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
-                  <th className="text-right px-4 py-3 font-medium text-muted-foreground">Ações</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Número</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Data</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Mapa</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Sala</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Placa</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Motorista</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Limite</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Saída</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Atraso</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Status</th>
+                  <th className="text-right px-2 py-2 font-medium text-muted-foreground">Ações</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {alertas.map((a) => (
                   <tr key={a.id} className="hover:bg-muted/30 transition-colors align-top">
-                    <td className="px-4 py-3 font-mono text-xs">{a.numero}</td>
-                    <td className="px-4 py-3 text-xs">{formatarDataBR(a.data_saida)}</td>
-                    <td className="px-4 py-3">{a.mapa}</td>
-                    <td className="px-4 py-3">{SALA_TML_LABEL[a.sala] ?? a.sala}</td>
-                    <td className="px-4 py-3">{a.placa ?? '—'}</td>
-                    <td className="px-4 py-3">{a.nome ?? '—'} {a.matricula != null && <span className="text-muted-foreground">({a.matricula})</span>}</td>
-                    <td className="px-4 py-3">{a.horario_limite}</td>
-                    <td className="px-4 py-3">{a.horario_saida}</td>
-                    <td className="px-4 py-3">{a.atraso_minutos} min</td>
-                    <td className="px-4 py-3">
+                    <td className="px-2 py-1.5 font-mono">{a.numero}</td>
+                    <td className="px-2 py-1.5">{formatarDataBR(a.data_saida)}</td>
+                    <td className="px-2 py-1.5">{a.mapa}</td>
+                    <td className="px-2 py-1.5">{SALA_TML_LABEL[a.sala] ?? a.sala}</td>
+                    <td className="px-2 py-1.5">{a.placa ?? '—'}</td>
+                    <td className="px-2 py-1.5">{a.nome ?? '—'} {a.matricula != null && <span className="text-muted-foreground">({a.matricula})</span>}</td>
+                    <td className="px-2 py-1.5">{a.horario_limite}</td>
+                    <td className="px-2 py-1.5">{a.horario_saida}</td>
+                    <td className="px-2 py-1.5">{a.atraso_minutos} min</td>
+                    <td className="px-2 py-1.5">
                       <StatusBadge status={a.status} />
                       {a.resposta_supervisor && (
-                        <p className="text-xs text-blue-700 mt-1 max-w-[240px]" title={a.resposta_supervisor}>
+                        <p className="mt-1 max-w-[160px] truncate" title={a.resposta_supervisor}>
                           💬 <span className="italic">{a.resposta_supervisor}</span>
                         </p>
                       )}
                       {a.justificativa && (
-                        <p className="text-xs text-muted-foreground mt-1 max-w-[240px] truncate" title={a.justificativa}>
+                        <p className="text-muted-foreground mt-1 max-w-[160px] truncate" title={a.justificativa}>
                           Motivo: {a.justificativa}
                         </p>
                       )}
@@ -1431,18 +1431,18 @@ export default function DistribuicaoTML() {
                         const c = conversas.get(a.id)
                         if (!c) return null
                         return (
-                          <div className="mt-1.5 rounded-md bg-purple-50 border border-purple-100 px-2 py-1.5 max-w-[260px] space-y-1">
-                            <p className="text-[10px] font-semibold text-purple-700 uppercase tracking-wide flex items-center gap-1">
-                              <MessageCircle className="h-3 w-3" /> Conversa com o motorista
+                          <div className="mt-1.5 rounded-md bg-purple-50 border border-purple-100 px-1.5 py-1 max-w-[170px] space-y-1">
+                            <p className="text-[9px] font-semibold text-purple-700 uppercase tracking-wide flex items-center gap-1">
+                              <MessageCircle className="h-3 w-3 shrink-0" /> Conversa
                               {c.estado !== 'concluido' && <span className="ml-auto text-purple-500 normal-case font-normal">aguardando…</span>}
                             </p>
                             {c.motivo && (
-                              <p className="text-[11px] text-purple-900" title={c.motivo}>
+                              <p className="truncate text-purple-900" title={c.motivo}>
                                 <span className="font-medium">Motivo:</span> {c.motivo} {c.motivo_por_audio && <Mic className="inline h-2.5 w-2.5" />}
                               </p>
                             )}
                             {c.solucao && (
-                              <p className="text-[11px] text-purple-900" title={c.solucao}>
+                              <p className="truncate text-purple-900" title={c.solucao}>
                                 <span className="font-medium">Solução:</span> {c.solucao} {c.solucao_por_audio && <Mic className="inline h-2.5 w-2.5" />}
                               </p>
                             )}
@@ -1450,30 +1450,30 @@ export default function DistribuicaoTML() {
                         )
                       })()}
                     </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex flex-col items-end gap-1.5">
+                    <td className="px-2 py-1.5 text-right">
+                      <div className="flex flex-col items-end gap-1">
                         {a.status === 'pendente' && (
                           <button
                             onClick={() => handleEnviarAlerta(a)}
                             disabled={enviandoAlertaId === a.id}
-                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white text-xs transition-colors"
+                            className="flex items-center gap-1 px-2 py-1 rounded-md bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white transition-colors whitespace-nowrap"
                           >
-                            {enviandoAlertaId === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                            {enviandoAlertaId === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
                             {enviandoAlertaId === a.id ? 'Enviando...' : 'Enviar'}
                           </button>
                         )}
                         {(a.status === 'enviado' || a.status === 'respondido') && (
                           <button
                             onClick={() => abrirJustificativa(a)}
-                            className="px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors"
+                            className="px-2 py-1 rounded-md border hover:bg-accent transition-colors whitespace-nowrap"
                           >
-                            Classificar motivo
+                            Classificar
                           </button>
                         )}
                         {a.status === 'justificado' && (
                           <button
                             onClick={() => abrirJustificativa(a)}
-                            className="px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors"
+                            className="px-2 py-1 rounded-md border hover:bg-accent transition-colors whitespace-nowrap"
                           >
                             Editar motivo
                           </button>
@@ -1487,10 +1487,10 @@ export default function DistribuicaoTML() {
                               onClick={() => handlePerguntarMotorista(a)}
                               disabled={perguntandoAlertaId === a.id || concluida}
                               title={concluida ? 'O motorista já respondeu' : emAndamento ? 'Reenviar a mensagem ao motorista' : 'Perguntar ao motorista o motivo'}
-                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors disabled:opacity-50"
+                              className="flex items-center gap-1 px-2 py-1 rounded-md border hover:bg-accent transition-colors disabled:opacity-50 whitespace-nowrap"
                             >
-                              {perguntandoAlertaId === a.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageCircle className="h-3.5 w-3.5" />}
-                              {concluida ? 'Motorista respondeu' : emAndamento ? 'Reenviar ao motorista' : 'Perguntar ao motorista'}
+                              {perguntandoAlertaId === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <MessageCircle className="h-3 w-3" />}
+                              {concluida ? 'Respondeu' : emAndamento ? 'Reenviar' : 'Perguntar'}
                             </button>
                           )
                         })()}
