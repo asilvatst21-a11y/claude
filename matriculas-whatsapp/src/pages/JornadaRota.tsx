@@ -150,6 +150,31 @@ function ImportBox({
   )
 }
 
+// Marcador de caminhão (mesmo desenho do ícone Truck do lucide-react) — cada
+// ponto da Carta de Controle é um mapa em rota, faz mais sentido que uma
+// bolinha genérica. Cor segue a mesma lógica de "bate jornada" (verde/
+// amarelo/vermelho).
+function CaminhaoMarcador({ x, y, cor, titulo }: { x: number; y: number; cor: string; titulo: string }) {
+  const s = 14
+  return (
+    <g
+      transform={`translate(${x - s / 2} ${y - s / 2}) scale(${s / 24})`}
+      stroke={cor}
+      strokeWidth={2.4}
+      fill="none"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <title>{titulo}</title>
+      <path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2" />
+      <path d="M15 18H9" />
+      <path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14" />
+      <circle cx="17" cy="18" r="2" />
+      <circle cx="7" cy="18" r="2" />
+    </g>
+  )
+}
+
 // Carta de controle: X = previsão de chegada, Y = % de conclusão da rota.
 function CartaControle({ linhas }: { linhas: LinhaJornada[] }) {
   const pontos = linhas
@@ -191,13 +216,63 @@ function CartaControle({ linhas }: { linhas: LinhaJornada[] }) {
         </text>
       ))}
       {pontos.map((p) => (
-        <circle key={p.mapa} cx={x(p.minutos)} cy={y(p.concl)} r={4.5} fill={cor(p.situacao)}>
-          <title>{`Mapa ${p.mapa} — ${formatarPct(p.concl)} conclusão, prev. ${String(Math.floor(p.minutos / 60)).padStart(2, '0')}:${String(p.minutos % 60).padStart(2, '0')}`}</title>
-        </circle>
+        <CaminhaoMarcador
+          key={p.mapa}
+          x={x(p.minutos)}
+          y={y(p.concl)}
+          cor={cor(p.situacao)}
+          titulo={`Mapa ${p.mapa} — ${formatarPct(p.concl)} conclusão, prev. ${String(Math.floor(p.minutos / 60)).padStart(2, '0')}:${String(p.minutos % 60).padStart(2, '0')}`}
+        />
       ))}
     </svg>
   )
 }
+
+// Versão da Carta de Controle pronta pra virar imagem — mesmo gráfico da
+// tela (X = previsão de chegada, Y = % de conclusão, caminhão colorido por
+// situação), envolvido num card com cabeçalho/legenda, igual ao padrão dos
+// outros exports.
+const CartaControleExportTemplate = forwardRef<HTMLDivElement, {
+  filial: string
+  data: string
+  linhas: LinhaJornada[]
+}>(function CartaControleExportTemplate({ filial, data, linhas }, ref) {
+  if (linhas.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
+
+  const legenda: { cor: string; label: string }[] = [
+    { cor: '#22c55e', label: 'Batendo jornada' },
+    { cor: '#eab308', label: 'Em rota' },
+    { cor: '#ef4444', label: 'Não bate jornada' },
+  ]
+
+  return (
+    <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '780px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '18px' }}>
+        <div>
+          <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Jornada e Tempo em Rota</p>
+          <h1 style={{ fontSize: '19px', fontWeight: 800, color: '#0f172a', margin: 0 }}>Carta de Controle da Jornada</h1>
+        </div>
+        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0, lineHeight: 1.5 }}>{filial}<br />{formatarDataBR(data)}</p>
+      </div>
+
+      <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px 16px 6px' }}>
+        <CartaControle linhas={linhas} />
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', marginTop: '10px', borderTop: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', gap: '14px' }}>
+          {legenda.map((l) => (
+            <span key={l.label} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '10px', color: '#475569' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: l.cor, display: 'inline-block' }} />
+              {l.label}
+            </span>
+          ))}
+        </div>
+        <p style={{ fontSize: '9.5px', color: '#94a3b8', margin: 0 }}>Eixo X: previsão de chegada · Eixo Y: % de conclusão</p>
+      </div>
+    </div>
+  )
+})
 
 // Imagem enviada ao grupo do CDD no lugar da mensagem de texto — acumulado
 // (geral ou só da sala, conforme `titulo`) no topo, depois a relação de
@@ -335,6 +410,8 @@ export default function JornadaRota() {
   const [copiado, setCopiado] = useState<string | null>(null)
   const exportRef = useRef<HTMLDivElement>(null)
   const [imagemAtual, setImagemAtual] = useState<{ titulo: string; kpis: KpisJornada; linhas: LinhaJornada[] } | null>(null)
+  const chartRef = useRef<HTMLDivElement>(null)
+  const [chartLinhas, setChartLinhas] = useState<LinhaJornada[]>([])
 
   const fetchJornada = useCallback(async () => {
     if (!usuario) return
@@ -552,6 +629,16 @@ export default function JornadaRota() {
         await enviarImagemGrupo(filialRow.grupo_jornada_whatsapp, img, `📊 Jornada — ${item.titulo} — ${formatarDataBR(dataOperacao)}`)
       }
       setImagemAtual(null)
+
+      // 4ª imagem: a Carta de Controle (mesma do topo da tela), com o dia
+      // inteiro (todas as salas juntas, igual aparece na página).
+      flushSync(() => setChartLinhas(lista))
+      if (chartRef.current) {
+        const canvasChart = await html2canvas(chartRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+        const imgChart = canvasChart.toDataURL('image/png')
+        await enviarImagemGrupo(filialRow.grupo_jornada_whatsapp, imgChart, `📈 Carta de Controle da Jornada — ${formatarDataBR(dataOperacao)}`)
+      }
+      setChartLinhas([])
     }
   }
 
@@ -874,6 +961,7 @@ export default function JornadaRota() {
         kpis={imagemAtual?.kpis ?? kpis}
         linhas={imagemAtual?.linhas ?? []}
       />
+      <CartaControleExportTemplate ref={chartRef} filial={usuario?.filial ?? ''} data={dataOperacao} linhas={chartLinhas} />
     </div>
   )
 }
