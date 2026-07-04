@@ -84,6 +84,7 @@ export interface LinhaJornada {
   tempoDirigindoMin: number | null
   mpdStatus: string | null
   rotaFinalizada: boolean
+  telefone: string | null
 }
 
 // Cruza plano (escalas_tml — lido ao vivo, sempre reflete o import mais
@@ -123,11 +124,12 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
   const matriculas = [...new Set((escalas ?? []).map((e) => e.matricula).filter((m): m is number => m != null))]
   const { data: roster } = await supabase
     .from('motoristas_sala_tml')
-    .select('matricula, nome, sala')
+    .select('matricula, nome, sala, telefone')
     .eq('filial', filial)
     .in('matricula', matriculas.length > 0 ? matriculas : [-1])
   const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
   const nomePorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.nome]))
+  const telefonePorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.telefone]))
 
   const agoraMin = new Date().getHours() * 60 + new Date().getMinutes()
 
@@ -213,6 +215,7 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
         tempoDirigindoMin: rotPorMapa.get(e.mapa) ?? null,
         mpdStatus: e.mpd_status ?? null,
         rotaFinalizada,
+        telefone: e.matricula != null ? telefonePorMatricula.get(e.matricula) ?? null : null,
       }
     })
     .sort((a, b) => a.mapa - b.mapa)
@@ -226,7 +229,6 @@ export interface KpisJornada {
   percConclusaoMedio: number | null
   devolucaoPct: number | null
   iv: number | null
-  aderenciaMedia: number | null
 }
 
 export function calcularKpis(linhas: LinhaJornada[]): KpisJornada {
@@ -235,7 +237,6 @@ export function calcularKpis(linhas: LinhaJornada[]): KpisJornada {
   const entregasRealizadas = linhas.reduce((s, l) => s + l.realizadas, 0)
   const devolucaoTotal = linhas.reduce((s, l) => s + l.devolucao, 0)
   const menos4minTotal = linhas.reduce((s, l) => s + l.menos4min, 0)
-  const foraRaioTotal = linhas.reduce((s, l) => s + l.entregaForaRaio + l.devForaRaio, 0)
   const concl = linhas.map((l) => l.percConclusao).filter((x): x is number => x != null)
 
   return {
@@ -246,7 +247,6 @@ export function calcularKpis(linhas: LinhaJornada[]): KpisJornada {
     percConclusaoMedio: concl.length > 0 ? concl.reduce((a, b) => a + b, 0) / concl.length : null,
     devolucaoPct: entregasTotal > 0 ? devolucaoTotal / entregasTotal : null,
     iv: entregasTotal > 0 ? menos4minTotal / entregasTotal : null,
-    aderenciaMedia: entregasTotal > 0 ? 1 - foraRaioTotal / entregasTotal : null,
   }
 }
 
@@ -327,30 +327,17 @@ export function montarMensagemAderenciaSala(sala: SalaJornada, linhas: LinhaJorn
   return texto
 }
 
-// Alerta extra (além das 3 mensagens de rotina) disparado só quando a
-// aderência AGREGADA da sala cai abaixo da meta de 95% — não é o Top 5 de
-// sempre, é um aviso de que a sala como um todo está fora da meta.
-// Retorna null quando a sala está dentro da meta (ou sem dados), pra quem
-// for enviar decidir se dispara ou não.
-export function montarMensagemAlertaAderencia(sala: SalaJornada, linhas: LinhaJornada[], data: string): string | null {
-  const kpi = calcularKpis(linhas)
-  if (kpi.aderenciaMedia == null || kpi.aderenciaMedia >= ADERENCIA_MINIMA) return null
-
-  const piores = linhas
-    .filter((l): l is LinhaJornada & { aderencia: number } => l.aderencia != null && l.aderencia < ADERENCIA_MINIMA)
-    .sort((a, b) => a.aderencia - b.aderencia)
-    .slice(0, 5)
-
-  let texto = `🚨 *ALERTA DE ADERÊNCIA — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)}\n\n`
-  texto += `A sala está com aderência de *${formatarPct(kpi.aderenciaMedia)}*, abaixo da meta de ${formatarPct(ADERENCIA_MINIMA)}.\n`
-  if (piores.length > 0) {
-    texto += `\nMapas puxando a média pra baixo:\n`
-    piores.forEach((l, i) => {
-      texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — ${formatarPct(l.aderencia)}\n`
-    })
-  }
-  texto += `\nPor favor, reforce com a equipe o cumprimento do raio de entrega combinado.`
-  return texto
+// Alerta enviado direto pro MOTORISTA (não pro supervisor) quando a
+// aderência do próprio mapa fica abaixo da meta de 95% — além das 3
+// mensagens de rotina que continuam indo só pro supervisor.
+export function montarMensagemAlertaAderenciaMotorista(l: LinhaJornada, data: string): string {
+  const foraDoRaio = l.entregaForaRaio + l.devForaRaio
+  return (
+    `⚠️ *ATENÇÃO — ADERÊNCIA ABAIXO DA META*\n${formatarDataBR(data)}\n\n` +
+    `Olá${l.nome ? `, ${l.nome}` : ''}! No mapa ${l.mapa} sua aderência está em *${formatarPct(l.aderencia)}*, abaixo da meta de ${formatarPct(ADERENCIA_MINIMA)}.\n` +
+    `Entregas fora do raio combinado: ${foraDoRaio}.\n\n` +
+    `Por favor, fique atento ao raio de entrega nas próximas paradas.`
+  )
 }
 
 export function montarMensagemCdd(porSala: Map<SalaJornada, LinhaJornada[]>, data: string): string {

@@ -12,7 +12,7 @@ import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   buscarJornadaDoDia, calcularKpis, agruparPorSala, montarMensagemCdd,
   montarMensagemJornadaSala, montarMensagemIvSala, montarMensagemAderenciaSala,
-  montarMensagemAlertaAderencia,
+  montarMensagemAlertaAderenciaMotorista, ADERENCIA_MINIMA,
   SALAS_JORNADA, SALA_JORNADA_LABEL, SALA_JORNADA_PARA_TML, formatarDuracao,
   type LinhaJornada, type SalaJornada, type SituacaoJornada,
 } from '../lib/jornada'
@@ -335,15 +335,19 @@ export default function JornadaRota() {
       const msgJornada = montarMensagemJornadaSala(sala, linhasSala, dataOperacao)
       const msgIv = montarMensagemIvSala(sala, linhasSala, dataOperacao)
       const msgAderencia = montarMensagemAderenciaSala(sala, linhasSala, dataOperacao)
-      // Alerta extra, só quando a aderência agregada da sala fica abaixo da
-      // meta de 95% — além das 3 mensagens de rotina.
-      const msgAlerta = montarMensagemAlertaAderencia(sala, linhasSala, dataOperacao)
       for (const sup of supervisores ?? []) {
         await enviarMensagemWhatsApp(sup.telefone, msgJornada)
         await enviarMensagemWhatsApp(sup.telefone, msgIv)
         await enviarMensagemWhatsApp(sup.telefone, msgAderencia)
-        if (msgAlerta) await enviarMensagemWhatsApp(sup.telefone, msgAlerta)
       }
+    }
+
+    // Alerta direto pro motorista (não pro supervisor) quando a aderência
+    // do próprio mapa fica abaixo da meta de 95%.
+    for (const l of lista) {
+      if (l.aderencia == null || l.aderencia >= ADERENCIA_MINIMA) continue
+      if (!l.telefone) continue
+      await enviarMensagemWhatsApp(l.telefone, montarMensagemAlertaAderenciaMotorista(l, dataOperacao))
     }
 
     const { data: filialRow } = await supabase
