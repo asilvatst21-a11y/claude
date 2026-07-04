@@ -1,6 +1,12 @@
 import { supabase } from './supabase'
 import { formatarDataBR } from './utils'
 
+// Mesma normalização usada em Disparos.tsx pra casar matrícula (número)
+// entre cadastros que guardam ela como string (zeros à esquerda variam).
+function normalizarMatricula(s: string): string {
+  return s.trim().replace(/^0+/, '') || '0'
+}
+
 // Sala da Jornada reaproveita o cadastro já existente de motorista→sala do
 // TML — não precisa de cadastro novo. Mapeamento confirmado com o cliente:
 // INTERIOR = COLORADO, PETRÓPOLIS = SUB-FURIA, EXTERNOS = FRETEIRO (placa
@@ -122,14 +128,23 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
   const rotPorMapa = new Map((roteirizador ?? []).map((r) => [r.mapa, r.tempo_dirigindo_min as number | null]))
 
   const matriculas = [...new Set((escalas ?? []).map((e) => e.matricula).filter((m): m is number => m != null))]
-  const { data: roster } = await supabase
-    .from('motoristas_sala_tml')
-    .select('matricula, nome, sala, telefone')
-    .eq('filial', filial)
-    .in('matricula', matriculas.length > 0 ? matriculas : [-1])
+  const [{ data: roster }, { data: cadastroMatriculas }] = await Promise.all([
+    supabase
+      .from('motoristas_sala_tml')
+      .select('matricula, nome, sala, telefone')
+      .eq('filial', filial)
+      .in('matricula', matriculas.length > 0 ? matriculas : [-1]),
+    // Telefone vem do cadastro de Matrículas (Segurança) — já é o número
+    // usado pra falar com o motorista em todo o resto do app, evita
+    // cadastro duplicado só pra sala de Distribuição.
+    supabase.from('matriculas').select('numero, whatsapp').eq('filial', filial).eq('ativo', true),
+  ])
   const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
   const nomePorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.nome]))
-  const telefonePorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.telefone]))
+  const telefonePorMatriculaTml = new Map((roster ?? []).map((r) => [r.matricula, r.telefone]))
+  const telefonePorNumeroCadastro = new Map(
+    (cadastroMatriculas ?? []).map((m) => [normalizarMatricula(m.numero), m.whatsapp])
+  )
 
   const agoraMin = new Date().getHours() * 60 + new Date().getMinutes()
 
@@ -215,7 +230,9 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
         tempoDirigindoMin: rotPorMapa.get(e.mapa) ?? null,
         mpdStatus: e.mpd_status ?? null,
         rotaFinalizada,
-        telefone: e.matricula != null ? telefonePorMatricula.get(e.matricula) ?? null : null,
+        telefone: e.matricula != null
+          ? telefonePorNumeroCadastro.get(normalizarMatricula(String(e.matricula))) ?? telefonePorMatriculaTml.get(e.matricula) ?? null
+          : null,
       }
     })
     .sort((a, b) => a.mapa - b.mapa)
