@@ -16,8 +16,8 @@ export type SalaJornada = 'INTERIOR' | 'PETROPOLIS' | 'EXTERNOS'
 export const SALAS_JORNADA: SalaJornada[] = ['INTERIOR', 'PETROPOLIS', 'EXTERNOS']
 
 export const SALA_JORNADA_LABEL: Record<SalaJornada, string> = {
-  INTERIOR: 'INTERIOR (COLORADO)',
-  PETROPOLIS: 'PETRÓPOLIS (SUB-FURIA)',
+  INTERIOR: 'COLORADO',
+  PETROPOLIS: 'SUB-FURIA',
   EXTERNOS: 'EXTERNOS (FRETEIRO)',
 }
 

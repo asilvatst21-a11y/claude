@@ -7,9 +7,16 @@ import { parseMotoristaSalaBuffer } from '../lib/tmlParser'
 import { isSalaTML, SALA_TML_LABEL } from '../lib/tml'
 import type { MotoristaSalaTML } from '../types'
 
+// Mesma normalização usada em Disparos.tsx pra casar matrícula (número)
+// entre cadastros que guardam ela como string (zeros à esquerda variam).
+function normalizarMatricula(s: string): string {
+  return s.trim().replace(/^0+/, '') || '0'
+}
+
 export default function DistribuicaoTMLMotoristas() {
   const { usuario } = useAuth()
   const [motoristas, setMotoristas] = useState<MotoristaSalaTML[]>([])
+  const [telefonePorMatricula, setTelefonePorMatricula] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [editando, setEditando] = useState<MotoristaSalaTML | null>(null)
@@ -29,12 +36,20 @@ export default function DistribuicaoTMLMotoristas() {
   const fetchMotoristas = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
-    const { data } = await supabase
-      .from('motoristas_sala_tml')
-      .select('*')
-      .eq('filial', usuario.filial)
-      .order('nome')
+    const [{ data }, { data: cadastroMatriculas }] = await Promise.all([
+      supabase
+        .from('motoristas_sala_tml')
+        .select('*')
+        .eq('filial', usuario.filial)
+        .order('nome'),
+      // Telefone já cadastrado em Segurança > Matrículas — evita ter que
+      // cadastrar o número de novo só pra sala de Distribuição.
+      supabase.from('matriculas').select('numero, whatsapp').eq('filial', usuario.filial).eq('ativo', true),
+    ])
     setMotoristas(Array.isArray(data) ? data : [])
+    setTelefonePorMatricula(
+      new Map((cadastroMatriculas ?? []).map((m) => [normalizarMatricula(m.numero), m.whatsapp]))
+    )
     setLoading(false)
   }, [usuario])
 
@@ -203,12 +218,14 @@ export default function DistribuicaoTMLMotoristas() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {motoristas.map((m) => (
+                {motoristas.map((m) => {
+                  const telefone = m.telefone || telefonePorMatricula.get(normalizarMatricula(String(m.matricula))) || ''
+                  return (
                   <tr key={m.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-mono">{m.matricula}</td>
                     <td className="px-4 py-3 font-medium">{m.nome}</td>
                     <td className="px-4 py-3">{SALA_TML_LABEL[m.sala] ?? m.sala}</td>
-                    <td className="px-4 py-3 text-muted-foreground">{m.telefone || <span className="text-yellow-600">— sem telefone</span>}</td>
+                    <td className="px-4 py-3 text-muted-foreground">{telefone || <span className="text-yellow-600">— sem telefone</span>}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex justify-end gap-2">
                         <button onClick={() => abrirEditar(m)} className="flex items-center gap-1 px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors">
@@ -220,7 +237,8 @@ export default function DistribuicaoTMLMotoristas() {
                       </div>
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
