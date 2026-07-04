@@ -226,6 +226,7 @@ export interface KpisJornada {
   percConclusaoMedio: number | null
   devolucaoPct: number | null
   iv: number | null
+  aderenciaMedia: number | null
 }
 
 export function calcularKpis(linhas: LinhaJornada[]): KpisJornada {
@@ -234,6 +235,7 @@ export function calcularKpis(linhas: LinhaJornada[]): KpisJornada {
   const entregasRealizadas = linhas.reduce((s, l) => s + l.realizadas, 0)
   const devolucaoTotal = linhas.reduce((s, l) => s + l.devolucao, 0)
   const menos4minTotal = linhas.reduce((s, l) => s + l.menos4min, 0)
+  const foraRaioTotal = linhas.reduce((s, l) => s + l.entregaForaRaio + l.devForaRaio, 0)
   const concl = linhas.map((l) => l.percConclusao).filter((x): x is number => x != null)
 
   return {
@@ -244,6 +246,7 @@ export function calcularKpis(linhas: LinhaJornada[]): KpisJornada {
     percConclusaoMedio: concl.length > 0 ? concl.reduce((a, b) => a + b, 0) / concl.length : null,
     devolucaoPct: entregasTotal > 0 ? devolucaoTotal / entregasTotal : null,
     iv: entregasTotal > 0 ? menos4minTotal / entregasTotal : null,
+    aderenciaMedia: entregasTotal > 0 ? 1 - foraRaioTotal / entregasTotal : null,
   }
 }
 
@@ -262,7 +265,7 @@ function formatarPct(x: number | null): string {
 // Devolução / Aderência), cada uma só com o Top 5 do indicador — os dados
 // já vêm filtrados pela sala do supervisor (nunca o total do CDD).
 
-function formatarDuracao(min: number): string {
+export function formatarDuracao(min: number): string {
   const h = Math.floor(min / 60)
   const m = Math.round(min % 60)
   return `${h}h${String(m).padStart(2, '0')}`
@@ -321,6 +324,32 @@ export function montarMensagemAderenciaSala(sala: SalaJornada, linhas: LinhaJorn
     const abaixo = l.aderencia < ADERENCIA_MINIMA ? ' ⚠️' : ''
     texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — ${formatarPct(l.aderencia)}${abaixo}\n`
   })
+  return texto
+}
+
+// Alerta extra (além das 3 mensagens de rotina) disparado só quando a
+// aderência AGREGADA da sala cai abaixo da meta de 95% — não é o Top 5 de
+// sempre, é um aviso de que a sala como um todo está fora da meta.
+// Retorna null quando a sala está dentro da meta (ou sem dados), pra quem
+// for enviar decidir se dispara ou não.
+export function montarMensagemAlertaAderencia(sala: SalaJornada, linhas: LinhaJornada[], data: string): string | null {
+  const kpi = calcularKpis(linhas)
+  if (kpi.aderenciaMedia == null || kpi.aderenciaMedia >= ADERENCIA_MINIMA) return null
+
+  const piores = linhas
+    .filter((l): l is LinhaJornada & { aderencia: number } => l.aderencia != null && l.aderencia < ADERENCIA_MINIMA)
+    .sort((a, b) => a.aderencia - b.aderencia)
+    .slice(0, 5)
+
+  let texto = `🚨 *ALERTA DE ADERÊNCIA — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)}\n\n`
+  texto += `A sala está com aderência de *${formatarPct(kpi.aderenciaMedia)}*, abaixo da meta de ${formatarPct(ADERENCIA_MINIMA)}.\n`
+  if (piores.length > 0) {
+    texto += `\nMapas puxando a média pra baixo:\n`
+    piores.forEach((l, i) => {
+      texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — ${formatarPct(l.aderencia)}\n`
+    })
+  }
+  texto += `\nPor favor, reforce com a equipe o cumprimento do raio de entrega combinado.`
   return texto
 }
 

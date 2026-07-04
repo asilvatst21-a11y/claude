@@ -12,7 +12,8 @@ import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   buscarJornadaDoDia, calcularKpis, agruparPorSala, montarMensagemCdd,
   montarMensagemJornadaSala, montarMensagemIvSala, montarMensagemAderenciaSala,
-  SALAS_JORNADA, SALA_JORNADA_LABEL, SALA_JORNADA_PARA_TML,
+  montarMensagemAlertaAderencia,
+  SALAS_JORNADA, SALA_JORNADA_LABEL, SALA_JORNADA_PARA_TML, formatarDuracao,
   type LinhaJornada, type SalaJornada, type SituacaoJornada,
 } from '../lib/jornada'
 import { formatarDataBR } from '../lib/utils'
@@ -334,10 +335,14 @@ export default function JornadaRota() {
       const msgJornada = montarMensagemJornadaSala(sala, linhasSala, dataOperacao)
       const msgIv = montarMensagemIvSala(sala, linhasSala, dataOperacao)
       const msgAderencia = montarMensagemAderenciaSala(sala, linhasSala, dataOperacao)
+      // Alerta extra, só quando a aderência agregada da sala fica abaixo da
+      // meta de 95% — além das 3 mensagens de rotina.
+      const msgAlerta = montarMensagemAlertaAderencia(sala, linhasSala, dataOperacao)
       for (const sup of supervisores ?? []) {
         await enviarMensagemWhatsApp(sup.telefone, msgJornada)
         await enviarMensagemWhatsApp(sup.telefone, msgIv)
         await enviarMensagemWhatsApp(sup.telefone, msgAderencia)
+        if (msgAlerta) await enviarMensagemWhatsApp(sup.telefone, msgAlerta)
       }
     }
 
@@ -590,46 +595,48 @@ export default function JornadaRota() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="text-left px-3 py-3 font-medium text-muted-foreground">Mapa</th>
-                  <th className="text-left px-3 py-3 font-medium text-muted-foreground">Placa</th>
-                  <th className="text-left px-3 py-3 font-medium text-muted-foreground">Motorista</th>
-                  <th className="text-left px-3 py-3 font-medium text-muted-foreground">Sala</th>
-                  <th className="text-left px-3 py-3 font-medium text-muted-foreground">Saída</th>
-                  <th className="text-left px-3 py-3 font-medium text-muted-foreground">Prev. cheg.</th>
-                  <th className="text-left px-3 py-3 font-medium text-muted-foreground">Bate Jornada?</th>
-                  <th className="text-right px-3 py-3 font-medium text-muted-foreground">Entr.</th>
-                  <th className="text-right px-3 py-3 font-medium text-muted-foreground">Realiz.</th>
-                  <th className="text-right px-3 py-3 font-medium text-muted-foreground">Pend.</th>
-                  <th className="text-right px-3 py-3 font-medium text-muted-foreground">Devol.</th>
-                  <th className="text-right px-3 py-3 font-medium text-muted-foreground">F.Raio</th>
-                  <th className="text-right px-3 py-3 font-medium text-muted-foreground">&lt;4min</th>
-                  <th className="text-right px-3 py-3 font-medium text-muted-foreground">Not&lt;10s</th>
-                  <th className="text-right px-3 py-3 font-medium text-muted-foreground">Aderênc.</th>
-                  <th className="text-right px-3 py-3 font-medium text-muted-foreground">% Concl.</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Mapa</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Placa</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Motorista</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Sala</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Saída</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Prev. cheg.</th>
+                  <th className="text-right px-2 py-2 font-medium text-muted-foreground">TR Real</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Bate Jornada?</th>
+                  <th className="text-right px-2 py-2 font-medium text-muted-foreground">Entr.</th>
+                  <th className="text-right px-2 py-2 font-medium text-muted-foreground">Realiz.</th>
+                  <th className="text-right px-2 py-2 font-medium text-muted-foreground">Pend.</th>
+                  <th className="text-right px-2 py-2 font-medium text-muted-foreground">Devol.</th>
+                  <th className="text-right px-2 py-2 font-medium text-muted-foreground">F.Raio</th>
+                  <th className="text-right px-2 py-2 font-medium text-muted-foreground">&lt;4min</th>
+                  <th className="text-right px-2 py-2 font-medium text-muted-foreground">Not&lt;10s</th>
+                  <th className="text-right px-2 py-2 font-medium text-muted-foreground">Aderênc.</th>
+                  <th className="text-right px-2 py-2 font-medium text-muted-foreground">% Concl.</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {linhasFiltradas.map((l) => (
                   <tr key={l.mapa} className={`hover:bg-muted/30 transition-colors ${l.situacao === 'nao_bate' ? 'bg-red-50/40' : ''}`}>
-                    <td className="px-3 py-2">{l.mapa}</td>
-                    <td className="px-3 py-2 font-mono text-xs font-semibold">{l.placa ?? '—'}</td>
-                    <td className="px-3 py-2">{l.nome ?? '—'}</td>
-                    <td className="px-3 py-2 text-xs">{SALA_JORNADA_LABEL[l.sala]}</td>
-                    <td className="px-3 py-2">{l.horaSaidaReal ?? l.horaSaidaPrev ?? '—'}</td>
-                    <td className="px-3 py-2">{l.previsaoChegada ?? '—'}</td>
-                    <td className="px-3 py-2"><SituacaoBadge situacao={l.situacao} rotaFinalizada={l.rotaFinalizada} /></td>
-                    <td className="px-3 py-2 text-right">{l.entregasPrevistas ?? '—'}</td>
-                    <td className="px-3 py-2 text-right">{l.realizadas}</td>
-                    <td className="px-3 py-2 text-right">{l.pendentes ?? '—'}</td>
-                    <td className="px-3 py-2 text-right">{l.devolucao}</td>
-                    <td className="px-3 py-2 text-right">{l.entregaForaRaio + l.devForaRaio}</td>
-                    <td className="px-3 py-2 text-right">{l.menos4min}</td>
-                    <td className="px-3 py-2 text-right">{l.not10s}</td>
-                    <td className="px-3 py-2 text-right">{formatarPct(l.aderencia)}</td>
-                    <td className="px-3 py-2 text-right font-medium">{formatarPct(l.percConclusao)}</td>
+                    <td className="px-2 py-1.5">{l.mapa}</td>
+                    <td className="px-2 py-1.5 font-mono font-semibold">{l.placa ?? '—'}</td>
+                    <td className="px-2 py-1.5">{l.nome ?? '—'}</td>
+                    <td className="px-2 py-1.5">{SALA_JORNADA_LABEL[l.sala]}</td>
+                    <td className="px-2 py-1.5">{l.horaSaidaReal ?? l.horaSaidaPrev ?? '—'}</td>
+                    <td className="px-2 py-1.5">{l.previsaoChegada ?? '—'}</td>
+                    <td className="px-2 py-1.5 text-right">{l.trRealMin != null ? formatarDuracao(l.trRealMin) : '—'}</td>
+                    <td className="px-2 py-1.5"><SituacaoBadge situacao={l.situacao} rotaFinalizada={l.rotaFinalizada} /></td>
+                    <td className="px-2 py-1.5 text-right">{l.entregasPrevistas ?? '—'}</td>
+                    <td className="px-2 py-1.5 text-right">{l.realizadas}</td>
+                    <td className="px-2 py-1.5 text-right">{l.pendentes ?? '—'}</td>
+                    <td className="px-2 py-1.5 text-right">{l.devolucao}</td>
+                    <td className="px-2 py-1.5 text-right">{l.entregaForaRaio + l.devForaRaio}</td>
+                    <td className="px-2 py-1.5 text-right">{l.menos4min}</td>
+                    <td className="px-2 py-1.5 text-right">{l.not10s}</td>
+                    <td className="px-2 py-1.5 text-right">{formatarPct(l.aderencia)}</td>
+                    <td className="px-2 py-1.5 text-right font-medium">{formatarPct(l.percConclusao)}</td>
                   </tr>
                 ))}
               </tbody>
