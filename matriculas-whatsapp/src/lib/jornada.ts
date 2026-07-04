@@ -38,6 +38,17 @@ export const SALA_JORNADA_PARA_TML: Record<SalaJornada, 'COLORADO' | 'SUB-FURIA'
 export const JORNADA_LIMITE_MIN = 10 * 60 + 20
 export const ADERENCIA_MINIMA = 0.95
 
+// Quantas entregas já feitas são necessárias antes de confiar no ritmo real
+// do mapa pra projetar a previsão dinâmica — com poucas entregas o ritmo
+// oscila demais (ex.: 1 entrega rápida no início não quer dizer que o resto
+// vai ser assim).
+const RITMO_MIN_ENTREGAS = 3
+
+// Diferença (em minutos) entre a previsão dinâmica/real e a previsão
+// estática do plano pra classificar como Adiantado/Atrasado — abaixo disso
+// é tratado como "No Prazo" (evita marcar como atrasado por 2-3 minutos).
+export const TOLERANCIA_PREVISAO_MIN = 15
+
 export function salaJornada(
   placa: string | null,
   matricula: number | null,
@@ -63,6 +74,7 @@ function horarioParaMinutos(hhmm: string): number {
 }
 
 export type SituacaoJornada = 'batendo' | 'nao_bate' | 'em_rota'
+export type StatusPrevisao = 'adiantado' | 'atrasado' | 'no_prazo'
 
 export interface LinhaJornada {
   mapa: number
@@ -74,6 +86,8 @@ export interface LinhaJornada {
   horaSaidaPrev: string | null
   horaSaidaReal: string | null
   previsaoChegada: string | null
+  previsaoChegadaDinamica: string | null
+  statusPrevisao: StatusPrevisao | null
   trRealMin: number | null
   situacao: SituacaoJornada
   entregasPrevistas: number | null
@@ -204,6 +218,40 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
         situacao = 'nao_bate'
       }
 
+      // Previsão dinâmica: a previsão estática (saída + tempo do plano) não
+      // reflete como o mapa está indo de verdade — um mapa que já finalizou
+      // ou está com muita pendência/nota deveria "puxar" a previsão pra
+      // frente ou pra trás, não ficar travada no valor do plano. Mantém a
+      // previsão estática como está (previsaoChegada) e calcula essa outra
+      // em cima do ritmo real:
+      //  - rota já finalizada: usa o horário real de chegada (mesma base do
+      //    TR Real, via última entrega do BEES);
+      //  - ainda em rota, com entregas suficientes pra confiar no ritmo
+      //    (RITMO_MIN_ENTREGAS): projeta (tempo decorrido / entregas
+      //    feitas) sobre o que falta.
+      // Com poucas entregas feitas ainda, não dá pra confiar no ritmo — fica
+      // sem previsão dinâmica e sem status (mostra "—" na tela).
+      let previsaoChegadaDinamica: string | null = null
+      let statusPrevisao: StatusPrevisao | null = null
+      if (previsaoChegada != null && horaSaidaReal) {
+        const previstoMin = horarioParaMinutos(previsaoChegada)
+        let referenciaMin: number | null = null
+
+        if (rotaFinalizada && trRealMin != null) {
+          referenciaMin = horarioParaMinutos(horaSaidaReal) + trRealMin
+        } else if (!rotaFinalizada && pendentes != null && pendentes > 0 && realizadas >= RITMO_MIN_ENTREGAS) {
+          const decorrido = agoraMin - horarioParaMinutos(horaSaidaReal)
+          const ritmoPorEntrega = decorrido / realizadas
+          referenciaMin = agoraMin + pendentes * ritmoPorEntrega
+          previsaoChegadaDinamica = minutosParaHorario(referenciaMin)
+        }
+
+        if (referenciaMin != null) {
+          const diff = referenciaMin - previstoMin
+          statusPrevisao = diff < -TOLERANCIA_PREVISAO_MIN ? 'adiantado' : diff > TOLERANCIA_PREVISAO_MIN ? 'atrasado' : 'no_prazo'
+        }
+      }
+
       return {
         mapa: e.mapa,
         placa: e.placa,
@@ -214,6 +262,8 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
         horaSaidaPrev: e.hora_saida_prev,
         horaSaidaReal,
         previsaoChegada,
+        previsaoChegadaDinamica,
+        statusPrevisao,
         trRealMin,
         situacao,
         entregasPrevistas,

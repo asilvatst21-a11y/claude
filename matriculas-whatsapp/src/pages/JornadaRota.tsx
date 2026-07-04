@@ -16,7 +16,7 @@ import {
   montarMensagemJornadaSala, montarMensagemIvSala, montarMensagemAderenciaSala,
   montarMensagemAlertaAderenciaMotorista, ADERENCIA_MINIMA, JORNADA_LIMITE_MIN,
   SALAS_JORNADA, SALA_JORNADA_LABEL, SALA_JORNADA_PARA_TML, formatarDuracao,
-  type LinhaJornada, type SalaJornada, type SituacaoJornada, type KpisJornada,
+  type LinhaJornada, type SalaJornada, type SituacaoJornada, type KpisJornada, type StatusPrevisao,
 } from '../lib/jornada'
 import { formatarDataBR } from '../lib/utils'
 
@@ -107,6 +107,35 @@ function SituacaoBadge({ situacao, rotaFinalizada }: { situacao: SituacaoJornada
       <Clock className="h-3 w-3" /> Em rota
     </span>
   )
+}
+
+// Compara a previsão dinâmica (ritmo real projetado) ou o horário real de
+// chegada (quando já finalizou) contra a previsão estática do plano. Sem
+// entregas suficientes ainda pra confiar no ritmo, mostra "—".
+function StatusPrevisaoBadge({ status, previsaoDinamica }: { status: StatusPrevisao | null; previsaoDinamica: string | null }) {
+  const titulo = previsaoDinamica ? `Previsão dinâmica: ${previsaoDinamica}` : undefined
+  if (status === 'adiantado') {
+    return (
+      <span title={titulo} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-green-700 bg-green-100">
+        <CheckCircle className="h-3 w-3" /> Adiantado
+      </span>
+    )
+  }
+  if (status === 'atrasado') {
+    return (
+      <span title={titulo} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-red-700 bg-red-100">
+        <AlertTriangle className="h-3 w-3" /> Atrasado
+      </span>
+    )
+  }
+  if (status === 'no_prazo') {
+    return (
+      <span title={titulo} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-gray-700 bg-gray-100">
+        <Clock className="h-3 w-3" /> No Prazo
+      </span>
+    )
+  }
+  return <span className="text-xs text-muted-foreground">—</span>
 }
 
 function ImportBox({
@@ -355,6 +384,7 @@ const JornadaExportTemplate = forwardRef<HTMLDivElement, {
             <th style={th}>Sala</th>
             <th style={th}>Saída</th>
             <th style={th}>Prev. cheg.</th>
+            <th style={th}>Previsão</th>
             <th style={{ ...th, textAlign: 'right' }}>TR Real</th>
             <th style={th}>Bate Jornada?</th>
             <th style={{ ...th, textAlign: 'right' }}>Entr.</th>
@@ -380,6 +410,15 @@ const JornadaExportTemplate = forwardRef<HTMLDivElement, {
                 <td style={td}>{SALA_JORNADA_LABEL[l.sala]}</td>
                 <td style={td}>{l.horaSaidaReal ?? l.horaSaidaPrev ?? '—'}</td>
                 <td style={{ ...td, ...(alerta.prevChegada ? bad : {}) }}>{l.previsaoChegada ?? '—'}</td>
+                <td style={td}>
+                  <span style={{
+                    display: 'inline-block', padding: '1px 7px', borderRadius: '999px', fontSize: '8px', fontWeight: 700, textTransform: 'uppercase',
+                    background: l.statusPrevisao === 'adiantado' ? '#dcfce7' : l.statusPrevisao === 'atrasado' ? '#fee2e2' : '#f1f5f9',
+                    color: l.statusPrevisao === 'adiantado' ? '#15803d' : l.statusPrevisao === 'atrasado' ? '#b91c1c' : '#475569',
+                  }}>
+                    {l.statusPrevisao === 'adiantado' ? 'Adiantado' : l.statusPrevisao === 'atrasado' ? 'Atrasado' : l.statusPrevisao === 'no_prazo' ? 'No Prazo' : '—'}
+                  </span>
+                </td>
                 <td style={{ ...td, textAlign: 'right' }}>{l.trRealMin != null ? formatarDuracao(l.trRealMin) : '—'}</td>
                 <td style={td}>
                   <span style={{
@@ -933,6 +972,7 @@ export default function JornadaRota() {
                   <th className="text-left px-2 py-2 font-medium text-muted-foreground">Sala</th>
                   <th className="text-left px-2 py-2 font-medium text-muted-foreground">Saída</th>
                   <th className="text-left px-2 py-2 font-medium text-muted-foreground">Prev. cheg.</th>
+                  <th className="text-left px-2 py-2 font-medium text-muted-foreground">Previsão</th>
                   <th className="text-right px-2 py-2 font-medium text-muted-foreground">TR Real</th>
                   <th className="text-left px-2 py-2 font-medium text-muted-foreground">Bate Jornada?</th>
                   <th className="text-right px-2 py-2 font-medium text-muted-foreground">Entr.</th>
@@ -958,6 +998,7 @@ export default function JornadaRota() {
                     <td className="px-2 py-1.5">{SALA_JORNADA_LABEL[l.sala]}</td>
                     <td className="px-2 py-1.5">{l.horaSaidaReal ?? l.horaSaidaPrev ?? '—'}</td>
                     <td className={`px-2 py-1.5 ${alerta.prevChegada ? ruim : ''}`}>{l.previsaoChegada ?? '—'}</td>
+                    <td className="px-2 py-1.5"><StatusPrevisaoBadge status={l.statusPrevisao} previsaoDinamica={l.previsaoChegadaDinamica} /></td>
                     <td className="px-2 py-1.5 text-right">{l.trRealMin != null ? formatarDuracao(l.trRealMin) : '—'}</td>
                     <td className="px-2 py-1.5"><SituacaoBadge situacao={l.situacao} rotaFinalizada={l.rotaFinalizada} /></td>
                     <td className="px-2 py-1.5 text-right">{l.entregasPrevistas ?? '—'}</td>
