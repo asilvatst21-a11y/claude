@@ -69,6 +69,30 @@ function excelTimeToHorario(value: unknown): string | null {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+// "Tempo Prev. (+almoço)" é uma DURAÇÃO (pode passar de 24h em teoria), não
+// um horário do dia — por isso não reaproveita excelTimeToHorario (que faz
+// %24). No export em CSV do 03.11.49.02 o valor chega como texto "HH:MM:SS"
+// (ex.: "09:17:00"), não como fração numérica de dia — Number() nisso dá
+// NaN e o tempo previsto silenciosamente virava null. Um export .xlsx real
+// (não CSV) ainda pode trazer a fração numérica, daí o fallback numérico.
+function parseDuracaoParaMinutos(value: unknown): number | null {
+  if (typeof value === "string") {
+    const m = value.trim().match(/^(\d{1,3}):(\d{2})(?::(\d{2}))?$/);
+    if (m) {
+      const h = Number(m[1]);
+      const min = Number(m[2]);
+      const s = m[3] ? Number(m[3]) : 0;
+      return h * 60 + min + Math.round(s / 60);
+    }
+  }
+  if (value instanceof Date) {
+    return value.getUTCHours() * 60 + value.getUTCMinutes();
+  }
+  const num = Number(value);
+  if (value === null || value === undefined || value === "" || isNaN(num)) return null;
+  return Math.round(num * 24 * 60);
+}
+
 function readSheetRows(buffer: ArrayBuffer, preferredSheetName: string): unknown[][] {
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
   const sheetName =
@@ -149,7 +173,6 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
 
     const matricula = motoristaIdx !== -1 ? Number(row[motoristaIdx]) : NaN;
     const peso = pesoIdx !== -1 ? Number(row[pesoIdx]) : NaN;
-    const tempoPrevFracao = tempoPrevIdx !== -1 ? Number(row[tempoPrevIdx]) : NaN;
     const entregas = entregasIdx !== -1 ? Number(row[entregasIdx]) : NaN;
 
     out.push({
@@ -160,7 +183,7 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
       regiaoEntregas: regiaoIdx !== -1 ? String(row[regiaoIdx] ?? "").trim() || null : null,
       cidadesEntregas: cidadesIdx !== -1 ? String(row[cidadesIdx] ?? "").trim() || null : null,
       pesoCarregado: !isNaN(peso) ? peso : null,
-      tempoPrevMin: !isNaN(tempoPrevFracao) ? Math.round(tempoPrevFracao * 24 * 60) : null,
+      tempoPrevMin: tempoPrevIdx !== -1 ? parseDuracaoParaMinutos(row[tempoPrevIdx]) : null,
       horaSaidaPrev: horaMpdIdx !== -1 ? excelTimeToHorario(row[horaMpdIdx]) : null,
       entregasPrevistas: !isNaN(entregas) ? entregas : null,
       mpd: mpdIdx !== -1 ? String(row[mpdIdx] ?? "").trim() || null : null,
