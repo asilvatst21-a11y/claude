@@ -82,6 +82,8 @@ export interface LinhaJornada {
   aderencia: number | null
   percConclusao: number | null
   tempoDirigindoMin: number | null
+  mpdStatus: string | null
+  rotaFinalizada: boolean
 }
 
 // Cruza plano (escalas_tml — lido ao vivo, sempre reflete o import mais
@@ -94,7 +96,7 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
   const [{ data: escalas }, { data: historico }, { data: bees }, { data: roteirizador }] = await Promise.all([
     supabase
       .from('escalas_tml')
-      .select('mapa, placa, matricula, tempo_prev_min, hora_saida_prev, entregas_previstas')
+      .select('mapa, placa, matricula, tempo_prev_min, hora_saida_prev, entregas_previstas, mpd_status')
       .eq('filial', filial)
       .eq('data_entrega', data),
     supabase
@@ -157,15 +159,21 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
       const aderencia = entregasPrevistas ? 1 - (devForaRaio + entregaForaRaio) / entregasPrevistas : null
       const percConclusao = entregasPrevistas ? 1 - (pendentes ?? 0) / entregasPrevistas : null
 
-      // "Bate jornada": estourou o limite de 10h20 desde a saída → não bate,
-      // não importa o quanto já entregou. Dentro do limite: bate quando a
-      // rota está ~concluída (≥99%) com aderência acima da meta (>95%);
-      // senão ainda está em rota.
+      // MPD (coluna Q do 03.11.49.02) = "PC Financeira" → a rota já foi
+      // prestada contas/finalizada. É o sinal mais confiável de que o mapa
+      // encerrou, melhor que estimar por % de conclusão.
+      const rotaFinalizada = (e.mpd_status ?? '').toLowerCase().includes('pc financeira')
+
+      // "Bate jornada": se a rota já foi finalizada (MPD = PC Financeira),
+      // o resultado é definitivo — bateu se o tempo em rota ficou dentro do
+      // limite de 10h20, senão não bateu. Se ainda não finalizou: estourou
+      // o limite desde a saída → já dá pra cravar que não vai bater, não
+      // importa o quanto já entregou; senão ainda está em rota.
       let situacao: SituacaoJornada = 'em_rota'
-      if (trRealMin != null && trRealMin > JORNADA_LIMITE_MIN) {
+      if (rotaFinalizada) {
+        situacao = trRealMin != null && trRealMin > JORNADA_LIMITE_MIN ? 'nao_bate' : 'batendo'
+      } else if (trRealMin != null && trRealMin > JORNADA_LIMITE_MIN) {
         situacao = 'nao_bate'
-      } else if (percConclusao != null && percConclusao >= 0.99 && (aderencia == null || aderencia >= ADERENCIA_MINIMA)) {
-        situacao = 'batendo'
       }
 
       return {
@@ -192,6 +200,8 @@ export async function buscarJornadaDoDia(filial: string, data: string): Promise<
         aderencia,
         percConclusao,
         tempoDirigindoMin: rotPorMapa.get(e.mapa) ?? null,
+        mpdStatus: e.mpd_status ?? null,
+        rotaFinalizada,
       }
     })
     .sort((a, b) => a.mapa - b.mapa)

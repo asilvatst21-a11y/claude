@@ -89,6 +89,7 @@ export interface EscalaTML {
   tempoPrevMin: number | null;
   horaSaidaPrev: string | null;
   entregasPrevistas: number | null;
+  mpd: string | null;
 }
 
 /**
@@ -128,9 +129,17 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
   // Colunas usadas pelo módulo Jornada e Tempo em Rota (Distribuição) — o
   // 03.11.49.02 já traz o tempo previsto, a hora de saída prevista (MPD) e o
   // total de entregas planejadas; até aqui elas eram ignoradas pelo parser.
-  const tempoPrevIdx = header.findIndex((c) => c.includes("tempo prev"));
+  // "Tempo Prev. (+almoço)" é a coluna U (índice 20, contando de A=0) — busca
+  // por texto primeiro, com a posição fixa como reforço caso o cabeçalho
+  // venha com variação de formatação.
+  let tempoPrevIdx = header.findIndex((c) => c.includes("tempo prev"));
+  if (tempoPrevIdx === -1 && header[20]?.includes("tempo")) tempoPrevIdx = 20;
   const horaMpdIdx = header.indexOf("hora mpd");
   const entregasIdx = header.indexOf("entregas");
+  // MPD (coluna Q, índice 16) — quando vem "PC Financeira", a rota já foi
+  // finalizada/prestada contas; usado pra saber se o mapa bateu jornada de
+  // forma definitiva, em vez de só estimar por % de conclusão.
+  const mpdIdx = header.indexOf("mpd");
 
   const out: EscalaTML[] = [];
   for (let i = headerRow + 1; i < rows.length; i++) {
@@ -154,6 +163,7 @@ export function parseEscalaBuffer(buffer: ArrayBuffer): EscalaTML[] {
       tempoPrevMin: !isNaN(tempoPrevFracao) ? Math.round(tempoPrevFracao * 24 * 60) : null,
       horaSaidaPrev: horaMpdIdx !== -1 ? excelTimeToHorario(row[horaMpdIdx]) : null,
       entregasPrevistas: !isNaN(entregas) ? entregas : null,
+      mpd: mpdIdx !== -1 ? String(row[mpdIdx] ?? "").trim() || null : null,
     });
   }
   return out;

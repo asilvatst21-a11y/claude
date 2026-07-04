@@ -25,18 +25,23 @@ function formatarPct(x: number | null): string {
   return x == null ? '—' : `${Math.round(x * 100)}%`
 }
 
-function SituacaoBadge({ situacao }: { situacao: SituacaoJornada }) {
+function SituacaoBadge({ situacao, rotaFinalizada }: { situacao: SituacaoJornada; rotaFinalizada?: boolean }) {
+  const selo = rotaFinalizada ? (
+    <span title="Confirmado pelo MPD (PC Financeira) — rota já prestou contas" className="ml-1 text-[10px] text-muted-foreground">
+      ✓ MPD
+    </span>
+  ) : null
   if (situacao === 'batendo') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-green-700 bg-green-100">
-        <CheckCircle className="h-3 w-3" /> Batendo
+        <CheckCircle className="h-3 w-3" /> Batendo{selo}
       </span>
     )
   }
   if (situacao === 'nao_bate') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-red-700 bg-red-100">
-        <AlertTriangle className="h-3 w-3" /> Não bate
+        <AlertTriangle className="h-3 w-3" /> Não bate{selo}
       </span>
     )
   }
@@ -593,7 +598,7 @@ export default function JornadaRota() {
                   <th className="text-left px-3 py-3 font-medium text-muted-foreground">Sala</th>
                   <th className="text-left px-3 py-3 font-medium text-muted-foreground">Saída</th>
                   <th className="text-left px-3 py-3 font-medium text-muted-foreground">Prev. cheg.</th>
-                  <th className="text-left px-3 py-3 font-medium text-muted-foreground">Jornada</th>
+                  <th className="text-left px-3 py-3 font-medium text-muted-foreground">Bate Jornada?</th>
                   <th className="text-right px-3 py-3 font-medium text-muted-foreground">Entr.</th>
                   <th className="text-right px-3 py-3 font-medium text-muted-foreground">Realiz.</th>
                   <th className="text-right px-3 py-3 font-medium text-muted-foreground">Pend.</th>
@@ -614,7 +619,7 @@ export default function JornadaRota() {
                     <td className="px-3 py-2 text-xs">{SALA_JORNADA_LABEL[l.sala]}</td>
                     <td className="px-3 py-2">{l.horaSaidaReal ?? l.horaSaidaPrev ?? '—'}</td>
                     <td className="px-3 py-2">{l.previsaoChegada ?? '—'}</td>
-                    <td className="px-3 py-2"><SituacaoBadge situacao={l.situacao} /></td>
+                    <td className="px-3 py-2"><SituacaoBadge situacao={l.situacao} rotaFinalizada={l.rotaFinalizada} /></td>
                     <td className="px-3 py-2 text-right">{l.entregasPrevistas ?? '—'}</td>
                     <td className="px-3 py-2 text-right">{l.realizadas}</td>
                     <td className="px-3 py-2 text-right">{l.pendentes ?? '—'}</td>

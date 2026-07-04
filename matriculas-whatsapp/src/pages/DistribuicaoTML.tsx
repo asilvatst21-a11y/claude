@@ -392,6 +392,7 @@ export default function DistribuicaoTML() {
           tempo_prev_min: e.tempoPrevMin,
           hora_saida_prev: e.horaSaidaPrev,
           entregas_previstas: e.entregasPrevistas,
+          mpd_status: e.mpd,
           importado_em: new Date().toISOString(),
         })),
         { onConflict: 'filial,mapa' }
