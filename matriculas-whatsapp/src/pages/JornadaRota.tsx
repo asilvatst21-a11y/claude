@@ -12,7 +12,7 @@ import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   buscarJornadaDoDia, calcularKpis, agruparPorSala, montarMensagemCdd,
   montarMensagemJornadaSala, montarMensagemIvSala, montarMensagemAderenciaSala,
-  montarMensagemAlertaAderenciaMotorista, ADERENCIA_MINIMA,
+  montarMensagemAlertaAderenciaMotorista, ADERENCIA_MINIMA, JORNADA_LIMITE_MIN,
   SALAS_JORNADA, SALA_JORNADA_LABEL, SALA_JORNADA_PARA_TML, formatarDuracao,
   type LinhaJornada, type SalaJornada, type SituacaoJornada,
 } from '../lib/jornada'
@@ -24,6 +24,60 @@ function hojeISO(): string {
 
 function formatarPct(x: number | null): string {
   return x == null ? '—' : `${Math.round(x * 100)}%`
+}
+
+// Indicadores que viram vermelho na tabela quando não estão batendo a meta.
+function foraDaMeta(l: LinhaJornada) {
+  return {
+    aderencia: l.aderencia != null && l.aderencia < ADERENCIA_MINIMA,
+    prevChegada: l.tempoPrevMin != null && l.tempoPrevMin > JORNADA_LIMITE_MIN,
+    devolucao: l.devolucao > 0,
+    foraRaio: l.entregaForaRaio + l.devForaRaio > 0,
+    menos4min: l.menos4min > 0,
+    not10s: l.not10s > 0,
+  }
+}
+
+type CampoOrdenacao =
+  | 'mapa' | 'saida' | 'previsaoChegada' | 'trRealMin' | 'entregasPrevistas'
+  | 'realizadas' | 'pendentes' | 'devolucao' | 'foraRaio' | 'menos4min' | 'not10s'
+  | 'aderencia' | 'percConclusao'
+
+const OPCOES_ORDENACAO: { valor: CampoOrdenacao; label: string }[] = [
+  { valor: 'mapa', label: 'Mapa' },
+  { valor: 'saida', label: 'Saída' },
+  { valor: 'previsaoChegada', label: 'Prev. cheg.' },
+  { valor: 'trRealMin', label: 'TR Real' },
+  { valor: 'entregasPrevistas', label: 'Entregas' },
+  { valor: 'realizadas', label: 'Realizadas' },
+  { valor: 'pendentes', label: 'Pendentes' },
+  { valor: 'devolucao', label: 'Devolução' },
+  { valor: 'foraRaio', label: 'F.Raio' },
+  { valor: 'menos4min', label: '<4min' },
+  { valor: 'not10s', label: 'Not<10s' },
+  { valor: 'aderencia', label: 'Aderência' },
+  { valor: 'percConclusao', label: '% Concl.' },
+]
+
+function valorOrdenacao(l: LinhaJornada, campo: CampoOrdenacao): number {
+  switch (campo) {
+    case 'mapa': return l.mapa
+    case 'saida': {
+      const h = l.horaSaidaReal ?? l.horaSaidaPrev
+      return h ? Number(h.replace(':', '')) : -1
+    }
+    case 'previsaoChegada': return l.previsaoChegada ? Number(l.previsaoChegada.replace(':', '')) : -1
+    case 'trRealMin': return l.trRealMin ?? -1
+    case 'entregasPrevistas': return l.entregasPrevistas ?? -1
+    case 'realizadas': return l.realizadas
+    case 'pendentes': return l.pendentes ?? -1
+    case 'devolucao': return l.devolucao
+    case 'foraRaio': return l.entregaForaRaio + l.devForaRaio
+    case 'menos4min': return l.menos4min
+    case 'not10s': return l.not10s
+    case 'aderencia': return l.aderencia ?? -1
+    case 'percConclusao': return l.percConclusao ?? -1
+  }
 }
 
 function SituacaoBadge({ situacao, rotaFinalizada }: { situacao: SituacaoJornada; rotaFinalizada?: boolean }) {
@@ -153,6 +207,8 @@ export default function JornadaRota() {
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState('')
   const [filtroSala, setFiltroSala] = useState<SalaJornada | 'todos'>('todos')
+  const [ordenarPor, setOrdenarPor] = useState<CampoOrdenacao>('mapa')
+  const [ordemDesc, setOrdemDesc] = useState(false)
   const [configAberta, setConfigAberta] = useState(false)
   const [grupoJornada, setGrupoJornada] = useState('')
   const [grupoJornadaOriginal, setGrupoJornadaOriginal] = useState('')
@@ -383,10 +439,11 @@ export default function JornadaRota() {
 
   const kpis = useMemo(() => calcularKpis(linhas), [linhas])
   const porSala = useMemo(() => agruparPorSala(linhas), [linhas])
-  const linhasFiltradas = useMemo(
-    () => filtroSala === 'todos' ? linhas : linhas.filter((l) => l.sala === filtroSala),
-    [linhas, filtroSala],
-  )
+  const linhasFiltradas = useMemo(() => {
+    const base = filtroSala === 'todos' ? linhas : linhas.filter((l) => l.sala === filtroSala)
+    const sinal = ordemDesc ? -1 : 1
+    return [...base].sort((a, b) => sinal * (valorOrdenacao(a, ordenarPor) - valorOrdenacao(b, ordenarPor)))
+  }, [linhas, filtroSala, ordenarPor, ordemDesc])
   // Sem tempo previsto/entregas previstas não dá pra calcular previsão de
   // chegada, aderência nem % conclusão — geralmente porque essa escala foi
   // importada antes do parser ler essas 3 colunas novas.
@@ -575,7 +632,7 @@ export default function JornadaRota() {
         <div className="px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
           <h2 className="font-semibold text-sm">Relatório por mapa</h2>
         </div>
-        <div className="px-4 py-2 border-b flex flex-wrap gap-1.5">
+        <div className="px-4 py-2 border-b flex flex-wrap items-center gap-1.5">
           {([
             ['todos', `Todas (${linhas.length})`],
             ...SALAS_JORNADA.map((s) => [s, `${SALA_JORNADA_LABEL[s]} (${(porSala.get(s) ?? []).length})`] as const),
@@ -590,6 +647,23 @@ export default function JornadaRota() {
               {label}
             </button>
           ))}
+          <div className="ml-auto flex items-center gap-1.5">
+            <label className="text-xs text-muted-foreground">Ordenar por</label>
+            <select
+              value={ordenarPor}
+              onChange={(e) => setOrdenarPor(e.target.value as CampoOrdenacao)}
+              className="px-2 py-1 border border-gray-200 rounded-md text-xs bg-white"
+            >
+              {OPCOES_ORDENACAO.map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+            </select>
+            <button
+              onClick={() => setOrdemDesc((v) => !v)}
+              title={ordemDesc ? 'Decrescente' : 'Crescente'}
+              className="px-2 py-1 rounded-md border text-xs hover:bg-accent transition-colors"
+            >
+              {ordemDesc ? '↓ Desc.' : '↑ Cresc.'}
+            </button>
+          </div>
         </div>
         {loading ? (
           <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
@@ -622,27 +696,31 @@ export default function JornadaRota() {
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {linhasFiltradas.map((l) => (
+                {linhasFiltradas.map((l) => {
+                  const alerta = foraDaMeta(l)
+                  const ruim = 'text-red-600 font-semibold'
+                  return (
                   <tr key={l.mapa} className={`hover:bg-muted/30 transition-colors ${l.situacao === 'nao_bate' ? 'bg-red-50/40' : ''}`}>
                     <td className="px-2 py-1.5">{l.mapa}</td>
                     <td className="px-2 py-1.5 font-mono font-semibold">{l.placa ?? '—'}</td>
                     <td className="px-2 py-1.5">{l.nome ?? '—'}</td>
                     <td className="px-2 py-1.5">{SALA_JORNADA_LABEL[l.sala]}</td>
                     <td className="px-2 py-1.5">{l.horaSaidaReal ?? l.horaSaidaPrev ?? '—'}</td>
-                    <td className="px-2 py-1.5">{l.previsaoChegada ?? '—'}</td>
+                    <td className={`px-2 py-1.5 ${alerta.prevChegada ? ruim : ''}`}>{l.previsaoChegada ?? '—'}</td>
                     <td className="px-2 py-1.5 text-right">{l.trRealMin != null ? formatarDuracao(l.trRealMin) : '—'}</td>
                     <td className="px-2 py-1.5"><SituacaoBadge situacao={l.situacao} rotaFinalizada={l.rotaFinalizada} /></td>
                     <td className="px-2 py-1.5 text-right">{l.entregasPrevistas ?? '—'}</td>
                     <td className="px-2 py-1.5 text-right">{l.realizadas}</td>
                     <td className="px-2 py-1.5 text-right">{l.pendentes ?? '—'}</td>
-                    <td className="px-2 py-1.5 text-right">{l.devolucao}</td>
-                    <td className="px-2 py-1.5 text-right">{l.entregaForaRaio + l.devForaRaio}</td>
-                    <td className="px-2 py-1.5 text-right">{l.menos4min}</td>
-                    <td className="px-2 py-1.5 text-right">{l.not10s}</td>
-                    <td className="px-2 py-1.5 text-right">{formatarPct(l.aderencia)}</td>
+                    <td className={`px-2 py-1.5 text-right ${alerta.devolucao ? ruim : ''}`}>{l.devolucao}</td>
+                    <td className={`px-2 py-1.5 text-right ${alerta.foraRaio ? ruim : ''}`}>{l.entregaForaRaio + l.devForaRaio}</td>
+                    <td className={`px-2 py-1.5 text-right ${alerta.menos4min ? ruim : ''}`}>{l.menos4min}</td>
+                    <td className={`px-2 py-1.5 text-right ${alerta.not10s ? ruim : ''}`}>{l.not10s}</td>
+                    <td className={`px-2 py-1.5 text-right ${alerta.aderencia ? ruim : ''}`}>{formatarPct(l.aderencia)}</td>
                     <td className="px-2 py-1.5 text-right font-medium">{formatarPct(l.percConclusao)}</td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
