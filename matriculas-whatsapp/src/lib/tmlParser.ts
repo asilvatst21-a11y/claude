@@ -677,8 +677,14 @@ export function parseSeparacaoBuffer(buffer: ArrayBuffer): SeparacaoItem[] {
   const tipoIdx = header.indexOf("tipo");
   const qtdIdx = header.indexOf("quantidade");
   const unidadeIdx = header.findIndex((c) => c.includes("unidade de medida"));
-  const seqIdx = header.findIndex((c) => c === "sequencia");
   if (mapaIdx === -1 || paleteIdx === -1) return [];
+
+  // A coluna "Sequência" da planilha NÃO é única dentro da baia — itens em
+  // "espera" que dividem a mesma caixa (ex.: CAIXA-01) repetem a mesma
+  // sequência. Por isso a posição do item na baia é recontada aqui (1, 2,
+  // 3…), na ordem em que aparece no arquivo, garantindo uma chave única por
+  // (mapa, palete) mesmo quando o arquivo tem sequência duplicada.
+  const contadorPorBaia = new Map<string, number>();
 
   const out: SeparacaoItem[] = [];
   for (let i = 1; i < rows.length; i++) {
@@ -688,12 +694,14 @@ export function parseSeparacaoBuffer(buffer: ArrayBuffer): SeparacaoItem[] {
     const palete = String(row[paleteIdx] ?? "").trim();
     if (!palete) continue;
     const qtd = qtdIdx !== -1 ? Number(row[qtdIdx]) : NaN;
-    const seq = seqIdx !== -1 ? Number(row[seqIdx]) : NaN;
+    const chaveBaia = `${mapa}|${palete}`;
+    const posicao = (contadorPorBaia.get(chaveBaia) ?? 0) + 1;
+    contadorPorBaia.set(chaveBaia, posicao);
     out.push({
       mapa,
       data: dataIdx !== -1 ? excelDateToISO(row[dataIdx]) : null,
       palete,
-      sequencia: !isNaN(seq) ? seq : i,
+      sequencia: posicao,
       codigo: codigoIdx !== -1 ? String(row[codigoIdx] ?? "").trim() || null : null,
       descricao: descIdx !== -1 ? String(row[descIdx] ?? "").trim() || null : null,
       tipo: tipoIdx !== -1 ? String(row[tipoIdx] ?? "").trim() || null : null,
