@@ -342,21 +342,29 @@ export function formatarDuracao(min: number): string {
   return `${h}h${String(m).padStart(2, '0')}`
 }
 
-export function montarMensagemJornadaSala(sala: SalaJornada, linhas: LinhaJornada[], data: string): string {
-  const emRota = linhas
-    .filter((l): l is LinhaJornada & { trRealMin: number } => l.trRealMin != null)
-    .sort((a, b) => b.trRealMin - a.trRealMin)
+// Só avisa o supervisor dos mapas com previsão de atraso (statusPrevisao =
+// 'atrasado'), ainda em rota — mapas já finalizados não entram aqui, não
+// tem mais o que agir sobre eles agora. Sem nenhum atrasado, não manda
+// mensagem (retorna null) — evita ficar avisando "está tudo bem" toda hora.
+export function montarMensagemJornadaSala(sala: SalaJornada, linhas: LinhaJornada[], data: string): string | null {
+  const atrasados = linhas
+    .filter((l): l is LinhaJornada & { previsaoChegadaDinamica: string; previsaoChegada: string } =>
+      l.statusPrevisao === 'atrasado'
+      && !(l.percConclusao != null && l.percConclusao >= 1)
+      && l.previsaoChegadaDinamica != null
+      && l.previsaoChegada != null)
+    .sort((a, b) =>
+      (horarioParaMinutos(b.previsaoChegadaDinamica) - horarioParaMinutos(b.previsaoChegada))
+      - (horarioParaMinutos(a.previsaoChegadaDinamica) - horarioParaMinutos(a.previsaoChegada))
+    )
     .slice(0, 5)
 
+  if (atrasados.length === 0) return null
+
   let texto = `🚚 *JORNADA — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)} · limite ${formatarDuracao(JORNADA_LIMITE_MIN)}\n\n`
-  if (emRota.length === 0) {
-    texto += `Nenhum mapa em rota ainda.`
-    return texto
-  }
-  texto += `Top 5 — tempo em rota:\n`
-  emRota.forEach((l, i) => {
-    const estourou = l.trRealMin > JORNADA_LIMITE_MIN ? ' ⚠️' : ''
-    texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — ${formatarDuracao(l.trRealMin)}${estourou}\n`
+  texto += `⚠️ Previsão atrasada (no ritmo atual):\n`
+  atrasados.forEach((l, i) => {
+    texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — previsto ${l.previsaoChegada}, no ritmo atual chega ~${l.previsaoChegadaDinamica}\n`
   })
   return texto
 }

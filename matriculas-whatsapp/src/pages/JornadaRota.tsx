@@ -683,7 +683,7 @@ export default function JornadaRota() {
       const msgIv = montarMensagemIvSala(sala, linhasSala, dataOperacao)
       const msgAderencia = montarMensagemAderenciaSala(sala, linhasSala, dataOperacao)
       for (const sup of supervisores ?? []) {
-        await enviarMensagemWhatsApp(sup.telefone, msgJornada)
+        if (msgJornada) await enviarMensagemWhatsApp(sup.telefone, msgJornada)
         await enviarMensagemWhatsApp(sup.telefone, msgIv)
         await enviarMensagemWhatsApp(sup.telefone, msgAderencia)
       }
