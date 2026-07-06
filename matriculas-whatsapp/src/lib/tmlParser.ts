@@ -644,3 +644,62 @@ export function parseRoteirizadorBuffer(buffer: ArrayBuffer): RoteirizadorLinha[
   }
   return out;
 }
+
+// ── Relatório de Separação → Conferência Digital ──────────────────────────
+// Uma linha por item separado. O campo "Palete" (ex.: "P02_M_02_1/42") já
+// traz a porta e a ordem: M = porta motorista, A = porta ajudante,
+// Z_ITEM_NAO_PALLETIZADO = itens avulsos. A conferência do ajudante agrupa
+// esses itens por baia (palete).
+export interface SeparacaoItem {
+  mapa: number;
+  data: string | null;      // ISO da Data de Entrega
+  palete: string;           // cru, ex.: "P02_M_02_1/42"
+  sequencia: number;
+  codigo: string | null;
+  descricao: string | null;
+  tipo: string | null;      // Retornável | Descartável
+  quantidade: number | null;
+  unidade: string | null;
+}
+
+export function parseSeparacaoBuffer(buffer: ArrayBuffer): SeparacaoItem[] {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+  if (rows.length === 0) return [];
+
+  const header = rows[0].map(normalize);
+  const mapaIdx = header.indexOf("mapa");
+  const paleteIdx = header.indexOf("palete");
+  const dataIdx = header.findIndex((c) => c.includes("data de entrega"));
+  const codigoIdx = header.findIndex((c) => c.includes("codigo do item"));
+  const descIdx = header.findIndex((c) => c.includes("descricao do item"));
+  const tipoIdx = header.indexOf("tipo");
+  const qtdIdx = header.indexOf("quantidade");
+  const unidadeIdx = header.findIndex((c) => c.includes("unidade de medida"));
+  const seqIdx = header.findIndex((c) => c === "sequencia");
+  if (mapaIdx === -1 || paleteIdx === -1) return [];
+
+  const out: SeparacaoItem[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const mapa = Number(row[mapaIdx]);
+    if (!mapa || isNaN(mapa)) continue;
+    const palete = String(row[paleteIdx] ?? "").trim();
+    if (!palete) continue;
+    const qtd = qtdIdx !== -1 ? Number(row[qtdIdx]) : NaN;
+    const seq = seqIdx !== -1 ? Number(row[seqIdx]) : NaN;
+    out.push({
+      mapa,
+      data: dataIdx !== -1 ? excelDateToISO(row[dataIdx]) : null,
+      palete,
+      sequencia: !isNaN(seq) ? seq : i,
+      codigo: codigoIdx !== -1 ? String(row[codigoIdx] ?? "").trim() || null : null,
+      descricao: descIdx !== -1 ? String(row[descIdx] ?? "").trim() || null : null,
+      tipo: tipoIdx !== -1 ? String(row[tipoIdx] ?? "").trim() || null : null,
+      quantidade: !isNaN(qtd) ? qtd : null,
+      unidade: unidadeIdx !== -1 ? String(row[unidadeIdx] ?? "").trim() || null : null,
+    });
+  }
+  return out;
+}

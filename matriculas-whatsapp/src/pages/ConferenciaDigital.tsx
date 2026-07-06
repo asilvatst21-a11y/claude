@@ -1,0 +1,310 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import {
+  Package, Check, ChevronRight, ChevronLeft, Loader2, Search, Building2,
+  AlertTriangle, CheckCircle2, ArrowLeft, Truck, X,
+} from 'lucide-react'
+import { supabase } from '../lib/supabase'
+import { enviarMensagemGrupo } from '../lib/zapi'
+import {
+  buscarBaiasDoMapa, iniciarBaia, marcarItem, registrarDivergencia, finalizarBaia,
+  montarMensagemDivergencia, PORTA_LABEL,
+  type BaiaConf, type ItemConf, type PortaConf,
+} from '../lib/conferencia'
+
+function hojeISO(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+type Tela = 'inicio' | 'baias' | 'baia'
+
+export default function ConferenciaDigital() {
+  const [tela, setTela] = useState<Tela>('inicio')
+  const [filiais, setFiliais] = useState<string[]>([])
+  const [filial, setFilial] = useState('')
+  const [nome, setNome] = useState('')
+  const [mapa, setMapa] = useState('')
+  const [baias, setBaias] = useState<BaiaConf[]>([])
+  const [baiaAtiva, setBaiaAtiva] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [erro, setErro] = useState('')
+  const [divItem, setDivItem] = useState<ItemConf | null>(null)
+
+  useEffect(() => {
+    supabase.from('filiais').select('nome').order('nome').then(({ data }) => {
+      const nomes = (data ?? []).map((f) => f.nome)
+      setFiliais(nomes)
+      if (nomes.length > 0) setFilial(nomes[0])
+    })
+  }, [])
+
+  const recarregar = useCallback(async () => {
+    const num = Number(mapa.trim())
+    if (!filial || !num) return
+    const lista = await buscarBaiasDoMapa(filial, num, hojeISO())
+    setBaias(lista)
+  }, [filial, mapa])
+
+  async function buscar() {
+    const num = Number(mapa.trim())
+    if (!filial || !num) { setErro('Selecione a filial e digite o número do mapa.'); return }
+    if (!nome.trim()) { setErro('Digite seu nome antes de conferir.'); return }
+    setErro(''); setLoading(true)
+    const lista = await buscarBaiasDoMapa(filial, num, hojeISO())
+    setLoading(false)
+    if (lista.length === 0) {
+      setErro(`Nenhuma baia encontrada para o mapa ${num} hoje. Confira se o Relatório de Separação já foi importado.`)
+      return
+    }
+    setBaias(lista)
+    setTela('baias')
+  }
+
+  async function abrirBaia(b: BaiaConf) {
+    setBaiaAtiva(b.id)
+    setTela('baia')
+    await iniciarBaia(b.id)
+  }
+
+  async function toggleItem(it: ItemConf) {
+    if (it.divergencia) return
+    await marcarItem(it.id, !it.conferido)
+    setBaias((prev) => prev.map((b) => b.id !== baiaAtiva ? b : {
+      ...b, itens: b.itens.map((x) => x.id === it.id ? { ...x, conferido: !x.conferido } : x),
+    }))
+  }
+
+  async function confirmarDivergencia(tipo: 'falta' | 'sobra' | 'avaria', qtdReal: string, obs: string) {
+    if (!divItem) return
+    const qtd = qtdReal.trim() === '' ? null : Number(qtdReal)
+    await registrarDivergencia(divItem.id, tipo, isNaN(qtd as number) ? null : qtd, obs.trim() || null)
+    const baia = baias.find((b) => b.id === baiaAtiva)
+    setBaias((prev) => prev.map((b) => b.id !== baiaAtiva ? b : {
+      ...b, itens: b.itens.map((x) => x.id === divItem.id
+        ? { ...x, divergencia: true, conferido: true, tipoDivergencia: tipo, qtdReal: qtd, obs: obs.trim() || null }
+        : x),
+    }))
+    // Aviso automático ao grupo configurado (mesmo padrão dos outros módulos).
+    const { data: filialRow } = await supabase.from('filiais').select('grupo_conferencia_whatsapp').eq('nome', filial).maybeSingle()
+    if (filialRow?.grupo_conferencia_whatsapp && baia) {
+      await enviarMensagemGrupo(filialRow.grupo_conferencia_whatsapp, montarMensagemDivergencia({
+        mapa: Number(mapa), baiaRotulo: baia.rotulo, data: hojeISO(), conferente: nome,
+        item: { ...divItem, divergencia: true, tipoDivergencia: tipo, qtdReal: qtd, obs: obs.trim() || null },
+      }))
+    }
+    setDivItem(null)
+  }
+
+  async function confirmarBaia() {
+    if (!baiaAtiva) return
+    await finalizarBaia(baiaAtiva, nome.trim() || null)
+    setBaias((prev) => prev.map((b) => b.id === baiaAtiva ? { ...b, status: 'conferida' } : b))
+    setBaiaAtiva(null)
+    setTela('baias')
+    recarregar()
+  }
+
+  const baia = useMemo(() => baias.find((b) => b.id === baiaAtiva) ?? null, [baias, baiaAtiva])
+  const conferidas = baias.filter((b) => b.status === 'conferida').length
+  const grupos = useMemo(() => {
+    const g = new Map<PortaConf, BaiaConf[]>()
+    for (const b of baias) { const arr = g.get(b.porta) ?? []; arr.push(b); g.set(b.porta, arr) }
+    return (['M', 'A', 'Z'] as PortaConf[]).map((p) => [p, g.get(p) ?? []] as const).filter(([, arr]) => arr.length > 0)
+  }, [baias])
+
+  // ── Tela 1: início ──────────────────────────────────────────────────────
+  if (tela === 'inicio') {
+    return (
+      <div className="min-h-screen bg-brand-900 text-white flex flex-col">
+        <div className="px-5 pt-8 pb-6">
+          <Link to="/login" className="inline-flex items-center gap-1.5 text-brand-200 text-sm mb-6"><ArrowLeft className="h-4 w-4" /> Voltar</Link>
+          <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Package className="h-4 w-4" /> Conferência de carga</div>
+          <h1 className="text-2xl font-bold">Conferir caminhão</h1>
+          <p className="text-brand-200 text-sm mt-1">Confira os produtos carregados, baia por baia.</p>
+        </div>
+        <div className="flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 pb-8 flex flex-col gap-4">
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-gray-500 flex items-center gap-1.5 mb-1.5"><Building2 className="h-3.5 w-3.5" /> Filial</label>
+            <select value={filial} onChange={(e) => setFilial(e.target.value)} className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-base bg-white">
+              {filiais.map((f) => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5 block">Seu nome</label>
+            <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do ajudante" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-base" />
+          </div>
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5 block">Número do mapa</label>
+            <input value={mapa} onChange={(e) => setMapa(e.target.value.replace(/\D/g, ''))} inputMode="numeric" placeholder="Ex: 278620" className="w-full px-4 py-4 border-2 border-gray-200 rounded-xl text-3xl font-extrabold tracking-wide tabular-nums" />
+          </div>
+          {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 flex items-start gap-2"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{erro}</div>}
+          <button onClick={buscar} disabled={loading} className="mt-auto w-full bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white font-bold rounded-xl py-4 text-base flex items-center justify-center gap-2">
+            {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />} Buscar baias do mapa
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Tela 2: lista de baias ───────────────────────────────────────────────
+  if (tela === 'baias') {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="bg-brand-800 text-white px-4 pt-6 pb-4 sticky top-0 z-10">
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setTela('inicio'); setBaias([]) }} className="opacity-85"><ChevronLeft className="h-6 w-6" /></button>
+            <div className="text-[11px] uppercase tracking-wider opacity-75 font-bold">Baias a conferir</div>
+            <div className="ml-auto flex items-center gap-1.5 text-sm font-bold"><Truck className="h-4 w-4" /> Mapa {mapa}</div>
+          </div>
+        </div>
+        <div className="p-4 space-y-3">
+          <div className="bg-white border rounded-xl px-4 py-3">
+            <div className="flex items-baseline justify-between mb-2">
+              <b className="text-sm">{conferidas} de {baias.length} baias conferidas</b>
+              <span className="text-xs text-gray-500 tabular-nums">{baias.length - conferidas} faltam</span>
+            </div>
+            <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
+              <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${baias.length ? (conferidas / baias.length) * 100 : 0}%` }} />
+            </div>
+          </div>
+
+          {grupos.map(([porta, arr]) => (
+            <div key={porta} className="space-y-2">
+              <div className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-wider text-gray-400 px-1 pt-1">
+                {PORTA_LABEL[porta]}<span className="flex-1 h-px bg-gray-200" />
+              </div>
+              {arr.map((b) => {
+                const feitos = b.itens.filter((i) => i.conferido).length
+                const done = b.status === 'conferida'
+                return (
+                  <button key={b.id} onClick={() => abrirBaia(b)} className={`w-full flex items-center gap-3 p-3 rounded-2xl border text-left active:scale-[.99] transition ${done ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+                    <span className={`w-[52px] h-[52px] shrink-0 rounded-xl grid place-content-center text-center ${b.porta === 'M' ? 'bg-brand-800 text-white' : b.porta === 'A' ? 'bg-accent-100 text-accent-800 border border-accent-200' : 'bg-gray-200 text-gray-600'}`}>
+                      <span className="text-xl font-extrabold leading-none">{b.porta}</span>
+                      {b.ordem != null && <span className="text-[11px] font-bold opacity-85 tabular-nums mt-0.5">{String(b.ordem).padStart(2, '0')}</span>}
+                    </span>
+                    <span className="flex-1 min-w-0">
+                      <span className="block text-sm font-bold">{b.rotulo}</span>
+                      <span className="block text-xs text-gray-500 tabular-nums mt-0.5">{done ? `${b.totalItens} itens conferidos` : `${feitos}/${b.totalItens} itens · ${b.totalCaixas} cx`}</span>
+                    </span>
+                    {done
+                      ? <span className="text-green-700 text-xs font-bold flex items-center gap-1"><Check className="h-4 w-4" /> Conferida</span>
+                      : <span className="text-[11px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-200 px-2 py-1 rounded-full">Pendente</span>}
+                    <ChevronRight className="h-5 w-5 text-gray-300 shrink-0" />
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+
+          {conferidas === baias.length && baias.length > 0 && (
+            <div className="bg-green-600 text-white rounded-2xl p-4 flex items-center gap-3 mt-2">
+              <CheckCircle2 className="h-8 w-8 shrink-0" />
+              <div><b className="block">Mapa {mapa} conferido!</b><span className="text-sm text-green-50">Todas as baias foram verificadas.</span></div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Tela 3: detalhe da baia ──────────────────────────────────────────────
+  const feitos = baia?.itens.filter((i) => i.conferido).length ?? 0
+  const totalBaia = baia?.itens.length ?? 0
+  const tudoFeito = totalBaia > 0 && feitos === totalBaia
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col">
+      <div className="bg-brand-800 text-white px-4 pt-6 pb-4 sticky top-0 z-10">
+        <div className="flex items-center gap-2">
+          <button onClick={() => { setBaiaAtiva(null); setTela('baias') }} className="opacity-85"><ChevronLeft className="h-6 w-6" /></button>
+          <div>
+            <div className="text-[11px] uppercase tracking-wider opacity-75 font-bold">Conferindo baia</div>
+            <div className="text-base font-bold">{baia?.rotulo}</div>
+          </div>
+          <div className="ml-auto text-sm font-bold tabular-nums">Mapa {mapa}</div>
+        </div>
+      </div>
+
+      <div className="flex-1 p-3 space-y-2 pb-28">
+        {baia?.itens.map((it) => (
+          <div key={it.id} className={`flex items-center gap-3 p-3 rounded-2xl border transition ${it.divergencia ? 'bg-red-50 border-red-200' : it.conferido ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+            <button onClick={() => toggleItem(it)} className={`w-8 h-8 shrink-0 rounded-lg border-2 grid place-items-center transition ${it.divergencia ? 'border-red-400 bg-red-400' : it.conferido ? 'border-green-600 bg-green-600' : 'border-gray-300'}`}>
+              {it.divergencia ? <AlertTriangle className="h-4 w-4 text-white" /> : it.conferido ? <Check className="h-5 w-5 text-white" /> : null}
+            </button>
+            <div className="flex-1 min-w-0">
+              <div className={`text-sm font-semibold leading-tight ${it.conferido && !it.divergencia ? 'text-gray-500 line-through' : ''}`}>{it.descricao ?? it.codigo ?? 'Item'}</div>
+              <div className="flex items-center gap-2 mt-1.5">
+                {it.codigo && <span className="text-[11px] text-gray-400 font-semibold tabular-nums">Cód. {it.codigo}</span>}
+                {it.tipo && <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${it.tipo.toLowerCase().startsWith('retorn') ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500'}`}>{it.tipo}</span>}
+                <button onClick={() => setDivItem(it)} className="text-[11px] font-bold text-red-600 ml-auto">Divergência</button>
+              </div>
+              {it.divergencia && <div className="text-[11px] text-red-700 font-semibold mt-1">⚠️ {it.tipoDivergencia?.toUpperCase()}{it.qtdReal != null ? ` · veio ${it.qtdReal}` : ''}</div>}
+            </div>
+            <div className="text-right shrink-0">
+              <div className="text-2xl font-extrabold leading-none tabular-nums">{it.quantidade ?? '—'}</div>
+              <div className="text-[10px] text-gray-400 uppercase font-bold tracking-wide">{it.unidade ?? ''}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="fixed bottom-0 inset-x-0 bg-white border-t px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+        <p className="text-center text-xs text-gray-500 mb-2 tabular-nums">{feitos} de {totalBaia} itens conferidos</p>
+        <button onClick={confirmarBaia} disabled={!tudoFeito} className={`w-full rounded-xl py-3.5 font-bold text-base flex items-center justify-center gap-2 ${tudoFeito ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-400'}`}>
+          {tudoFeito ? <><Check className="h-5 w-5" /> Confirmar baia</> : `Confirmar baia (${feitos}/${totalBaia})`}
+        </button>
+      </div>
+
+      {divItem && <DivergenciaModal item={divItem} onClose={() => setDivItem(null)} onConfirm={confirmarDivergencia} />}
+    </div>
+  )
+}
+
+function DivergenciaModal({ item, onClose, onConfirm }: {
+  item: ItemConf
+  onClose: () => void
+  onConfirm: (tipo: 'falta' | 'sobra' | 'avaria', qtdReal: string, obs: string) => void
+}) {
+  const [tipo, setTipo] = useState<'falta' | 'sobra' | 'avaria'>('falta')
+  const [qtdReal, setQtdReal] = useState('')
+  const [obs, setObs] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const opcoes: { v: 'falta' | 'sobra' | 'avaria'; label: string }[] = [
+    { v: 'falta', label: 'Faltou' }, { v: 'sobra', label: 'Veio a mais' }, { v: 'avaria', label: 'Avaria' },
+  ]
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wide text-red-600">Registrar divergência</div>
+            <div className="text-sm font-semibold mt-0.5">{item.descricao ?? item.codigo}</div>
+            <div className="text-xs text-gray-500 tabular-nums">Separado: {item.quantidade ?? '—'} {item.unidade ?? ''}</div>
+          </div>
+          <button onClick={onClose}><X className="h-5 w-5 text-gray-400" /></button>
+        </div>
+        <div className="grid grid-cols-3 gap-2">
+          {opcoes.map((o) => (
+            <button key={o.v} onClick={() => setTipo(o.v)} className={`py-2.5 rounded-xl text-sm font-bold border-2 ${tipo === o.v ? 'border-red-500 bg-red-50 text-red-700' : 'border-gray-200 text-gray-600'}`}>{o.label}</button>
+          ))}
+        </div>
+        {tipo !== 'avaria' && (
+          <div>
+            <label className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5 block">Quantidade que veio no caminhão</label>
+            <input value={qtdReal} onChange={(e) => setQtdReal(e.target.value.replace(/[^\d.]/g, ''))} inputMode="decimal" placeholder="Ex: 3" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-lg font-bold tabular-nums" />
+          </div>
+        )}
+        <div>
+          <label className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5 block">Observação (opcional)</label>
+          <input value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Detalhe o que aconteceu" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm" />
+        </div>
+        <button
+          onClick={async () => { setEnviando(true); await onConfirm(tipo, qtdReal, obs); setEnviando(false) }}
+          disabled={enviando}
+          className="w-full bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white font-bold rounded-xl py-3.5 flex items-center justify-center gap-2"
+        >
+          {enviando ? <Loader2 className="h-5 w-5 animate-spin" /> : <AlertTriangle className="h-5 w-5" />} Registrar e avisar o grupo
+        </button>
+      </div>
+    </div>
+  )
+}

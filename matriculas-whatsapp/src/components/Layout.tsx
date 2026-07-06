@@ -5,7 +5,7 @@ import {
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
   Wallet, Menu, X, Truck, Boxes, LineChart, Timer, Home, Send, SlidersHorizontal,
-  ShieldCheck, Fuel, Scale, Route,
+  ShieldCheck, Fuel, Scale, Route, ClipboardCheck,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -53,6 +53,7 @@ const distribuicaoItems = [
   { permKey: 'distribuicao', to: '/matinal-tml', label: 'Timer da Matinal', icon: Clock },
   { permKey: 'distribuicao', to: '/distribuicao/dto',          label: 'DTO Distribuição',     icon: ShieldCheck },
   { permKey: 'distribuicao', to: '/distribuicao/jornada-rota', label: 'Jornada e Tempo em Rota', icon: Route },
+  { permKey: 'distribuicao', to: '/distribuicao/conferencia', label: 'Conferência Digital', icon: ClipboardCheck },
 ]
 
 const frotaItems = [

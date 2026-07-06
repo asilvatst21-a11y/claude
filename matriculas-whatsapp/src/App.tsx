@@ -14,6 +14,8 @@ import DistribuicaoTMLWhatsappConfig from './pages/DistribuicaoTMLWhatsappConfig
 import DistribuicaoTMLParametros from './pages/DistribuicaoTMLParametros'
 import DtoDistribuicao from './pages/DtoDistribuicao'
 import JornadaRota from './pages/JornadaRota'
+import ConferenciaDigital from './pages/ConferenciaDigital'
+import DistribuicaoConferencia from './pages/DistribuicaoConferencia'
 import Frota from './pages/Frota'
 import FrotaIV from './pages/FrotaIV'
 import FrotaPlacas from './pages/FrotaPlacas'
@@ -89,6 +91,7 @@ export default function App() {
           <Route path="/login" element={<PublicLogin />} />
           <Route path="/solicitar-extra" element={<SolicitarExtra />} />
           <Route path="/matinal-tml" element={<MatinalTML />} />
+          <Route path="/conferencia" element={<ConferenciaDigital />} />
           <Route path="/armazem" element={<ArmazemOperadorRoute />} />
           <Route element={<ProtectedRoutes />}>
             <Route path="/" element={<Home />} />
@@ -119,6 +122,7 @@ export default function App() {
             <Route path="/distribuicao/tml/parametros" element={<DistribuicaoTMLParametros />} />
             <Route path="/distribuicao/dto" element={<DtoDistribuicao />} />
             <Route path="/distribuicao/jornada-rota" element={<JornadaRota />} />
+            <Route path="/distribuicao/conferencia" element={<DistribuicaoConferencia />} />
             <Route path="/frota" element={<Frota />} />
             <Route path="/frota/iv" element={<FrotaIV />} />
             <Route path="/frota/placas" element={<FrotaPlacas />} />
