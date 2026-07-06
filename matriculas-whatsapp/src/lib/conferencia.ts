@@ -134,16 +134,18 @@ export async function importarSeparacao(
 
 // ── Página do ajudante ────────────────────────────────────────────────────
 export async function buscarBaiasDoMapa(filial: string, mapa: number, data: string): Promise<BaiaConf[]> {
-  const { data: baias } = await supabase
+  const { data: baias, error: eBaias } = await supabase
     .from('conferencia_baias')
     .select('id, palete, porta, ordem, rotulo, total_itens, total_caixas, status, iniciada_em, finalizada_em')
     .eq('filial', filial).eq('mapa', mapa).eq('data', data)
+  if (eBaias) throw new Error(eBaias.message)
   if (!baias || baias.length === 0) return []
 
-  const { data: itens } = await supabase
+  const { data: itens, error: eItens } = await supabase
     .from('conferencia_itens')
     .select('id, baia_id, sequencia, codigo, descricao, tipo, quantidade, unidade, conferido, divergencia, tipo_divergencia, qtd_real, obs')
     .eq('filial', filial).eq('mapa', mapa).eq('data', data)
+  if (eItens) throw new Error(eItens.message)
 
   const itensPorBaia = new Map<string, ItemConf[]>()
   for (const it of itens ?? []) {
@@ -170,15 +172,17 @@ export async function buscarBaiasDoMapa(filial: string, mapa: number, data: stri
 
 // Marca a baia como iniciada (só na primeira vez) — base pro tempo de conferência.
 export async function iniciarBaia(baiaId: string): Promise<void> {
-  await supabase.from('conferencia_baias')
+  const { error } = await supabase.from('conferencia_baias')
     .update({ iniciada_em: new Date().toISOString() })
     .eq('id', baiaId).is('iniciada_em', null)
+  if (error) throw new Error(error.message)
 }
 
 export async function marcarItem(itemId: string, conferido: boolean): Promise<void> {
-  await supabase.from('conferencia_itens')
+  const { error } = await supabase.from('conferencia_itens')
     .update({ conferido, conferido_em: conferido ? new Date().toISOString() : null })
     .eq('id', itemId)
+  if (error) throw new Error(error.message)
 }
 
 export async function registrarDivergencia(
@@ -187,15 +191,17 @@ export async function registrarDivergencia(
   qtdReal: number | null,
   obs: string | null,
 ): Promise<void> {
-  await supabase.from('conferencia_itens')
+  const { error } = await supabase.from('conferencia_itens')
     .update({ divergencia: true, tipo_divergencia: tipo, qtd_real: qtdReal, obs, conferido: true, conferido_em: new Date().toISOString() })
     .eq('id', itemId)
+  if (error) throw new Error(error.message)
 }
 
 export async function finalizarBaia(baiaId: string, conferidoPor: string | null): Promise<void> {
-  await supabase.from('conferencia_baias')
+  const { error } = await supabase.from('conferencia_baias')
     .update({ status: 'conferida', finalizada_em: new Date().toISOString(), conferido_por: conferidoPor })
     .eq('id', baiaId)
+  if (error) throw new Error(error.message)
 }
 
 // ── Painel Conferência Digital (Distribuição) ────────────────────────────

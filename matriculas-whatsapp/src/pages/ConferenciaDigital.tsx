@@ -12,8 +12,13 @@ import {
   type BaiaConf, type ItemConf, type PortaConf,
 } from '../lib/conferencia'
 
+// Data local (não UTC) — usar toISOString() aqui rolaria a data pra frente
+// perto da meia-noite no horário do Brasil (UTC-3), fazendo a conferência
+// buscar/gravar num dia diferente do que o Relatório de Separação foi
+// importado.
 function hojeISO(): string {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 type Tela = 'inicio' | 'baias' | 'baia'
@@ -41,8 +46,12 @@ export default function ConferenciaDigital() {
   const recarregar = useCallback(async () => {
     const num = Number(mapa.trim())
     if (!filial || !num) return
-    const lista = await buscarBaiasDoMapa(filial, num, hojeISO())
-    setBaias(lista)
+    try {
+      const lista = await buscarBaiasDoMapa(filial, num, hojeISO())
+      setBaias(lista)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao atualizar a lista de baias.')
+    }
   }, [filial, mapa])
 
   async function buscar() {
@@ -50,62 +59,100 @@ export default function ConferenciaDigital() {
     if (!filial || !num) { setErro('Selecione a filial e digite o número do mapa.'); return }
     if (!nome.trim()) { setErro('Digite seu nome antes de conferir.'); return }
     setErro(''); setLoading(true)
-    const lista = await buscarBaiasDoMapa(filial, num, hojeISO())
-    setLoading(false)
-    if (lista.length === 0) {
-      setErro(`Nenhuma baia encontrada para o mapa ${num} hoje. Confira se o Relatório de Separação já foi importado.`)
-      return
+    try {
+      const lista = await buscarBaiasDoMapa(filial, num, hojeISO())
+      setLoading(false)
+      if (lista.length === 0) {
+        setErro(`Nenhuma baia encontrada para o mapa ${num} hoje. Confira se o Relatório de Separação já foi importado.`)
+        return
+      }
+      setBaias(lista)
+      setTela('baias')
+    } catch (err) {
+      setLoading(false)
+      setErro(err instanceof Error ? err.message : 'Erro ao buscar as baias do mapa.')
     }
-    setBaias(lista)
-    setTela('baias')
   }
 
   async function abrirBaia(b: BaiaConf) {
+    setErro('')
     setBaiaAtiva(b.id)
     setTela('baia')
-    await iniciarBaia(b.id)
+    try {
+      await iniciarBaia(b.id)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao abrir a baia.')
+    }
   }
 
   async function toggleItem(it: ItemConf) {
     if (it.divergencia) return
-    await marcarItem(it.id, !it.conferido)
-    setBaias((prev) => prev.map((b) => b.id !== baiaAtiva ? b : {
-      ...b, itens: b.itens.map((x) => x.id === it.id ? { ...x, conferido: !x.conferido } : x),
-    }))
+    try {
+      await marcarItem(it.id, !it.conferido)
+      setBaias((prev) => prev.map((b) => b.id !== baiaAtiva ? b : {
+        ...b, itens: b.itens.map((x) => x.id === it.id ? { ...x, conferido: !x.conferido } : x),
+      }))
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao marcar o item. Tente de novo.')
+    }
   }
 
   async function confirmarDivergencia(tipo: 'falta' | 'sobra' | 'avaria', qtdReal: string, obs: string) {
     if (!divItem) return
     const qtd = qtdReal.trim() === '' ? null : Number(qtdReal)
-    await registrarDivergencia(divItem.id, tipo, isNaN(qtd as number) ? null : qtd, obs.trim() || null)
-    const baia = baias.find((b) => b.id === baiaAtiva)
-    setBaias((prev) => prev.map((b) => b.id !== baiaAtiva ? b : {
-      ...b, itens: b.itens.map((x) => x.id === divItem.id
-        ? { ...x, divergencia: true, conferido: true, tipoDivergencia: tipo, qtdReal: qtd, obs: obs.trim() || null }
-        : x),
-    }))
-    // Aviso automático ao grupo configurado (mesmo padrão dos outros módulos).
-    const { data: filialRow } = await supabase.from('filiais').select('grupo_conferencia_whatsapp').eq('nome', filial).maybeSingle()
-    if (filialRow?.grupo_conferencia_whatsapp && baia) {
-      await enviarMensagemGrupo(filialRow.grupo_conferencia_whatsapp, montarMensagemDivergencia({
-        mapa: Number(mapa), baiaRotulo: baia.rotulo, data: hojeISO(), conferente: nome,
-        item: { ...divItem, divergencia: true, tipoDivergencia: tipo, qtdReal: qtd, obs: obs.trim() || null },
+    try {
+      await registrarDivergencia(divItem.id, tipo, isNaN(qtd as number) ? null : qtd, obs.trim() || null)
+      const baia = baias.find((b) => b.id === baiaAtiva)
+      setBaias((prev) => prev.map((b) => b.id !== baiaAtiva ? b : {
+        ...b, itens: b.itens.map((x) => x.id === divItem.id
+          ? { ...x, divergencia: true, conferido: true, tipoDivergencia: tipo, qtdReal: qtd, obs: obs.trim() || null }
+          : x),
       }))
+      // Aviso automático ao grupo configurado (mesmo padrão dos outros módulos).
+      // Falha no envio da mensagem não deve travar a marcação da divergência,
+      // que já foi salva no banco — por isso é um try/catch à parte.
+      try {
+        const { data: filialRow } = await supabase.from('filiais').select('grupo_conferencia_whatsapp').eq('nome', filial).maybeSingle()
+        if (filialRow?.grupo_conferencia_whatsapp && baia) {
+          await enviarMensagemGrupo(filialRow.grupo_conferencia_whatsapp, montarMensagemDivergencia({
+            mapa: Number(mapa), baiaRotulo: baia.rotulo, data: hojeISO(), conferente: nome,
+            item: { ...divItem, divergencia: true, tipoDivergencia: tipo, qtdReal: qtd, obs: obs.trim() || null },
+          }))
+        }
+      } catch {
+        /* aviso ao grupo é best-effort — a divergência já foi registrada */
+      }
+      setDivItem(null)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao registrar a divergência. Tente de novo.')
     }
-    setDivItem(null)
   }
 
   async function confirmarBaia() {
     if (!baiaAtiva) return
-    await finalizarBaia(baiaAtiva, nome.trim() || null)
-    setBaias((prev) => prev.map((b) => b.id === baiaAtiva ? { ...b, status: 'conferida' } : b))
-    setBaiaAtiva(null)
-    setTela('baias')
-    recarregar()
+    setErro('')
+    try {
+      await finalizarBaia(baiaAtiva, nome.trim() || null)
+      setBaias((prev) => prev.map((b) => b.id === baiaAtiva ? { ...b, status: 'conferida' } : b))
+      setBaiaAtiva(null)
+      setTela('baias')
+      await recarregar()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao confirmar a baia. Tente de novo.')
+    }
   }
 
   const baia = useMemo(() => baias.find((b) => b.id === baiaAtiva) ?? null, [baias, baiaAtiva])
   const conferidas = baias.filter((b) => b.status === 'conferida').length
+
+  // Proteção: se a tela de detalhe ficar sem uma baia correspondente (ex.:
+  // a lista foi recarregada e o id não bateu mais), volta pra lista em vez
+  // de renderizar uma tela de detalhe vazia/quebrada.
+  useEffect(() => {
+    if (tela === 'baia' && baiaAtiva && baias.length > 0 && !baia) {
+      setTela('baias')
+    }
+  }, [tela, baiaAtiva, baias, baia])
   const grupos = useMemo(() => {
     const g = new Map<PortaConf, BaiaConf[]>()
     for (const b of baias) { const arr = g.get(b.porta) ?? []; arr.push(b); g.set(b.porta, arr) }
@@ -158,6 +205,7 @@ export default function ConferenciaDigital() {
           </div>
         </div>
         <div className="p-4 space-y-3">
+          {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 flex items-start gap-2"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{erro}</div>}
           <div className="bg-white border rounded-xl px-4 py-3">
             <div className="flex items-baseline justify-between mb-2">
               <b className="text-sm">{conferidas} de {baias.length} baias conferidas</b>
@@ -225,6 +273,7 @@ export default function ConferenciaDigital() {
       </div>
 
       <div className="flex-1 p-3 space-y-2 pb-28">
+        {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 flex items-start gap-2"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{erro}</div>}
         {baia?.itens.map((it) => (
           <div key={it.id} className={`flex items-center gap-3 p-3 rounded-2xl border transition ${it.divergencia ? 'bg-red-50 border-red-200' : it.conferido ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
             <button onClick={() => toggleItem(it)} className={`w-8 h-8 shrink-0 rounded-lg border-2 grid place-items-center transition ${it.divergencia ? 'border-red-400 bg-red-400' : it.conferido ? 'border-green-600 bg-green-600' : 'border-gray-300'}`}>

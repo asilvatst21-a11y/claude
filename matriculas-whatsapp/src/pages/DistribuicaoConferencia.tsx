@@ -10,8 +10,10 @@ import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import { importarSeparacao, buscarResumoDia, type ResumoDiaConf } from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
 
+// Data local (não UTC) — consistente com a página do ajudante (ConferenciaDigital).
 function hojeISO(): string {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 export default function DistribuicaoConferencia() {
