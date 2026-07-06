@@ -185,7 +185,7 @@ export default function DistribuicaoConferencia() {
                   <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Itens</th>
                   <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Divergências</th>
                   <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Tempo</th>
-                  <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Conferente</th>
+                  <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Ajudante</th>
                 </tr>
               </thead>
               <tbody className="divide-y">

@@ -8,9 +8,13 @@ import { supabase } from '../lib/supabase'
 import { enviarMensagemGrupo } from '../lib/zapi'
 import {
   buscarBaiasDoMapa, iniciarBaia, marcarItem, registrarDivergencia, finalizarBaia,
-  montarMensagemDivergencia, PORTA_LABEL,
-  type BaiaConf, type ItemConf, type PortaConf,
+  montarMensagemDivergencia, buscarPessoasConferencia, PORTA_LABEL,
+  type BaiaConf, type ItemConf, type PortaConf, type PessoaConferencia,
 } from '../lib/conferencia'
+
+function normalizarBusca(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
+}
 
 // Data local (não UTC) — usar toISOString() aqui rolaria a data pra frente
 // perto da meia-noite no horário do Brasil (UTC-3), fazendo a conferência
@@ -34,6 +38,8 @@ export default function ConferenciaDigital() {
   const [loading, setLoading] = useState(false)
   const [erro, setErro] = useState('')
   const [divItem, setDivItem] = useState<ItemConf | null>(null)
+  const [pessoas, setPessoas] = useState<PessoaConferencia[]>([])
+  const [sugestoesAbertas, setSugestoesAbertas] = useState(false)
 
   useEffect(() => {
     supabase.from('filiais').select('nome').order('nome').then(({ data }) => {
@@ -42,6 +48,19 @@ export default function ConferenciaDigital() {
       if (nomes.length > 0) setFilial(nomes[0])
     })
   }, [])
+
+  // Lista de motoristas + ajudantes pra sugerir enquanto digita — recarrega
+  // quando a filial muda (motoristas são cadastrados por filial).
+  useEffect(() => {
+    if (!filial) return
+    buscarPessoasConferencia(filial).then(setPessoas).catch(() => setPessoas([]))
+  }, [filial])
+
+  const sugestoes = useMemo(() => {
+    const termo = normalizarBusca(nome)
+    if (!termo) return []
+    return pessoas.filter((p) => normalizarBusca(p.nome).includes(termo)).slice(0, 8)
+  }, [pessoas, nome])
 
   const recarregar = useCallback(async () => {
     const num = Number(mapa.trim())
@@ -176,9 +195,35 @@ export default function ConferenciaDigital() {
               {filiais.map((f) => <option key={f} value={f}>{f}</option>)}
             </select>
           </div>
-          <div>
-            <label className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5 block">Seu nome</label>
-            <input value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Nome do ajudante" className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-base" />
+          <div className="relative">
+            <label className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5 block">Seu nome (motorista ou ajudante)</label>
+            <input
+              value={nome}
+              onChange={(e) => { setNome(e.target.value); setSugestoesAbertas(true) }}
+              onFocus={() => setSugestoesAbertas(true)}
+              onBlur={() => setTimeout(() => setSugestoesAbertas(false), 150)}
+              placeholder="Digite pra buscar…"
+              autoComplete="off"
+              className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-base"
+            />
+            {sugestoesAbertas && sugestoes.length > 0 && (
+              <div className="absolute z-20 top-full mt-1 w-full bg-white border-2 border-gray-200 rounded-xl shadow-lg max-h-56 overflow-y-auto">
+                {sugestoes.map((p) => (
+                  <button
+                    key={`${p.tipo}-${p.nome}`}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { setNome(p.nome); setSugestoesAbertas(false) }}
+                    className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-left hover:bg-gray-50 text-sm border-b last:border-b-0 border-gray-100"
+                  >
+                    <span className="text-gray-900">{p.nome}</span>
+                    <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded shrink-0 ${p.tipo === 'motorista' ? 'bg-brand-100 text-brand-700' : 'bg-accent-100 text-accent-800'}`}>
+                      {p.tipo === 'motorista' ? 'Motorista' : 'Ajudante'}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <label className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5 block">Número do mapa</label>

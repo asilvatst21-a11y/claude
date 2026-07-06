@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { valesSupabase } from './valesSupabase'
 import { parseSeparacaoBuffer } from './tmlParser'
 
 // ── Baia (palete) ─────────────────────────────────────────────────────────
@@ -298,6 +299,43 @@ export function montarMensagemDivergencia(p: {
   texto += `📊 Separado: ${p.item.quantidade ?? '—'} ${p.item.unidade ?? ''}`.trim() + `\n`
   if (p.item.qtdReal != null) texto += `📥 No caminhão: ${p.item.qtdReal}\n`
   if (p.item.obs) texto += `📝 Obs: ${p.item.obs}\n`
-  texto += `\n👤 Conferente: ${p.conferente || '—'}`
+  texto += `\n👤 Ajudante: ${p.conferente || '—'}`
   return texto
+}
+
+// ── Autocomplete de "quem está conferindo" ───────────────────────────────
+// Junta motoristas (motoristas_sala_tml, cadastro da própria filial) e
+// ajudantes (tabela "ajudantes" do módulo de Vales, cadastro único da
+// empresa) num só nome pra sugerir no campo de nome da Conferência — assim
+// não depende de digitar certinho, só escolher da lista.
+export interface PessoaConferencia {
+  nome: string
+  tipo: 'motorista' | 'ajudante'
+}
+
+export async function buscarPessoasConferencia(filial: string): Promise<PessoaConferencia[]> {
+  const [{ data: motoristas }, { data: ajudantes }] = await Promise.all([
+    supabase.from('motoristas_sala_tml').select('nome').eq('filial', filial),
+    // A tabela "ajudantes" (módulo de Vales) só concede acesso ao
+    // service_role — usa o client com a service key, igual o resto do
+    // módulo de Vales já faz no front.
+    valesSupabase.from('ajudantes').select('nome'),
+  ])
+  const vistos = new Set<string>()
+  const lista: PessoaConferencia[] = []
+  for (const m of motoristas ?? []) {
+    const nome = (m.nome ?? '').trim()
+    const chave = nome.toLowerCase()
+    if (!nome || vistos.has(chave)) continue
+    vistos.add(chave)
+    lista.push({ nome, tipo: 'motorista' })
+  }
+  for (const a of ajudantes ?? []) {
+    const nome = (a.nome ?? '').trim()
+    const chave = nome.toLowerCase()
+    if (!nome || vistos.has(chave)) continue
+    vistos.add(chave)
+    lista.push({ nome, tipo: 'ajudante' })
+  }
+  return lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
 }
