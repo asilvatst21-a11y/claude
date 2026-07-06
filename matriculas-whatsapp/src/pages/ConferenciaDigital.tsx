@@ -162,7 +162,7 @@ export default function ConferenciaDigital() {
   // ── Tela 1: início ──────────────────────────────────────────────────────
   if (tela === 'inicio') {
     return (
-      <div className="min-h-screen bg-brand-900 text-white flex flex-col">
+      <div key="tela-inicio" className="min-h-screen bg-brand-900 text-white flex flex-col">
         <div className="px-5 pt-8 pb-6">
           <Link to="/login" className="inline-flex items-center gap-1.5 text-brand-200 text-sm mb-6"><ArrowLeft className="h-4 w-4" /> Voltar</Link>
           <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Package className="h-4 w-4" /> Conferência de carga</div>
@@ -196,7 +196,7 @@ export default function ConferenciaDigital() {
   // ── Tela 2: lista de baias ───────────────────────────────────────────────
   if (tela === 'baias') {
     return (
-      <div className="min-h-screen bg-gray-50">
+      <div key="tela-baias" className="min-h-screen bg-gray-50">
         <div className="bg-brand-800 text-white px-4 pt-6 pb-4 sticky top-0 z-10">
           <div className="flex items-center gap-2">
             <button onClick={() => { setTela('inicio'); setBaias([]) }} className="opacity-85"><ChevronLeft className="h-6 w-6" /></button>
@@ -260,7 +260,7 @@ export default function ConferenciaDigital() {
   const totalBaia = baia?.itens.length ?? 0
   const tudoFeito = totalBaia > 0 && feitos === totalBaia
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
+    <div key="tela-baia" className="min-h-screen bg-gray-50 flex flex-col">
       <div className="bg-brand-800 text-white px-4 pt-6 pb-4 sticky top-0 z-10">
         <div className="flex items-center gap-2">
           <button onClick={() => { setBaiaAtiva(null); setTela('baias') }} className="opacity-85"><ChevronLeft className="h-6 w-6" /></button>
