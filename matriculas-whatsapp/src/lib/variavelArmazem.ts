@@ -94,8 +94,12 @@ export function parseColaboradoresBuffer(buffer: ArrayBuffer): ColaboradorImport
   const out: ColaboradorImport[] = []
   for (let i = 1; i < rows.length; i++) {
     const nome = normalizarNome(rows[i][nomeIdx])
-    const cpf = apenasDigitos(rows[i][cpfIdx])
-    if (!nome || cpf.length < 3) continue
+    const cpfBruto = apenasDigitos(rows[i][cpfIdx])
+    if (!nome || cpfBruto.length < 3) continue
+    // A planilha às vezes traz o CPF como número (não texto), o que derruba
+    // os zeros à esquerda (ex.: "01234567890" vira "1234567890"). Sem o
+    // padStart, o totem passa a buscar pelo prefixo errado pra esse CPF.
+    const cpf = cpfBruto.padStart(11, '0')
     out.push({ nome, cpf })
   }
   return out
