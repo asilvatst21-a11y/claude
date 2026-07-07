@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { Lock, Building2, User, Loader2, Truck, Clock, ClipboardCheck } from 'lucide-react'
+import { Lock, Building2, User, Loader2, Truck, Clock, ClipboardCheck, Wallet } from 'lucide-react'
 
 export default function Login() {
   const navigate = useNavigate()
@@ -124,6 +124,13 @@ export default function Login() {
             className="w-full flex items-center justify-center gap-2 text-sm text-brand-600 hover:text-brand-800 py-2"
           >
             <ClipboardCheck size={16} /> Conferência de Carga
+          </Link>
+
+          <Link
+            to="/variavel-armazem"
+            className="w-full flex items-center justify-center gap-2 text-sm text-brand-600 hover:text-brand-800 py-2"
+          >
+            <Wallet size={16} /> Minha Variável (Armazém)
           </Link>
         </form>
 

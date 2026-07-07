@@ -49,6 +49,9 @@ import ArmazemOperador from './pages/armazem/Operador'
 import ArmazemCadastro from './pages/armazem/Cadastro'
 import ArmazemOperadores from './pages/armazem/Operadores'
 import ArmazemDashboard from './pages/armazem/Dashboard'
+import ArmazemVariavel from './pages/armazem/Variavel'
+import ColaboradoresArmazem from './pages/armazem/ColaboradoresArmazem'
+import VariavelTotem from './pages/VariavelTotem'
 import GerenciaPainel from './pages/gerencia/Painel'
 import GerenciaImportar from './pages/gerencia/Importar'
 
@@ -92,6 +95,7 @@ export default function App() {
           <Route path="/solicitar-extra" element={<SolicitarExtra />} />
           <Route path="/matinal-tml" element={<MatinalTML />} />
           <Route path="/conferencia" element={<ConferenciaDigital />} />
+          <Route path="/variavel-armazem" element={<VariavelTotem />} />
           <Route path="/armazem" element={<ArmazemOperadorRoute />} />
           <Route element={<ProtectedRoutes />}>
             <Route path="/" element={<Home />} />
@@ -129,6 +133,8 @@ export default function App() {
             <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
             <Route path="/armazem/operadores" element={<ArmazemOperadores />} />
             <Route path="/armazem/dashboard" element={<ArmazemDashboard />} />
+            <Route path="/armazem/variavel" element={<ArmazemVariavel />} />
+            <Route path="/armazem/colaboradores" element={<ColaboradoresArmazem />} />
             {/* Gerência — DRE */}
             <Route path="/gerencia" element={<GerenciaPainel />} />
             <Route path="/gerencia/importar" element={<GerenciaImportar />} />

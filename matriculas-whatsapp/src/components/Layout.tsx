@@ -66,6 +66,7 @@ const armazemItems = [
   { permKey: 'armazem-supervisor', to: '/armazem/cadastro',   label: 'Cadastro de Atividades', icon: Boxes },
   { permKey: 'armazem-supervisor', to: '/armazem/operadores', label: 'Operadores',             icon: UserCheck },
   { permKey: 'armazem-supervisor', to: '/armazem/dashboard',  label: 'Dashboard',              icon: Gauge },
+  { permKey: 'armazem-supervisor', to: '/armazem/variavel',   label: 'Variável',               icon: Wallet },
 ]
 
 const gerenciaItems = [
