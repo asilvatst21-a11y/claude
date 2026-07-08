@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Wallet, ArrowLeft, Building2, Loader2, Delete, Search, ChevronRight, ChevronLeft, TrendingUp, CalendarRange } from 'lucide-react'
+import { Wallet, ArrowLeft, Building2, Loader2, Delete, Search, ChevronRight, ChevronLeft, TrendingUp, CalendarRange, HelpCircle, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   buscarTotemCompetencia, buscarCompetenciaPorCpf, competenciaAtual, competenciaAnterior, competenciaSeguinte,
-  rangeCompetencia, formatarBRL, type ResultadoTotemCompetencia, type DiaCompetencia,
+  rangeCompetencia, buscarClusters, formatarBRL, type ResultadoTotemCompetencia, type DiaCompetencia, type Cluster,
 } from '../lib/variavelArmazem'
 import { formatarDataBR } from '../lib/utils'
 
@@ -13,15 +13,19 @@ function competenciaLabel(mesRotulo: string): string {
   return `${mes}/${mesRotulo.split('-')[0]}`
 }
 
-// Gera a lista completa de dias da competência (21→20), preenchendo com
-// "sem lançamento" quem não tem linha naquele dia — pra mostrar o histórico
-// completo, não só os dias em que bateu jornada.
+// Gera a lista de dias da competência (21→20) do início até o ÚLTIMO
+// LANÇAMENTO (não até o fim da janela) — dias futuros ainda não importados
+// pelo supervisor não aparecem como "sem lançamento", só somem quando ele
+// realmente sobe o lançamento daquele dia. Preenche os buracos entre o
+// início e o último lançamento (esses sim são ausências reais).
 function diasCompletos(mesRotulo: string, dias: DiaCompetencia[]): (DiaCompetencia | { data: string; semLancamento: true })[] {
-  const { ini, fim } = rangeCompetencia(mesRotulo)
+  if (dias.length === 0) return []
+  const { ini } = rangeCompetencia(mesRotulo)
+  const ultimoLancamento = dias[dias.length - 1].data
   const porData = new Map(dias.map((d) => [d.data, d]))
   const out: (DiaCompetencia | { data: string; semLancamento: true })[] = []
   const cursor = new Date(`${ini}T00:00:00`)
-  const fimDate = new Date(`${fim}T00:00:00`)
+  const fimDate = new Date(`${ultimoLancamento}T00:00:00`)
   while (cursor <= fimDate) {
     const iso = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
     out.push(porData.get(iso) ?? { data: iso, semLancamento: true })
@@ -43,12 +47,18 @@ export default function VariavelTotem() {
   const [dadosCompetencia, setDadosCompetencia] = useState<ResultadoTotemCompetencia | null>(null)
   const [trocandoMes, setTrocandoMes] = useState(false)
 
+  // Tabela de faixas (clusters) — pra tirar dúvida de quanto se recebe por
+  // 1.000 pontos em cada faixa, acessível a qualquer momento.
+  const [clusters, setClusters] = useState<Cluster[] | null>(null)
+  const [mostrarFaixas, setMostrarFaixas] = useState(false)
+
   useEffect(() => {
     supabase.from('filiais').select('nome').order('nome').then(({ data }) => {
       const nomes = (data ?? []).map((f) => f.nome)
       setFiliais(nomes)
       if (nomes.length > 0) setFilial(nomes[0])
     })
+    buscarClusters().then(setClusters).catch(() => setClusters([]))
   }, [])
 
   function tecla(n: string) {
@@ -119,6 +129,10 @@ export default function VariavelTotem() {
             <div className="text-xs font-bold uppercase tracking-widest text-accent-600">Colaborador</div>
             <div className="text-lg font-bold mt-0.5">{pessoa.nome}</div>
           </div>
+
+          <button onClick={() => setMostrarFaixas(true)} className="self-start inline-flex items-center gap-1.5 text-xs font-semibold text-accent-700 hover:text-accent-800">
+            <HelpCircle className="h-3.5 w-3.5" /> Quanto eu recebo por faixa de pontuação?
+          </button>
 
           {/* Seletor de competência */}
           <div className="rounded-2xl border border-gray-200 bg-gray-50 p-3">
@@ -201,6 +215,8 @@ export default function VariavelTotem() {
           <RodapeItem k="Pontos" v={c.pontuacaoTotal.toLocaleString('pt-BR')} />
           <RodapeItem k="Total período" v={formatarBRL(c.valorTotal)} destaque />
         </div>
+
+        {mostrarFaixas && <FaixasModal clusters={clusters ?? []} onClose={() => setMostrarFaixas(false)} />}
       </div>
     )
   }
@@ -237,6 +253,9 @@ export default function VariavelTotem() {
         <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Wallet className="h-4 w-4" /> Variável do armazém</div>
         <h1 className="text-2xl font-bold">Consultar minha variável</h1>
         <p className="text-brand-200 text-sm mt-1">Digite os 3 primeiros números do seu CPF.</p>
+        <button onClick={() => setMostrarFaixas(true)} className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-accent-300 hover:text-accent-200">
+          <HelpCircle className="h-3.5 w-3.5" /> Quanto eu recebo por faixa de pontuação?
+        </button>
       </div>
       <div className="flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 pb-8 flex flex-col gap-5">
         <div>
@@ -267,6 +286,8 @@ export default function VariavelTotem() {
           </button>
         </div>
       </div>
+
+      {mostrarFaixas && <FaixasModal clusters={clusters ?? []} onClose={() => setMostrarFaixas(false)} />}
     </div>
   )
 }
@@ -285,6 +306,50 @@ function RodapeItem({ k, v, destaque }: { k: string; v: string; destaque?: boole
     <div className="text-center">
       <div className="text-[10px] uppercase tracking-wide text-gray-400">{k}</div>
       <div className={`text-sm font-extrabold tabular-nums ${destaque ? 'text-green-700' : 'text-gray-900'}`}>{v}</div>
+    </div>
+  )
+}
+
+// Tabela de faixas (clusters) — o colaborador recebe TODOS os pontos pagos
+// na faixa em que o TOTAL do dia se encaixa (não é progressivo por faixa).
+function FaixasModal({ clusters, onClose }: { clusters: Cluster[]; onClose: () => void }) {
+  const ordenados = [...clusters].sort((a, b) => a.pontMin - b.pontMin)
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4" onClick={onClose}>
+      <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-sm max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b flex items-center justify-between sticky top-0 bg-white">
+          <div>
+            <h3 className="text-base font-bold text-gray-900">Quanto você recebe por faixa</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Vale para a pontuação de cada dia.</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"><X className="h-4 w-4 text-gray-500" /></button>
+        </div>
+        <div className="p-5">
+          {ordenados.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-6">Não foi possível carregar as faixas agora.</p>
+          ) : (
+            <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-500 text-xs">Faixa de pontos</th>
+                    <th className="text-right px-3 py-2 font-semibold text-gray-500 text-xs">A cada 1.000 pts</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {ordenados.map((c, i) => (
+                    <tr key={i}>
+                      <td className="px-3 py-2.5 tabular-nums text-gray-800">{c.pontMin.toLocaleString('pt-BR')} – {c.pontMax.toLocaleString('pt-BR')}</td>
+                      <td className="px-3 py-2.5 tabular-nums text-right font-bold text-green-700">{formatarBRL(c.valorPor1000)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-xs text-gray-400 mt-3 text-center">Você recebe todos os pontos do dia pagos na faixa em que o total se encaixar.</p>
+        </div>
+      </div>
     </div>
   )
 }
