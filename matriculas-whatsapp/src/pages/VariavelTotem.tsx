@@ -4,7 +4,8 @@ import { Wallet, ArrowLeft, Building2, Loader2, Delete, Search, ChevronRight, Ch
 import { supabase } from '../lib/supabase'
 import {
   buscarTotemCompetencia, buscarCompetenciaPorCpf, competenciaAtual, competenciaAnterior, competenciaSeguinte,
-  rangeCompetencia, buscarClusters, formatarBRL, type ResultadoTotemCompetencia, type DiaCompetencia, type Cluster,
+  rangeCompetencia, buscarClusters, clusterDoTotal, formatarBRL,
+  type ResultadoTotemCompetencia, type DiaCompetencia, type Cluster,
 } from '../lib/variavelArmazem'
 import { formatarDataBR } from '../lib/utils'
 
@@ -155,18 +156,39 @@ export default function VariavelTotem() {
             </div>
           </div>
 
-          {c.ultimoDia ? (
-            <div className="rounded-2xl bg-green-50 border border-green-200 p-5 text-center">
-              <div className="text-xs font-bold uppercase tracking-wide text-green-700 flex items-center justify-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-green-600" /> Seu último lançamento — {formatarDataBR(c.ultimoDia.data)}</div>
-              <div className="text-4xl font-extrabold text-green-700 tabular-nums mt-1">{formatarBRL(c.ultimoDia.valor)}</div>
-              <div className="flex justify-center gap-4 text-xs text-green-800 mt-2">
-                <span>Pontos: <b className="tabular-nums">{c.ultimoDia.pontuacaoTotal.toLocaleString('pt-BR')}</b></span>
-                <span>Faixa: <b className="tabular-nums">{c.ultimoDia.valorPor1000 != null ? `${formatarBRL(c.ultimoDia.valorPor1000)}/1k` : '—'}</b></span>
-              </div>
-            </div>
-          ) : (
+          {c.diasComLancamento === 0 ? (
             <div className="rounded-2xl bg-amber-50 border border-amber-200 p-5 text-center text-sm text-amber-800">
               Nenhum lançamento nesta competência.
+            </div>
+          ) : (
+            <div className="rounded-2xl bg-green-50 border border-green-200 p-5">
+              <div className="text-xs font-bold uppercase tracking-wide text-green-700 text-center">Resumo da Variável — {competenciaLabel(mesRotulo)}</div>
+              <div className="text-center mt-1.5">
+                <div className="text-[10px] font-bold uppercase tracking-wide text-green-700">Valor atualizado</div>
+                <div className="text-4xl font-extrabold text-green-700 tabular-nums">{formatarBRL(c.valorTotal)}</div>
+              </div>
+              <div className="grid grid-cols-2 gap-2.5 mt-3">
+                <div className="rounded-xl bg-white/70 border border-green-100 p-2.5 text-center">
+                  <div className="text-[9.5px] font-bold uppercase tracking-wide text-green-700">Pontuação média</div>
+                  <div className="text-base font-extrabold text-gray-900 tabular-nums mt-0.5">{Math.round(c.pontuacaoTotal / c.diasComLancamento).toLocaleString('pt-BR')} pts</div>
+                </div>
+                <div className="rounded-xl bg-white/70 border border-green-100 p-2.5 text-center">
+                  <div className="text-[9.5px] font-bold uppercase tracking-wide text-green-700">Faixa média</div>
+                  <div className="text-base font-extrabold text-gray-900 tabular-nums mt-0.5">
+                    {(() => {
+                      const media = c.pontuacaoTotal / c.diasComLancamento
+                      const faixa = clusterDoTotal(media, clusters ?? [])
+                      return faixa ? `${formatarBRL(faixa.valorPor1000)}/1k` : '—'
+                    })()}
+                  </div>
+                </div>
+              </div>
+              {c.ultimoDia && (
+                <div className="mt-3 pt-3 border-t border-green-200 flex items-center justify-between text-xs text-green-800">
+                  <span>Último lançamento — {formatarDataBR(c.ultimoDia.data)}</span>
+                  <span className="font-bold tabular-nums">{formatarBRL(c.ultimoDia.valor)}</span>
+                </div>
+              )}
             </div>
           )}
 
