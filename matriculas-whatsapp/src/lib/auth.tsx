@@ -13,11 +13,10 @@ const STORAGE_KEY = 'pdv-critico-user'
 const TOKEN_KEY = 'pdv-critico-token'
 const ATIVIDADE_KEY = 'pdv-critico-atividade'
 
-// Desloga após X sem interação (mouse/tecla/toque). Protege sessões deixadas
-// abertas em PC compartilhado ou celular perdido.
-// TESTE: 1 min. Voltar para 30 * 60 * 1000 depois de validar.
-const LIMITE_INATIVIDADE_MS = 1 * 60 * 1000
-const INTERVALO_CHECAGEM_MS = 10 * 1000
+// Desloga após 30 min sem interação (mouse/tecla/toque). Protege sessões
+// deixadas abertas em PC compartilhado ou celular perdido.
+const LIMITE_INATIVIDADE_MS = 30 * 60 * 1000
+const INTERVALO_CHECAGEM_MS = 30 * 1000
 
 // Vencimento absoluto: lê o `exp` do token assinado emitido pelo api/login
 // (12h). Falha "aberta" (retorna false) se não conseguir ler — a inatividade
