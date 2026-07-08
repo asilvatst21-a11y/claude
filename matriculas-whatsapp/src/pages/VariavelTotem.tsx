@@ -89,8 +89,8 @@ export default function VariavelTotem() {
           <div className="text-[11px] uppercase tracking-wider opacity-75 font-bold mt-2">Qual é você?</div>
         </div>
         <div className="p-4 space-y-2">
-          {resultados.map((c) => (
-            <button key={c.cpf + c.nome} onClick={() => setEscolhido(c)} className="w-full flex items-center gap-3 p-4 rounded-2xl border bg-white text-left active:scale-[.99] transition">
+          {resultados.map((c, i) => (
+            <button key={i} onClick={() => setEscolhido(c)} className="w-full flex items-center gap-3 p-4 rounded-2xl border bg-white text-left active:scale-[.99] transition">
               <span className="flex-1 min-w-0">
                 <span className="block font-semibold">{c.nome}</span>
                 <span className="block text-xs text-gray-500 tabular-nums mt-0.5">{c.total.toLocaleString('pt-BR')} pts</span>

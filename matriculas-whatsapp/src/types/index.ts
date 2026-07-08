@@ -2,7 +2,7 @@ export interface Usuario {
   id: string
   filial: string
   login: string
-  senha: string
+  senha?: string // não é retornada no login; presente só em fluxos de cadastro
   nome: string | null
   admin: boolean
   permissoes: string[] | null  // null = sem restrição; [] = bloqueado; ['gsdpq','dto'] = só essas

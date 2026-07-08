@@ -1534,7 +1534,17 @@ export default async function handler(req: any, res: any) {
     res.status(200).json({ ok: true, ignored: 'method' })
     return
   }
-  if (WEBHOOK_SECRET && req.query?.token !== WEBHOOK_SECRET) {
+  // O segredo é obrigatório: sem ZAPI_WEBHOOK_SECRET configurado, o endpoint
+  // ficaria aberto para qualquer POST forjado (dispararia mensagens e
+  // escreveria no banco). Recusamos quando não está configurado OU quando o
+  // token na query não bate. Configure ZAPI_WEBHOOK_SECRET no Vercel e aponte
+  // a URL do webhook no Z-API para ...?token=SEU_SEGREDO.
+  if (!WEBHOOK_SECRET) {
+    console.error('ZAPI_WEBHOOK_SECRET não configurado — webhook recusado por segurança.')
+    res.status(503).json({ ok: false, error: 'webhook secret not configured' })
+    return
+  }
+  if (req.query?.token !== WEBHOOK_SECRET) {
     res.status(401).json({ ok: false, error: 'invalid token' })
     return
   }
@@ -1545,6 +1555,14 @@ export default async function handler(req: any, res: any) {
   try {
     const fromMe: boolean = body.fromMe === true
     const grupoId: string = String(body.phone ?? '')
+    // grupoId vem do payload (não confiável) e é interpolado no filtro .or()
+    // do PostgREST mais abaixo. Só aceitamos o formato de ID do WhatsApp
+    // (dígitos + sufixos), bloqueando vírgula/parêntese/espaço que poderiam
+    // injetar na expressão do filtro.
+    if (grupoId && !/^[A-Za-z0-9@._-]+$/.test(grupoId)) {
+      res.status(200).json({ ok: true, ignored: 'invalid-id' })
+      return
+    }
     const isGroup: boolean =
       body.isGroup === true || body.isGroup === 'true' ||
       grupoId.endsWith('-group') || grupoId.endsWith('@g.us')

@@ -25,6 +25,14 @@ function apenasDigitos(v: unknown): string {
   return String(v ?? '').replace(/\D/g, '')
 }
 
+// Mascara o CPF para exibição, deixando visíveis só os 3 primeiros dígitos
+// (que a própria pessoa digitou) e os 2 últimos: 123.•••.•••-45
+function mascararCpf(cpf: string | null | undefined): string {
+  const d = apenasDigitos(cpf)
+  if (d.length !== 11) return d ? '•••' : ''
+  return `${d.slice(0, 3)}.•••.•••-${d.slice(9, 11)}`
+}
+
 function readRows(buffer: ArrayBuffer): unknown[][] {
   // raw:false é essencial aqui: o relatório traz número no formato BR
   // ("19.456,00") e, com raw:true, o SheetJS lê "19456,00" como 1945600
@@ -305,7 +313,8 @@ export async function buscarTotem(filial: string, data: string, cpfPrefixo: stri
   return (pont ?? []).map((p) => {
     const cluster = clusterDoTotal(Number(p.total), clusters)
     return {
-      nome: p.nome_relatorio, cpf: p.cpf ?? '',
+      // CPF sai mascarado — a tela não precisa do número completo.
+      nome: p.nome_relatorio, cpf: mascararCpf(p.cpf),
       total: Number(p.total),
       valorPor1000: p.valor_por_1000 != null ? Number(p.valor_por_1000) : null,
       valor: Number(p.valor_calculado),

@@ -25,9 +25,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   async function entrar(filial: string, login: string, senha: string) {
+    // Não trazemos a coluna `senha` no select: o filtro .eq('senha', ...)
+    // continua sendo aplicado no servidor, mas a senha não volta ao cliente
+    // nem é gravada no localStorage.
     const { data, error } = await supabase
       .from('usuarios')
-      .select('id, filial, login, senha, nome, admin, permissoes, cargo, created_at')
+      .select('id, filial, login, nome, admin, permissoes, cargo, created_at')
       .eq('filial', filial)
       .eq('login', login)
       .eq('senha', senha)
