@@ -211,12 +211,12 @@ interface ReposicaoIA {
   mapa: string
   produto: string
   quantidade: string
-  tipo_reposicao: 'falta' | 'inversao' | 'avaria' | 'troca' | 'indefinido'
+  tipo_reposicao: 'falta' | 'inversao' | 'avaria' | 'troca' | 'remessa' | 'indefinido'
   embalagem: 'unidade' | 'fardo' | 'indefinido'
 }
 
 const TIPO_LABEL: Record<string, string> = {
-  falta: 'Falta', inversao: 'Inversão', avaria: 'Avaria', troca: 'Troca', indefinido: 'Não informado',
+  falta: 'Falta', inversao: 'Inversão', avaria: 'Avaria', troca: 'Troca', remessa: 'Simples Remessa', indefinido: 'Não informado',
 }
 
 const EMBALAGEM_LABEL: Record<string, string> = {
@@ -448,7 +448,7 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA> {
         max_tokens: 400,
         system:
           'Você analisa mensagens de motoristas de entrega enviadas em um grupo de WhatsApp. ' +
-          'A mensagem pode ser uma solicitação de reposição de produto (falta, inversão, avaria ou troca) ' +
+          'A mensagem pode ser uma solicitação de reposição de produto (falta, inversão, avaria, troca ou simples remessa) ' +
           'ou apenas uma conversa qualquer. Extraia os campos solicitados. ' +
           'Se a mensagem NÃO for uma solicitação de reposição, defina eh_reposicao=false. ' +
           'multiplos_itens: defina true SOMENTE quando a mensagem pedir reposição de mais de um produto DISTINTO ' +
@@ -457,6 +457,8 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA> {
           'Campos não informados devem ficar como string vazia. ' +
           'tipo_reposicao: "falta" (produto não entregue/faltou), "inversao" (veio o item errado na carga/separação), ' +
           '"avaria" (produto quebrado/amassado/vazado/estragado), "troca" (cliente pediu troca/devolução do produto), ' +
+          '"remessa" (pedido simples de envio extra de produto ao cliente, sem nenhum problema associado — ' +
+          'ex: "cliente pediu mais 2 cx de skol", "manda uma remessa simples de 5 un de guaraná pro pdv X"), ' +
           'ou "indefinido" se não der pra saber. ' +
           'embalagem: "unidade" (produto avulso, unidade, garrafa/lata solta) ou "fardo" (fardo, pacote, caixa fechada, engradado); ' +
           'use "indefinido" se a mensagem não deixar claro se é unidade ou fardo. ' +
@@ -475,7 +477,7 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA> {
                 mapa:            { type: 'string' },
                 produto:         { type: 'string' },
                 quantidade:      { type: 'string' },
-                tipo_reposicao:  { type: 'string', enum: ['falta', 'inversao', 'avaria', 'troca', 'indefinido'] },
+                tipo_reposicao:  { type: 'string', enum: ['falta', 'inversao', 'avaria', 'troca', 'remessa', 'indefinido'] },
                 embalagem:       { type: 'string', enum: ['unidade', 'fardo', 'indefinido'] },
               },
               required: ['eh_reposicao', 'multiplos_itens', 'codigo_pdv', 'mapa', 'produto', 'quantidade', 'tipo_reposicao', 'embalagem'],
@@ -553,7 +555,7 @@ async function gerarNumeroReposicao(): Promise<string> {
 // Antes de montar a confirmação, o bot exige os 6 campos. Os que faltarem são
 // pedidos ao motorista numa única mensagem.
 const CAMPO_LABEL: Record<string, string> = {
-  tipo_reposicao: 'Tipo (Falta, Inversão, Avaria ou Troca)',
+  tipo_reposicao: 'Tipo (Falta, Inversão, Avaria, Troca ou Simples Remessa)',
   embalagem:      'Embalagem (Unidade ou Fardo)',
   codigo_pdv:     'PDV (código do cliente)',
   produto:        'Produto',
@@ -588,6 +590,7 @@ function extrairTipo(texto: string): ReposicaoIA['tipo_reposicao'] | null {
   if (/\b(invers|trocad[oa] na carga|veio errad|item errad)\b/.test(t)) return 'inversao'
   if (/\b(avaria|quebrad|amassad|vazad|estragad|estourad)\b/.test(t)) return 'avaria'
   if (/\b(troca|devoluc|devolv)\b/.test(t)) return 'troca'
+  if (/\b(remessa|remessa simples|simples remessa)\b/.test(t)) return 'remessa'
   return null
 }
 

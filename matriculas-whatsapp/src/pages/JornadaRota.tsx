@@ -690,9 +690,13 @@ export default function JornadaRota() {
     }
 
     // Alerta direto pro motorista (não pro supervisor) quando a aderência
-    // do próprio mapa fica abaixo da meta de 95%.
+    // do próprio mapa fica abaixo da meta de 95%. Como esta função roda a
+    // cada import do BEES (várias vezes ao longo do dia), para de mandar
+    // assim que a rota chega a 100% — senão o motorista recebe o mesmo
+    // aviso repetido a cada atualização mesmo depois de já ter terminado.
     for (const l of lista) {
       if (l.aderencia == null || l.aderencia >= ADERENCIA_MINIMA) continue
+      if (l.percConclusao != null && l.percConclusao >= 1) continue
       if (!l.telefone) continue
       await enviarMensagemWhatsApp(l.telefone, montarMensagemAlertaAderenciaMotorista(l, dataOperacao))
     }

@@ -51,6 +51,7 @@ const TIPO_REPOSICAO_LABEL: Record<string, string> = {
   inversao: "Inversão",
   avaria: "Avaria",
   troca: "Troca",
+  remessa: "Simples Remessa",
   indefinido: "Não informado",
 };
 
