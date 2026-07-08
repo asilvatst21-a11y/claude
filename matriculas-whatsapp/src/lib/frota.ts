@@ -355,6 +355,89 @@ export function statusPlacasNoDia(rows: FrotaDisponibilidade[], data: string, pl
     })
 }
 
+// ── Detalhe dia a dia por placa ──────────────────────────────────────────
+export interface DiaPlacaFrota {
+  data: string
+  status: string
+  tipo: TipoCelulaMatriz
+  motivo: string | null
+}
+
+// Histórico dia a dia de UMA placa, do primeiro ao último dia com dado —
+// preenchendo os buracos do calendário como "sem_dado" (em vez de pular),
+// pra distinguir "não importado" de "disponível". Mais recente primeiro.
+export function detalhePorPlaca(rows: FrotaDisponibilidade[], placa: string): DiaPlacaFrota[] {
+  const doPlaca = rows.filter(r => r.placa === placa)
+  if (doPlaca.length === 0) return []
+  const porData = new Map(doPlaca.map(r => [r.data, r]))
+  const datas = [...porData.keys()].sort()
+  const min = datas[0]
+  const max = datas[datas.length - 1]
+
+  const out: DiaPlacaFrota[] = []
+  const cursor = new Date(`${min}T00:00:00`)
+  const fim = new Date(`${max}T00:00:00`)
+  while (cursor <= fim) {
+    const iso = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, '0')}-${String(cursor.getDate()).padStart(2, '0')}`
+    const r = porData.get(iso)
+    if (!r) {
+      out.push({ data: iso, status: '', tipo: 'sem_dado', motivo: null })
+    } else {
+      const n = normalizar(r.status)
+      const tipo: TipoCelulaMatriz = n === 'NAO CONTRATADA' || n === '' ? 'nao_contratada' : n === 'DISPONIVEL' ? 'disponivel' : n === 'PARADO' ? 'parado' : 'indisponivel'
+      const motivo = tipo === 'indisponivel' || tipo === 'parado' ? (r.justificativa?.trim() || (tipo === 'parado' ? 'Parado' : 'Sem justificativa')) : null
+      out.push({ data: iso, status: r.status, tipo, motivo })
+    }
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return out.reverse()
+}
+
+export interface StreakIndisponibilidade {
+  diasConsecutivos: number
+  desde: string | null
+}
+
+// Sequência atual de dias indisponível/parado terminando no dia mais recente
+// com dado — pra sinalizar indisponibilidade prolongada (ex.: manutenção
+// travada). Quebra a sequência em "disponível", "não contratada" ou "sem
+// dado" (não sabemos o status desse dia, não assume indisponibilidade).
+export function sequenciaAtualIndisponivel(diasMaisRecentePrimeiro: DiaPlacaFrota[]): StreakIndisponibilidade {
+  let dias = 0
+  let desde: string | null = null
+  for (const d of diasMaisRecentePrimeiro) {
+    if (d.tipo !== 'indisponivel' && d.tipo !== 'parado') break
+    dias++
+    desde = d.data
+  }
+  return { diasConsecutivos: dias, desde }
+}
+
+export interface MotivoPeriodoFrota {
+  motivo: string
+  quantidade: number
+  placasAfetadas: number
+}
+
+// Ranking de motivos de indisponibilidade no PERÍODO INTEIRO (não só do
+// último dia, como o card "Motivos de Indisponibilidade" da tela mostra) —
+// pra enxergar tendência (ex.: "manutenção" crescendo mês a mês).
+export function rankingMotivosPeriodo(rows: FrotaDisponibilidade[]): MotivoPeriodoFrota[] {
+  const porMotivo = new Map<string, { qtd: number; placas: Set<string> }>()
+  for (const r of rows) {
+    const n = normalizar(r.status)
+    if (n === 'DISPONIVEL' || n === 'NAO CONTRATADA' || n === '') continue
+    const motivo = r.justificativa?.trim() || (n === 'PARADO' ? 'Parado' : 'Sem justificativa')
+    const acc = porMotivo.get(motivo) ?? { qtd: 0, placas: new Set<string>() }
+    acc.qtd++
+    acc.placas.add(r.placa)
+    porMotivo.set(motivo, acc)
+  }
+  return [...porMotivo.entries()]
+    .map(([motivo, v]) => ({ motivo, quantidade: v.qtd, placasAfetadas: v.placas.size }))
+    .sort((a, b) => b.quantidade - a.quantidade)
+}
+
 export interface RankingPlacaFrota {
   placa: string
   frota: string | null

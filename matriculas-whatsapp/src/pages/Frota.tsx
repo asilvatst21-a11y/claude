@@ -5,7 +5,7 @@ import html2canvas from 'html2canvas'
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
-import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy, Send, Pencil, X } from 'lucide-react'
+import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy, Send, Pencil, X, Search, AlertTriangle, Download } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { valesSupabase } from '../lib/valesSupabase'
 import { useAuth } from '../lib/auth'
@@ -16,6 +16,7 @@ import {
   rankingIndisponibilidadePorPlaca, cruzarTerritorio, detectarTrocasTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia, matrizDisponibilidade,
   cruzarMotorista, rankingMotoristasPerdaFixacao, calcularAderenciaMotoristaPorDia, calcularAderenciaMotoristaMeses, calcularAderenciaMotoristaPorDiaESala,
   processarFixacaoMotorista, parseBaseMapaTerritorio, MOTIVOS_FIXACAO_MOTORISTA,
+  detalhePorPlaca, sequenciaAtualIndisponivel, rankingMotivosPeriodo,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
   type CruzamentoTerritorioItem, type TrocaTerritorioItem, type HistoricoTmlMotorista, type CruzamentoMotoristaItem,
 } from '../lib/frota'
@@ -74,6 +75,22 @@ async function upsertEmLotes(rows: FrotaDisponibilidadeInsert[]): Promise<string
   return null
 }
 
+const TIPO_LABEL: Record<string, string> = {
+  disponivel: 'Disponível', indisponivel: 'Indisponível', parado: 'Parado',
+  nao_contratada: 'Não contratada', sem_dado: 'Sem dado',
+}
+
+function baixarCSVFrota(nomeArquivo: string, linhas: (string | number)[][]) {
+  const csv = linhas.map(l => l.map(c => String(c).replace(/;/g, ',')).join(';')).join('\n')
+  const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nomeArquivo
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // Cadastra placas novas em frota_placas (ativo=true, perfil em branco) sem
 // sobrescrever o que já existe — quem edita ativo/perfil é a tela de Placas.
 async function semearPlacas(filial: string, rows: { placa: string }[]) {
@@ -117,6 +134,7 @@ export default function Frota() {
   const exportMotoristaRef = useRef<HTMLDivElement>(null)
   const hoje = new Date()
   const [mesSel, setMesSel] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 })
+  const [placaDetalhe, setPlacaDetalhe] = useState<string>('')
 
   const carregarDados = useCallback(async () => {
     if (!usuario) return
@@ -489,6 +507,10 @@ export default function Frota() {
   const statusPlacas = useMemo(() => (ultimo ? statusPlacasNoDia(registrosAtivos, ultimo.data, placas) : []), [registrosAtivos, ultimo, placas])
   const matriz = useMemo(() => matrizDisponibilidade(registrosAtivos, placas, mesSel.ano, mesSel.mes), [registrosAtivos, placas, mesSel])
   const ranking = useMemo(() => rankingIndisponibilidadePorPlaca(registrosAtivos).filter(r => r.diasIndisponivel > 0), [registrosAtivos])
+  const motivosPeriodo = useMemo(() => rankingMotivosPeriodo(registrosAtivos), [registrosAtivos])
+  const diasPlacaDetalhe = useMemo(() => (placaDetalhe ? detalhePorPlaca(registrosAtivos, placaDetalhe) : []), [registrosAtivos, placaDetalhe])
+  const streakPlacaDetalhe = useMemo(() => sequenciaAtualIndisponivel(diasPlacaDetalhe), [diasPlacaDetalhe])
+  const placasOrdenadas = useMemo(() => [...placas].filter(p => p.ativo).sort((a, b) => a.placa.localeCompare(b.placa)), [placas])
   const perfis = ultimo ? resumoPorPerfil(registrosAtivos.filter(r => r.data === ultimo.data), placas) : []
   const cruzamento = useMemo(() => cruzarTerritorio(registrosAtivos, historicoTml), [registrosAtivos, historicoTml])
   const comDado = useMemo(() => cruzamento.filter(c => c.bate !== null), [cruzamento])
@@ -758,7 +780,11 @@ export default function Frota() {
                               ? 'bg-amber-50 text-amber-700 border-amber-200'
                               : 'bg-gray-50 text-gray-600 border-gray-200'
                           return (
-                            <div key={r.placa} className="flex items-center gap-3 px-2.5 py-2 rounded-lg border border-gray-100">
+                            <button
+                              key={r.placa}
+                              onClick={() => setPlacaDetalhe(r.placa)}
+                              className={`w-full flex items-center gap-3 px-2.5 py-2 rounded-lg border text-left transition-colors ${placaDetalhe === r.placa ? 'border-brand-400 bg-brand-50' : 'border-gray-100 hover:bg-gray-50'}`}
+                            >
                               <div className="min-w-0 flex-1">
                                 <p className="text-sm font-semibold text-gray-900">{r.placa}</p>
                                 <p className="text-xs text-gray-500 truncate">{r.diasIndisponivel} dia(s) indisponível · {r.motivos[0]?.motivo ?? '—'}</p>
@@ -766,13 +792,110 @@ export default function Frota() {
                               <span className={`text-xs font-bold px-2 py-1 rounded-full border shrink-0 ${sevClasses}`}>
                                 {r.percentualIndisponibilidade}%
                               </span>
-                            </div>
+                            </button>
                           )
                         })}
                       </div>
                     </div>
                   )}
+                  <p className="text-xs text-gray-400 mt-2">Clique numa placa para ver o dia a dia abaixo.</p>
                 </div>
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <h3 className="text-sm font-semibold text-gray-700 mb-3">Motivos de Indisponibilidade (período completo)</h3>
+                {motivosPeriodo.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">Nenhuma indisponibilidade registrada no período.</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100 text-xs text-gray-500">
+                        <th className="text-left py-2 font-medium">Motivo</th>
+                        <th className="text-right py-2 font-medium">Ocorrências</th>
+                        <th className="text-right py-2 font-medium">Placas afetadas</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {motivosPeriodo.slice(0, 12).map(m => (
+                        <tr key={m.motivo} className="border-b border-gray-50">
+                          <td className="py-2 text-gray-700">{m.motivo}</td>
+                          <td className="py-2 text-right font-medium text-gray-900">{m.quantidade}</td>
+                          <td className="py-2 text-right text-gray-500">{m.placasAfetadas}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+
+              {/* Detalhe dia a dia por placa */}
+              <div className="bg-white rounded-xl border border-gray-200 p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-3">
+                  <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5 shrink-0"><Search className="h-4 w-4 text-brand-600" /> Detalhe por Placa</h3>
+                  <select
+                    value={placaDetalhe}
+                    onChange={e => setPlacaDetalhe(e.target.value)}
+                    className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white sm:max-w-[220px]"
+                  >
+                    <option value="">Selecione uma placa…</option>
+                    {placasOrdenadas.map(p => <option key={p.placa} value={p.placa}>{p.placa}</option>)}
+                  </select>
+                  {placaDetalhe && diasPlacaDetalhe.length > 0 && (
+                    <button
+                      onClick={() => baixarCSVFrota(
+                        `disponibilidade_${placaDetalhe}.csv`,
+                        [['Data', 'Status', 'Motivo'], ...diasPlacaDetalhe.map(d => [formatarDataBR(d.data), TIPO_LABEL[d.tipo], d.motivo ?? '—'])],
+                      )}
+                      className="flex items-center gap-1.5 text-xs text-brand-700 border border-brand-200 px-2.5 py-1.5 rounded-lg hover:bg-brand-50 sm:ml-auto"
+                    >
+                      <Download className="h-3.5 w-3.5" /> CSV
+                    </button>
+                  )}
+                </div>
+
+                {!placaDetalhe ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">Selecione uma placa (ou clique numa do ranking acima) pra ver o histórico dia a dia.</p>
+                ) : diasPlacaDetalhe.length === 0 ? (
+                  <p className="text-sm text-gray-400 py-6 text-center">Sem dados de disponibilidade pra esta placa.</p>
+                ) : (
+                  <>
+                    {streakPlacaDetalhe.diasConsecutivos >= 3 && (
+                      <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 mb-3">
+                        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                        <span><b>{streakPlacaDetalhe.diasConsecutivos} dias consecutivos</b> indisponível/parado (desde {streakPlacaDetalhe.desde ? formatarDataBR(streakPlacaDetalhe.desde) : '—'}) — possível manutenção travada.</span>
+                      </div>
+                    )}
+                    <div className="max-h-96 overflow-y-auto -mx-1">
+                      <div className="space-y-1.5 px-1">
+                        {diasPlacaDetalhe.map(d => {
+                          const estilo = d.tipo === 'disponivel'
+                            ? 'border-green-200 bg-green-50/60'
+                            : d.tipo === 'parado'
+                              ? 'border-amber-200 bg-amber-50/60'
+                              : d.tipo === 'indisponivel'
+                                ? 'border-red-200 bg-red-50/60'
+                                : d.tipo === 'nao_contratada'
+                                  ? 'border-gray-100 bg-gray-50 opacity-70'
+                                  : 'border-gray-100 bg-white opacity-50'
+                          const badge = d.tipo === 'disponivel'
+                            ? 'bg-green-100 text-green-700'
+                            : d.tipo === 'parado'
+                              ? 'bg-amber-100 text-amber-700'
+                              : d.tipo === 'indisponivel'
+                                ? 'bg-red-100 text-red-700'
+                                : 'bg-gray-100 text-gray-500'
+                          return (
+                            <div key={d.data} className={`flex items-center justify-between gap-3 px-3 py-2 rounded-lg border ${estilo}`}>
+                              <span className="text-sm font-medium text-gray-800">{formatarDataBR(d.data)}</span>
+                              <span className="text-xs text-gray-600 truncate flex-1 text-right">{d.motivo ?? ''}</span>
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${badge}`}>{TIPO_LABEL[d.tipo]}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
             </>
           )}
