@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Wallet, Upload, Loader2, RefreshCw, AlertTriangle, Users, Coins, Trophy, TrendingUp, Link2, ExternalLink, Settings,
-  CalendarDays, BarChart3,
+  CalendarDays, BarChart3, ChevronDown, ChevronUp, ArrowDownUp, Medal,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 import { useAuth } from '../../lib/auth'
 import {
-  buscarResumoDia, buscarHistoricoMes, importarPontuacao, formatarBRL,
-  type ResumoVariavel, type HistoricoMes,
+  buscarResumoDia, buscarHistoricoMes, buscarRankingColaboradores, importarPontuacao, formatarBRL,
+  type ResumoVariavel, type HistoricoMes, type ColaboradorRanking,
 } from '../../lib/variavelArmazem'
 import { formatarDataBR } from '../../lib/utils'
 
@@ -22,11 +22,45 @@ function ontemISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+function inicioMesDe(diaISO: string): string {
+  return `${diaISO.slice(0, 7)}-01`
+}
+
 const CORES_CLUSTER = ['#f3ddc0', '#eecba0', '#e6b479', '#dc9b53', '#cf8231', '#b6661a']
 const CHART_TOOLTIP = { borderRadius: 10, border: '1px solid #e5e7eb', fontSize: 12, boxShadow: '0 6px 18px rgba(0,0,0,.08)' }
 
 function brlCompacto(v: number): string {
   return v >= 1000 ? `R$ ${(v / 1000).toFixed(1)}k` : `R$ ${Math.round(v)}`
+}
+
+function ptsCompacto(v: number): string {
+  return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`
+}
+
+// Seção recolhível — mesmo padrão usado no histórico de valor e no de
+// pontuação média, para o painel não ficar longo demais por padrão.
+function Colapsavel({
+  titulo, icon: Icon, aberto: abertoInicial = true, extra, children,
+}: {
+  titulo: string
+  icon: React.ElementType
+  aberto?: boolean
+  extra?: ReactNode
+  children: ReactNode
+}) {
+  const [aberto, setAberto] = useState(abertoInicial)
+  return (
+    <div className="border rounded-lg bg-white">
+      <div className="px-4 py-3 border-b flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <button onClick={() => setAberto((a) => !a)} className="flex items-center gap-2 text-sm font-semibold hover:text-accent-700 transition-colors">
+          {aberto ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+          <Icon className="h-4 w-4 text-accent-600" /> {titulo}
+        </button>
+        {extra}
+      </div>
+      {aberto && children}
+    </div>
+  )
 }
 
 export default function ArmazemVariavel() {
@@ -42,6 +76,13 @@ export default function ArmazemVariavel() {
   const [mesHist, setMesHist] = useState(() => ontemISO().slice(0, 7))
   const [historico, setHistorico] = useState<HistoricoMes | null>(null)
   const [loadingHist, setLoadingHist] = useState(true)
+
+  // Ranking de colaboradores num intervalo de datas específico.
+  const [rankIni, setRankIni] = useState(() => inicioMesDe(ontemISO()))
+  const [rankFim, setRankFim] = useState(ontemISO)
+  const [ranking, setRanking] = useState<ColaboradorRanking[] | null>(null)
+  const [loadingRank, setLoadingRank] = useState(true)
+  const [ordemRank, setOrdemRank] = useState<'desc' | 'asc'>('desc')
 
   const linkTotem = `${window.location.origin}/variavel-armazem`
 
@@ -73,6 +114,20 @@ export default function ArmazemVariavel() {
 
   useEffect(() => { fetchHistorico() }, [fetchHistorico])
 
+  const fetchRanking = useCallback(async () => {
+    if (!usuario) return
+    setLoadingRank(true)
+    try {
+      setRanking(await buscarRankingColaboradores(usuario.filial, rankIni, rankFim))
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao carregar o ranking.')
+    } finally {
+      setLoadingRank(false)
+    }
+  }, [usuario, rankIni, rankFim])
+
+  useEffect(() => { fetchRanking() }, [fetchRanking])
+
   async function handleImportar(file: File) {
     if (!usuario) return
     setUploading(true); setErro('')
@@ -81,6 +136,7 @@ export default function ArmazemVariavel() {
       const { linhas, semCadastro } = await importarPontuacao(usuario.filial, data, buffer)
       await fetchResumo()
       await fetchHistorico()
+      await fetchRanking()
       alert(
         `Relatório importado: ${linhas} colaborador(es).` +
         (semCadastro > 0 ? `\n\n⚠️ ${semCadastro} sem cadastro (nome não bateu) — aparecem no painel, mas não conseguem consultar no totem até serem cadastrados.` : '')
@@ -97,9 +153,22 @@ export default function ArmazemVariavel() {
   const kpis = resumo ? [
     { l: 'Total a pagar (dia)', v: formatarBRL(resumo.totalPagar), s: `mês: ${formatarBRL(resumo.acumuladoMes)}`, icon: Coins, money: true },
     { l: 'Colaboradores', v: String(resumo.colaboradores), s: 'com pontuação hoje', icon: Users, money: false },
-    { l: 'Pontuação total', v: resumo.pontuacaoTotal.toLocaleString('pt-BR'), s: resumo.colaboradores > 0 ? `média ${Math.round(resumo.pontuacaoTotal / resumo.colaboradores).toLocaleString('pt-BR')} pts` : '—', icon: TrendingUp, money: false },
+    // Prioriza a média (é o número que representa o desempenho do dia); o
+    // total agregado vira o dado secundário.
+    { l: 'Pontuação média', v: resumo.colaboradores > 0 ? `${Math.round(resumo.pontuacaoTotal / resumo.colaboradores).toLocaleString('pt-BR')} pts` : '—', s: `total ${resumo.pontuacaoTotal.toLocaleString('pt-BR')} pts`, icon: TrendingUp, money: false },
     { l: 'Ticket médio', v: formatarBRL(resumo.ticketMedio), s: `maior ${formatarBRL(resumo.maior)} · menor ${formatarBRL(resumo.menor)}`, icon: Trophy, money: true },
   ] : []
+
+  const rankingOrdenado = useMemo(() => {
+    if (!ranking) return []
+    const arr = [...ranking].sort((a, b) => a.pontuacaoMedia - b.pontuacaoMedia)
+    return ordemRank === 'desc' ? arr.reverse() : arr
+  }, [ranking, ordemRank])
+
+  const pontuacaoTotalMes = useMemo(
+    () => historico?.dias.reduce((s, d) => s + d.pontuacaoTotal, 0) ?? 0,
+    [historico]
+  )
 
   return (
     <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-w-6xl mx-auto">
@@ -207,16 +276,17 @@ export default function ArmazemVariavel() {
         </div>
       )}
 
-      {/* Histórico do mês */}
-      <div className="border rounded-lg bg-white">
-        <div className="px-4 py-3 border-b flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <h3 className="text-sm font-semibold flex items-center gap-2"><BarChart3 className="h-4 w-4 text-accent-600" /> Histórico do mês</h3>
+      {/* Histórico do mês — Valor */}
+      <Colapsavel
+        titulo="Histórico do mês — Valor pago"
+        icon={BarChart3}
+        extra={
           <label className="flex items-center gap-2 text-sm">
             <CalendarDays className="h-4 w-4 text-muted-foreground" />
             <input type="month" value={mesHist} onChange={(e) => setMesHist(e.target.value)} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm" />
           </label>
-        </div>
-
+        }
+      >
         {loadingHist ? (
           <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
         ) : !historico || historico.dias.length === 0 ? (
@@ -293,7 +363,151 @@ export default function ArmazemVariavel() {
             </div>
           </div>
         )}
-      </div>
+      </Colapsavel>
+
+      {/* Histórico do mês — Pontuação média */}
+      <Colapsavel
+        titulo="Histórico do mês — Pontuação média"
+        icon={TrendingUp}
+        extra={
+          <label className="flex items-center gap-2 text-sm">
+            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+            <input type="month" value={mesHist} onChange={(e) => setMesHist(e.target.value)} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm" />
+          </label>
+        }
+      >
+        {loadingHist ? (
+          <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+        ) : !historico || historico.dias.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground text-sm">Nenhum lançamento neste mês.</div>
+        ) : (
+          <div className="p-4 space-y-5">
+            {/* KPIs do mês */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="border rounded-lg p-3">
+                <div className="text-[11px] text-muted-foreground mb-0.5">Pontuação média do mês</div>
+                <div className="text-lg font-bold tabular-nums">{Math.round(historico.mediaPontuacaoMes).toLocaleString('pt-BR')} pts</div>
+              </div>
+              <div className="border rounded-lg p-3">
+                <div className="text-[11px] text-muted-foreground mb-0.5">Pontuação total do mês</div>
+                <div className="text-lg font-bold tabular-nums text-muted-foreground">{pontuacaoTotalMes.toLocaleString('pt-BR')} pts</div>
+              </div>
+              <div className="border rounded-lg p-3">
+                <div className="text-[11px] text-muted-foreground mb-0.5">Dias com lançamento</div>
+                <div className="text-lg font-bold tabular-nums">{historico.diasComLancamento}</div>
+              </div>
+              <div className="border rounded-lg p-3">
+                <div className="text-[11px] text-muted-foreground mb-0.5">Maior média diária</div>
+                <div className="text-lg font-bold tabular-nums">{Math.round(historico.maiorDiaPontuacao?.pontuacaoMedia ?? 0).toLocaleString('pt-BR')} pts</div>
+                <div className="text-[11px] text-muted-foreground tabular-nums">{historico.maiorDiaPontuacao?.rotulo ?? '—'}</div>
+              </div>
+            </div>
+
+            {/* Gráfico dia a dia */}
+            <ResponsiveContainer width="100%" height={280}>
+              <BarChart data={historico.dias} margin={{ top: 16, right: 8, left: 4, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gradPts" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#e6b479" stopOpacity={0.95} />
+                    <stop offset="100%" stopColor="#b6661a" stopOpacity={0.9} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef2f7" />
+                <XAxis dataKey="rotulo" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={48} tickFormatter={ptsCompacto} />
+                <Tooltip
+                  contentStyle={CHART_TOOLTIP}
+                  cursor={{ fill: '#f8fafc' }}
+                  formatter={(v: number) => [`${Math.round(Number(v)).toLocaleString('pt-BR')} pts`, 'Pontuação média']}
+                  labelFormatter={(l) => `Dia ${l}`}
+                />
+                <Bar dataKey="pontuacaoMedia" name="Pontuação média" fill="url(#gradPts)" radius={[6, 6, 0, 0]} maxBarSize={46} />
+              </BarChart>
+            </ResponsiveContainer>
+
+            {/* Tabela dia a dia */}
+            <div className="overflow-x-auto border rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Dia</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Colaboradores</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Pontuação média</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Pontuação total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {historico.dias.map((d) => (
+                    <tr key={d.data} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setData(d.data)} title="Clique para ver o dia no ranking acima">
+                      <td className="px-3 py-2 font-medium">{formatarDataBR(d.data)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{d.colaboradores}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-bold">{Math.round(d.pontuacaoMedia).toLocaleString('pt-BR')} pts</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{d.pontuacaoTotal.toLocaleString('pt-BR')} pts</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Colapsavel>
+
+      {/* Ranking de colaboradores por intervalo de datas */}
+      <Colapsavel
+        titulo="Ranking de Colaboradores"
+        icon={Medal}
+        extra={
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <label className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">De</span>
+              <input type="date" value={rankIni} onChange={(e) => setRankIni(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm" />
+            </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">até</span>
+              <input type="date" value={rankFim} onChange={(e) => setRankFim(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm" />
+            </label>
+            <button
+              onClick={() => setOrdemRank((o) => (o === 'desc' ? 'asc' : 'desc'))}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm hover:bg-accent transition-colors"
+            >
+              <ArrowDownUp className="h-3.5 w-3.5" /> {ordemRank === 'desc' ? 'Maiores primeiro' : 'Menores primeiro'}
+            </button>
+          </div>
+        }
+      >
+        {loadingRank ? (
+          <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+        ) : rankingOrdenado.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground text-sm">Nenhuma pontuação no período selecionado.</div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground w-10">#</th>
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Colaborador</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Dias lançados</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Pontuação média</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Pontuação total</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Valor total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {rankingOrdenado.map((c, i) => (
+                  <tr key={c.chave} className={`hover:bg-muted/30 transition-colors ${i === 0 && ordemRank === 'desc' ? 'bg-amber-50/60' : ''}`}>
+                    <td className="px-3 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
+                    <td className="px-3 py-2 font-medium">{c.nome}</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{c.diasLancados}</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-bold">{Math.round(c.pontuacaoMedia).toLocaleString('pt-BR')} pts</td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{c.pontuacaoTotal.toLocaleString('pt-BR')} pts</td>
+                    <td className="px-3 py-2 text-right tabular-nums font-bold text-green-700">{formatarBRL(c.valorTotal)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Colapsavel>
     </div>
   )
 }

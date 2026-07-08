@@ -283,6 +283,7 @@ export interface DiaHistorico {
   totalPago: number
   colaboradores: number
   pontuacaoTotal: number
+  pontuacaoMedia: number
   ticketMedio: number
 }
 
@@ -292,6 +293,8 @@ export interface HistoricoMes {
   mediaDiaria: number
   diasComLancamento: number
   maiorDia: DiaHistorico | null
+  mediaPontuacaoMes: number
+  maiorDiaPontuacao: DiaHistorico | null
 }
 
 // Agrega a variável dia a dia dentro de um mês (mesISO = 'yyyy-mm').
@@ -322,11 +325,15 @@ export async function buscarHistoricoMes(filial: string, mesISO: string): Promis
       totalPago: v.totalPago,
       colaboradores: v.colabs,
       pontuacaoTotal: v.pontos,
+      pontuacaoMedia: v.colabs > 0 ? v.pontos / v.colabs : 0,
       ticketMedio: v.colabs > 0 ? v.totalPago / v.colabs : 0,
     }))
 
   const totalMes = dias.reduce((s, d) => s + d.totalPago, 0)
+  const pontuacaoTotalMes = dias.reduce((s, d) => s + d.pontuacaoTotal, 0)
+  const colaboradoresDiasMes = dias.reduce((s, d) => s + d.colaboradores, 0)
   const maiorDia = dias.reduce<DiaHistorico | null>((mx, d) => (!mx || d.totalPago > mx.totalPago ? d : mx), null)
+  const maiorDiaPontuacao = dias.reduce<DiaHistorico | null>((mx, d) => (!mx || d.pontuacaoMedia > mx.pontuacaoMedia ? d : mx), null)
 
   return {
     dias,
@@ -334,7 +341,48 @@ export async function buscarHistoricoMes(filial: string, mesISO: string): Promis
     mediaDiaria: dias.length > 0 ? totalMes / dias.length : 0,
     diasComLancamento: dias.length,
     maiorDia,
+    // Média ponderada pelo nº de colaboradores de cada dia (não a média simples
+    // das médias diárias), para não distorcer dias com poucos lançamentos.
+    mediaPontuacaoMes: colaboradoresDiasMes > 0 ? pontuacaoTotalMes / colaboradoresDiasMes : 0,
+    maiorDiaPontuacao,
   }
+}
+
+// ── Ranking de colaboradores num intervalo de datas ──────────────────────
+export interface ColaboradorRanking {
+  chave: string
+  nome: string
+  diasLancados: number
+  pontuacaoTotal: number
+  pontuacaoMedia: number
+  valorTotal: number
+}
+
+// Agrega por colaborador (colaborador_id quando existe, senão o nome do
+// relatório) dentro de um intervalo de datas [dataIni, dataFim] inclusivo.
+export async function buscarRankingColaboradores(filial: string, dataIni: string, dataFim: string): Promise<ColaboradorRanking[]> {
+  const { data } = await supabase.from('variavel_pontuacao')
+    .select('nome_relatorio, colaborador_id, total, valor_calculado')
+    .eq('filial', filial).gte('data', dataIni).lte('data', dataFim)
+
+  const porColab = new Map<string, { nome: string; dias: number; pontos: number; valor: number }>()
+  for (const r of data ?? []) {
+    const chave = r.colaborador_id ?? r.nome_relatorio
+    const acc = porColab.get(chave) ?? { nome: r.nome_relatorio, dias: 0, pontos: 0, valor: 0 }
+    acc.dias += 1
+    acc.pontos += Number(r.total)
+    acc.valor += Number(r.valor_calculado)
+    porColab.set(chave, acc)
+  }
+
+  return [...porColab.entries()].map(([chave, v]) => ({
+    chave,
+    nome: v.nome,
+    diasLancados: v.dias,
+    pontuacaoTotal: v.pontos,
+    pontuacaoMedia: v.dias > 0 ? v.pontos / v.dias : 0,
+    valorTotal: v.valor,
+  }))
 }
 
 // ── Totem (consulta do colaborador) ──────────────────────────────────────
