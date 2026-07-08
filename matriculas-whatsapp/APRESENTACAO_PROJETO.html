@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Apresentacao do Projeto - LOG20</title>
+<style>
+  :root{ --bg:#eef1f6; --surface:#fff; --surface-2:#f4f6fa; --ink:#141a2a; --muted:#59647e;
+    --line:#dbe1ec; --navy:#17233f; --navy-2:#26406e; --amber:#c07f14; color-scheme:light; }
+  @media (prefers-color-scheme: dark){ :root{ --bg:#0c1020; --surface:#141b2e; --surface-2:#101728;
+    --ink:#e8ebf3; --muted:#98a3bd; --line:#263149; --navy:#dfe6f5; --navy-2:#9fb4e0; --amber:#f0ab3a; color-scheme:dark; } }
+  *{box-sizing:border-box}
+  body{ margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif; line-height:1.6; }
+  .doc{ max-width:860px; margin:0 auto; padding:clamp(24px,5vw,64px) clamp(18px,5vw,56px);
+    background:var(--surface); box-shadow:0 12px 40px -18px rgba(20,26,42,.25); min-height:100vh; }
+  h1{ font-size:clamp(26px,4.5vw,40px); line-height:1.1; letter-spacing:-.02em; margin:.2em 0 .1em; text-wrap:balance;
+    border-bottom:3px solid var(--amber); padding-bottom:.35em; }
+  h2{ font-size:clamp(20px,3vw,28px); letter-spacing:-.01em; margin:1.6em 0 .5em; color:var(--navy-2); }
+  h3{ font-size:clamp(16px,2.3vw,20px); margin:1.2em 0 .4em; }
+  p{ margin:.6em 0; } strong{ color:var(--ink); }
+  a{ color:var(--navy-2); }
+  code{ font-family:ui-monospace,Menlo,Consolas,monospace; background:var(--surface-2); border:1px solid var(--line);
+    border-radius:5px; padding:1px 6px; font-size:.9em; }
+  ul,ol{ margin:.5em 0; padding-left:1.4em; } li{ margin:.25em 0; }
+  hr{ border:0; border-top:1px solid var(--line); margin:2em 0; }
+  blockquote{ margin:1em 0; padding:.6em 1em; background:var(--surface-2); border-left:3px solid var(--amber);
+    border-radius:8px; color:var(--muted); }
+  blockquote p{ margin:.2em 0; }
+  .tw{ overflow-x:auto; margin:1em 0; border:1px solid var(--line); border-radius:10px; }
+  table{ border-collapse:collapse; width:100%; font-size:.95em; }
+  th,td{ text-align:left; padding:9px 13px; border-bottom:1px solid var(--line); vertical-align:top; }
+  thead th{ background:var(--surface-2); font-size:.82em; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
+  tbody tr:last-child td{ border-bottom:0; }
+  @media print{ body{background:#fff} .doc{box-shadow:none; max-width:none} }
+</style>
+</head>
+<body>
+<article class="doc" id="out"></article>
+<script type="text/markdown" id="md">
+# Painel Analítico LOG20 — Apresentação do Projeto
+### Automação, análise e conexão de atividades da operação
+
+**Data:** 08/07/2026
+**Público:** Gestão / Time Ambev
+
+---
+
+## 1. O que é
+
+Um painel único que centraliza os relatórios da operação (extraídos do sistema Ambev e de outras fontes), transforma cada um em **análise pronta** e **conecta as atividades** — de forma que um dado importado **uma vez** alimenta várias telas e dispara ações automáticas (mensagens, alertas, notificações) sem retrabalho manual.
+
+**Princípio central da economia de tempo:**
+> Importa-se o relatório **uma vez**. A partir dele, o sistema **calcula as análises**, **compartilha o dado entre as abas** e **aciona as pessoas certas automaticamente** — eliminando o ciclo "abrir relatório → montar planilha → digitar resumo → mandar no WhatsApp".
+
+---
+
+## 2. Módulos (as guias) por área
+
+### 🛡️ Segurança & Gente
+| Guia | Para que serve |
+|---|---|
+| Início | Visão geral / indicadores do dia |
+| Matrículas | Cadastro e situação de matrículas |
+| Clientes / PDVs | Base de clientes |
+| Disparos / Histórico | Comunicação e rastro de mensagens |
+| Análise GSDPQ | Gestão de saúde/documentação do colaborador, com **farol de vencimento (30/60 dias)** |
+| Análise DTO / Gerenciador DTO | Conformidade de atividades, plano de ação |
+| Prontuário | Histórico do colaborador |
+| Relatos | Registro de ocorrências |
+| Telemetria | Indicadores de direção |
+| Excesso de Peso | Controle de peso por placa/rota |
+| Controle de Jornada | Jornada de trabalho |
+
+### 🚚 Distribuição
+| Guia | Para que serve |
+|---|---|
+| Carta de Controle TML | Controle estatístico do tempo de matinal |
+| Análise TML | Rankings por sala/motorista/motivo, tendência |
+| Tempo de Deslocamento | Ideal x realizado, estouros |
+| Parâmetros / Config. TML | Metas por dia da semana, gatilhos |
+| Timer da Matinal | **Link público** — o time roda o cronômetro no celular |
+| DTO Distribuição | Conformidade das atividades da distribuição |
+| **Jornada e Tempo em Rota** | Acompanhamento em tempo real da rota, previsão de atraso, carta de controle |
+| **Conferência Digital** | **Link público** — ajudante confere os itens do caminhão por baia e registra divergências |
+
+### 🛻 Frota
+| Guia | Para que serve |
+|---|---|
+| Frota / Disponibilidade | Placas disponíveis x indisponíveis, ranking |
+| Fixação de Motorista | Aderência motorista↔placa, justificativas |
+| IV — DU / Placas | Indicadores e gestão de placas |
+
+### 💰 Financeiro / Vales
+| Guia | Para que serve |
+|---|---|
+| Vales / Ajudantes / Importações | Gestão de vales e ajudantes |
+| Reposições | Pedidos de reposição (com **bot de WhatsApp**) |
+| Catálogo / Vendas | Base de produtos e vendas do dia |
+
+### 📦 Armazém
+| Guia | Para que serve |
+|---|---|
+| Cadastro de Atividades / Operadores | Estrutura do armazém |
+| Dashboard | Produtividade do armazém |
+| **Variável** | Cálculo da remuneração variável por cluster de pontuação |
+| **Totem** | **Link público** — colaborador consulta a própria variável com 3 dígitos do CPF |
+
+### 📈 Gerência & Admin
+| Guia | Para que serve |
+|---|---|
+| Painel DRE | Resultado gerencial |
+| Fluxo Punitivo / Administração | Governança e gestão de acessos |
+
+---
+
+## 3. Onde está a economia de tempo
+
+### 3.1. Compartilhamento do dado entre abas (importar uma vez)
+Um mesmo relatório importado alimenta **várias telas de uma vez**:
+
+| Importo… | E automaticamente alimenta… |
+|---|---|
+| Relatório de saída TML | Carta de Controle + Análise + Tempo de Deslocamento + Histórico + resumo no WhatsApp |
+| Relatório GSDPQ | Análise + Farol de Vencimento + notificação de vencimento |
+| Relatório de Frota | Disponibilidade + Ranking + Fixação de Motorista + imagem para o grupo |
+| Relatório de Separação | Conferência Digital (por baia) |
+| Pontuação do Armazém | Dashboard da Variável + Totem do colaborador |
+
+> **Antes:** cada análise era uma planilha separada, remontada à mão a cada dia.
+> **Depois:** um upload alimenta todas as telas dependentes, já calculadas.
+
+### 3.2. Conexões de atividade (o sistema aciona a pessoa certa, sozinho)
+O maior ganho não é só analisar — é **encadear a ação** sem intervenção manual:
+
+| Fluxo | Conexão automática |
+|---|---|
+| **GSDPQ → Gente/RH** | Vencimento de documento (30/60 dias) → gera lista e **envia ao grupo responsável** |
+| **Jornada e Tempo em Rota → Supervisor** | Detecta rota atrasada → **envia alerta de previsão de atraso direto ao supervisor** |
+| **TML → Grupos / Gerência** | A cada import, **resumo automático** ao grupo; fechamento do dia à gerência |
+| **Frota → Grupo de Distribuição** | Disponibilidade e fixação → **imagem/resumo enviados ao grupo** |
+| **Conferência Digital → Grupo** | Ajudante marca divergência (falta/avaria) → **mensagem automática ao grupo** |
+| **Reposição (bot) → Grupo** | Motorista pede no WhatsApp → **bot interpreta e registra/responde** |
+| **Variável → Colaborador** | Supervisor sobe a pontuação → **colaborador consulta sozinho no totem** |
+
+> **Antes:** alguém lia o relatório, digitava um resumo e mandava no WhatsApp; o colaborador ligava para saber a variável; a conferência era no papel.
+> **Depois:** o sistema gera e envia sozinho; o colaborador se atende por link público.
+
+### 3.3. Autoatendimento por link público (sem ocupar analista)
+Três frentes que **tiram trabalho do time**:
+- **Timer da Matinal** — o próprio time roda o cronômetro.
+- **Conferência Digital** — o ajudante confere a carga pelo celular.
+- **Totem da Variável** — o colaborador consulta o próprio valor.
+
+---
+
+## 4. Quadro de impacto (preencher com os números reais da operação)
+
+Sugestão de tabela para a apresentação — os tempos "antes" devem ser preenchidos com a medição real de vocês:
+
+| Atividade | Tempo antes (manual) | Tempo depois (sistema) | Frequência |
+|---|---|---|---|
+| Montar e enviar resumo TML | ___ min/dia | ~automático | diária |
+| Consolidar vencimentos GSDPQ | ___ min/semana | ~automático | semanal |
+| Avisar supervisor de rota atrasada | ___ min/ocorrência | ~automático | diária |
+| Montar disponibilidade de frota | ___ min/dia | ~automático | diária |
+| Conferência de carga (papel → digital) | ___ min/mapa | ___ min/mapa | diária |
+| Responder variável ao colaborador | ___ min/consulta | autoatendimento | mensal |
+
+> A economia total = (tempo antes − tempo depois) × frequência × nº de filiais. O sistema já gera esses eventos; basta cronometrar um ciclo "antes" para fechar o número.
+
+---
+
+## 5. Governança e segurança (resumo para a gestão)
+
+- Acesso por **login com permissão por seção**; **logout automático por inatividade**.
+- Senhas protegidas por **hash**; validação de login **no servidor**.
+- Relatórios do sistema Ambev **não são compartilhados com I.A.** (detalhe no relatório de cibersegurança que acompanha esta apresentação).
+- Rodada recente de **hardening de segurança** concluída, com plano para os itens residuais.
+
+---
+
+## 6. Mensagem de fechamento
+
+O projeto transforma **relatório em ação**: um dado entra uma vez e vira análise pronta + acionamento automático da pessoa certa, em várias frentes da operação (Distribuição, Frota, Armazém, Gente). O ganho é **tempo de gestão** (menos consolidação manual), **velocidade de resposta** (alertas na hora) e **padronização** (todos olham o mesmo número).
+</script>
+<script>
+(function(){
+  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+  function inline(s){ s=esc(s);
+    s=s.replace(/`([^`]+)`/g,'<code>$1</code>');
+    s=s.replace(/\*\*([^*]+)\*\*/g,'<strong>$1</strong>');
+    return s; }
+  function cells(r){ return r.replace(/^\s*\|/,'').replace(/\|\s*$/,'').split('|').map(function(c){return c.trim();}); }
+  function render(md){
+    var L=md.split('\n'), H='', i=0, list=null;
+    function cl(){ if(list){ H+='</'+list+'>'; list=null; } }
+    function open(k){ if(list!==k){ cl(); H+='<'+k+'>'; list=k; } }
+    while(i<L.length){
+      var ln=L[i];
+      if(/^\s*\|/.test(ln) && i+1<L.length && /-/.test(L[i+1]) && /^\s*\|?[\s:|-]+$/.test(L[i+1])){
+        cl(); var head=ln; var rows=[]; i+=2;
+        while(i<L.length && /^\s*\|/.test(L[i])){ rows.push(L[i]); i++; }
+        H+='<div class="tw"><table><thead><tr>';
+        cells(head).forEach(function(c){ H+='<th>'+inline(c)+'</th>'; });
+        H+='</tr></thead><tbody>';
+        rows.forEach(function(r){ H+='<tr>'; cells(r).forEach(function(c){ H+='<td>'+inline(c)+'</td>'; }); H+='</tr>'; });
+        H+='</tbody></table></div>'; continue;
+      }
+      var h=ln.match(/^(#{1,6})\s+(.*)$/);
+      if(h){ cl(); var n=h[1].length; H+='<h'+n+'>'+inline(h[2])+'</h'+n+'>'; i++; continue; }
+      if(/^\s*---\s*$/.test(ln)){ cl(); H+='<hr>'; i++; continue; }
+      if(/^\s*>\s?/.test(ln)){ cl(); H+='<blockquote><p>'+inline(ln.replace(/^\s*>\s?/,''))+'</p></blockquote>'; i++; continue; }
+      var ul=ln.match(/^\s*[-*]\s+(.*)$/);
+      if(ul){ open('ul'); H+='<li>'+inline(ul[1])+'</li>'; i++; continue; }
+      var ol=ln.match(/^\s*\d+\.\s+(.*)$/);
+      if(ol){ open('ol'); H+='<li>'+inline(ol[1])+'</li>'; i++; continue; }
+      if(/^\s*$/.test(ln)){ cl(); i++; continue; }
+      cl(); H+='<p>'+inline(ln)+'</p>'; i++;
+    }
+    cl(); return H;
+  }
+  var md=document.getElementById('md').textContent;
+  document.getElementById('out').innerHTML=render(md);
+})();
+</script>
+</body>
+</html>
