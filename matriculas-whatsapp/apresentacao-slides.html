@@ -1,0 +1,435 @@
+<title>Painel Analítico LOG20 — Apresentação</title>
+<style>
+  :root {
+    /* Neutros com viés navio/navy — escolhidos, não herdados */
+    --bg: #eef1f6;
+    --surface: #ffffff;
+    --surface-2: #f4f6fa;
+    --ink: #141a2a;
+    --muted: #59647e;
+    --line: #dbe1ec;
+    --navy: #17233f;
+    --navy-2: #26406e;
+    --amber: #d98a1f;
+    --amber-soft: #f6ead2;
+    --good: #2e9e6b;
+    --warn: #c98a2a;
+    --crit: #cc4a3c;
+    --shadow: 0 1px 2px rgba(20,26,42,.06), 0 12px 32px -12px rgba(20,26,42,.18);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0c1020; --surface: #141b2e; --surface-2: #101728;
+      --ink: #e8ebf3; --muted: #98a3bd; --line: #263149;
+      --navy: #dfe6f5; --navy-2: #9fb4e0; --amber: #f0ab3a; --amber-soft: #2a2415;
+      --shadow: 0 1px 2px rgba(0,0,0,.4), 0 18px 40px -16px rgba(0,0,0,.6);
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="light"] {
+    --bg: #eef1f6; --surface: #fff; --surface-2: #f4f6fa; --ink: #141a2a;
+    --muted: #59647e; --line: #dbe1ec; --navy: #17233f; --navy-2: #26406e;
+    --amber: #d98a1f; --amber-soft: #f6ead2; --shadow: 0 1px 2px rgba(20,26,42,.06), 0 12px 32px -12px rgba(20,26,42,.18);
+    color-scheme: light;
+  }
+  :root[data-theme="dark"] {
+    --bg: #0c1020; --surface: #141b2e; --surface-2: #101728; --ink: #e8ebf3;
+    --muted: #98a3bd; --line: #263149; --navy: #dfe6f5; --navy-2: #9fb4e0;
+    --amber: #f0ab3a; --amber-soft: #2a2415; --shadow: 0 1px 2px rgba(0,0,0,.4), 0 18px 40px -16px rgba(0,0,0,.6);
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+  }
+  .mono { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
+
+  /* ── Deck shell ─────────────────────────────────────────── */
+  .deck { position: fixed; inset: 0; overflow: hidden; }
+  .progress {
+    position: absolute; top: 0; left: 0; height: 3px; z-index: 40;
+    background: var(--amber); width: 0; transition: width .4s ease;
+  }
+  .slide {
+    position: absolute; inset: 0; display: flex; flex-direction: column;
+    padding: clamp(28px, 5.5vmin, 72px) clamp(24px, 7vw, 128px);
+    opacity: 0; visibility: hidden; transform: translateY(10px);
+    transition: opacity .45s ease, transform .45s ease;
+    overflow-y: auto;
+  }
+  .slide.active { opacity: 1; visibility: visible; transform: none; }
+  .slide-inner { margin: auto 0; width: 100%; max-width: 1180px; }
+  @media (prefers-reduced-motion: reduce) {
+    .slide { transition: opacity .01s; transform: none; }
+    .progress { transition: none; }
+  }
+
+  /* ── Typography ─────────────────────────────────────────── */
+  .eyebrow {
+    font-size: clamp(11px, 1.5vmin, 14px); letter-spacing: .18em; text-transform: uppercase;
+    color: var(--amber); font-weight: 600; display: flex; align-items: center; gap: 10px;
+  }
+  .eyebrow::before { content: ""; width: 26px; height: 2px; background: var(--amber); display: inline-block; }
+  h1 { font-size: clamp(34px, 7.4vmin, 78px); line-height: 1.02; letter-spacing: -.025em;
+       font-weight: 800; margin: .35em 0 .3em; text-wrap: balance; }
+  h2 { font-size: clamp(26px, 4.6vmin, 46px); line-height: 1.08; letter-spacing: -.02em;
+       font-weight: 800; margin: .3em 0 .5em; text-wrap: balance; }
+  .lead { font-size: clamp(17px, 2.5vmin, 26px); color: var(--muted); max-width: 40ch; text-wrap: pretty; }
+  .kicker { font-size: clamp(15px, 2vmin, 20px); color: var(--muted); }
+
+  /* ── Reusable blocks ────────────────────────────────────── */
+  .grid { display: grid; gap: clamp(12px, 1.6vmin, 20px); }
+  .cols-3 { grid-template-columns: repeat(3, 1fr); }
+  .cols-2 { grid-template-columns: repeat(2, 1fr); }
+  @media (max-width: 820px) { .cols-3, .cols-2 { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    padding: clamp(16px, 2.4vmin, 26px); box-shadow: var(--shadow);
+  }
+  .card h3 { margin: 0 0 .5em; font-size: clamp(16px, 2.1vmin, 21px); letter-spacing: -.01em; }
+  .card ul { margin: 0; padding-left: 1.05em; color: var(--muted); font-size: clamp(13px, 1.7vmin, 16px); }
+  .card li { margin: .2em 0; }
+  .card .tag { font-size: 12px; letter-spacing: .1em; text-transform: uppercase; color: var(--amber); font-weight: 600; }
+
+  .pillars { display: grid; grid-template-columns: repeat(3,1fr); gap: clamp(12px,2vmin,22px); margin-top: clamp(20px,3.5vmin,38px); }
+  @media (max-width: 820px){ .pillars { grid-template-columns: 1fr; } }
+  .pillar { border-left: 3px solid var(--amber); padding: 4px 0 4px 18px; }
+  .pillar b { display: block; font-size: clamp(16px,2.1vmin,21px); }
+  .pillar span { color: var(--muted); font-size: clamp(13px,1.7vmin,16px); }
+
+  /* connection rows: gatilho → ação */
+  .flow { display: grid; gap: 12px; }
+  .flow-row {
+    display: grid; grid-template-columns: 1fr auto 1.2fr; align-items: center; gap: clamp(10px,1.6vw,22px);
+    background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+    padding: clamp(12px,1.9vmin,18px) clamp(14px,2.2vmin,22px); box-shadow: var(--shadow);
+  }
+  .flow-row .from b { font-size: clamp(14px,1.9vmin,18px); }
+  .flow-row .from span, .flow-row .to span { display:block; color: var(--muted); font-size: clamp(12px,1.5vmin,14px); }
+  .flow-row .to b { font-size: clamp(14px,1.9vmin,18px); color: var(--navy-2); }
+  .arrow { color: var(--amber); font-size: clamp(18px,2.4vmin,26px); font-weight: 700; }
+  @media (max-width: 720px){ .flow-row { grid-template-columns: 1fr; text-align: left; } .arrow { transform: rotate(90deg); width: min-content; } }
+
+  /* impact table */
+  .tbl-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; background: var(--surface); font-size: clamp(13px,1.7vmin,16px); }
+  th, td { text-align: left; padding: clamp(10px,1.5vmin,15px) clamp(12px,1.8vmin,20px); border-bottom: 1px solid var(--line); }
+  thead th { background: var(--surface-2); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  tbody tr:last-child td { border-bottom: 0; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .fill { color: var(--amber); font-weight: 600; }
+  .auto { color: var(--good); font-weight: 600; }
+
+  .note { display:flex; gap:12px; align-items:flex-start; background: var(--surface-2); border:1px solid var(--line);
+          border-left: 3px solid var(--amber); border-radius: 12px; padding: clamp(14px,2vmin,20px); margin-top: clamp(16px,2.4vmin,24px); }
+  .note .mono { color: var(--amber); font-weight: 600; font-size: 12px; letter-spacing:.1em; text-transform:uppercase; }
+  .note p { margin: .25em 0 0; color: var(--muted); font-size: clamp(13px,1.7vmin,16px); }
+
+  .badges { display:flex; flex-wrap:wrap; gap:10px; margin-top: 8px; }
+  .badge { font-size: clamp(12px,1.5vmin,14px); padding: 6px 12px; border-radius: 999px; border:1px solid var(--line);
+           background: var(--surface); display:inline-flex; gap:8px; align-items:center; }
+  .dot { width:8px; height:8px; border-radius:50%; }
+  .dot.g{background:var(--good)} .dot.a{background:var(--amber)} .dot.n{background:var(--navy-2)}
+
+  .ia-cols { display:grid; grid-template-columns: 1fr 1fr; gap: clamp(12px,2vmin,20px); margin-top: 14px; }
+  @media (max-width:820px){ .ia-cols{ grid-template-columns:1fr; } }
+  .ia { border-radius:14px; padding: clamp(16px,2.3vmin,24px); border:1px solid var(--line); box-shadow: var(--shadow); background: var(--surface); }
+  .ia.no { border-top: 4px solid var(--good); }
+  .ia.yes { border-top: 4px solid var(--amber); }
+  .ia h3 { margin:.1em 0 .4em; font-size: clamp(16px,2vmin,20px); }
+  .ia p { margin:.2em 0; color: var(--muted); font-size: clamp(13px,1.7vmin,16px); }
+  .ia .lbl { font-weight:700; color: var(--ink); }
+
+  /* cover */
+  .cover { background: linear-gradient(155deg, var(--navy) 0%, var(--navy-2) 100%); color: #fff; }
+  :root[data-theme="dark"] .cover, .cover { }
+  .cover .eyebrow { color: #f2c877; }
+  .cover .eyebrow::before { background:#f2c877; }
+  .cover h1 { color:#fff; }
+  .cover .lead { color: rgba(255,255,255,.82); max-width: 30ch; }
+  .cover .foot { margin-top: clamp(24px,5vmin,52px); display:flex; flex-wrap:wrap; gap:10px 26px; color: rgba(255,255,255,.7);
+                 font-size: clamp(12px,1.6vmin,15px); }
+  .cover .foot b { color:#fff; font-weight:600; }
+  .cover-badge { display:inline-flex; align-items:center; gap:10px; font-weight:800; letter-spacing:-.01em;
+                 font-size: clamp(16px,2.2vmin,22px); color:#fff; }
+  .cover-badge .sq { width: 30px; height:30px; border-radius:8px; background:#f2c877; color: var(--navy);
+                     display:grid; place-items:center; font-size:15px; }
+
+  .close { background: var(--navy); color:#fff; }
+  .close h2 { color:#fff; }
+  .close .lead { color: rgba(255,255,255,.82); max-width: 34ch; }
+  .close .three { display:flex; flex-wrap:wrap; gap: 10px 30px; margin-top: clamp(20px,3.5vmin,36px); }
+  .close .three span { font-weight:800; font-size: clamp(18px,2.8vmin,30px); letter-spacing:-.02em; }
+  .close .three span::before { content:"— "; color:#f2c877; }
+
+  /* ── Controls ───────────────────────────────────────────── */
+  .bar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 50; height: 54px;
+    display: flex; align-items: center; gap: 14px; padding: 0 clamp(14px,3vw,28px);
+    background: color-mix(in srgb, var(--surface) 82%, transparent);
+    backdrop-filter: blur(10px); border-top: 1px solid var(--line);
+  }
+  .cover ~ .bar { } /* bar constant */
+  .counter { font-size: 13px; color: var(--muted); letter-spacing: .12em; min-width: 62px; }
+  .counter b { color: var(--ink); }
+  .dots { display: flex; gap: 8px; flex: 1; justify-content: center; flex-wrap: wrap; }
+  .dots button { width: 9px; height: 9px; padding: 0; border-radius: 50%; border: 0; cursor: pointer;
+    background: var(--line); transition: transform .2s, background .2s; }
+  .dots button.on { background: var(--amber); transform: scale(1.3); }
+  .dots button:focus-visible, .nav:focus-visible, .theme:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+  .nav, .theme { border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer;
+    height: 34px; border-radius: 9px; font-size: 14px; display: inline-flex; align-items: center; justify-content:center; gap:6px; }
+  .nav { width: 38px; font-size: 18px; }
+  .nav[disabled] { opacity: .4; cursor: default; }
+  .theme { width: 38px; }
+  .hint { position: fixed; bottom: 62px; right: 16px; z-index: 45; font-size: 12px; color: var(--muted);
+          background: var(--surface); border:1px solid var(--line); border-radius: 8px; padding: 5px 10px; box-shadow: var(--shadow);
+          opacity: .9; }
+  @media (max-width: 640px){ .hint { display:none; } }
+
+  /* ── Print → PDF: todos os slides empilhados ────────────── */
+  @media print {
+    .bar, .hint, .progress { display: none !important; }
+    .deck { position: static; overflow: visible; }
+    .slide { position: relative; inset: auto; opacity: 1 !important; visibility: visible !important; transform: none !important;
+      page-break-after: always; min-height: 100vh; }
+    body { background: #fff; }
+  }
+</style>
+
+<div class="deck" id="deck">
+  <div class="progress" id="progress"></div>
+
+  <!-- 1 · Capa -->
+  <section class="slide cover active">
+    <div class="slide-inner">
+      <div class="cover-badge"><span class="sq">L20</span> LOG20 Logística</div>
+      <div class="eyebrow" style="margin-top:26px">Painel Analítico · Apresentação para a gestão</div>
+      <h1>De relatório a ação,<br>sem retrabalho.</h1>
+      <p class="lead">Uma plataforma que centraliza os relatórios da operação, transforma cada um em análise pronta e conecta as atividades — acionando a pessoa certa automaticamente.</p>
+      <div class="foot">
+        <span>Distribuição · Frota · Armazém · Gente</span>
+        <span><b>08/07/2026</b></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2 · Princípio -->
+  <section class="slide">
+    <div class="slide-inner">
+      <div class="eyebrow">O princípio</div>
+      <h2>Importa-se o relatório <span style="color:var(--amber)">uma vez</span>.<br>O sistema faz o resto.</h2>
+      <p class="lead">O ciclo antigo — abrir relatório, montar planilha, digitar resumo, mandar no WhatsApp — dá lugar a um único upload que calcula, compartilha e aciona sozinho.</p>
+      <div class="pillars">
+        <div class="pillar"><b>Análise pronta</b><span>rankings, faróis e cartas de controle calculados na hora</span></div>
+        <div class="pillar"><b>Dado reaproveitado</b><span>um import alimenta várias telas, sem reimportar</span></div>
+        <div class="pillar"><b>Ação automática</b><span>alertas e mensagens disparados para quem precisa</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3 · Módulos -->
+  <section class="slide">
+    <div class="slide-inner">
+      <div class="eyebrow">As guias</div>
+      <h2>Uma plataforma, seis frentes da operação</h2>
+      <div class="grid cols-3">
+        <div class="card"><span class="tag">Segurança & Gente</span><h3>Pessoas e conformidade</h3>
+          <ul><li>Análise GSDPQ + farol de vencimento</li><li>Análise e Gerenciador DTO</li><li>Prontuário · Relatos · Telemetria</li><li>Excesso de Peso · Jornada</li></ul></div>
+        <div class="card"><span class="tag">Distribuição</span><h3>Rota e matinal</h3>
+          <ul><li>Carta de Controle e Análise TML</li><li>Tempo de Deslocamento</li><li>Jornada e Tempo em Rota</li><li>Conferência Digital</li></ul></div>
+        <div class="card"><span class="tag">Frota</span><h3>Veículos e motoristas</h3>
+          <ul><li>Disponibilidade + ranking</li><li>Fixação de Motorista</li><li>Gestão de placas</li></ul></div>
+        <div class="card"><span class="tag">Vales</span><h3>Financeiro de campo</h3>
+          <ul><li>Vales e ajudantes</li><li>Reposições (bot de WhatsApp)</li><li>Catálogo e vendas</li></ul></div>
+        <div class="card"><span class="tag">Armazém</span><h3>Produtividade interna</h3>
+          <ul><li>Cadastro de atividades</li><li>Dashboard de produtividade</li><li>Variável + Totem do colaborador</li></ul></div>
+        <div class="card"><span class="tag">Gerência</span><h3>Resultado</h3>
+          <ul><li>Painel DRE</li><li>Governança e acessos</li><li>Fluxo Punitivo</li></ul></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4 · Dado compartilhado -->
+  <section class="slide">
+    <div class="slide-inner">
+      <div class="eyebrow">Ganho 1 · Dado compartilhado</div>
+      <h2>Um upload alimenta todas as telas dependentes</h2>
+      <div class="flow">
+        <div class="flow-row"><div class="from"><b>Relatório de saída TML</b><span>importado 1×</span></div><div class="arrow">→</div><div class="to"><b>Carta de Controle + Análise + Deslocamento + Histórico + resumo no grupo</b></div></div>
+        <div class="flow-row"><div class="from"><b>Relatório GSDPQ</b><span>importado 1×</span></div><div class="arrow">→</div><div class="to"><b>Análise + Farol de Vencimento + notificação automática</b></div></div>
+        <div class="flow-row"><div class="from"><b>Relatório de Frota</b><span>importado 1×</span></div><div class="arrow">→</div><div class="to"><b>Disponibilidade + Ranking + Fixação + imagem para o grupo</b></div></div>
+        <div class="flow-row"><div class="from"><b>Pontuação do Armazém</b><span>importada 1×</span></div><div class="arrow">→</div><div class="to"><b>Dashboard da Variável + Totem do colaborador</b></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5 · Conexões -->
+  <section class="slide">
+    <div class="slide-inner">
+      <div class="eyebrow">Ganho 2 · Atividades conectadas</div>
+      <h2>O sistema aciona a pessoa certa, sozinho</h2>
+      <div class="grid cols-2">
+        <div class="flow-row"><div class="from"><b>GSDPQ</b><span>vencimento 30/60 dias</span></div><div class="arrow">→</div><div class="to"><b>Gente / RH</b><span>lista enviada ao grupo</span></div></div>
+        <div class="flow-row"><div class="from"><b>Jornada e Tempo em Rota</b><span>rota atrasada detectada</span></div><div class="arrow">→</div><div class="to"><b>Supervisor</b><span>alerta de previsão de atraso</span></div></div>
+        <div class="flow-row"><div class="from"><b>TML</b><span>a cada import</span></div><div class="arrow">→</div><div class="to"><b>Grupos / Gerência</b><span>resumo e fechamento do dia</span></div></div>
+        <div class="flow-row"><div class="from"><b>Frota</b><span>disponibilidade e fixação</span></div><div class="arrow">→</div><div class="to"><b>Grupo de Distribuição</b><span>imagem e resumo</span></div></div>
+        <div class="flow-row"><div class="from"><b>Conferência Digital</b><span>divergência marcada</span></div><div class="arrow">→</div><div class="to"><b>Grupo</b><span>mensagem automática</span></div></div>
+        <div class="flow-row"><div class="from"><b>Variável</b><span>pontuação lançada</span></div><div class="arrow">→</div><div class="to"><b>Colaborador</b><span>consulta no totem</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 · Autoatendimento -->
+  <section class="slide">
+    <div class="slide-inner">
+      <div class="eyebrow">Ganho 3 · Autoatendimento</div>
+      <h2>Links públicos que tiram trabalho do analista</h2>
+      <div class="grid cols-3">
+        <div class="card"><h3>⏱️ Timer da Matinal</h3><ul><li>O próprio time roda o cronômetro no celular</li><li>Registra motivo de estouro</li></ul></div>
+        <div class="card"><h3>📦 Conferência Digital</h3><ul><li>Ajudante confere a carga por baia</li><li>Marca divergência na hora</li></ul></div>
+        <div class="card"><h3>💳 Totem da Variável</h3><ul><li>Colaborador consulta o próprio valor</li><li>Só com 3 dígitos do CPF</li></ul></div>
+      </div>
+      <div class="note"><span class="mono">Antes → Depois</span><p>Antes: alguém lia o relatório, digitava um resumo e mandava no WhatsApp; o colaborador ligava para saber a variável; a conferência era no papel. Depois: o sistema gera e envia sozinho; o colaborador se atende por link.</p></div>
+    </div>
+  </section>
+
+  <!-- 7 · Impacto -->
+  <section class="slide">
+    <div class="slide-inner">
+      <div class="eyebrow">O impacto</div>
+      <h2>Quadro de economia de tempo</h2>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>Atividade</th><th>Antes (manual)</th><th>Depois (sistema)</th><th>Frequência</th></tr></thead>
+          <tbody>
+            <tr><td>Montar e enviar resumo TML</td><td class="num fill">___ min</td><td class="auto">automático</td><td>diária</td></tr>
+            <tr><td>Consolidar vencimentos GSDPQ</td><td class="num fill">___ min</td><td class="auto">automático</td><td>semanal</td></tr>
+            <tr><td>Avisar supervisor de rota atrasada</td><td class="num fill">___ min</td><td class="auto">automático</td><td>diária</td></tr>
+            <tr><td>Montar disponibilidade de frota</td><td class="num fill">___ min</td><td class="auto">automático</td><td>diária</td></tr>
+            <tr><td>Conferência de carga (papel → digital)</td><td class="num fill">___ min</td><td class="num fill">___ min</td><td>diária</td></tr>
+            <tr><td>Responder variável ao colaborador</td><td class="num fill">___ min</td><td class="auto">autoatendimento</td><td>mensal</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note"><span class="mono">Como fechar o número</span><p>Economia total = (tempo antes − tempo depois) × frequência × nº de filiais. O sistema já gera os eventos; basta cronometrar um ciclo "antes" para preencher a coluna.</p></div>
+    </div>
+  </section>
+
+  <!-- 8 · Governança & IA -->
+  <section class="slide">
+    <div class="slide-inner">
+      <div class="eyebrow">Governança & segurança</div>
+      <h2>Confiável para rodar — e transparente sobre I.A.</h2>
+      <div class="badges">
+        <span class="badge"><span class="dot g"></span> Login com permissão por seção</span>
+        <span class="badge"><span class="dot g"></span> Logout automático por inatividade</span>
+        <span class="badge"><span class="dot g"></span> Senhas protegidas por hash</span>
+        <span class="badge"><span class="dot g"></span> Validação de login no servidor</span>
+        <span class="badge"><span class="dot a"></span> Hardening de segurança concluído</span>
+      </div>
+      <div class="ia-cols">
+        <div class="ia no"><h3>✅ Relatórios do sistema Ambev</h3>
+          <p><span class="lbl">Não vão para nenhuma I.A.</span></p>
+          <p>São exportados por uma pessoa, lidos no navegador e gravados no banco. Nenhuma etapa envia esses relatórios a serviço de I.A.</p></div>
+        <div class="ia yes"><h3>⚠️ Bot de WhatsApp (reposições)</h3>
+          <p><span class="lbl">Usa I.A. — e é controlável.</span></p>
+          <p>Só o texto/áudio das mensagens de motoristas passa por I.A. para interpretar pedidos. Não são os relatórios Ambev, e o recurso pode ser desativado.</p></div>
+      </div>
+      <div class="note"><span class="mono">Documento anexo</span><p>O relatório de cibersegurança detalha o fluxo de dados, os terceiros envolvidos e as opções para o compliance.</p></div>
+    </div>
+  </section>
+
+  <!-- 9 · Fechamento -->
+  <section class="slide close">
+    <div class="slide-inner">
+      <div class="eyebrow">Em resumo</div>
+      <h2>Relatório vira ação.</h2>
+      <p class="lead">Um dado entra uma vez e vira análise pronta mais acionamento automático da pessoa certa — em Distribuição, Frota, Armazém e Gente.</p>
+      <div class="three">
+        <span>Tempo de gestão</span>
+        <span>Velocidade de resposta</span>
+        <span>Padronização</span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="hint mono">← → para navegar</div>
+
+<nav class="bar" aria-label="Controles da apresentação">
+  <span class="counter mono"><b id="cur">01</b> / <span id="tot">09</span></span>
+  <button class="nav" id="prev" aria-label="Slide anterior">‹</button>
+  <div class="dots" id="dots" role="tablist" aria-label="Ir para slide"></div>
+  <button class="nav" id="next" aria-label="Próximo slide">›</button>
+  <button class="theme" id="theme" aria-label="Alternar tema claro/escuro">◐</button>
+</nav>
+
+<script>
+  (function () {
+    var slides = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+    var n = slides.length, i = 0;
+    var progress = document.getElementById('progress');
+    var cur = document.getElementById('cur'), tot = document.getElementById('tot');
+    var prev = document.getElementById('prev'), next = document.getElementById('next');
+    var dotsWrap = document.getElementById('dots');
+    var pad = function (x) { return (x < 10 ? '0' : '') + x; };
+    tot.textContent = pad(n);
+
+    var dots = slides.map(function (_, idx) {
+      var b = document.createElement('button');
+      b.setAttribute('role', 'tab');
+      b.setAttribute('aria-label', 'Slide ' + (idx + 1));
+      b.addEventListener('click', function () { go(idx); });
+      dotsWrap.appendChild(b);
+      return b;
+    });
+
+    function go(x) {
+      i = Math.max(0, Math.min(n - 1, x));
+      slides.forEach(function (s, idx) { s.classList.toggle('active', idx === i); });
+      dots.forEach(function (d, idx) { d.classList.toggle('on', idx === i); d.setAttribute('aria-selected', idx === i); });
+      progress.style.width = ((i + 1) / n * 100) + '%';
+      cur.textContent = pad(i + 1);
+      prev.disabled = i === 0; next.disabled = i === n - 1;
+      slides[i].focus && slides[i].scrollTo && slides[i].scrollTo(0, 0);
+    }
+
+    prev.addEventListener('click', function () { go(i - 1); });
+    next.addEventListener('click', function () { go(i + 1); });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); go(i + 1); }
+      else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); go(i - 1); }
+      else if (e.key === 'Home') { go(0); } else if (e.key === 'End') { go(n - 1); }
+    });
+
+    // swipe
+    var x0 = null;
+    document.addEventListener('touchstart', function (e) { x0 = e.touches[0].clientX; }, { passive: true });
+    document.addEventListener('touchend', function (e) {
+      if (x0 === null) return;
+      var dx = e.changedTouches[0].clientX - x0;
+      if (Math.abs(dx) > 50) go(i + (dx < 0 ? 1 : -1));
+      x0 = null;
+    });
+
+    // theme toggle (compõe com o tema do visualizador)
+    var themeBtn = document.getElementById('theme');
+    themeBtn.addEventListener('click', function () {
+      var root = document.documentElement;
+      var isDark = getComputedStyle(root).getPropertyValue('--bg').trim().indexOf('#0') === 0
+        || (root.getAttribute('data-theme') === 'dark');
+      root.setAttribute('data-theme', isDark ? 'light' : 'dark');
+    });
+
+    go(0);
+  })();
+</script>
