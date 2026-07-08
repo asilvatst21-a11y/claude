@@ -561,51 +561,110 @@ export async function buscarExtratoColaborador(filial: string, dataIni: string, 
 }
 
 // ── Totem (consulta do colaborador) ──────────────────────────────────────
-export interface ResultadoTotem {
-  nome: string
-  cpf: string
-  total: number
-  valorPor1000: number | null
-  valor: number
-  clusterMin: number | null
-  clusterMax: number | null
-  acumuladoMes: number
+// A remuneração variável fecha em competência 21→20 (ex.: "07/2026" cobre
+// 21/06/2026 a 20/07/2026 — o rótulo é o mês em que a janela TERMINA), não em
+// mês calendário. Isto vale só para o totem por enquanto; o dashboard do
+// supervisor (Histórico do mês / Ranking) segue em mês calendário.
+export function competenciaAtual(): string {
+  const d = new Date()
+  let ano = d.getFullYear()
+  let mes = d.getMonth() + 1
+  if (d.getDate() >= 21) { mes += 1; if (mes > 12) { mes = 1; ano += 1 } }
+  return `${ano}-${String(mes).padStart(2, '0')}`
 }
 
-// Filtra por prefixo de CPF (os 3 primeiros dígitos) + pontuação do dia.
-// Como 3 dígitos não são únicos, pode retornar mais de um — o totem lista
-// pra pessoa escolher a dela.
-export async function buscarTotem(filial: string, data: string, cpfPrefixo: string): Promise<ResultadoTotem[]> {
+export function competenciaAnterior(mesRotulo: string): string {
+  return mesAnteriorDe(mesRotulo)
+}
+
+export function competenciaSeguinte(mesRotulo: string): string {
+  const [ano, mes] = mesRotulo.split('-').map(Number)
+  return mes >= 12 ? `${ano + 1}-01` : `${ano}-${String(mes + 1).padStart(2, '0')}`
+}
+
+export function rangeCompetencia(mesRotulo: string): { ini: string; fim: string } {
+  const [ano, mes] = mesRotulo.split('-').map(Number)
+  const anoIni = mes <= 1 ? ano - 1 : ano
+  const mesIni = mes <= 1 ? 12 : mes - 1
+  return { ini: `${anoIni}-${String(mesIni).padStart(2, '0')}-21`, fim: `${mesRotulo}-20` }
+}
+
+export interface DiaCompetencia {
+  data: string
+  pontuacaoTotal: number
+  valorPor1000: number | null
+  valor: number
+}
+
+export interface ResultadoTotemCompetencia {
+  cpfReal: string // nunca exibir na tela — só serve para trocar de competência sem redigitar o CPF
+  cpfMascarado: string
+  nome: string
+  dias: DiaCompetencia[] // ordenado por data crescente
+  diasComLancamento: number
+  pontuacaoTotal: number
+  valorTotal: number
+  mediaDiaria: number
+  ultimoDia: DiaCompetencia | null
+  maiorDia: DiaCompetencia | null
+}
+
+function agregarDiasCompetencia(cpfReal: string, nome: string, linhas: { data: string; total: number; valor_por_1000: number | null; valor_calculado: number }[]): ResultadoTotemCompetencia {
+  const dias: DiaCompetencia[] = linhas.map((r) => ({
+    data: r.data,
+    pontuacaoTotal: Number(r.total),
+    valorPor1000: r.valor_por_1000 != null ? Number(r.valor_por_1000) : null,
+    valor: Number(r.valor_calculado),
+  }))
+  const pontuacaoTotal = dias.reduce((s, d) => s + d.pontuacaoTotal, 0)
+  const valorTotal = dias.reduce((s, d) => s + d.valor, 0)
+  const maiorDia = dias.reduce<DiaCompetencia | null>((mx, d) => (!mx || d.valor > mx.valor ? d : mx), null)
+  return {
+    cpfReal, cpfMascarado: mascararCpf(cpfReal), nome,
+    dias, diasComLancamento: dias.length, pontuacaoTotal, valorTotal,
+    mediaDiaria: dias.length > 0 ? valorTotal / dias.length : 0,
+    ultimoDia: dias[dias.length - 1] ?? null,
+    maiorDia,
+  }
+}
+
+// Filtra por prefixo de CPF (os 3 primeiros dígitos) dentro da competência
+// inteira. Como 3 dígitos não são únicos, pode retornar mais de uma pessoa —
+// o totem lista pra pessoa escolher a dela.
+export async function buscarTotemCompetencia(filial: string, cpfPrefixo: string, mesRotulo: string): Promise<ResultadoTotemCompetencia[]> {
   const prefixo = apenasDigitos(cpfPrefixo)
   if (prefixo.length < 3) return []
-  const clusters = await buscarClusters()
+  const { ini, fim } = rangeCompetencia(mesRotulo)
 
-  const { data: pont } = await supabase.from('variavel_pontuacao')
-    .select('nome_relatorio, cpf, total, valor_por_1000, valor_calculado')
-    .eq('filial', filial).eq('data', data)
+  const { data } = await supabase.from('variavel_pontuacao')
+    .select('nome_relatorio, cpf, data, total, valor_por_1000, valor_calculado')
+    .eq('filial', filial).gte('data', ini).lte('data', fim)
     .like('cpf', `${prefixo}%`)
+    .order('data')
 
-  const inicioMes = data.slice(0, 8) + '01'
-  const cpfs = [...new Set((pont ?? []).map((p) => p.cpf).filter((c): c is string => !!c))]
-  const { data: mes } = cpfs.length > 0
-    ? await supabase.from('variavel_pontuacao')
-        .select('cpf, valor_calculado').eq('filial', filial).gte('data', inicioMes).lte('data', data).in('cpf', cpfs)
-    : { data: [] as { cpf: string; valor_calculado: number }[] }
-  const acumPorCpf = new Map<string, number>()
-  for (const m of mes ?? []) acumPorCpf.set(m.cpf, (acumPorCpf.get(m.cpf) ?? 0) + Number(m.valor_calculado))
+  type Linha = { data: string; total: number; valor_por_1000: number | null; valor_calculado: number }
+  const porCpf = new Map<string, { nome: string; linhas: Linha[] }>()
+  for (const r of data ?? []) {
+    if (!r.cpf) continue
+    const acc = porCpf.get(r.cpf) ?? { nome: r.nome_relatorio, linhas: [] as Linha[] }
+    acc.linhas.push({ data: String(r.data), total: r.total, valor_por_1000: r.valor_por_1000, valor_calculado: r.valor_calculado })
+    porCpf.set(r.cpf, acc)
+  }
 
-  return (pont ?? []).map((p) => {
-    const cluster = clusterDoTotal(Number(p.total), clusters)
-    return {
-      // CPF sai mascarado — a tela não precisa do número completo.
-      nome: p.nome_relatorio, cpf: mascararCpf(p.cpf),
-      total: Number(p.total),
-      valorPor1000: p.valor_por_1000 != null ? Number(p.valor_por_1000) : null,
-      valor: Number(p.valor_calculado),
-      clusterMin: cluster?.pontMin ?? null, clusterMax: cluster?.pontMax ?? null,
-      acumuladoMes: acumPorCpf.get(p.cpf ?? '') ?? Number(p.valor_calculado),
-    }
-  })
+  return [...porCpf.entries()].map(([cpfReal, v]) => agregarDiasCompetencia(cpfReal, v.nome, v.linhas))
+}
+
+// Troca de competência sem redigitar o CPF (usa o cpfReal já obtido acima).
+export async function buscarCompetenciaPorCpf(filial: string, cpfReal: string, mesRotulo: string): Promise<ResultadoTotemCompetencia> {
+  const { ini, fim } = rangeCompetencia(mesRotulo)
+  const { data } = await supabase.from('variavel_pontuacao')
+    .select('nome_relatorio, data, total, valor_por_1000, valor_calculado')
+    .eq('filial', filial).eq('cpf', cpfReal).gte('data', ini).lte('data', fim)
+    .order('data')
+
+  const linhas = (data ?? []).map((r) => ({ data: String(r.data), total: r.total, valor_por_1000: r.valor_por_1000, valor_calculado: r.valor_calculado }))
+  const nome = data?.[0]?.nome_relatorio ?? ''
+  return agregarDiasCompetencia(cpfReal, nome, linhas)
 }
 
 export function formatarBRL(v: number): string {
