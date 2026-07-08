@@ -2,15 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link } from 'react-router-dom'
 import {
   Wallet, Upload, Loader2, RefreshCw, AlertTriangle, Users, Coins, Trophy, TrendingUp, Link2, ExternalLink, Settings,
-  CalendarDays, BarChart3, ChevronDown, ChevronUp, ArrowDownUp, Medal,
+  CalendarDays, BarChart3, ChevronDown, ChevronUp, ArrowDownUp, Medal, X, UserSearch,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 import { useAuth } from '../../lib/auth'
 import {
-  buscarResumoDia, buscarHistoricoMes, buscarRankingColaboradores, importarPontuacao, formatarBRL,
-  type ResumoVariavel, type HistoricoMes, type ColaboradorRanking,
+  buscarResumoDia, buscarHistoricoMes, buscarRankingColaboradores, buscarExtratoColaborador, importarPontuacao, formatarBRL,
+  type ResumoVariavel, type HistoricoMes, type ColaboradorRanking, type ExtratoColaborador,
 } from '../../lib/variavelArmazem'
 import { formatarDataBR } from '../../lib/utils'
 
@@ -36,6 +36,14 @@ function brlCompacto(v: number): string {
 function ptsCompacto(v: number): string {
   return v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${Math.round(v)}`
 }
+
+const CRITERIOS_RANK = [
+  { key: 'pontuacaoMedia', label: 'Pontuação média' },
+  { key: 'pontuacaoTotal', label: 'Pontuação total' },
+  { key: 'valorTotal', label: 'Valor total' },
+  { key: 'diasLancados', label: 'Dias lançados' },
+] as const
+type CriterioRank = typeof CRITERIOS_RANK[number]['key']
 
 // Seção recolhível — mesmo padrão usado no histórico de valor e no de
 // pontuação média, para o painel não ficar longo demais por padrão.
@@ -77,12 +85,20 @@ export default function ArmazemVariavel() {
   const [historico, setHistorico] = useState<HistoricoMes | null>(null)
   const [loadingHist, setLoadingHist] = useState(true)
 
-  // Ranking de colaboradores num intervalo de datas específico.
+  // Ranking de colaboradores num intervalo de datas específico. O usuário
+  // escolhe por qual métrica ordenar (média, total, valor, dias) e a direção.
   const [rankIni, setRankIni] = useState(() => inicioMesDe(ontemISO()))
   const [rankFim, setRankFim] = useState(ontemISO)
   const [ranking, setRanking] = useState<ColaboradorRanking[] | null>(null)
   const [loadingRank, setLoadingRank] = useState(true)
+  const [criterioRank, setCriterioRank] = useState<CriterioRank>('pontuacaoMedia')
   const [ordemRank, setOrdemRank] = useState<'desc' | 'asc'>('desc')
+
+  // Extrato (estratificação) de um colaborador específico, no mesmo período
+  // selecionado no ranking.
+  const [extratoAlvo, setExtratoAlvo] = useState<{ chave: string; nome: string } | null>(null)
+  const [extrato, setExtrato] = useState<ExtratoColaborador | null>(null)
+  const [loadingExtrato, setLoadingExtrato] = useState(false)
 
   const linkTotem = `${window.location.origin}/variavel-armazem`
 
@@ -128,6 +144,15 @@ export default function ArmazemVariavel() {
 
   useEffect(() => { fetchRanking() }, [fetchRanking])
 
+  useEffect(() => {
+    if (!usuario || !extratoAlvo) { setExtrato(null); return }
+    setLoadingExtrato(true)
+    buscarExtratoColaborador(usuario.filial, rankIni, rankFim, extratoAlvo.chave)
+      .then(setExtrato)
+      .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao carregar o extrato.'))
+      .finally(() => setLoadingExtrato(false))
+  }, [usuario, extratoAlvo, rankIni, rankFim])
+
   async function handleImportar(file: File) {
     if (!usuario) return
     setUploading(true); setErro('')
@@ -161,9 +186,9 @@ export default function ArmazemVariavel() {
 
   const rankingOrdenado = useMemo(() => {
     if (!ranking) return []
-    const arr = [...ranking].sort((a, b) => a.pontuacaoMedia - b.pontuacaoMedia)
+    const arr = [...ranking].sort((a, b) => a[criterioRank] - b[criterioRank])
     return ordemRank === 'desc' ? arr.reverse() : arr
-  }, [ranking, ordemRank])
+  }, [ranking, criterioRank, ordemRank])
 
   const pontuacaoTotalMes = useMemo(
     () => historico?.dias.reduce((s, d) => s + d.pontuacaoTotal, 0) ?? 0,
@@ -466,6 +491,12 @@ export default function ArmazemVariavel() {
               <span className="text-xs text-muted-foreground">até</span>
               <input type="date" value={rankFim} onChange={(e) => setRankFim(e.target.value)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm" />
             </label>
+            <label className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Ordenar por</span>
+              <select value={criterioRank} onChange={(e) => setCriterioRank(e.target.value as CriterioRank)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm bg-white">
+                {CRITERIOS_RANK.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </select>
+            </label>
             <button
               onClick={() => setOrdemRank((o) => (o === 'desc' ? 'asc' : 'desc'))}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm hover:bg-accent transition-colors"
@@ -486,21 +517,25 @@ export default function ArmazemVariavel() {
                 <tr>
                   <th className="text-left px-3 py-2 font-medium text-muted-foreground w-10">#</th>
                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Colaborador</th>
-                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Dias lançados</th>
-                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Pontuação média</th>
-                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Pontuação total</th>
-                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Valor total</th>
+                  <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'diasLancados' ? 'text-accent-700' : 'text-muted-foreground'}`}>Dias lançados</th>
+                  <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'pontuacaoMedia' ? 'text-accent-700' : 'text-muted-foreground'}`}>Pontuação média</th>
+                  <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'pontuacaoTotal' ? 'text-accent-700' : 'text-muted-foreground'}`}>Pontuação total</th>
+                  <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'valorTotal' ? 'text-accent-700' : 'text-muted-foreground'}`}>Valor total</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {rankingOrdenado.map((c, i) => (
                   <tr key={c.chave} className={`hover:bg-muted/30 transition-colors ${i === 0 && ordemRank === 'desc' ? 'bg-amber-50/60' : ''}`}>
                     <td className="px-3 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
-                    <td className="px-3 py-2 font-medium">{c.nome}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{c.diasLancados}</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-bold">{Math.round(c.pontuacaoMedia).toLocaleString('pt-BR')} pts</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{c.pontuacaoTotal.toLocaleString('pt-BR')} pts</td>
-                    <td className="px-3 py-2 text-right tabular-nums font-bold text-green-700">{formatarBRL(c.valorTotal)}</td>
+                    <td className="px-3 py-2">
+                      <button onClick={() => setExtratoAlvo({ chave: c.chave, nome: c.nome })} className="font-medium text-left hover:text-accent-700 hover:underline flex items-center gap-1.5">
+                        <UserSearch className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> {c.nome}
+                      </button>
+                    </td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${criterioRank === 'diasLancados' ? 'font-bold' : 'text-muted-foreground'}`}>{c.diasLancados}</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${criterioRank === 'pontuacaoMedia' ? 'font-bold' : ''}`}>{Math.round(c.pontuacaoMedia).toLocaleString('pt-BR')} pts</td>
+                    <td className={`px-3 py-2 text-right tabular-nums ${criterioRank === 'pontuacaoTotal' ? 'font-bold' : 'text-muted-foreground'}`}>{c.pontuacaoTotal.toLocaleString('pt-BR')} pts</td>
+                    <td className={`px-3 py-2 text-right tabular-nums text-green-700 ${criterioRank === 'valorTotal' ? 'font-bold' : ''}`}>{formatarBRL(c.valorTotal)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -508,6 +543,67 @@ export default function ArmazemVariavel() {
           </div>
         )}
       </Colapsavel>
+
+      {/* Modal de extrato do colaborador */}
+      {extratoAlvo && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setExtratoAlvo(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b flex items-center justify-between sticky top-0 bg-white">
+              <div>
+                <h3 className="text-base font-bold">{extratoAlvo.nome}</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Extrato de {formatarDataBR(rankIni)} até {formatarDataBR(rankFim)}</p>
+              </div>
+              <button onClick={() => setExtratoAlvo(null)} className="p-1.5 rounded-lg hover:bg-muted transition-colors"><X className="h-4 w-4" /></button>
+            </div>
+
+            {loadingExtrato ? (
+              <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+            ) : !extrato || extrato.dias.length === 0 ? (
+              <div className="text-center py-16 text-muted-foreground text-sm">Nenhum lançamento no período.</div>
+            ) : (
+              <div className="p-5 space-y-4">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="border rounded-lg p-3">
+                    <div className="text-[11px] text-muted-foreground mb-0.5">Pontuação média</div>
+                    <div className="text-lg font-bold tabular-nums">{Math.round(extrato.pontuacaoMedia).toLocaleString('pt-BR')} pts</div>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <div className="text-[11px] text-muted-foreground mb-0.5">Dias lançados</div>
+                    <div className="text-lg font-bold tabular-nums">{extrato.diasLancados}</div>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <div className="text-[11px] text-muted-foreground mb-0.5">Valor total</div>
+                    <div className="text-lg font-bold tabular-nums text-green-700">{formatarBRL(extrato.valorTotal)}</div>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Dia</th>
+                        <th className="text-right px-3 py-2 font-medium text-muted-foreground">Pontos</th>
+                        <th className="text-right px-3 py-2 font-medium text-muted-foreground">/1k</th>
+                        <th className="text-right px-3 py-2 font-medium text-muted-foreground">Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {extrato.dias.map((d) => (
+                        <tr key={d.data}>
+                          <td className="px-3 py-2 font-medium">{formatarDataBR(d.data)}</td>
+                          <td className="px-3 py-2 text-right tabular-nums">{d.pontuacaoTotal.toLocaleString('pt-BR')}</td>
+                          <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{d.valorPor1000 != null ? formatarBRL(d.valorPor1000) : '—'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-bold text-green-700">{formatarBRL(d.valor)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

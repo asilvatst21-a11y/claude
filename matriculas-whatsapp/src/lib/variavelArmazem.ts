@@ -385,6 +385,54 @@ export async function buscarRankingColaboradores(filial: string, dataIni: string
   }))
 }
 
+// ── Extrato (estratificação) de um colaborador num intervalo de datas ────
+export interface DiaColaborador {
+  data: string
+  pontuacaoTotal: number
+  valorPor1000: number | null
+  valor: number
+}
+
+export interface ExtratoColaborador {
+  nome: string
+  dias: DiaColaborador[]
+  diasLancados: number
+  pontuacaoTotal: number
+  pontuacaoMedia: number
+  valorTotal: number
+}
+
+// `chave` é a mesma usada no ranking (colaborador_id, ou o nome do relatório
+// quando não há cadastro vinculado).
+export async function buscarExtratoColaborador(filial: string, dataIni: string, dataFim: string, chave: string): Promise<ExtratoColaborador> {
+  const { data } = await supabase.from('variavel_pontuacao')
+    .select('nome_relatorio, colaborador_id, data, total, valor_calculado, valor_por_1000')
+    .eq('filial', filial).gte('data', dataIni).lte('data', dataFim)
+
+  const linhas = (data ?? [])
+    .filter((r) => (r.colaborador_id ?? r.nome_relatorio) === chave)
+    .sort((a, b) => String(a.data).localeCompare(String(b.data)))
+
+  const dias: DiaColaborador[] = linhas.map((r) => ({
+    data: String(r.data),
+    pontuacaoTotal: Number(r.total),
+    valorPor1000: r.valor_por_1000 != null ? Number(r.valor_por_1000) : null,
+    valor: Number(r.valor_calculado),
+  }))
+
+  const pontuacaoTotal = dias.reduce((s, d) => s + d.pontuacaoTotal, 0)
+  const valorTotal = dias.reduce((s, d) => s + d.valor, 0)
+
+  return {
+    nome: linhas[0]?.nome_relatorio ?? '',
+    dias,
+    diasLancados: dias.length,
+    pontuacaoTotal,
+    pontuacaoMedia: dias.length > 0 ? pontuacaoTotal / dias.length : 0,
+    valorTotal,
+  }
+}
+
 // ── Totem (consulta do colaborador) ──────────────────────────────────────
 export interface ResultadoTotem {
   nome: string
