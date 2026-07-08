@@ -276,6 +276,67 @@ export async function buscarResumoDia(filial: string, data: string): Promise<Res
   }
 }
 
+// ── Histórico mensal (dashboard) ─────────────────────────────────────────
+export interface DiaHistorico {
+  data: string        // yyyy-mm-dd
+  rotulo: string      // dd/mm
+  totalPago: number
+  colaboradores: number
+  pontuacaoTotal: number
+  ticketMedio: number
+}
+
+export interface HistoricoMes {
+  dias: DiaHistorico[]
+  totalMes: number
+  mediaDiaria: number
+  diasComLancamento: number
+  maiorDia: DiaHistorico | null
+}
+
+// Agrega a variável dia a dia dentro de um mês (mesISO = 'yyyy-mm').
+export async function buscarHistoricoMes(filial: string, mesISO: string): Promise<HistoricoMes> {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  const inicio = `${mesISO}-01`
+  const prox = mes >= 12 ? `${ano + 1}-01-01` : `${ano}-${String(mes + 1).padStart(2, '0')}-01`
+
+  const { data } = await supabase.from('variavel_pontuacao')
+    .select('data, valor_calculado, total')
+    .eq('filial', filial).gte('data', inicio).lt('data', prox)
+
+  const porDia = new Map<string, { totalPago: number; pontos: number; colabs: number }>()
+  for (const r of data ?? []) {
+    const dia = String(r.data)
+    const acc = porDia.get(dia) ?? { totalPago: 0, pontos: 0, colabs: 0 }
+    acc.totalPago += Number(r.valor_calculado)
+    acc.pontos += Number(r.total)
+    acc.colabs += 1
+    porDia.set(dia, acc)
+  }
+
+  const dias: DiaHistorico[] = [...porDia.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([dia, v]) => ({
+      data: dia,
+      rotulo: `${dia.slice(8, 10)}/${dia.slice(5, 7)}`,
+      totalPago: v.totalPago,
+      colaboradores: v.colabs,
+      pontuacaoTotal: v.pontos,
+      ticketMedio: v.colabs > 0 ? v.totalPago / v.colabs : 0,
+    }))
+
+  const totalMes = dias.reduce((s, d) => s + d.totalPago, 0)
+  const maiorDia = dias.reduce<DiaHistorico | null>((mx, d) => (!mx || d.totalPago > mx.totalPago ? d : mx), null)
+
+  return {
+    dias,
+    totalMes,
+    mediaDiaria: dias.length > 0 ? totalMes / dias.length : 0,
+    diasComLancamento: dias.length,
+    maiorDia,
+  }
+}
+
 // ── Totem (consulta do colaborador) ──────────────────────────────────────
 export interface ResultadoTotem {
   nome: string
