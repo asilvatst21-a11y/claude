@@ -1539,12 +1539,16 @@ export default async function handler(req: any, res: any) {
   // escreveria no banco). Recusamos quando não está configurado OU quando o
   // token na query não bate. Configure ZAPI_WEBHOOK_SECRET no Vercel e aponte
   // a URL do webhook no Z-API para ...?token=SEU_SEGREDO.
-  if (!WEBHOOK_SECRET) {
+  // .trim() dos dois lados: evita 401 quando o valor colado no Vercel vem com
+  // espaço/quebra de linha no fim (erro de copy-paste que não dá pra ver).
+  const segredoConfig = WEBHOOK_SECRET.trim()
+  const tokenRecebido = String(req.query?.token ?? '').trim()
+  if (!segredoConfig) {
     console.error('ZAPI_WEBHOOK_SECRET não configurado — webhook recusado por segurança.')
     res.status(503).json({ ok: false, error: 'webhook secret not configured' })
     return
   }
-  if (req.query?.token !== WEBHOOK_SECRET) {
+  if (tokenRecebido !== segredoConfig) {
     res.status(401).json({ ok: false, error: 'invalid token' })
     return
   }
