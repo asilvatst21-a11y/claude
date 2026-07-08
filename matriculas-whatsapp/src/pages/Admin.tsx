@@ -5,6 +5,10 @@ import type { Usuario, Filial, DtoAvaliador } from '../types'
 import { SECOES_SISTEMA } from '../types'
 import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2, Lock } from 'lucide-react'
 import { listarGrupos, type GrupoZApi } from '../lib/zapi'
+import {
+  listarUsuarios, criarUsuario, atualizarUsuario, removerUsuario,
+  resetarSenhaUsuario, atualizarPermissoesUsuario,
+} from '../lib/usuariosApi'
 
 const AVALIADORES_PADRAO = [
   'ERIC DUNSHEE DE ABRANCHES MUSS',
@@ -28,13 +32,13 @@ export default function Admin() {
   const [avaliadores, setAvaliadores] = useState<DtoAvaliador[]>([])
 
   async function carregar() {
-    const [{ data: f }, { data: u }, { data: av }] = await Promise.all([
+    const [{ data: f }, u, { data: av }] = await Promise.all([
       supabase.from('filiais').select('*').order('nome'),
-      supabase.from('usuarios').select('*').order('filial').order('login'),
+      listarUsuarios().catch((e) => { console.error(e); return [] as Usuario[] }),
       supabase.from('dto_avaliadores').select('*').order('filial').order('nome'),
     ])
     setFiliais(f ?? [])
-    setUsuarios(u ?? [])
+    setUsuarios(u)
     setAvaliadores(av ?? [])
   }
 
@@ -121,10 +125,15 @@ function AbaUsuarios({
   async function salvarPermissoes() {
     if (!permModal) return
     setSavingPerm(true)
-    await supabase.from('usuarios').update({ permissoes: permSelecionadas }).eq('id', permModal.id)
-    setSavingPerm(false)
-    setPermModal(null)
-    recarregar()
+    try {
+      await atualizarPermissoesUsuario(permModal.id, permSelecionadas)
+      setPermModal(null)
+      recarregar()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao salvar acesso.')
+    } finally {
+      setSavingPerm(false)
+    }
   }
 
   function abrirNovo() {
@@ -141,24 +150,28 @@ function AbaUsuarios({
 
   async function salvar() {
     setLoading(true)
-    if (editId) {
-      const payload: Record<string, unknown> = {
-        filial: form.filial, login: form.login, nome: form.nome, admin: form.admin,
+    try {
+      if (editId) {
+        await atualizarUsuario(editId, {
+          filial: form.filial, login: form.login, nome: form.nome || null, admin: form.admin,
+          ...(form.senha ? { senha: form.senha } : {}),
+        })
+      } else {
+        await criarUsuario({
+          filial: form.filial,
+          login: form.login,
+          senha: form.senha || SENHA_PADRAO,
+          nome: form.nome || null,
+          admin: form.admin,
+        })
       }
-      if (form.senha) payload.senha = form.senha
-      await supabase.from('usuarios').update(payload).eq('id', editId)
-    } else {
-      await supabase.from('usuarios').insert({
-        filial: form.filial,
-        login: form.login,
-        senha: form.senha || SENHA_PADRAO,
-        nome: form.nome || null,
-        admin: form.admin,
-      })
+      setModal(false)
+      recarregar()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao salvar usuário.')
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
-    setModal(false)
-    recarregar()
   }
 
   async function excluir(u: Usuario) {
@@ -167,14 +180,22 @@ function AbaUsuarios({
       return
     }
     if (!confirm(`Excluir o usuário ${u.login} (${u.filial})?`)) return
-    await supabase.from('usuarios').delete().eq('id', u.id)
-    recarregar()
+    try {
+      await removerUsuario(u.id)
+      recarregar()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao excluir.')
+    }
   }
 
   async function resetarSenha(u: Usuario) {
     if (!confirm(`Resetar a senha de ${u.login} para "${SENHA_PADRAO}"?`)) return
-    await supabase.from('usuarios').update({ senha: SENHA_PADRAO }).eq('id', u.id)
-    alert(`Senha resetada para: ${SENHA_PADRAO}`)
+    try {
+      await resetarSenhaUsuario(u.id, SENHA_PADRAO)
+      alert(`Senha resetada para: ${SENHA_PADRAO}`)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao resetar senha.')
+    }
   }
 
   return (

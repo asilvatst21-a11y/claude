@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Plus, Pencil, Trash2, KeyRound, Users, Loader2 } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
-import { supabase } from '../../lib/supabase'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
 import type { Usuario } from '../../types'
+import {
+  listarUsuarios, criarUsuario, atualizarUsuario, removerUsuario, resetarSenhaUsuario,
+} from '../../lib/usuariosApi'
 
 const CARGOS = ['Operador', 'Manobrista', 'Ajudante de Armazém']
 const SENHA_PADRAO = 'ARMAZEM123'
@@ -32,14 +34,15 @@ export default function ArmazemOperadores() {
   const fetchOperadores = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
-    const { data } = await supabase
-      .from('usuarios')
-      .select('*')
-      .eq('filial', usuario.filial)
-      .not('cargo', 'is', null)
-      .order('nome')
-    setOperadores(Array.isArray(data) ? data : [])
-    setLoading(false)
+    try {
+      const data = await listarUsuarios({ filial: usuario.filial, apenasComCargo: true })
+      setOperadores(data)
+    } catch (e) {
+      console.error(e)
+      setOperadores([])
+    } finally {
+      setLoading(false)
+    }
   }, [usuario])
 
   useEffect(() => { fetchOperadores() }, [fetchOperadores])
@@ -61,15 +64,16 @@ export default function ArmazemOperadores() {
     if (!form.nome.trim()) return setErro('Informe o nome do operador.')
 
     setSalvando(true)
-
-    const resultado = form.id
-      ? await supabase.from('usuarios').update({
+    try {
+      if (form.id) {
+        await atualizarUsuario(form.id, {
           login: form.login.trim(),
           nome: form.nome.trim(),
           cargo: form.cargo,
           ...(form.senha ? { senha: form.senha } : {}),
-        }).eq('id', form.id)
-      : await supabase.from('usuarios').insert({
+        })
+      } else {
+        await criarUsuario({
           filial: usuario.filial,
           login: form.login.trim(),
           senha: form.senha || SENHA_PADRAO,
@@ -78,23 +82,34 @@ export default function ArmazemOperadores() {
           admin: false,
           permissoes: [],
         })
-
-    setSalvando(false)
-    if (resultado.error) return setErro(resultado.error.message)
-    setForm(null)
-    fetchOperadores()
+      }
+      setForm(null)
+      fetchOperadores()
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao salvar.')
+    } finally {
+      setSalvando(false)
+    }
   }
 
   async function excluir(o: Usuario) {
     if (!confirm(`Excluir o operador ${o.nome ?? o.login}?`)) return
-    await supabase.from('usuarios').delete().eq('id', o.id)
-    fetchOperadores()
+    try {
+      await removerUsuario(o.id)
+      fetchOperadores()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao excluir.')
+    }
   }
 
   async function resetarSenha(o: Usuario) {
     if (!confirm(`Resetar a senha de ${o.login} para "${SENHA_PADRAO}"?`)) return
-    await supabase.from('usuarios').update({ senha: SENHA_PADRAO }).eq('id', o.id)
-    alert(`Senha resetada para: ${SENHA_PADRAO}`)
+    try {
+      await resetarSenhaUsuario(o.id, SENHA_PADRAO)
+      alert(`Senha resetada para: ${SENHA_PADRAO}`)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao resetar senha.')
+    }
   }
 
   return (
