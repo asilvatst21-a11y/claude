@@ -356,17 +356,29 @@ export interface ColaboradorRanking {
   pontuacaoTotal: number
   pontuacaoMedia: number
   valorTotal: number
+  faltas: number // dias do período em que houve lançamento de ALGUÉM, mas não deste colaborador
+}
+
+export interface RankingPeriodo {
+  colaboradores: ColaboradorRanking[]
+  diasComLancamentoPeriodo: number
 }
 
 // Agrega por colaborador (colaborador_id quando existe, senão o nome do
 // relatório) dentro de um intervalo de datas [dataIni, dataFim] inclusivo.
-export async function buscarRankingColaboradores(filial: string, dataIni: string, dataFim: string): Promise<ColaboradorRanking[]> {
+// `faltas` compara com o total de dias em que a filial teve QUALQUER
+// lançamento no período — não com os dias corridos do calendário — porque
+// dias sem nenhum import (ex.: fim de semana sem operação) não devem contar
+// como falta de ninguém.
+export async function buscarRankingColaboradores(filial: string, dataIni: string, dataFim: string): Promise<RankingPeriodo> {
   const { data } = await supabase.from('variavel_pontuacao')
-    .select('nome_relatorio, colaborador_id, total, valor_calculado')
+    .select('nome_relatorio, colaborador_id, data, total, valor_calculado')
     .eq('filial', filial).gte('data', dataIni).lte('data', dataFim)
 
+  const diasComLancamento = new Set<string>()
   const porColab = new Map<string, { nome: string; dias: number; pontos: number; valor: number }>()
   for (const r of data ?? []) {
+    diasComLancamento.add(String(r.data))
     const chave = r.colaborador_id ?? r.nome_relatorio
     const acc = porColab.get(chave) ?? { nome: r.nome_relatorio, dias: 0, pontos: 0, valor: 0 }
     acc.dias += 1
@@ -375,14 +387,129 @@ export async function buscarRankingColaboradores(filial: string, dataIni: string
     porColab.set(chave, acc)
   }
 
-  return [...porColab.entries()].map(([chave, v]) => ({
+  const diasComLancamentoPeriodo = diasComLancamento.size
+  const colaboradores = [...porColab.entries()].map(([chave, v]) => ({
     chave,
     nome: v.nome,
     diasLancados: v.dias,
     pontuacaoTotal: v.pontos,
     pontuacaoMedia: v.dias > 0 ? v.pontos / v.dias : 0,
     valorTotal: v.valor,
+    faltas: Math.max(0, diasComLancamentoPeriodo - v.dias),
   }))
+
+  return { colaboradores, diasComLancamentoPeriodo }
+}
+
+// ── Comparativo de desempenho vs. período anterior equivalente ──────────
+export interface ComparativoColaborador {
+  chave: string
+  nome: string
+  mediaAtual: number
+  mediaAnterior: number | null
+  variacaoPct: number | null // null = sem período anterior comparável; negativo = queda
+}
+
+function periodoAnteriorEquivalente(dataIni: string, dataFim: string): { ini: string; fim: string } {
+  const ini = new Date(`${dataIni}T00:00:00`)
+  const fim = new Date(`${dataFim}T00:00:00`)
+  const dias = Math.round((fim.getTime() - ini.getTime()) / 86400000) + 1
+  const anteriorFim = new Date(ini)
+  anteriorFim.setDate(anteriorFim.getDate() - 1)
+  const anteriorIni = new Date(anteriorFim)
+  anteriorIni.setDate(anteriorIni.getDate() - (dias - 1))
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return { ini: iso(anteriorIni), fim: iso(anteriorFim) }
+}
+
+// Compara a pontuação média de cada colaborador no período selecionado com a
+// do período imediatamente anterior de mesma duração — para achar quem caiu
+// (ou subiu) de desempenho.
+export async function buscarComparativoDesempenho(filial: string, dataIni: string, dataFim: string): Promise<ComparativoColaborador[]> {
+  const { ini: antIni, fim: antFim } = periodoAnteriorEquivalente(dataIni, dataFim)
+  const [{ colaboradores: atual }, { colaboradores: anterior }] = await Promise.all([
+    buscarRankingColaboradores(filial, dataIni, dataFim),
+    buscarRankingColaboradores(filial, antIni, antFim),
+  ])
+  const mapAnterior = new Map(anterior.map((a) => [a.chave, a]))
+
+  return atual.map((a) => {
+    const ant = mapAnterior.get(a.chave)
+    const mediaAnterior = ant?.pontuacaoMedia ?? null
+    const variacaoPct = mediaAnterior != null && mediaAnterior > 0 ? ((a.pontuacaoMedia - mediaAnterior) / mediaAnterior) * 100 : null
+    return { chave: a.chave, nome: a.nome, mediaAtual: a.pontuacaoMedia, mediaAnterior, variacaoPct }
+  })
+}
+
+// ── Migração de cluster mês a mês ────────────────────────────────────────
+export interface MigracaoColaborador {
+  chave: string
+  nome: string
+  valorPor1000Anterior: number | null
+  valorPor1000Atual: number | null
+  direcao: 'subiu' | 'desceu' | 'igual' | 'novo' | 'saiu'
+}
+
+export function mesAnteriorDe(mesISO: string): string {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  return mes <= 1 ? `${ano - 1}-12` : `${ano}-${String(mes - 1).padStart(2, '0')}`
+}
+
+function rangeDoMes(mesISO: string): { ini: string; fim: string } {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  const ini = `${mesISO}-01`
+  const prox = mes >= 12 ? `${ano + 1}-01-01` : `${ano}-${String(mes + 1).padStart(2, '0')}-01`
+  const fimDate = new Date(`${prox}T00:00:00`)
+  fimDate.setDate(fimDate.getDate() - 1)
+  const fim = `${fimDate.getFullYear()}-${String(fimDate.getMonth() + 1).padStart(2, '0')}-${String(fimDate.getDate()).padStart(2, '0')}`
+  return { ini, fim }
+}
+
+// Compara em qual faixa (cluster) a MÉDIA mensal de cada colaborador caiu no
+// mês selecionado e no mês anterior, para identificar quem subiu ou desceu
+// de faixa — não é o total acumulado, é a faixa que a média do mês indicaria.
+export async function buscarMigracaoClusters(filial: string, mesAtualISO: string): Promise<MigracaoColaborador[]> {
+  const mesAnteriorISO = mesAnteriorDe(mesAtualISO)
+  const atualRange = rangeDoMes(mesAtualISO)
+  const anteriorRange = rangeDoMes(mesAnteriorISO)
+
+  const [clusters, { colaboradores: atual }, { colaboradores: anterior }] = await Promise.all([
+    buscarClusters(),
+    buscarRankingColaboradores(filial, atualRange.ini, atualRange.fim),
+    buscarRankingColaboradores(filial, anteriorRange.ini, anteriorRange.fim),
+  ])
+  const clustersOrdenados = [...clusters].sort((a, b) => a.pontMin - b.pontMin)
+  const idxCluster = (media: number): number | null => {
+    const c = clusterDoTotal(media, clustersOrdenados)
+    return c ? clustersOrdenados.findIndex((x) => x.pontMin === c.pontMin) : null
+  }
+
+  const mapAtual = new Map(atual.map((a) => [a.chave, a]))
+  const mapAnterior = new Map(anterior.map((a) => [a.chave, a]))
+  const chaves = new Set([...mapAtual.keys(), ...mapAnterior.keys()])
+
+  const out: MigracaoColaborador[] = []
+  for (const chave of chaves) {
+    const a = mapAtual.get(chave)
+    const p = mapAnterior.get(chave)
+    const idxAtual = a ? idxCluster(a.pontuacaoMedia) : null
+    const idxAnterior = p ? idxCluster(p.pontuacaoMedia) : null
+
+    let direcao: MigracaoColaborador['direcao']
+    if (a && !p) direcao = 'novo'
+    else if (!a && p) direcao = 'saiu'
+    else if (idxAtual != null && idxAnterior != null) direcao = idxAtual > idxAnterior ? 'subiu' : idxAtual < idxAnterior ? 'desceu' : 'igual'
+    else direcao = 'igual'
+
+    out.push({
+      chave,
+      nome: (a ?? p)!.nome,
+      valorPor1000Anterior: idxAnterior != null ? clustersOrdenados[idxAnterior].valorPor1000 : null,
+      valorPor1000Atual: idxAtual != null ? clustersOrdenados[idxAtual].valorPor1000 : null,
+      direcao,
+    })
+  }
+  return out
 }
 
 // ── Extrato (estratificação) de um colaborador num intervalo de datas ────

@@ -2,15 +2,18 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { Link } from 'react-router-dom'
 import {
   Wallet, Upload, Loader2, RefreshCw, AlertTriangle, Users, Coins, Trophy, TrendingUp, Link2, ExternalLink, Settings,
-  CalendarDays, BarChart3, ChevronDown, ChevronUp, ArrowDownUp, Medal, X, UserSearch,
+  CalendarDays, BarChart3, ChevronDown, ChevronUp, ArrowDownUp, Medal, X, UserSearch, Download, Copy, ArrowUpCircle,
+  ArrowDownCircle, Sparkles, ShieldAlert,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 import { useAuth } from '../../lib/auth'
 import {
-  buscarResumoDia, buscarHistoricoMes, buscarRankingColaboradores, buscarExtratoColaborador, importarPontuacao, formatarBRL,
+  buscarResumoDia, buscarHistoricoMes, buscarRankingColaboradores, buscarExtratoColaborador,
+  buscarComparativoDesempenho, buscarMigracaoClusters, mesAnteriorDe, importarPontuacao, formatarBRL,
   type ResumoVariavel, type HistoricoMes, type ColaboradorRanking, type ExtratoColaborador,
+  type ComparativoColaborador, type MigracaoColaborador,
 } from '../../lib/variavelArmazem'
 import { formatarDataBR } from '../../lib/utils'
 
@@ -42,8 +45,27 @@ const CRITERIOS_RANK = [
   { key: 'pontuacaoTotal', label: 'Pontuação total' },
   { key: 'valorTotal', label: 'Valor total' },
   { key: 'diasLancados', label: 'Dias lançados' },
+  { key: 'faltas', label: 'Faltas (sem lançar)' },
 ] as const
 type CriterioRank = typeof CRITERIOS_RANK[number]['key']
+
+function variacaoBadge(pct: number | null): { texto: string; cor: string } {
+  if (pct == null) return { texto: '—', cor: 'text-muted-foreground' }
+  const sinal = pct > 0 ? '+' : ''
+  const cor = pct > 0.5 ? 'text-green-700' : pct < -0.5 ? 'text-red-600' : 'text-muted-foreground'
+  return { texto: `${sinal}${pct.toFixed(0)}%`, cor }
+}
+
+function baixarCSV(nomeArquivo: string, linhas: (string | number)[][]) {
+  const csv = linhas.map((l) => l.map((c) => String(c).replace(/;/g, ',')).join(';')).join('\n')
+  const blob = new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nomeArquivo
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 // Seção recolhível — mesmo padrão usado no histórico de valor e no de
 // pontuação média, para o painel não ficar longo demais por padrão.
@@ -83,13 +105,15 @@ export default function ArmazemVariavel() {
   // Histórico mensal (dashboard). Começa no mês da data selecionada (D-1).
   const [mesHist, setMesHist] = useState(() => ontemISO().slice(0, 7))
   const [historico, setHistorico] = useState<HistoricoMes | null>(null)
+  const [historicoAnterior, setHistoricoAnterior] = useState<HistoricoMes | null>(null)
   const [loadingHist, setLoadingHist] = useState(true)
 
   // Ranking de colaboradores num intervalo de datas específico. O usuário
-  // escolhe por qual métrica ordenar (média, total, valor, dias) e a direção.
+  // escolhe por qual métrica ordenar (média, total, valor, dias, faltas) e a direção.
   const [rankIni, setRankIni] = useState(() => inicioMesDe(ontemISO()))
   const [rankFim, setRankFim] = useState(ontemISO)
   const [ranking, setRanking] = useState<ColaboradorRanking[] | null>(null)
+  const [diasPeriodoRank, setDiasPeriodoRank] = useState(0)
   const [loadingRank, setLoadingRank] = useState(true)
   const [criterioRank, setCriterioRank] = useState<CriterioRank>('pontuacaoMedia')
   const [ordemRank, setOrdemRank] = useState<'desc' | 'asc'>('desc')
@@ -99,6 +123,15 @@ export default function ArmazemVariavel() {
   const [extratoAlvo, setExtratoAlvo] = useState<{ chave: string; nome: string } | null>(null)
   const [extrato, setExtrato] = useState<ExtratoColaborador | null>(null)
   const [loadingExtrato, setLoadingExtrato] = useState(false)
+
+  // Queda/alta de desempenho vs. período anterior equivalente (mesma janela
+  // do ranking, comparada com a janela imediatamente anterior).
+  const [comparativo, setComparativo] = useState<ComparativoColaborador[] | null>(null)
+  const [loadingComparativo, setLoadingComparativo] = useState(true)
+
+  // Migração de cluster mês a mês (usa o mesmo seletor de mês do histórico).
+  const [migracao, setMigracao] = useState<MigracaoColaborador[] | null>(null)
+  const [loadingMigracao, setLoadingMigracao] = useState(true)
 
   const linkTotem = `${window.location.origin}/variavel-armazem`
 
@@ -120,7 +153,12 @@ export default function ArmazemVariavel() {
     if (!usuario) return
     setLoadingHist(true)
     try {
-      setHistorico(await buscarHistoricoMes(usuario.filial, mesHist))
+      const [atual, anterior] = await Promise.all([
+        buscarHistoricoMes(usuario.filial, mesHist),
+        buscarHistoricoMes(usuario.filial, mesAnteriorDe(mesHist)),
+      ])
+      setHistorico(atual)
+      setHistoricoAnterior(anterior)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao carregar o histórico.')
     } finally {
@@ -134,13 +172,43 @@ export default function ArmazemVariavel() {
     if (!usuario) return
     setLoadingRank(true)
     try {
-      setRanking(await buscarRankingColaboradores(usuario.filial, rankIni, rankFim))
+      const { colaboradores, diasComLancamentoPeriodo } = await buscarRankingColaboradores(usuario.filial, rankIni, rankFim)
+      setRanking(colaboradores)
+      setDiasPeriodoRank(diasComLancamentoPeriodo)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao carregar o ranking.')
     } finally {
       setLoadingRank(false)
     }
   }, [usuario, rankIni, rankFim])
+
+  const fetchComparativo = useCallback(async () => {
+    if (!usuario) return
+    setLoadingComparativo(true)
+    try {
+      setComparativo(await buscarComparativoDesempenho(usuario.filial, rankIni, rankFim))
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao carregar o comparativo de desempenho.')
+    } finally {
+      setLoadingComparativo(false)
+    }
+  }, [usuario, rankIni, rankFim])
+
+  useEffect(() => { fetchComparativo() }, [fetchComparativo])
+
+  const fetchMigracao = useCallback(async () => {
+    if (!usuario) return
+    setLoadingMigracao(true)
+    try {
+      setMigracao(await buscarMigracaoClusters(usuario.filial, mesHist))
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao carregar a migração de cluster.')
+    } finally {
+      setLoadingMigracao(false)
+    }
+  }, [usuario, mesHist])
+
+  useEffect(() => { fetchMigracao() }, [fetchMigracao])
 
   useEffect(() => { fetchRanking() }, [fetchRanking])
 
@@ -162,6 +230,8 @@ export default function ArmazemVariavel() {
       await fetchResumo()
       await fetchHistorico()
       await fetchRanking()
+      await fetchComparativo()
+      await fetchMigracao()
       alert(
         `Relatório importado: ${linhas} colaborador(es).` +
         (semCadastro > 0 ? `\n\n⚠️ ${semCadastro} sem cadastro (nome não bateu) — aparecem no painel, mas não conseguem consultar no totem até serem cadastrados.` : '')
@@ -194,6 +264,56 @@ export default function ArmazemVariavel() {
     () => historico?.dias.reduce((s, d) => s + d.pontuacaoTotal, 0) ?? 0,
     [historico]
   )
+
+  // Variação do mês selecionado vs. mês anterior (usada nos dois históricos).
+  const variacaoValorMes = useMemo(() => {
+    if (!historico || !historicoAnterior || historicoAnterior.totalMes <= 0) return null
+    return ((historico.totalMes - historicoAnterior.totalMes) / historicoAnterior.totalMes) * 100
+  }, [historico, historicoAnterior])
+
+  const variacaoPontuacaoMes = useMemo(() => {
+    if (!historico || !historicoAnterior || historicoAnterior.mediaPontuacaoMes <= 0) return null
+    return ((historico.mediaPontuacaoMes - historicoAnterior.mediaPontuacaoMes) / historicoAnterior.mediaPontuacaoMes) * 100
+  }, [historico, historicoAnterior])
+
+  // Quedas de desempenho: só quem teve período anterior para comparar,
+  // ordenado da maior queda para a maior alta.
+  const quedasOrdenadas = useMemo(() => {
+    if (!comparativo) return []
+    return [...comparativo]
+      .filter((c) => c.variacaoPct != null)
+      .sort((a, b) => (a.variacaoPct ?? 0) - (b.variacaoPct ?? 0))
+  }, [comparativo])
+
+  const migracaoRelevante = useMemo(() => {
+    if (!migracao) return []
+    const peso = { desceu: 0, subiu: 1, novo: 2, saiu: 3, igual: 4 }
+    return [...migracao]
+      .filter((m) => m.direcao === 'subiu' || m.direcao === 'desceu')
+      .sort((a, b) => peso[a.direcao] - peso[b.direcao])
+  }, [migracao])
+
+  function exportarRankingCSV() {
+    const linhas: (string | number)[][] = [
+      ['Posição', 'Colaborador', 'Dias lançados', 'Faltas', 'Pontuação média', 'Pontuação total', 'Valor total'],
+      ...rankingOrdenado.map((c, i) => [
+        i + 1, c.nome, c.diasLancados, c.faltas,
+        Math.round(c.pontuacaoMedia), c.pontuacaoTotal, c.valorTotal.toFixed(2),
+      ]),
+    ]
+    baixarCSV(`ranking-variavel_${rankIni}_a_${rankFim}.csv`, linhas)
+  }
+
+  function copiarResumoRanking() {
+    const top = rankingOrdenado.slice(0, 5)
+    let texto = `📊 *Ranking Variável* — ${formatarDataBR(rankIni)} a ${formatarDataBR(rankFim)}\n\n`
+    top.forEach((c, i) => {
+      texto += `${i + 1}. ${c.nome} — ${Math.round(c.pontuacaoMedia).toLocaleString('pt-BR')} pts (méd.) · ${formatarBRL(c.valorTotal)}\n`
+    })
+    navigator.clipboard.writeText(texto)
+      .then(() => alert('Resumo copiado! Cole no WhatsApp.'))
+      .catch(() => alert('Não foi possível copiar. Tente novamente.'))
+  }
 
   return (
     <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-w-6xl mx-auto">
@@ -323,6 +443,7 @@ export default function ArmazemVariavel() {
               <div className="border rounded-lg p-3">
                 <div className="text-[11px] text-muted-foreground mb-0.5">Total no mês</div>
                 <div className="text-lg font-bold tabular-nums text-green-700">{formatarBRL(historico.totalMes)}</div>
+                <div className={`text-[11px] tabular-nums mt-0.5 ${variacaoBadge(variacaoValorMes).cor}`}>{variacaoBadge(variacaoValorMes).texto} vs. mês anterior</div>
               </div>
               <div className="border rounded-lg p-3">
                 <div className="text-[11px] text-muted-foreground mb-0.5">Média por dia</div>
@@ -412,6 +533,7 @@ export default function ArmazemVariavel() {
               <div className="border rounded-lg p-3">
                 <div className="text-[11px] text-muted-foreground mb-0.5">Pontuação média do mês</div>
                 <div className="text-lg font-bold tabular-nums">{Math.round(historico.mediaPontuacaoMes).toLocaleString('pt-BR')} pts</div>
+                <div className={`text-[11px] tabular-nums mt-0.5 ${variacaoBadge(variacaoPontuacaoMes).cor}`}>{variacaoBadge(variacaoPontuacaoMes).texto} vs. mês anterior</div>
               </div>
               <div className="border rounded-lg p-3">
                 <div className="text-[11px] text-muted-foreground mb-0.5">Pontuação total do mês</div>
@@ -503,6 +625,12 @@ export default function ArmazemVariavel() {
             >
               <ArrowDownUp className="h-3.5 w-3.5" /> {ordemRank === 'desc' ? 'Maiores primeiro' : 'Menores primeiro'}
             </button>
+            <button onClick={exportarRankingCSV} disabled={rankingOrdenado.length === 0} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm hover:bg-accent transition-colors disabled:opacity-40">
+              <Download className="h-3.5 w-3.5" /> CSV
+            </button>
+            <button onClick={copiarResumoRanking} disabled={rankingOrdenado.length === 0} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm hover:bg-accent transition-colors disabled:opacity-40">
+              <Copy className="h-3.5 w-3.5" /> Copiar resumo
+            </button>
           </div>
         }
       >
@@ -511,35 +639,125 @@ export default function ArmazemVariavel() {
         ) : rankingOrdenado.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground text-sm">Nenhuma pontuação no período selecionado.</div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground w-10">#</th>
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Colaborador</th>
-                  <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'diasLancados' ? 'text-accent-700' : 'text-muted-foreground'}`}>Dias lançados</th>
-                  <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'pontuacaoMedia' ? 'text-accent-700' : 'text-muted-foreground'}`}>Pontuação média</th>
-                  <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'pontuacaoTotal' ? 'text-accent-700' : 'text-muted-foreground'}`}>Pontuação total</th>
-                  <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'valorTotal' ? 'text-accent-700' : 'text-muted-foreground'}`}>Valor total</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {rankingOrdenado.map((c, i) => (
-                  <tr key={c.chave} className={`hover:bg-muted/30 transition-colors ${i === 0 && ordemRank === 'desc' ? 'bg-amber-50/60' : ''}`}>
-                    <td className="px-3 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
-                    <td className="px-3 py-2">
-                      <button onClick={() => setExtratoAlvo({ chave: c.chave, nome: c.nome })} className="font-medium text-left hover:text-accent-700 hover:underline flex items-center gap-1.5">
-                        <UserSearch className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> {c.nome}
-                      </button>
-                    </td>
-                    <td className={`px-3 py-2 text-right tabular-nums ${criterioRank === 'diasLancados' ? 'font-bold' : 'text-muted-foreground'}`}>{c.diasLancados}</td>
-                    <td className={`px-3 py-2 text-right tabular-nums ${criterioRank === 'pontuacaoMedia' ? 'font-bold' : ''}`}>{Math.round(c.pontuacaoMedia).toLocaleString('pt-BR')} pts</td>
-                    <td className={`px-3 py-2 text-right tabular-nums ${criterioRank === 'pontuacaoTotal' ? 'font-bold' : 'text-muted-foreground'}`}>{c.pontuacaoTotal.toLocaleString('pt-BR')} pts</td>
-                    <td className={`px-3 py-2 text-right tabular-nums text-green-700 ${criterioRank === 'valorTotal' ? 'font-bold' : ''}`}>{formatarBRL(c.valorTotal)}</td>
+          <div>
+            <p className="px-4 pt-3 text-[11px] text-muted-foreground">Filial teve lançamento em {diasPeriodoRank} dia(s) no período — "faltas" é comparado com esse total, não com os dias corridos.</p>
+            <div className="overflow-x-auto p-4 pt-2">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-10">#</th>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Colaborador</th>
+                    <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'diasLancados' ? 'text-accent-700' : 'text-muted-foreground'}`}>Dias lançados</th>
+                    <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'faltas' ? 'text-accent-700' : 'text-muted-foreground'}`}>Faltas</th>
+                    <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'pontuacaoMedia' ? 'text-accent-700' : 'text-muted-foreground'}`}>Pontuação média</th>
+                    <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'pontuacaoTotal' ? 'text-accent-700' : 'text-muted-foreground'}`}>Pontuação total</th>
+                    <th className={`text-right px-3 py-2 font-medium ${criterioRank === 'valorTotal' ? 'text-accent-700' : 'text-muted-foreground'}`}>Valor total</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y">
+                  {rankingOrdenado.map((c, i) => (
+                    <tr key={c.chave} className={`hover:bg-muted/30 transition-colors ${i === 0 && ordemRank === 'desc' ? 'bg-amber-50/60' : ''}`}>
+                      <td className="px-3 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
+                      <td className="px-3 py-2">
+                        <button onClick={() => setExtratoAlvo({ chave: c.chave, nome: c.nome })} className="font-medium text-left hover:text-accent-700 hover:underline flex items-center gap-1.5">
+                          <UserSearch className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> {c.nome}
+                        </button>
+                      </td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${criterioRank === 'diasLancados' ? 'font-bold' : 'text-muted-foreground'}`}>{c.diasLancados}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${criterioRank === 'faltas' ? 'font-bold' : c.faltas > 0 ? 'text-amber-700' : 'text-muted-foreground'}`}>{c.faltas}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${criterioRank === 'pontuacaoMedia' ? 'font-bold' : ''}`}>{Math.round(c.pontuacaoMedia).toLocaleString('pt-BR')} pts</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${criterioRank === 'pontuacaoTotal' ? 'font-bold' : 'text-muted-foreground'}`}>{c.pontuacaoTotal.toLocaleString('pt-BR')} pts</td>
+                      <td className={`px-3 py-2 text-right tabular-nums text-green-700 ${criterioRank === 'valorTotal' ? 'font-bold' : ''}`}>{formatarBRL(c.valorTotal)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Colapsavel>
+
+      {/* Queda/alta de desempenho vs. período anterior equivalente */}
+      <Colapsavel titulo="Queda de Desempenho" icon={ShieldAlert}>
+        {loadingComparativo ? (
+          <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+        ) : quedasOrdenadas.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground text-sm">Sem período anterior comparável para esta janela de datas.</div>
+        ) : (
+          <div className="p-4">
+            <p className="text-xs text-muted-foreground mb-3">Compara a pontuação média de {formatarDataBR(rankIni)} a {formatarDataBR(rankFim)} com o período imediatamente anterior de mesma duração.</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Colaborador</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Período anterior</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Período atual</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Variação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {quedasOrdenadas.map((c) => {
+                    const badge = variacaoBadge(c.variacaoPct)
+                    return (
+                      <tr key={c.chave} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-3 py-2 font-medium">{c.nome}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{Math.round(c.mediaAnterior ?? 0).toLocaleString('pt-BR')} pts</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-bold">{Math.round(c.mediaAtual).toLocaleString('pt-BR')} pts</td>
+                        <td className={`px-3 py-2 text-right tabular-nums font-bold ${badge.cor}`}>{badge.texto}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Colapsavel>
+
+      {/* Migração de cluster mês a mês */}
+      <Colapsavel
+        titulo="Migração de Cluster"
+        icon={Sparkles}
+        extra={
+          <label className="flex items-center gap-2 text-sm">
+            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+            <input type="month" value={mesHist} onChange={(e) => setMesHist(e.target.value)} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm" />
+          </label>
+        }
+      >
+        {loadingMigracao ? (
+          <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+        ) : migracaoRelevante.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground text-sm">Ninguém mudou de faixa entre este mês e o anterior.</div>
+        ) : (
+          <div className="p-4">
+            <p className="text-xs text-muted-foreground mb-3">Compara a faixa (cluster) indicada pela média mensal de cada colaborador entre {formatarDataBR(mesAnteriorDe(mesHist) + '-01')} e {formatarDataBR(mesHist + '-01')}.</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Colaborador</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Faixa mês anterior</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Faixa mês atual</th>
+                    <th className="text-center px-3 py-2 font-medium text-muted-foreground">Direção</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {migracaoRelevante.map((m) => (
+                    <tr key={m.chave} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-3 py-2 font-medium">{m.nome}</td>
+                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{m.valorPor1000Anterior != null ? `${formatarBRL(m.valorPor1000Anterior)}/1k` : '—'}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-bold">{m.valorPor1000Atual != null ? `${formatarBRL(m.valorPor1000Atual)}/1k` : '—'}</td>
+                      <td className="px-3 py-2 text-center">
+                        {m.direcao === 'subiu' && <span className="inline-flex items-center gap-1 text-green-700 font-medium"><ArrowUpCircle className="h-4 w-4" /> Subiu</span>}
+                        {m.direcao === 'desceu' && <span className="inline-flex items-center gap-1 text-red-600 font-medium"><ArrowDownCircle className="h-4 w-4" /> Desceu</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
       </Colapsavel>
