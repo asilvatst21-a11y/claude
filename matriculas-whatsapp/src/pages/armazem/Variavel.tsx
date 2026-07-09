@@ -99,6 +99,7 @@ export default function ArmazemVariavel() {
   const [resumo, setResumo] = useState<ResumoVariavel | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [rvDobrada, setRvDobrada] = useState(false)
   const [erro, setErro] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -226,7 +227,7 @@ export default function ArmazemVariavel() {
     setUploading(true); setErro('')
     try {
       const buffer = await file.arrayBuffer()
-      const { linhas, semCadastro } = await importarPontuacao(usuario.filial, data, buffer)
+      const { linhas, semCadastro } = await importarPontuacao(usuario.filial, data, buffer, rvDobrada)
       await fetchResumo()
       await fetchHistorico()
       await fetchRanking()
@@ -234,6 +235,7 @@ export default function ArmazemVariavel() {
       await fetchMigracao()
       alert(
         `Relatório importado: ${linhas} colaborador(es).` +
+        (rvDobrada ? '\n\n🔥 RV Dobrada aplicada — valores deste dia em dobro.' : '') +
         (semCadastro > 0 ? `\n\n⚠️ ${semCadastro} sem cadastro (nome não bateu) — aparecem no painel, mas não conseguem consultar no totem até serem cadastrados.` : '')
       )
     } catch (err) {
@@ -346,6 +348,11 @@ export default function ArmazemVariavel() {
             <p className="text-sm font-medium">{uploading ? 'Processando...' : 'Clique para importar (.csv / .xlsx)'}</p>
           </div>
           <input ref={inputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportar(f); if (inputRef.current) inputRef.current.value = '' }} />
+          <label className={`mt-3 flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${rvDobrada ? 'border-orange-300 bg-orange-50' : 'border-gray-200 hover:bg-gray-50'}`}>
+            <input type="checkbox" checked={rvDobrada} onChange={(e) => setRvDobrada(e.target.checked)} className="accent-orange-500" />
+            <span className={`text-sm font-medium ${rvDobrada ? 'text-orange-700' : 'text-gray-700'}`}>🔥 RV Dobrada neste dia</span>
+          </label>
+          {rvDobrada && <p className="text-xs text-orange-600 mt-1">O valor pago de {formatarDataBR(data)} sairá em dobro para todos os colaboradores importados.</p>}
         </div>
         <div className="border rounded-lg bg-white p-4">
           <label className="text-sm font-medium block mb-1.5">Data</label>
@@ -355,8 +362,13 @@ export default function ArmazemVariavel() {
 
       {/* KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {kpis.map((k) => (
-          <div key={k.l} className="border rounded-lg bg-white p-4">
+        {kpis.map((k, i) => (
+          <div key={k.l} className={`border rounded-lg bg-white p-4 relative ${i === 0 && resumo?.rvDobrada ? 'border-orange-300 bg-orange-50/50' : ''}`}>
+            {i === 0 && resumo?.rvDobrada && (
+              <span className="absolute -top-2 -right-2 inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-white bg-orange-500 px-2 py-0.5 rounded-full shadow-sm">
+                🔥 RV Dobrada
+              </span>
+            )}
             <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1"><k.icon className="h-4 w-4" /> {k.l}</div>
             <div className={`text-xl sm:text-2xl font-bold tabular-nums ${k.money ? 'text-green-700' : ''}`}>{k.v}</div>
             <div className="text-[11px] text-muted-foreground mt-1 tabular-nums">{k.s}</div>
@@ -391,7 +403,14 @@ export default function ArmazemVariavel() {
 
           {/* Ranking */}
           <div className="border rounded-lg bg-white">
-            <div className="px-4 py-3 border-b"><h3 className="text-sm font-semibold">Ranking — {formatarDataBR(data)}</h3></div>
+            <div className="px-4 py-3 border-b flex items-center gap-2">
+              <h3 className="text-sm font-semibold">Ranking — {formatarDataBR(data)}</h3>
+              {resumo.rvDobrada && (
+                <span className="inline-flex items-center gap-1 text-[11px] font-bold uppercase tracking-wide text-orange-700 bg-orange-100 border border-orange-200 px-2 py-0.5 rounded-full">
+                  🔥 RV Dobrada
+                </span>
+              )}
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
@@ -496,8 +515,11 @@ export default function ArmazemVariavel() {
                 </thead>
                 <tbody className="divide-y">
                   {historico.dias.map((d) => (
-                    <tr key={d.data} className="hover:bg-muted/30 transition-colors cursor-pointer" onClick={() => setData(d.data)} title="Clique para ver o dia no ranking acima">
-                      <td className="px-3 py-2 font-medium">{formatarDataBR(d.data)}</td>
+                    <tr key={d.data} className={`hover:bg-muted/30 transition-colors cursor-pointer ${d.rvDobrada ? 'bg-orange-50/60' : ''}`} onClick={() => setData(d.data)} title="Clique para ver o dia no ranking acima">
+                      <td className="px-3 py-2 font-medium">
+                        {formatarDataBR(d.data)}
+                        {d.rvDobrada && <span className="ml-1.5 text-[10px] font-bold uppercase text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded-full" title="RV Dobrada neste dia">🔥 2x</span>}
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums">{d.colaboradores}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{d.pontuacaoTotal.toLocaleString('pt-BR')}</td>
                       <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{formatarBRL(d.ticketMedio)}</td>
@@ -807,8 +829,11 @@ export default function ArmazemVariavel() {
                     </thead>
                     <tbody className="divide-y">
                       {extrato.dias.map((d) => (
-                        <tr key={d.data}>
-                          <td className="px-3 py-2 font-medium">{formatarDataBR(d.data)}</td>
+                        <tr key={d.data} className={d.rvDobrada ? 'bg-orange-50/60' : ''}>
+                          <td className="px-3 py-2 font-medium">
+                            {formatarDataBR(d.data)}
+                            {d.rvDobrada && <span className="ml-1.5 text-[10px] font-bold uppercase text-orange-700 bg-orange-100 px-1.5 py-0.5 rounded-full" title="RV Dobrada neste dia">🔥 2x</span>}
+                          </td>
                           <td className="px-3 py-2 text-right tabular-nums">{d.pontuacaoTotal.toLocaleString('pt-BR')}</td>
                           <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{d.valorPor1000 != null ? formatarBRL(d.valorPor1000) : '—'}</td>
                           <td className="px-3 py-2 text-right tabular-nums font-bold text-green-700">{formatarBRL(d.valor)}</td>

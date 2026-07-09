@@ -185,7 +185,10 @@ export default function VariavelTotem() {
               </div>
               {c.ultimoDia && (
                 <div className="mt-3 pt-3 border-t border-green-200 flex items-center justify-between text-xs text-green-800">
-                  <span>Último lançamento — {formatarDataBR(c.ultimoDia.data)}</span>
+                  <span className="flex items-center gap-1.5">
+                    Último lançamento — {formatarDataBR(c.ultimoDia.data)}
+                    {c.ultimoDia.rvDobrada && <span className="text-[9px] font-bold uppercase text-white bg-orange-500 px-1.5 py-0.5 rounded-full">🔥 RV 2x</span>}
+                  </span>
                   <span className="font-bold tabular-nums">{formatarBRL(c.ultimoDia.valor)}</span>
                 </div>
               )}
@@ -203,11 +206,12 @@ export default function VariavelTotem() {
                   <span>—</span>
                 </div>
               ) : (
-                <div key={d.data} className={`rounded-xl border px-3 py-2 ${d.data === c.ultimoDia?.data ? 'border-green-200 bg-green-50/60' : 'border-gray-200 bg-white'}`}>
+                <div key={d.data} className={`rounded-xl border px-3 py-2 ${d.rvDobrada ? 'border-orange-200 bg-orange-50/60' : d.data === c.ultimoDia?.data ? 'border-green-200 bg-green-50/60' : 'border-gray-200 bg-white'}`}>
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-semibold flex items-center gap-1.5">
                       {formatarDataBR(d.data)}
                       {d.data === c.ultimoDia?.data && <span className="text-[9px] font-bold uppercase tracking-wide text-green-700 bg-green-100 px-1.5 py-0.5 rounded-full">último</span>}
+                      {d.rvDobrada && <span className="text-[9px] font-bold uppercase tracking-wide text-white bg-orange-500 px-1.5 py-0.5 rounded-full">🔥 2x</span>}
                     </span>
                     <span className="text-sm font-extrabold text-green-700 tabular-nums">{formatarBRL(d.valor)}</span>
                   </div>

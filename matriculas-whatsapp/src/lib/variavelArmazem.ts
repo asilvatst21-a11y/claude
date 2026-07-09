@@ -186,7 +186,9 @@ function acharColaborador(nomeRel: string, cadastro: ColaboradorArmazem[]): Cola
   return prefixo ?? null
 }
 
-export async function importarPontuacao(filial: string, data: string, buffer: ArrayBuffer): Promise<{ linhas: number; semCadastro: number }> {
+// `rvDobrada`: quando true, o VALOR calculado daquele dia sai em dobro (a
+// pontuação/faixa continuam normais — só o valor pago é que dobra).
+export async function importarPontuacao(filial: string, data: string, buffer: ArrayBuffer, rvDobrada = false): Promise<{ linhas: number; semCadastro: number }> {
   const linhas = parsePontuacaoBuffer(buffer)
   if (linhas.length === 0) throw new Error('Nenhuma pontuação encontrada. Confira se é o relatório de Remuneração Variável.')
 
@@ -196,7 +198,7 @@ export async function importarPontuacao(filial: string, data: string, buffer: Ar
 
   const rows = linhas.map((l) => {
     const cluster = clusterDoTotal(l.total, clusters)
-    const valor = calcularValor(l.total, cluster)
+    const valor = calcularValor(l.total, cluster) * (rvDobrada ? 2 : 1)
     const colab = acharColaborador(l.nome, cadastro)
     if (!colab) semCadastro++
     return {
@@ -204,6 +206,7 @@ export async function importarPontuacao(filial: string, data: string, buffer: Ar
       colaborador_id: colab?.id ?? null, cpf: colab?.cpf ?? null,
       creditos: l.creditos, debitos: l.debitos, total: l.total,
       valor_por_1000: cluster?.valorPor1000 ?? null, valor_calculado: valor,
+      rv_dobrada: rvDobrada,
       importado_em: agora,
     }
   })
@@ -231,13 +234,14 @@ export interface ResumoVariavel {
   maior: number
   menor: number
   acumuladoMes: number
+  rvDobrada: boolean
   porCluster: { pontMin: number; pontMax: number; valorPor1000: number; qtd: number }[]
 }
 
 export async function buscarResumoDia(filial: string, data: string): Promise<ResumoVariavel> {
   const [{ data: pont }, clusters] = await Promise.all([
     supabase.from('variavel_pontuacao')
-      .select('nome_relatorio, total, valor_por_1000, valor_calculado, colaborador_id')
+      .select('nome_relatorio, total, valor_por_1000, valor_calculado, colaborador_id, rv_dobrada')
       .eq('filial', filial).eq('data', data),
     buscarClusters(),
   ])
@@ -272,7 +276,9 @@ export async function buscarResumoDia(filial: string, data: string): Promise<Res
     ticketMedio: linhas.length > 0 ? totalPagar / linhas.length : 0,
     maior: valores.length > 0 ? Math.max(...valores) : 0,
     menor: valores.length > 0 ? Math.min(...valores) : 0,
-    acumuladoMes, porCluster,
+    acumuladoMes,
+    rvDobrada: (pont ?? []).some((r) => r.rv_dobrada === true),
+    porCluster,
   }
 }
 
@@ -285,6 +291,7 @@ export interface DiaHistorico {
   pontuacaoTotal: number
   pontuacaoMedia: number
   ticketMedio: number
+  rvDobrada: boolean
 }
 
 export interface HistoricoMes {
@@ -304,16 +311,17 @@ export async function buscarHistoricoMes(filial: string, mesISO: string): Promis
   const prox = mes >= 12 ? `${ano + 1}-01-01` : `${ano}-${String(mes + 1).padStart(2, '0')}-01`
 
   const { data } = await supabase.from('variavel_pontuacao')
-    .select('data, valor_calculado, total')
+    .select('data, valor_calculado, total, rv_dobrada')
     .eq('filial', filial).gte('data', inicio).lt('data', prox)
 
-  const porDia = new Map<string, { totalPago: number; pontos: number; colabs: number }>()
+  const porDia = new Map<string, { totalPago: number; pontos: number; colabs: number; rvDobrada: boolean }>()
   for (const r of data ?? []) {
     const dia = String(r.data)
-    const acc = porDia.get(dia) ?? { totalPago: 0, pontos: 0, colabs: 0 }
+    const acc = porDia.get(dia) ?? { totalPago: 0, pontos: 0, colabs: 0, rvDobrada: false }
     acc.totalPago += Number(r.valor_calculado)
     acc.pontos += Number(r.total)
     acc.colabs += 1
+    if (r.rv_dobrada) acc.rvDobrada = true
     porDia.set(dia, acc)
   }
 
@@ -327,6 +335,7 @@ export async function buscarHistoricoMes(filial: string, mesISO: string): Promis
       pontuacaoTotal: v.pontos,
       pontuacaoMedia: v.colabs > 0 ? v.pontos / v.colabs : 0,
       ticketMedio: v.colabs > 0 ? v.totalPago / v.colabs : 0,
+      rvDobrada: v.rvDobrada,
     }))
 
   const totalMes = dias.reduce((s, d) => s + d.totalPago, 0)
@@ -518,6 +527,7 @@ export interface DiaColaborador {
   pontuacaoTotal: number
   valorPor1000: number | null
   valor: number
+  rvDobrada: boolean
 }
 
 export interface ExtratoColaborador {
@@ -533,7 +543,7 @@ export interface ExtratoColaborador {
 // quando não há cadastro vinculado).
 export async function buscarExtratoColaborador(filial: string, dataIni: string, dataFim: string, chave: string): Promise<ExtratoColaborador> {
   const { data } = await supabase.from('variavel_pontuacao')
-    .select('nome_relatorio, colaborador_id, data, total, valor_calculado, valor_por_1000')
+    .select('nome_relatorio, colaborador_id, data, total, valor_calculado, valor_por_1000, rv_dobrada')
     .eq('filial', filial).gte('data', dataIni).lte('data', dataFim)
 
   const linhas = (data ?? [])
@@ -545,6 +555,7 @@ export async function buscarExtratoColaborador(filial: string, dataIni: string, 
     pontuacaoTotal: Number(r.total),
     valorPor1000: r.valor_por_1000 != null ? Number(r.valor_por_1000) : null,
     valor: Number(r.valor_calculado),
+    rvDobrada: !!r.rv_dobrada,
   }))
 
   const pontuacaoTotal = dias.reduce((s, d) => s + d.pontuacaoTotal, 0)
@@ -594,6 +605,7 @@ export interface DiaCompetencia {
   pontuacaoTotal: number
   valorPor1000: number | null
   valor: number
+  rvDobrada: boolean
 }
 
 export interface ResultadoTotemCompetencia {
@@ -609,12 +621,13 @@ export interface ResultadoTotemCompetencia {
   maiorDia: DiaCompetencia | null
 }
 
-function agregarDiasCompetencia(cpfReal: string, nome: string, linhas: { data: string; total: number; valor_por_1000: number | null; valor_calculado: number }[]): ResultadoTotemCompetencia {
+function agregarDiasCompetencia(cpfReal: string, nome: string, linhas: { data: string; total: number; valor_por_1000: number | null; valor_calculado: number; rv_dobrada?: boolean }[]): ResultadoTotemCompetencia {
   const dias: DiaCompetencia[] = linhas.map((r) => ({
     data: r.data,
     pontuacaoTotal: Number(r.total),
     valorPor1000: r.valor_por_1000 != null ? Number(r.valor_por_1000) : null,
     valor: Number(r.valor_calculado),
+    rvDobrada: !!r.rv_dobrada,
   }))
   const pontuacaoTotal = dias.reduce((s, d) => s + d.pontuacaoTotal, 0)
   const valorTotal = dias.reduce((s, d) => s + d.valor, 0)
@@ -637,17 +650,17 @@ export async function buscarTotemCompetencia(filial: string, cpfPrefixo: string,
   const { ini, fim } = rangeCompetencia(mesRotulo)
 
   const { data } = await supabase.from('variavel_pontuacao')
-    .select('nome_relatorio, cpf, data, total, valor_por_1000, valor_calculado')
+    .select('nome_relatorio, cpf, data, total, valor_por_1000, valor_calculado, rv_dobrada')
     .eq('filial', filial).gte('data', ini).lte('data', fim)
     .like('cpf', `${prefixo}%`)
     .order('data')
 
-  type Linha = { data: string; total: number; valor_por_1000: number | null; valor_calculado: number }
+  type Linha = { data: string; total: number; valor_por_1000: number | null; valor_calculado: number; rv_dobrada?: boolean }
   const porCpf = new Map<string, { nome: string; linhas: Linha[] }>()
   for (const r of data ?? []) {
     if (!r.cpf) continue
     const acc = porCpf.get(r.cpf) ?? { nome: r.nome_relatorio, linhas: [] as Linha[] }
-    acc.linhas.push({ data: String(r.data), total: r.total, valor_por_1000: r.valor_por_1000, valor_calculado: r.valor_calculado })
+    acc.linhas.push({ data: String(r.data), total: r.total, valor_por_1000: r.valor_por_1000, valor_calculado: r.valor_calculado, rv_dobrada: r.rv_dobrada })
     porCpf.set(r.cpf, acc)
   }
 
@@ -658,11 +671,11 @@ export async function buscarTotemCompetencia(filial: string, cpfPrefixo: string,
 export async function buscarCompetenciaPorCpf(filial: string, cpfReal: string, mesRotulo: string): Promise<ResultadoTotemCompetencia> {
   const { ini, fim } = rangeCompetencia(mesRotulo)
   const { data } = await supabase.from('variavel_pontuacao')
-    .select('nome_relatorio, data, total, valor_por_1000, valor_calculado')
+    .select('nome_relatorio, data, total, valor_por_1000, valor_calculado, rv_dobrada')
     .eq('filial', filial).eq('cpf', cpfReal).gte('data', ini).lte('data', fim)
     .order('data')
 
-  const linhas = (data ?? []).map((r) => ({ data: String(r.data), total: r.total, valor_por_1000: r.valor_por_1000, valor_calculado: r.valor_calculado }))
+  const linhas = (data ?? []).map((r) => ({ data: String(r.data), total: r.total, valor_por_1000: r.valor_por_1000, valor_calculado: r.valor_calculado, rv_dobrada: r.rv_dobrada }))
   const nome = data?.[0]?.nome_relatorio ?? ''
   return agregarDiasCompetencia(cpfReal, nome, linhas)
 }
