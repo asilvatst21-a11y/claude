@@ -52,8 +52,6 @@ import ArmazemDashboard from './pages/armazem/Dashboard'
 import ArmazemVariavel from './pages/armazem/Variavel'
 import ColaboradoresArmazem from './pages/armazem/ColaboradoresArmazem'
 import VariavelTotem from './pages/VariavelTotem'
-import GerenciaPainel from './pages/gerencia/Painel'
-import GerenciaImportar from './pages/gerencia/Importar'
 
 function ProtectedRoutes() {
   const { usuario, loading } = useAuth()
@@ -135,9 +133,6 @@ export default function App() {
             <Route path="/armazem/dashboard" element={<ArmazemDashboard />} />
             <Route path="/armazem/variavel" element={<ArmazemVariavel />} />
             <Route path="/armazem/colaboradores" element={<ColaboradoresArmazem />} />
-            {/* Gerência — DRE */}
-            <Route path="/gerencia" element={<GerenciaPainel />} />
-            <Route path="/gerencia/importar" element={<GerenciaImportar />} />
             {/* Vales LOG20 */}
             <Route path="/vales" element={<ValesPage />} />
             <Route path="/vales/ajudantes" element={<AjudantesPage />} />
