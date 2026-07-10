@@ -79,14 +79,23 @@ export async function POST() {
           },
         });
 
+        const round = match.round ?? "Fase de Grupos";
+
         for (const membership of memberships) {
           const rules: ScoringRules = membership.league;
           const leaguePoints = pointsFromResult(result, match.stage, rules);
 
-          await prisma.leagueMember.update({
-            where: { id: membership.id },
-            data: { totalPoints: { increment: leaguePoints } },
-          });
+          await Promise.all([
+            prisma.leagueMember.update({
+              where: { id: membership.id },
+              data: { totalPoints: { increment: leaguePoints } },
+            }),
+            prisma.roundRanking.upsert({
+              where: { leagueId_userId_round: { leagueId: membership.leagueId, userId: pred.userId, round } },
+              create: { leagueId: membership.leagueId, userId: pred.userId, round, points: leaguePoints },
+              update: { points: { increment: leaguePoints } },
+            }),
+          ]);
         }
       }
     }
