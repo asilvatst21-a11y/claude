@@ -4,10 +4,14 @@ import {
   Bar, ComposedChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Legend, LabelList,
 } from 'recharts'
-import { Timer, TrendingDown, CheckCircle2, AlertTriangle, Check, Loader2 } from 'lucide-react'
+import { Timer, TrendingDown, CheckCircle2, AlertTriangle, Check, Loader2, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import { SALA_TML_LABEL, type SalaTML, type GatilhoEstouroParam, gatilhoEstouroMinutos } from '../lib/tml'
+import {
+  SALA_TML_LABEL, type SalaTML, type GatilhoEstouroParam, type MetaMatinalParam,
+  gatilhoEstouroMinutos, isSalaTML, metaMatinalMinutos,
+  horarioInicioMatinalPadrao, horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal,
+} from '../lib/tml'
 import { formatarDataBR } from '../lib/utils'
 
 const TOOLTIP_STYLE = { borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12 }
@@ -43,6 +47,7 @@ interface LinhaMatinal {
   duracao_minutos: number | null
   estouro_duracao: boolean | null
   motivo_estouro: string | null
+  finalizado_automaticamente: boolean | null
 }
 
 interface OcorrenciaEstouro {
@@ -57,6 +62,20 @@ interface OcorrenciaEstouro {
 function formatarHoraISO(iso: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+}
+
+function horaParaInput(iso: string | null): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+interface ChaveGerenciamento {
+  chave: string
+  sala: SalaTML
+  data: string
+  matinal?: LinhaMatinal
+  registros: number
 }
 
 function Card({
@@ -95,14 +114,20 @@ export default function DistribuicaoTMLDeslocamento() {
   const [checklist, setChecklist] = useState<LinhaChecklist[]>([])
   const [matinais, setMatinais] = useState<LinhaMatinal[]>([])
   const [gatilhoParams, setGatilhoParams] = useState<GatilhoEstouroParam[]>([])
+  const [metaParams, setMetaParams] = useState<MetaMatinalParam[]>([])
   const [loading, setLoading] = useState(true)
   const [salvandoMotivo, setSalvandoMotivo] = useState<string | null>(null)
   const [rascunhoMotivo, setRascunhoMotivo] = useState<Record<string, string>>({})
 
+  const [gerenciarAberto, setGerenciarAberto] = useState(false)
+  const [rascunhoGerenciar, setRascunhoGerenciar] = useState<Record<string, { inicio: string; fim: string }>>({})
+  const [salvandoGerenciar, setSalvandoGerenciar] = useState<string | null>(null)
+  const [msgGerenciar, setMsgGerenciar] = useState<string | null>(null)
+
   const carregar = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
-    const [{ data: chk }, { data: mat }, { data: gat }] = await Promise.all([
+    const [{ data: chk }, { data: mat }, { data: gat }, { data: meta }] = await Promise.all([
       supabase
         .from('checklist_tml')
         .select('id, sala, matricula, nome, data, horario_inicio, horario_final_matinal, tempo_deslocamento_minutos, motivo')
@@ -112,7 +137,7 @@ export default function DistribuicaoTMLDeslocamento() {
         .limit(5000),
       supabase
         .from('matinal_tml')
-        .select('id, sala, data, horario_inicio, horario_final, meta_minutos, duracao_minutos, estouro_duracao, motivo_estouro')
+        .select('id, sala, data, horario_inicio, horario_final, meta_minutos, duracao_minutos, estouro_duracao, motivo_estouro, finalizado_automaticamente')
         .eq('filial', usuario.filial)
         .gte('data', de)
         .lte('data', ate)
@@ -121,10 +146,15 @@ export default function DistribuicaoTMLDeslocamento() {
         .from('tml_gatilho_estouro')
         .select('deslocamento_ideal_minutos, deslocamento_estouro_minutos, vigente_a_partir')
         .eq('filial', usuario.filial),
+      supabase
+        .from('tml_meta_matinal')
+        .select('dia_semana, meta_minutos, vigente_a_partir')
+        .eq('filial', usuario.filial),
     ])
     setChecklist(Array.isArray(chk) ? chk : [])
     setMatinais(Array.isArray(mat) ? mat : [])
     setGatilhoParams(Array.isArray(gat) ? gat : [])
+    setMetaParams(Array.isArray(meta) ? meta : [])
     setLoading(false)
   }, [usuario, de, ate])
 
@@ -254,6 +284,121 @@ export default function DistribuicaoTMLDeslocamento() {
     return [...doMatinal, ...doDeslocamento].sort((a, b) => (b.data ?? '').localeCompare(a.data ?? ''))
   }, [matinaisFiltradas, comDeslocamento, gatilhoParams])
 
+  const chavesGerenciamento = useMemo(() => {
+    const mapa = new Map<string, ChaveGerenciamento>()
+    for (const m of matinaisFiltradas) {
+      if (!m.sala || !m.data) continue
+      const chave = `${m.sala}|${m.data}`
+      const atual = mapa.get(chave) ?? { chave, sala: m.sala, data: m.data, registros: 0 }
+      atual.matinal = m
+      mapa.set(chave, atual)
+    }
+    for (const c of checklistFiltrado) {
+      if (!c.sala || !c.data || !isSalaTML(c.sala)) continue
+      const chave = `${c.sala}|${c.data}`
+      const atual = mapa.get(chave) ?? { chave, sala: c.sala, data: c.data, registros: 0 }
+      atual.registros++
+      mapa.set(chave, atual)
+    }
+    return [...mapa.values()].sort((a, b) => b.data.localeCompare(a.data) || a.sala.localeCompare(b.sala))
+  }, [matinaisFiltradas, checklistFiltrado])
+
+  function valoresAtuaisGerenciamento(item: ChaveGerenciamento): { inicio: string; fim: string } {
+    const rascunho = rascunhoGerenciar[item.chave]
+    if (rascunho) return rascunho
+    const inicio = item.matinal?.horario_inicio
+      ? horaParaInput(item.matinal.horario_inicio)
+      : horarioInicioMatinalPadrao(item.sala, item.data)
+    const fim = item.matinal?.horario_final
+      ? horaParaInput(item.matinal.horario_final)
+      : horarioFinalMatinalPadrao(item.sala, item.data, metaParams)
+    return { inicio, fim }
+  }
+
+  function atualizarRascunhoGerenciar(item: ChaveGerenciamento, campo: 'inicio' | 'fim', valor: string) {
+    setRascunhoGerenciar((prev) => ({
+      ...prev,
+      [item.chave]: { ...valoresAtuaisGerenciamento(item), ...prev[item.chave], [campo]: valor },
+    }))
+  }
+
+  async function salvarGerenciamento(item: ChaveGerenciamento) {
+    if (!usuario) return
+    const { inicio: inicioHHMM, fim: fimHHMM } = valoresAtuaisGerenciamento(item)
+    if (!fimHHMM) {
+      setMsgGerenciar('Informe ao menos o horário de fim da matinal.')
+      return
+    }
+    setSalvandoGerenciar(item.chave)
+    setMsgGerenciar(null)
+    try {
+      const inicioISO = inicioHHMM ? new Date(`${item.data}T${inicioHHMM}:00`).toISOString() : null
+      const fimISO = new Date(`${item.data}T${fimHHMM}:00`).toISOString()
+      const meta = metaMatinalMinutos(item.data, metaParams)
+      const duracao = inicioISO != null
+        ? Math.max(0, Math.round((new Date(fimISO).getTime() - new Date(inicioISO).getTime()) / 60000))
+        : null
+      const estourou = duracao != null && duracao > meta
+
+      const payload = {
+        filial: usuario.filial,
+        sala: item.sala,
+        data: item.data,
+        horario_inicio: inicioISO,
+        horario_final: fimISO,
+        meta_minutos: meta,
+        duracao_minutos: duracao,
+        estouro_duracao: estourou,
+        finalizado_automaticamente: false,
+        motivo_estouro: estourou ? (item.matinal?.motivo_estouro ?? 'Ajuste manual de horário') : null,
+      }
+
+      const { error } = item.matinal
+        ? await supabase.from('matinal_tml').update(payload).eq('id', item.matinal.id)
+        : await supabase.from('matinal_tml').upsert(payload, { onConflict: 'filial,sala,data' })
+      if (error) throw new Error(error.message)
+
+      // Redefine o gatilho de estouro: recalcula o deslocamento de todo
+      // checklist já importado daquele dia/sala com o novo fim da matinal.
+      const { data: linhasChecklist, error: errChk } = await supabase
+        .from('checklist_tml')
+        .select('id, horario_inicio')
+        .eq('filial', usuario.filial)
+        .eq('sala', item.sala)
+        .eq('data', item.data)
+      if (errChk) throw new Error(errChk.message)
+
+      await Promise.all(
+        (linhasChecklist ?? [])
+          .filter((l) => l.horario_inicio)
+          .map((l) =>
+            supabase
+              .from('checklist_tml')
+              .update({
+                horario_final_matinal: fimHHMM,
+                tempo_deslocamento_minutos: tempoDeslocamentoComMatinalReal(fimHHMM, l.horario_inicio as string),
+              })
+              .eq('id', l.id)
+          )
+      )
+
+      setMsgGerenciar(
+        `Horário de ${SALA_TML_LABEL[item.sala]} em ${formatarDataBR(item.data)} atualizado — ` +
+        `${(linhasChecklist ?? []).length} registro(s) de checklist recalculado(s).`
+      )
+      setRascunhoGerenciar((prev) => {
+        const cp = { ...prev }
+        delete cp[item.chave]
+        return cp
+      })
+      await carregar()
+    } catch (err) {
+      setMsgGerenciar(err instanceof Error ? `Erro: ${err.message}` : 'Erro ao salvar horário')
+    } finally {
+      setSalvandoGerenciar(null)
+    }
+  }
+
   async function salvarMotivo(id: string) {
     const motivo = (rascunhoMotivo[id] ?? '').trim()
     setSalvandoMotivo(id)
@@ -301,6 +446,98 @@ export default function DistribuicaoTMLDeslocamento() {
         <p className="text-sm text-muted-foreground">Carregando…</p>
       ) : (
         <>
+          <div className="border rounded-xl bg-white shadow-sm">
+            <button
+              onClick={() => setGerenciarAberto((v) => !v)}
+              className="w-full flex items-center justify-between px-4 py-3 text-left"
+            >
+              <span className="text-sm font-semibold flex items-center gap-1.5">
+                <SlidersHorizontal className="h-4 w-4 text-primary" /> Gerenciar tempo da matinal
+              </span>
+              {gerenciarAberto ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
+            </button>
+            {gerenciarAberto && (
+              <div className="border-t">
+                <p className="text-xs text-muted-foreground px-4 pt-3">
+                  Ajuste aqui o início e o fim da matinal — manual ou automático — de qualquer dia/sala.
+                  Ao salvar, o deslocamento e os estouros de gatilho já registrados no checklist daquele
+                  dia/sala são recalculados com o horário corrigido.
+                </p>
+                {msgGerenciar && (
+                  <p className="text-xs px-4 pt-2 font-medium text-accent-700">{msgGerenciar}</p>
+                )}
+                {chavesGerenciamento.length === 0 ? (
+                  <p className="text-sm text-muted-foreground p-4">Nenhuma matinal ou checklist no período.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-left text-xs text-muted-foreground border-b bg-slate-50">
+                          <th className="py-2 px-4">Data</th>
+                          <th className="py-2 px-4">Sala</th>
+                          <th className="py-2 px-4">Origem</th>
+                          <th className="py-2 px-4">Início</th>
+                          <th className="py-2 px-4">Fim</th>
+                          <th className="py-2 px-4 text-right">Registros afetados</th>
+                          <th className="py-2 px-4"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {chavesGerenciamento.map((item) => {
+                          const valores = valoresAtuaisGerenciamento(item)
+                          return (
+                            <tr key={item.chave} className="border-b last:border-0 hover:bg-slate-50">
+                              <td className="py-2 px-4 whitespace-nowrap">{formatarDataBR(item.data)}</td>
+                              <td className="py-2 px-4 whitespace-nowrap">{SALA_TML_LABEL[item.sala]}</td>
+                              <td className="py-2 px-4">
+                                {item.matinal?.horario_final ? (
+                                  item.matinal.finalizado_automaticamente ? (
+                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">automática</span>
+                                  ) : (
+                                    <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-green-50 text-green-700">manual</span>
+                                  )
+                                ) : (
+                                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">sem timer (padrão)</span>
+                                )}
+                              </td>
+                              <td className="py-2 px-4">
+                                <input
+                                  type="time"
+                                  value={valores.inicio}
+                                  onChange={(e) => atualizarRascunhoGerenciar(item, 'inicio', e.target.value)}
+                                  className="border rounded-md px-2 py-1 text-xs"
+                                />
+                              </td>
+                              <td className="py-2 px-4">
+                                <input
+                                  type="time"
+                                  value={valores.fim}
+                                  onChange={(e) => atualizarRascunhoGerenciar(item, 'fim', e.target.value)}
+                                  className="border rounded-md px-2 py-1 text-xs"
+                                />
+                              </td>
+                              <td className="py-2 px-4 text-right">{item.registros}</td>
+                              <td className="py-2 px-4">
+                                <button
+                                  onClick={() => salvarGerenciamento(item)}
+                                  disabled={salvandoGerenciar === item.chave}
+                                  className="flex items-center gap-1 px-2 py-1 text-xs rounded-md border hover:bg-accent transition-colors disabled:opacity-50"
+                                >
+                                  {salvandoGerenciar === item.chave ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                                  Salvar
+                                </button>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <Card icon={Timer} label="Tempo médio de deslocamento" value={`${tempoDeslocamentoMedioGeral.toFixed(0)} min`} accent="text-cyan-600 bg-cyan-50" />
             <Card icon={AlertTriangle} label="Estouro de gatilho" value={`${estouroGatilhoGeral} (${pctEstouroGatilhoGeral.toFixed(1)}%)`} hint={`deslocamento acima do gatilho vigente em cada data`} accent="text-red-600 bg-red-50" />
