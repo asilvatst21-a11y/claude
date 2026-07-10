@@ -345,6 +345,9 @@ export interface SolicitacaoExtra {
   valor_motorista: number | null
   valor_ajudante1: number | null
   valor_ajudante2: number | null
+  competencia_pagamento: string | null // 'YYYY-MM'
+  pago: boolean
+  pago_em: string | null
   created_at: string
 }
 

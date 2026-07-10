@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { Truck, RefreshCw, FileSpreadsheet, Plus, X, Building2 } from 'lucide-react'
+import { Truck, RefreshCw, FileSpreadsheet, Plus, X, Building2, CalendarDays, Check } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import type { SolicitacaoExtra } from '../types'
@@ -19,10 +19,21 @@ function formatCurrency(v: number | null) {
   return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 }
 
+// Competência de pagamento: 'YYYY-MM'. Quando a solicitação não tem competência
+// definida, cai no mês da própria solicitação.
+function compDe(s: SolicitacaoExtra): string {
+  return s.competencia_pagamento ?? s.data_solicitacao.slice(0, 7)
+}
+function compLabel(comp: string): string {
+  const [ano, mes] = comp.split('-')
+  return `${mes}/${ano}`
+}
+
 export default function Distribuicao() {
   const { usuario } = useAuth()
   const [solicitacoes, setSolicitacoes] = useState<SolicitacaoExtra[]>([])
   const [colaboradores, setColaboradores] = useState<string[]>([])
+  const [filtroComp, setFiltroComp] = useState('todas')
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(false)
   const [salvando, setSalvando] = useState(false)
@@ -64,6 +75,38 @@ export default function Distribuicao() {
     supabase.from('colaboradores').select('nome').eq('filial', usuario.filial).order('nome')
       .then(({ data }) => setColaboradores((data ?? []).map((c: { nome: string }) => c.nome)))
   }, [usuario])
+
+  // Opções de competência: mês atual ± alguns, mais as competências já
+  // presentes nos dados — ordenadas da mais recente para a mais antiga.
+  const competenciasOpcoes = useMemo(() => {
+    const set = new Set<string>()
+    const hoje = new Date()
+    for (let i = -6; i <= 2; i++) {
+      const d = new Date(hoje.getFullYear(), hoje.getMonth() + i, 1)
+      set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+    }
+    for (const s of solicitacoes) set.add(compDe(s))
+    return [...set].sort((a, b) => b.localeCompare(a))
+  }, [solicitacoes])
+
+  const solicitacoesFiltradas = useMemo(
+    () => (filtroComp === 'todas' ? solicitacoes : solicitacoes.filter((s) => compDe(s) === filtroComp)),
+    [solicitacoes, filtroComp],
+  )
+
+  async function marcarPago(s: SolicitacaoExtra) {
+    const novo = !s.pago
+    const pagoEm = novo ? new Date().toISOString() : null
+    setSolicitacoes((prev) => prev.map((x) => (x.id === s.id ? { ...x, pago: novo, pago_em: pagoEm } : x)))
+    const { error } = await supabase.from('solicitacoes_extra').update({ pago: novo, pago_em: pagoEm }).eq('id', s.id)
+    if (error) { setErro(error.message); fetchSolicitacoes() }
+  }
+
+  async function mudarCompetencia(s: SolicitacaoExtra, comp: string) {
+    setSolicitacoes((prev) => prev.map((x) => (x.id === s.id ? { ...x, competencia_pagamento: comp } : x)))
+    const { error } = await supabase.from('solicitacoes_extra').update({ competencia_pagamento: comp }).eq('id', s.id)
+    if (error) { setErro(error.message); fetchSolicitacoes() }
+  }
 
   function abrirModal() {
     setNomeSolicitante('')
@@ -126,6 +169,7 @@ export default function Distribuicao() {
       valor_motorista: vMotorista,
       valor_ajudante1: vAjudante1,
       valor_ajudante2: vAjudante2,
+      competencia_pagamento: dataSolicitacao.slice(0, 7),
     })
     setSalvando(false)
     if (error) {
@@ -137,9 +181,11 @@ export default function Distribuicao() {
   }
 
   function exportExcel() {
-    if (!solicitacoes.length) return
-    const rows = solicitacoes.map(s => ({
+    if (!solicitacoesFiltradas.length) return
+    const rows = solicitacoesFiltradas.map(s => ({
       'Data': formatDate(s.data_solicitacao),
+      'Competência': compLabel(compDe(s)),
+      'Pago': s.pago ? 'Sim' : 'Não',
       'Solicitante': s.nome_solicitante,
       'Tipo': s.tipo_solicitacao,
       'Descrição': s.descricao ?? '',
@@ -170,7 +216,14 @@ export default function Distribuicao() {
             <Building2 size={14} /> {usuario?.filial} · Solicitações extras (finalização de rota, entrega/recolha e outros)
           </p>
         </div>
-        <div className="flex gap-2 flex-wrap">
+        <div className="flex gap-2 flex-wrap items-center">
+          <label className="flex items-center gap-1.5 text-sm">
+            <CalendarDays className="h-4 w-4 text-muted-foreground" />
+            <select value={filtroComp} onChange={e => setFiltroComp(e.target.value)} className="px-2.5 py-2 border border-gray-200 rounded-md text-sm bg-white">
+              <option value="todas">Todas as competências</option>
+              {competenciasOpcoes.map(c => <option key={c} value={c}>{compLabel(c)}</option>)}
+            </select>
+          </label>
           <button onClick={fetchSolicitacoes} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <RefreshCw className="h-4 w-4" /><span className="hidden sm:inline">Atualizar</span>
           </button>
@@ -185,10 +238,10 @@ export default function Distribuicao() {
 
       {loading ? (
         <div className="flex justify-center py-12 text-muted-foreground">Carregando...</div>
-      ) : solicitacoes.length === 0 ? (
+      ) : solicitacoesFiltradas.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-muted-foreground border rounded-lg border-dashed">
           <Truck className="h-10 w-10 opacity-20 mb-3" />
-          <p>Nenhuma solicitação registrada</p>
+          <p>{filtroComp === 'todas' ? 'Nenhuma solicitação registrada' : `Nenhuma solicitação na competência ${compLabel(filtroComp)}`}</p>
         </div>
       ) : (
         <>
@@ -204,19 +257,23 @@ export default function Distribuicao() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Equipe</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Solicitante Ambev</th>
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">Valor</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Competência</th>
+                <th className="text-center px-4 py-3 font-medium text-muted-foreground">Pagamento</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {solicitacoes.map(s => (
-                <tr key={s.id} className="hover:bg-muted/30 transition-colors align-top">
-                  <td className="px-4 py-3 whitespace-nowrap">{formatDate(s.data_solicitacao)}</td>
-                  <td className="px-4 py-3">{s.nome_solicitante}</td>
+              {solicitacoesFiltradas.map(s => {
+                const risco = s.pago ? 'line-through' : ''
+                return (
+                <tr key={s.id} className={`hover:bg-muted/30 transition-colors align-top ${s.pago ? 'bg-green-50/40 text-muted-foreground' : ''}`}>
+                  <td className={`px-4 py-3 whitespace-nowrap ${risco}`}>{formatDate(s.data_solicitacao)}</td>
+                  <td className={`px-4 py-3 ${risco}`}>{s.nome_solicitante}</td>
                   <td className="px-4 py-3">
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">{s.tipo_solicitacao}</span>
-                    {s.descricao && <div className="text-xs text-muted-foreground mt-1 max-w-xs">{s.descricao}</div>}
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 ${risco}`}>{s.tipo_solicitacao}</span>
+                    {s.descricao && <div className={`text-xs text-muted-foreground mt-1 max-w-xs ${risco}`}>{s.descricao}</div>}
                   </td>
-                  <td className="px-4 py-3">{s.mapa ?? s.local ?? '—'}</td>
-                  <td className="px-4 py-3">
+                  <td className={`px-4 py-3 ${risco}`}>{s.mapa ?? s.local ?? '—'}</td>
+                  <td className={`px-4 py-3 ${risco}`}>
                     <div>{s.motorista_nome ?? '—'}{s.valor_motorista != null && <span className="text-xs text-muted-foreground"> ({formatCurrency(s.valor_motorista)})</span>}</div>
                     {s.ajudante1_nome && (
                       <div className="text-xs text-muted-foreground">{s.ajudante1_nome}{s.valor_ajudante1 != null && ` (${formatCurrency(s.valor_ajudante1)})`}</div>
@@ -225,25 +282,43 @@ export default function Distribuicao() {
                       <div className="text-xs text-muted-foreground">{s.ajudante2_nome}{s.valor_ajudante2 != null && ` (${formatCurrency(s.valor_ajudante2)})`}</div>
                     )}
                   </td>
-                  <td className="px-4 py-3">{s.solicitante_ambev ?? '—'}</td>
-                  <td className="px-4 py-3 text-right">{formatCurrency(s.valor_acordado)}</td>
+                  <td className={`px-4 py-3 ${risco}`}>{s.solicitante_ambev ?? '—'}</td>
+                  <td className={`px-4 py-3 text-right ${risco}`}>{formatCurrency(s.valor_acordado)}</td>
+                  <td className="px-4 py-3">
+                    <select
+                      value={compDe(s)}
+                      onChange={e => mudarCompetencia(s, e.target.value)}
+                      className="px-2 py-1 border border-gray-200 rounded-md text-xs bg-white"
+                    >
+                      {competenciasOpcoes.map(c => <option key={c} value={c}>{compLabel(c)}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      onClick={() => marcarPago(s)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold transition-colors ${s.pago ? 'bg-green-100 text-green-700 hover:bg-green-200' : 'bg-gray-100 text-gray-600 hover:bg-accent-500 hover:text-white'}`}
+                      title={s.pago ? 'Clique para desmarcar' : 'Marcar como pago'}
+                    >
+                      <Check className="h-3.5 w-3.5" /> {s.pago ? 'Pago' : 'Marcar pago'}
+                    </button>
+                  </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         </div>
 
         {/* Mobile: cartões */}
         <div className="md:hidden space-y-3">
-          {solicitacoes.map(s => (
-            <div key={s.id} className="border rounded-lg bg-white p-3 space-y-2">
+          {solicitacoesFiltradas.map(s => (
+            <div key={s.id} className={`border rounded-lg bg-white p-3 space-y-2 ${s.pago ? 'bg-green-50/40' : ''}`}>
               <div className="flex items-center justify-between gap-2">
-                <span className="text-xs text-muted-foreground">{formatDate(s.data_solicitacao)}</span>
-                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">{s.tipo_solicitacao}</span>
+                <span className={`text-xs text-muted-foreground ${s.pago ? 'line-through' : ''}`}>{formatDate(s.data_solicitacao)}</span>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 ${s.pago ? 'line-through' : ''}`}>{s.tipo_solicitacao}</span>
               </div>
-              <div className="font-medium text-sm">{s.nome_solicitante}</div>
-              {s.descricao && <div className="text-xs text-muted-foreground">{s.descricao}</div>}
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+              <div className={`font-medium text-sm ${s.pago ? 'line-through text-muted-foreground' : ''}`}>{s.nome_solicitante}</div>
+              {s.descricao && <div className={`text-xs text-muted-foreground ${s.pago ? 'line-through' : ''}`}>{s.descricao}</div>}
+              <div className={`grid grid-cols-2 gap-x-4 gap-y-1 text-sm ${s.pago ? 'line-through text-muted-foreground' : ''}`}>
                 <div><span className="text-xs text-muted-foreground block">Mapa/Local</span>{s.mapa ?? s.local ?? '—'}</div>
                 <div><span className="text-xs text-muted-foreground block">Valor</span>{formatCurrency(s.valor_acordado)}</div>
                 <div className="col-span-2">
@@ -263,6 +338,20 @@ export default function Distribuicao() {
                   </div>
                 )}
                 <div className="col-span-2"><span className="text-xs text-muted-foreground block">Solicitante Ambev</span>{s.solicitante_ambev ?? '—'}</div>
+              </div>
+              <div className="flex items-center justify-between gap-2 pt-2 border-t">
+                <label className="flex items-center gap-1.5 text-xs">
+                  <span className="text-muted-foreground">Competência</span>
+                  <select value={compDe(s)} onChange={e => mudarCompetencia(s, e.target.value)} className="px-2 py-1 border border-gray-200 rounded-md text-xs bg-white">
+                    {competenciasOpcoes.map(c => <option key={c} value={c}>{compLabel(c)}</option>)}
+                  </select>
+                </label>
+                <button
+                  onClick={() => marcarPago(s)}
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold ${s.pago ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}
+                >
+                  <Check className="h-3.5 w-3.5" /> {s.pago ? 'Pago' : 'Marcar pago'}
+                </button>
               </div>
             </div>
           ))}
