@@ -7,7 +7,7 @@ import {
 } from 'recharts'
 import {
   Upload, Loader2, RefreshCw, Clock, TrendingUp, TrendingDown,
-  AlertTriangle, Users, ThumbsUp, Filter, X, UserCog,
+  AlertTriangle, Users, ThumbsUp, Filter, X, UserCog, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -289,6 +289,7 @@ export default function Jornada() {
   const [registros, setRegistros]   = useState<JornadaRegistro[]>([])
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([])
   const [loading, setLoading]       = useState(true)
+  const [horasAbertas, setHorasAbertas] = useState<Record<string, boolean>>({})
   const [uploading, setUploading]   = useState(false)
   const [tab, setTab]               = useState<Tab>('evolucao')
   const [ocorrTipo, setOcorrTipo]   = useState<OcorrTipo>('faltas')
@@ -632,11 +633,18 @@ export default function Jornada() {
               {[
                 { title: '⏫ Horas Extras', data: heData, color: 'text-green-700', fmt: fmtH },
                 { title: '⏬ Horas a Menos', data: hmData, color: 'text-red-600', fmt: fmtH },
-              ].map(({ title, data, color, fmt }) => (
+              ].map(({ title, data, color, fmt }) => {
+                const aberta = horasAbertas[title] ?? true
+                return (
                 <div key={title} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                  <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-100">
+                  <button
+                    onClick={() => setHorasAbertas(prev => ({ ...prev, [title]: !aberta }))}
+                    className="w-full flex items-center gap-1.5 bg-gray-50 px-4 py-2.5 border-b border-gray-100 text-left"
+                  >
+                    {aberta ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                     <p className={`text-sm font-semibold ${color}`}>{title}</p>
-                  </div>
+                  </button>
+                  {aberta && (
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead className="border-b border-gray-100">
@@ -661,8 +669,10 @@ export default function Jornada() {
                       </tbody>
                     </table>
                   </div>
+                  )}
                 </div>
-              ))}
+                )
+              })}
             </div>
           )}
 
