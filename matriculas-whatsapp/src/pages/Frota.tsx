@@ -5,7 +5,7 @@ import html2canvas from 'html2canvas'
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
-import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy, Send, Pencil, X, Search, AlertTriangle, Download, Map as MapIcon } from 'lucide-react'
+import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronDown, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy, Send, Pencil, X, Search, AlertTriangle, Download, Map as MapIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { valesSupabase } from '../lib/valesSupabase'
 import { useAuth } from '../lib/auth'
@@ -104,6 +104,11 @@ async function semearPlacas(filial: string, rows: { placa: string }[]) {
 export default function Frota() {
   const { usuario } = useAuth()
   const [aba, setAba] = useState<'disponibilidade' | 'territorio' | 'motorista' | 'matriz'>('disponibilidade')
+  const [motivosDiaAberto, setMotivosDiaAberto] = useState(true)
+  const [placasDisponiveisAberto, setPlacasDisponiveisAberto] = useState(true)
+  const [motivosPeriodoAberto, setMotivosPeriodoAberto] = useState(true)
+  const [cruzamentoTerritorioAberto, setCruzamentoTerritorioAberto] = useState(true)
+  const [cruzamentoMotoristaAberto, setCruzamentoMotoristaAberto] = useState(true)
   const [registros, setRegistros] = useState<FrotaDisponibilidade[]>([])
   const [historicoTml, setHistoricoTml] = useState<HistoricoTmlRegiao[]>([])
   const [historicoTmlMotorista, setHistoricoTmlMotorista] = useState<HistoricoTmlMotorista[]>([])
@@ -717,8 +722,11 @@ export default function Frota() {
                 </div>
 
                 <div className="bg-white rounded-xl border border-gray-200 p-4">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Motivos de Indisponibilidade ({formatarDataBR(ultimo.data)})</h3>
-                  {ultimo.motivos.length === 0 ? (
+                  <button onClick={() => setMotivosDiaAberto(v => !v)} className="w-full flex items-center gap-1.5 text-left mb-3">
+                    <ChevronDown size={14} className={`shrink-0 transition-transform ${motivosDiaAberto ? '' : '-rotate-90'}`} />
+                    <h3 className="text-sm font-semibold text-gray-700">Motivos de Indisponibilidade ({formatarDataBR(ultimo.data)})</h3>
+                  </button>
+                  {motivosDiaAberto && (ultimo.motivos.length === 0 ? (
                     <p className="text-sm text-gray-400 py-6 text-center">Nenhum veículo indisponível neste dia.</p>
                   ) : (
                     <table className="w-full text-sm">
@@ -737,14 +745,17 @@ export default function Frota() {
                         ))}
                       </tbody>
                     </table>
-                  )}
+                  ))}
                 </div>
               </div>
 
               <div className="grid lg:grid-cols-2 gap-5">
                 <div className="bg-white rounded-xl border border-gray-200 p-4">
-                  <h3 className="text-sm font-semibold text-gray-700 mb-3">Placas Disponíveis ({formatarDataBR(ultimo.data)}) — {disponiveis.length}</h3>
-                  {disponiveis.length === 0 ? (
+                  <button onClick={() => setPlacasDisponiveisAberto(v => !v)} className="w-full flex items-center gap-1.5 text-left mb-3">
+                    <ChevronDown size={14} className={`shrink-0 transition-transform ${placasDisponiveisAberto ? '' : '-rotate-90'}`} />
+                    <h3 className="text-sm font-semibold text-gray-700">Placas Disponíveis ({formatarDataBR(ultimo.data)}) — {disponiveis.length}</h3>
+                  </button>
+                  {placasDisponiveisAberto && (disponiveis.length === 0 ? (
                     <p className="text-sm text-gray-400 py-6 text-center">Nenhuma placa disponível neste dia.</p>
                   ) : (
                     <div className="max-h-80 overflow-y-auto">
@@ -767,7 +778,7 @@ export default function Frota() {
                         </tbody>
                       </table>
                     </div>
-                  )}
+                  ))}
                 </div>
 
                 <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -808,8 +819,11 @@ export default function Frota() {
               </div>
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
-                <h3 className="text-sm font-semibold text-gray-700 mb-3">Motivos de Indisponibilidade (período completo)</h3>
-                {motivosPeriodo.length === 0 ? (
+                <button onClick={() => setMotivosPeriodoAberto(v => !v)} className="w-full flex items-center gap-1.5 text-left mb-3">
+                  <ChevronDown size={14} className={`shrink-0 transition-transform ${motivosPeriodoAberto ? '' : '-rotate-90'}`} />
+                  <h3 className="text-sm font-semibold text-gray-700">Motivos de Indisponibilidade (período completo)</h3>
+                </button>
+                {motivosPeriodoAberto && (motivosPeriodo.length === 0 ? (
                   <p className="text-sm text-gray-400 py-6 text-center">Nenhuma indisponibilidade registrada no período.</p>
                 ) : (
                   <table className="w-full text-sm">
@@ -830,7 +844,7 @@ export default function Frota() {
                       ))}
                     </tbody>
                   </table>
-                )}
+                ))}
               </div>
 
               {/* Detalhe dia a dia por placa */}
@@ -1044,7 +1058,10 @@ export default function Frota() {
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-700">Cruzamento por placa/dia (somente placas roteirizadas no PCD)</h3>
+                  <button onClick={() => setCruzamentoTerritorioAberto(v => !v)} className="flex items-center gap-1.5 text-left min-w-0">
+                    <ChevronDown size={14} className={`shrink-0 transition-transform ${cruzamentoTerritorioAberto ? '' : '-rotate-90'}`} />
+                    <h3 className="text-sm font-semibold text-gray-700">Cruzamento por placa/dia (somente placas roteirizadas no PCD)</h3>
+                  </button>
                   <button
                     onClick={() => baixarImagem(exportCruzamentoRef, setExportandoCruzamento, `Frota_Cruzamento_Territorio_${diaTerritorio === 'todos' ? 'todos' : diaTerritorio}.png`)}
                     disabled={exportandoCruzamento}
@@ -1054,6 +1071,7 @@ export default function Frota() {
                     Exportar imagem
                   </button>
                 </div>
+                {cruzamentoTerritorioAberto && (
                 <div className="max-h-[32rem] overflow-y-auto">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-white">
@@ -1084,6 +1102,7 @@ export default function Frota() {
                     </tbody>
                   </table>
                 </div>
+                )}
               </div>
 
               <TerritorioTrocasExportTemplate ref={exportTrocasRef} filial={usuario?.filial ?? ''} dia={diaTerritorio} trocas={trocas} />
@@ -1281,7 +1300,10 @@ export default function Frota() {
 
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-700">Cruzamento por placa/dia</h3>
+                  <button onClick={() => setCruzamentoMotoristaAberto(v => !v)} className="flex items-center gap-1.5 text-left min-w-0">
+                    <ChevronDown size={14} className={`shrink-0 transition-transform ${cruzamentoMotoristaAberto ? '' : '-rotate-90'}`} />
+                    <h3 className="text-sm font-semibold text-gray-700">Cruzamento por placa/dia</h3>
+                  </button>
                   <div className="flex items-center gap-2 shrink-0">
                     <button
                       onClick={enviarResumoGrupoMotorista}
@@ -1309,6 +1331,7 @@ export default function Frota() {
                     </button>
                   </div>
                 </div>
+                {cruzamentoMotoristaAberto && (
                 <div className="max-h-[32rem] overflow-y-auto">
                   <table className="w-full text-sm">
                     <thead className="sticky top-0 bg-white">
@@ -1360,6 +1383,7 @@ export default function Frota() {
                     </tbody>
                   </table>
                 </div>
+                )}
               </div>
 
               {editandoMotivo && (
