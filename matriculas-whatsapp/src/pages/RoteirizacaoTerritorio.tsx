@@ -55,6 +55,26 @@ export default function RoteirizacaoTerritorio() {
 
   const setoresAtivos = useMemo(() => setores.filter(s => s.ativo), [setores])
 
+  // Quantidade de placas cadastradas em cada território, por dia da semana —
+  // resumo derivado da própria grade acima, sem precisar de outra tabela.
+  const contagemPorSetorDia = useMemo(() => {
+    const mapa = new Map<string, number>()
+    for (const t of territorios) {
+      if (!t.territorio) continue
+      const chave = `${t.territorio}|${t.dia_semana}`
+      mapa.set(chave, (mapa.get(chave) ?? 0) + 1)
+    }
+    return mapa
+  }, [territorios])
+
+  const totaisPorDia = useMemo(() => {
+    const totais: Record<DiaSemanaRoteirizacao, number> = { SEG: 0, TER: 0, QUA: 0, QUI: 0, SEX: 0, SAB: 0 }
+    for (const d of DIAS) {
+      for (const s of setoresAtivos) totais[d.chave] += contagemPorSetorDia.get(`${s.nome}|${d.chave}`) ?? 0
+    }
+    return totais
+  }, [contagemPorSetorDia, setoresAtivos])
+
   const buscaNorm = busca.trim().toUpperCase()
   const placasFiltradas = buscaNorm ? placas.filter(p => p.placa.toUpperCase().includes(buscaNorm)) : placas
 
@@ -232,6 +252,64 @@ export default function RoteirizacaoTerritorio() {
                   </tr>
                 ))}
               </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="border rounded-lg bg-white">
+        <div className="px-4 py-3 border-b">
+          <h2 className="font-semibold text-sm">Quantidade de placas por território</h2>
+          <p className="text-xs text-muted-foreground">Quantas placas estão cadastradas em cada setor, em cada dia da semana — somando as escolhas feitas na grade acima.</p>
+        </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
+          </div>
+        ) : setoresAtivos.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>Nenhum setor cadastrado ainda.</p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground sticky left-0 bg-muted/50">Território</th>
+                  {DIAS.map(d => (
+                    <th key={d.chave} className="text-center px-3 py-3 font-medium text-muted-foreground">{d.label}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {setoresAtivos.map(s => (
+                  <tr key={s.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-4 py-2.5 font-medium sticky left-0 bg-white">{s.nome}</td>
+                    {DIAS.map(d => {
+                      const qtd = contagemPorSetorDia.get(`${s.nome}|${d.chave}`) ?? 0
+                      return (
+                        <td key={d.chave} className="px-3 py-2.5 text-center">
+                          {qtd > 0 ? (
+                            <span className="inline-flex items-center justify-center min-w-[1.75rem] px-1.5 py-0.5 rounded-full bg-brand-50 text-brand-700 font-semibold text-xs">
+                              {qtd}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2">
+                  <td className="px-4 py-2.5 font-semibold sticky left-0 bg-white">Total</td>
+                  {DIAS.map(d => (
+                    <td key={d.chave} className="px-3 py-2.5 text-center font-semibold">{totaisPorDia[d.chave]}</td>
+                  ))}
+                </tr>
+              </tfoot>
             </table>
           </div>
         )}
