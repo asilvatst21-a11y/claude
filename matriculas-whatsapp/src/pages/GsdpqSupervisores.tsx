@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, AlertTriangle, CheckCircle2, Image, Loader2, Pencil, Phone, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
+import { ArrowLeft, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Image, Loader2, Pencil, Phone, Plus, RefreshCw, Search, Trash2, X } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { listarGrupos, type GrupoZApi } from '../lib/zapi'
@@ -11,6 +11,7 @@ export default function GsdpqSupervisores() {
   const { usuario } = useAuth()
   const [supervisores, setSupervisores] = useState<GsdpqSupervisor[]>([])
   const [loading, setLoading] = useState(true)
+  const [listaAberta, setListaAberta] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [editando, setEditando] = useState<GsdpqSupervisor | null>(null)
   const [modal, setModal] = useState(false)
@@ -211,11 +212,14 @@ export default function GsdpqSupervisores() {
       </div>
 
       <div className="border rounded-lg bg-white">
-        <div className="px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">Lista de Supervisores</h2>
-          <p className="text-xs text-muted-foreground">{supervisores.length} supervisor(es) cadastrado(s)</p>
-        </div>
-        {loading ? (
+        <button onClick={() => setListaAberta(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b text-left">
+          {listaAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+          <div>
+            <h2 className="font-semibold text-sm">Lista de Supervisores</h2>
+            <p className="text-xs text-muted-foreground">{supervisores.length} supervisor(es) cadastrado(s)</p>
+          </div>
+        </button>
+        {listaAberta && (loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
           </div>
@@ -261,7 +265,7 @@ export default function GsdpqSupervisores() {
               </tbody>
             </table>
           </div>
-        )}
+        ))}
       </div>
 
       {modal && (

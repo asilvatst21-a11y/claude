@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Loader2, RefreshCw, Save, SlidersHorizontal } from 'lucide-react'
+import { ArrowLeft, Loader2, RefreshCw, Save, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { formatarDataBR } from '../lib/utils'
@@ -37,6 +37,8 @@ export default function DistribuicaoTMLParametros() {
   const [loading, setLoading] = useState(true)
   const [salvandoMeta, setSalvandoMeta] = useState(false)
   const [salvandoGatilho, setSalvandoGatilho] = useState(false)
+  const [historicoMetaAberto, setHistoricoMetaAberto] = useState(true)
+  const [historicoGatilhoAberto, setHistoricoGatilhoAberto] = useState(true)
   const [erro, setErro] = useState('')
   const [aviso, setAviso] = useState('')
 
@@ -202,25 +204,33 @@ export default function DistribuicaoTMLParametros() {
               </div>
             </div>
             {metaParams.length > 0 && (
-              <div className="border-t overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Vigente a partir de</th>
-                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Dia da semana</th>
-                      <th className="text-right px-4 py-2 font-medium text-muted-foreground">Meta (min)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {metaParams.map((m, i) => (
-                      <tr key={`${m.dia_semana}-${m.vigente_a_partir}-${i}`}>
-                        <td className="px-4 py-2 whitespace-nowrap">{formatarDataBR(m.vigente_a_partir)}</td>
-                        <td className="px-4 py-2">{DIAS_SEMANA.find((d) => d.dow === m.dia_semana)?.label ?? m.dia_semana}</td>
-                        <td className="px-4 py-2 text-right">{m.meta_minutos}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="border-t">
+                <button onClick={() => setHistoricoMetaAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                  {historicoMetaAberto ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                  Histórico de metas ({metaParams.length})
+                </button>
+                {historicoMetaAberto && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Vigente a partir de</th>
+                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Dia da semana</th>
+                          <th className="text-right px-4 py-2 font-medium text-muted-foreground">Meta (min)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {metaParams.map((m, i) => (
+                          <tr key={`${m.dia_semana}-${m.vigente_a_partir}-${i}`}>
+                            <td className="px-4 py-2 whitespace-nowrap">{formatarDataBR(m.vigente_a_partir)}</td>
+                            <td className="px-4 py-2">{DIAS_SEMANA.find((d) => d.dow === m.dia_semana)?.label ?? m.dia_semana}</td>
+                            <td className="px-4 py-2 text-right">{m.meta_minutos}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -257,25 +267,33 @@ export default function DistribuicaoTMLParametros() {
               </button>
             </div>
             {gatilhoParams.length > 0 && (
-              <div className="border-t overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-muted/50">
-                    <tr>
-                      <th className="text-left px-4 py-2 font-medium text-muted-foreground">Vigente a partir de</th>
-                      <th className="text-right px-4 py-2 font-medium text-muted-foreground">Ideal (min)</th>
-                      <th className="text-right px-4 py-2 font-medium text-muted-foreground">Estouro (min)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {gatilhoParams.map((g, i) => (
-                      <tr key={`${g.vigente_a_partir}-${i}`}>
-                        <td className="px-4 py-2 whitespace-nowrap">{formatarDataBR(g.vigente_a_partir)}</td>
-                        <td className="px-4 py-2 text-right">{g.deslocamento_ideal_minutos}</td>
-                        <td className="px-4 py-2 text-right">{g.deslocamento_estouro_minutos}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="border-t">
+                <button onClick={() => setHistoricoGatilhoAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                  {historicoGatilhoAberto ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                  Histórico de gatilhos ({gatilhoParams.length})
+                </button>
+                {historicoGatilhoAberto && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Vigente a partir de</th>
+                          <th className="text-right px-4 py-2 font-medium text-muted-foreground">Ideal (min)</th>
+                          <th className="text-right px-4 py-2 font-medium text-muted-foreground">Estouro (min)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {gatilhoParams.map((g, i) => (
+                          <tr key={`${g.vigente_a_partir}-${i}`}>
+                            <td className="px-4 py-2 whitespace-nowrap">{formatarDataBR(g.vigente_a_partir)}</td>
+                            <td className="px-4 py-2 text-right">{g.deslocamento_ideal_minutos}</td>
+                            <td className="px-4 py-2 text-right">{g.deslocamento_estouro_minutos}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             )}
           </div>

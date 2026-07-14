@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ClipboardCheck, Upload, Loader2, RefreshCw, AlertTriangle, CheckCircle2,
-  Clock, Search, Link2, Settings2, ExternalLink,
+  Clock, Search, Link2, Settings2, ExternalLink, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -27,6 +27,7 @@ export default function DistribuicaoConferencia() {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [configAberta, setConfigAberta] = useState(false)
+  const [tabelaAberta, setTabelaAberta] = useState(true)
   const [grupo, setGrupo] = useState('')
   const [grupoOriginal, setGrupoOriginal] = useState('')
   const [grupos, setGrupos] = useState<GrupoZApi[]>([])
@@ -169,8 +170,11 @@ export default function DistribuicaoConferencia() {
 
       {/* Tabela por mapa */}
       <div className="border rounded-lg bg-white">
-        <div className="px-4 py-3 border-b"><h2 className="font-semibold text-sm">Mapas — {formatarDataBR(dataOperacao)}</h2></div>
-        {loading ? (
+        <button onClick={() => setTabelaAberta(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b text-left">
+          {tabelaAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+          <h2 className="font-semibold text-sm">Mapas — {formatarDataBR(dataOperacao)}</h2>
+        </button>
+        {tabelaAberta && (loading ? (
           <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
         ) : !resumo || resumo.mapas.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground text-sm">Nenhum mapa importado nesta data. Importe o Relatório de Separação acima.</div>
@@ -209,7 +213,7 @@ export default function DistribuicaoConferencia() {
               </tbody>
             </table>
           </div>
-        )}
+        ))}
       </div>
     </div>
   )

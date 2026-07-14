@@ -3,7 +3,7 @@ import {
   BarChart, Bar, ComposedChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Legend, LabelList,
 } from 'recharts'
-import { BarChart2, AlertTriangle, CheckCircle2, Clock, Users, Timer } from 'lucide-react'
+import { BarChart2, AlertTriangle, CheckCircle2, Clock, Users, Timer, ChevronDown, ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -89,6 +89,7 @@ export default function DistribuicaoTMLAnalise() {
   const [alertas, setAlertas] = useState<LinhaAlerta[]>([])
   const [motivoUgc, setMotivoUgc] = useState<Map<string, string>>(new Map())
   const [loading, setLoading] = useState(true)
+  const [topMotoristasAberto, setTopMotoristasAberto] = useState(true)
 
   const carregar = useCallback(async () => {
     if (!usuario) return
@@ -460,10 +461,11 @@ export default function DistribuicaoTMLAnalise() {
           </ChartCard>
 
           <div className="border rounded-xl bg-white shadow-sm">
-            <div className="px-4 py-3 border-b">
+            <button onClick={() => setTopMotoristasAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b text-left">
+              {topMotoristasAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
               <h2 className="text-sm font-semibold">Top 10 motoristas com mais TML perdido</h2>
-            </div>
-            {porMotorista.length === 0 ? (
+            </button>
+            {topMotoristasAberto && (porMotorista.length === 0 ? (
               <p className="text-sm text-muted-foreground p-4">Nenhum TML perdido no período.</p>
             ) : (
               <table className="w-full text-sm">
@@ -486,7 +488,7 @@ export default function DistribuicaoTMLAnalise() {
                   ))}
                 </tbody>
               </table>
-            )}
+            ))}
           </div>
         </>
       )}
