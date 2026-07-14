@@ -24,6 +24,8 @@ export default function RoteirizacaoTerritorio() {
   const [salvando, setSalvando] = useState<string | null>(null)
 
   const [gerenciarAberto, setGerenciarAberto] = useState(false)
+  const [gradeAberta, setGradeAberta] = useState(true)
+  const [resumoAberto, setResumoAberto] = useState(true)
   const [novoSetor, setNovoSetor] = useState('')
   const [salvandoSetor, setSalvandoSetor] = useState(false)
   const [erroSetor, setErroSetor] = useState('')
@@ -189,21 +191,26 @@ export default function RoteirizacaoTerritorio() {
 
       <div className="border rounded-lg bg-white">
         <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
-          <div>
-            <h2 className="font-semibold text-sm">Grade de território por dia</h2>
-            <p className="text-xs text-muted-foreground">{placas.length} placa(s) ativa(s)</p>
-          </div>
-          <div className="relative shrink-0">
-            <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              value={busca}
-              onChange={e => setBusca(e.target.value)}
-              placeholder="Buscar placa..."
-              className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-md w-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
-            />
-          </div>
+          <button onClick={() => setGradeAberta(v => !v)} className="flex items-center gap-2 text-left min-w-0">
+            {gradeAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+            <div className="min-w-0">
+              <h2 className="font-semibold text-sm">Grade de território por dia</h2>
+              <p className="text-xs text-muted-foreground">{placas.length} placa(s) ativa(s)</p>
+            </div>
+          </button>
+          {gradeAberta && (
+            <div className="relative shrink-0">
+              <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={busca}
+                onChange={e => setBusca(e.target.value)}
+                placeholder="Buscar placa..."
+                className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-md w-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
+              />
+            </div>
+          )}
         </div>
-        {loading ? (
+        {gradeAberta && (loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
           </div>
@@ -254,15 +261,18 @@ export default function RoteirizacaoTerritorio() {
               </tbody>
             </table>
           </div>
-        )}
+        ))}
       </div>
 
       <div className="border rounded-lg bg-white">
-        <div className="px-4 py-3 border-b">
-          <h2 className="font-semibold text-sm">Quantidade de placas por território</h2>
-          <p className="text-xs text-muted-foreground">Quantas placas estão cadastradas em cada setor, em cada dia da semana — somando as escolhas feitas na grade acima.</p>
-        </div>
-        {loading ? (
+        <button onClick={() => setResumoAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 text-left border-b">
+          {resumoAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+          <div>
+            <h2 className="font-semibold text-sm">Quantidade de placas por território</h2>
+            <p className="text-xs text-muted-foreground">Quantas placas estão cadastradas em cada setor, em cada dia da semana — somando as escolhas feitas na grade acima.</p>
+          </div>
+        </button>
+        {resumoAberto && (loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
           </div>
@@ -312,7 +322,7 @@ export default function RoteirizacaoTerritorio() {
               </tfoot>
             </table>
           </div>
-        )}
+        ))}
       </div>
     </div>
   )
