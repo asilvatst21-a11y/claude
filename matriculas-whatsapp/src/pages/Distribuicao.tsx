@@ -145,14 +145,22 @@ export default function Distribuicao() {
       return
     }
     setSalvando(true)
-    const vMotorista = valorUnico ? null : (valorMotorista ? Number(valorMotorista) : null)
-    const vAjudante1 = valorUnico ? null : (valorAjudante1 ? Number(valorAjudante1) : null)
-    const vAjudante2 = valorUnico ? null : (valorAjudante2 ? Number(valorAjudante2) : null)
-    const vTotal = valorUnico
-      ? (valorAcordado ? Number(valorAcordado) : null)
-      : ([vMotorista, vAjudante1, vAjudante2].some(v => v != null)
-        ? [vMotorista, vAjudante1, vAjudante2].reduce((soma: number, v) => soma + (v ?? 0), 0)
-        : null)
+    // "Valor único para todos" é o valor POR PESSOA — o total é esse valor
+    // multiplicado pela quantidade de pessoas com nome preenchido (motorista
+    // + ajudantes), não o valor digitado direto como total da solicitação.
+    const vPorPessoa = valorUnico && valorAcordado ? Number(valorAcordado) : null
+    const vMotorista = valorUnico
+      ? (vPorPessoa != null && motoristaNome ? vPorPessoa : null)
+      : (valorMotorista ? Number(valorMotorista) : null)
+    const vAjudante1 = valorUnico
+      ? (vPorPessoa != null && ajudante1Nome ? vPorPessoa : null)
+      : (valorAjudante1 ? Number(valorAjudante1) : null)
+    const vAjudante2 = valorUnico
+      ? (vPorPessoa != null && ajudante2Nome ? vPorPessoa : null)
+      : (valorAjudante2 ? Number(valorAjudante2) : null)
+    const vTotal = [vMotorista, vAjudante1, vAjudante2].some(v => v != null)
+      ? [vMotorista, vAjudante1, vAjudante2].reduce((soma: number, v) => soma + (v ?? 0), 0)
+      : null
     const { error } = await supabase.from('solicitacoes_extra').insert({
       filial: usuario.filial,
       nome_solicitante: nomeSolicitante.trim(),
@@ -457,8 +465,16 @@ export default function Distribuicao() {
 
                 {valorUnico && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Valor acordado (total)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Valor por pessoa</label>
                     <input type="number" step="0.01" value={valorAcordado} onChange={e => setValorAcordado(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                    {valorAcordado && Number(valorAcordado) > 0 && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Total: {formatCurrency(
+                          Number(valorAcordado) * [motoristaNome, ajudante1Nome, ajudante2Nome].filter(Boolean).length
+                        )}{' '}
+                        ({[motoristaNome, ajudante1Nome, ajudante2Nome].filter(Boolean).length} pessoa(s))
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
