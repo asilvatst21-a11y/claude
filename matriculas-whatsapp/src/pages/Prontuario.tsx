@@ -278,6 +278,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
   const [expandedCpf, setExpandedCpf]   = useState<string | null>(null)
   const [personHistory, setPersonHistory] = useState<HistPoint[]>([])
   const [loadingHist, setLoadingHist]   = useState(false)
+  const [rankingAberto, setRankingAberto] = useState(true)
   const [busca, setBusca]               = useState('')
   const label = tipo === 'motorista' ? 'Motoristas' : 'Ajudantes'
 
@@ -542,16 +543,23 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
           {/* Ranking */}
           <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="bg-gray-50 px-4 py-3 border-b border-gray-200 flex items-center gap-3">
-              <span className="text-xs text-gray-500 font-medium shrink-0">Ranking — {current.length} colaboradores</span>
-              <div className="relative flex-1 max-w-xs">
-                <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input type="text" placeholder="Buscar nome ou CPF..." value={busca} onChange={e => setBusca(e.target.value)}
-                  className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
-              </div>
-              {previous.length > 0 && prevSnap && <span className="text-xs text-gray-400 ml-auto shrink-0">vs {formatarDataBR(prevSnap.data_referencia + 'T12:00:00')}</span>}
+              <button onClick={() => setRankingAberto(v => !v)} className="flex items-center gap-1.5 shrink-0">
+                <ChevronDown size={14} className={`transition-transform ${rankingAberto ? 'rotate-180' : ''}`} />
+                <span className="text-xs text-gray-500 font-medium">Ranking — {current.length} colaboradores</span>
+              </button>
+              {rankingAberto && (
+                <>
+                  <div className="relative flex-1 max-w-xs">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+                    <input type="text" placeholder="Buscar nome ou CPF..." value={busca} onChange={e => setBusca(e.target.value)}
+                      className="w-full pl-7 pr-3 py-1.5 text-xs border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand-400" />
+                  </div>
+                  {previous.length > 0 && prevSnap && <span className="text-xs text-gray-400 ml-auto shrink-0">vs {formatarDataBR(prevSnap.data_referencia + 'T12:00:00')}</span>}
+                </>
+              )}
             </div>
 
-            <table className="w-full text-sm">
+            {rankingAberto && <table className="w-full text-sm">
               <thead className="border-b border-gray-100">
                 <tr>
                   <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs">#</th>
@@ -798,7 +806,7 @@ function ProntuarioPanel({ tipo, filial }: { tipo: 'motorista' | 'ajudante'; fil
                   )
                 })}
               </tbody>
-            </table>
+            </table>}
           </div>
         </>
       )}
