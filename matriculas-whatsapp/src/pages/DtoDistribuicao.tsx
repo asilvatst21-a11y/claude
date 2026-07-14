@@ -315,6 +315,7 @@ export default function DtoDistribuicao() {
   const { usuario } = useAuth()
   const [avaliacoes, setAvaliacoes] = useState<DtoDistribuicaoAvaliacao[]>([])
   const [carregando, setCarregando] = useState(true)
+  const [detalheMensalAberto, setDetalheMensalAberto] = useState(true)
   const [uploadando, setUploadando] = useState(false)
   const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
   const [tipoSelecionado, setTipoSelecionado] = useState<DtoDistribuicaoTipo>('TML')
@@ -701,7 +702,11 @@ export default function DtoDistribuicao() {
                   </div>
 
                   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <table className="w-full text-sm">
+                    <button onClick={() => setDetalheMensalAberto(v => !v)} className="w-full flex items-center gap-1.5 px-4 py-2.5 text-left text-xs font-medium text-gray-500 border-b border-gray-200">
+                      <ChevronDown size={13} className={`transition-transform ${detalheMensalAberto ? 'rotate-180' : ''}`} />
+                      Detalhamento por mês
+                    </button>
+                    {detalheMensalAberto && <table className="w-full text-sm">
                       <thead className="bg-gray-50 border-b border-gray-200">
                         <tr>
                           <th className="text-left px-4 py-2.5 font-medium text-gray-600">Mês</th>
@@ -720,7 +725,7 @@ export default function DtoDistribuicao() {
                           </tr>
                         ))}
                       </tbody>
-                    </table>
+                    </table>}
                   </div>
                 </>
               )}

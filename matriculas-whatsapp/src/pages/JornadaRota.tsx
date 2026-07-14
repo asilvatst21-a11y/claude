@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import html2canvas from 'html2canvas'
 import {
   Upload, Loader2, RefreshCw, Link2, CheckCircle, AlertTriangle, Clock,
-  Route, Send, Calendar, Settings2, Search,
+  Route, Send, Calendar, Settings2, Search, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -494,6 +494,7 @@ export default function JornadaRota() {
   const [enviando, setEnviando] = useState(false)
   const [erro, setErro] = useState('')
   const [filtroSala, setFiltroSala] = useState<SalaJornada | 'todos'>('todos')
+  const [relatorioAberto, setRelatorioAberto] = useState(true)
   const [ordenarPor, setOrdenarPor] = useState<CampoOrdenacao>('mapa')
   const [ordemDesc, setOrdemDesc] = useState(false)
   const [configAberta, setConfigAberta] = useState(false)
@@ -999,9 +1000,12 @@ export default function JornadaRota() {
       </div>
 
       <div className="border rounded-lg bg-white">
-        <div className="px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
+        <button onClick={() => setRelatorioAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b text-left">
+          {relatorioAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
           <h2 className="font-semibold text-sm">Relatório por mapa</h2>
-        </div>
+        </button>
+        {relatorioAberto && (
+        <>
         <div className="px-4 py-2 border-b flex flex-wrap items-center gap-1.5">
           {([
             ['todos', `Todas (${linhas.length})`],
@@ -1102,6 +1106,8 @@ export default function JornadaRota() {
               </tbody>
             </table>
           </div>
+        )}
+        </>
         )}
       </div>
 
