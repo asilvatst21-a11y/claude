@@ -38,6 +38,11 @@ export async function refreshMatchScores(): Promise<RefreshResult> {
     OR: [
       { status: { in: ["SCHEDULED", "LIVE"] }, startsAt: { gte: windowStart, lte: windowEnd } },
       { status: "LIVE" },
+      // Re-check FINISHED matches with missing scores in the date window — score.fulltime
+      // can be null right after an AET/PEN match ends and only populate minutes later.
+      // Without this, a match stuck with homeScore=null can never be corrected by live-refresh
+      // and scoring queries that require homeScore IS NOT NULL silently skip it forever.
+      { status: "FINISHED", OR: [{ homeScore: null }, { awayScore: null }], startsAt: { gte: windowStart, lte: windowEnd } },
     ],
   };
 
