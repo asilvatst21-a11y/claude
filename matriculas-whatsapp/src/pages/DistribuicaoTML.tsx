@@ -244,6 +244,7 @@ export default function DistribuicaoTML() {
 
   const [statusSaida, setStatusSaida] = useState<StatusGlobalTML | null>(null)
   const [pendentes, setPendentes] = useState<PendenteTML[]>([])
+  const [statusSaidaAberto, setStatusSaidaAberto] = useState(true)
   const [nominaAberta, setNominaAberta] = useState(true)
   const [alertasAbertos, setAlertasAbertos] = useState(true)
   const [historicoAberto, setHistoricoAberto] = useState(false)
@@ -1202,9 +1203,15 @@ export default function DistribuicaoTML() {
 
       {statusSaida && (
         <div className="border rounded-lg bg-white">
-          <div className="px-4 py-3 border-b">
+          <button
+            onClick={() => setStatusSaidaAberto((v) => !v)}
+            className="w-full flex items-center justify-between px-4 py-3 border-b text-left hover:bg-muted/20 transition-colors"
+          >
             <h2 className="font-semibold text-sm">Status de saída — hoje</h2>
-          </div>
+            <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${statusSaidaAberto ? 'rotate-180' : ''}`} />
+          </button>
+          {statusSaidaAberto && (
+          <>
           <div className="grid sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x">
             {[...statusSaida.porSala.entries()].map(([sala, s]) => (
               <div key={sala} className="p-4">
@@ -1262,6 +1269,8 @@ export default function DistribuicaoTML() {
                 </table>
               </div>
             </div>
+          )}
+          </>
           )}
         </div>
       )}

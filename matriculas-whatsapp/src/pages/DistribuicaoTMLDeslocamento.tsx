@@ -120,6 +120,11 @@ export default function DistribuicaoTMLDeslocamento() {
   const [rascunhoMotivo, setRascunhoMotivo] = useState<Record<string, string>>({})
 
   const [gerenciarAberto, setGerenciarAberto] = useState(false)
+  const [topMotoristasAberto, setTopMotoristasAberto] = useState(true)
+  const [ocorrenciasAberto, setOcorrenciasAberto] = useState(true)
+  const [historicoEstourosAberto, setHistoricoEstourosAberto] = useState(true)
+  const [historicoMatinalAberto, setHistoricoMatinalAberto] = useState(true)
+  const [antesMatinalAberto, setAntesMatinalAberto] = useState(true)
   const [rascunhoGerenciar, setRascunhoGerenciar] = useState<Record<string, { inicio: string; fim: string }>>({})
   const [salvandoGerenciar, setSalvandoGerenciar] = useState<string | null>(null)
   const [msgGerenciar, setMsgGerenciar] = useState<string | null>(null)
@@ -571,11 +576,14 @@ export default function DistribuicaoTMLDeslocamento() {
           </ChartCard>
 
           <div className="border rounded-xl bg-white shadow-sm">
-            <div className="px-4 py-3 border-b">
-              <h2 className="text-sm font-semibold">Top 10 motoristas com maior tempo de deslocamento</h2>
-              <p className="text-xs text-muted-foreground">Tempo meta de início ainda não definido — ranking apenas por tempo médio</p>
-            </div>
-            {porMotoristaDeslocamento.length === 0 ? (
+            <button onClick={() => setTopMotoristasAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b text-left">
+              {topMotoristasAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+              <div>
+                <h2 className="text-sm font-semibold">Top 10 motoristas com maior tempo de deslocamento</h2>
+                <p className="text-xs text-muted-foreground">Tempo meta de início ainda não definido — ranking apenas por tempo médio</p>
+              </div>
+            </button>
+            {topMotoristasAberto && (porMotoristaDeslocamento.length === 0 ? (
               <p className="text-sm text-muted-foreground p-4">Nenhum registro de checklist no período.</p>
             ) : (
               <table className="w-full text-sm">
@@ -598,15 +606,18 @@ export default function DistribuicaoTMLDeslocamento() {
                   ))}
                 </tbody>
               </table>
-            )}
+            ))}
           </div>
 
           <div className="border rounded-xl bg-white shadow-sm">
-            <div className="px-4 py-3 border-b">
-              <h2 className="text-sm font-semibold">Ocorrências com maior tempo de deslocamento</h2>
-              <p className="text-xs text-muted-foreground">Cadastre o motivo de quem levou mais tempo pra iniciar o checklist</p>
-            </div>
-            {ocorrenciasMaisDemoradas.length === 0 ? (
+            <button onClick={() => setOcorrenciasAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b text-left">
+              {ocorrenciasAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+              <div>
+                <h2 className="text-sm font-semibold">Ocorrências com maior tempo de deslocamento</h2>
+                <p className="text-xs text-muted-foreground">Cadastre o motivo de quem levou mais tempo pra iniciar o checklist</p>
+              </div>
+            </button>
+            {ocorrenciasAberto && (ocorrenciasMaisDemoradas.length === 0 ? (
               <p className="text-sm text-muted-foreground p-4">Nenhum registro de checklist no período.</p>
             ) : (
               <table className="w-full text-sm">
@@ -658,17 +669,18 @@ export default function DistribuicaoTMLDeslocamento() {
                   ))}
                 </tbody>
               </table>
-            )}
+            ))}
           </div>
 
           {ocorrenciasAntesMatinal.length > 0 && (
             <div className="border rounded-xl bg-amber-50 border-amber-200 shadow-sm">
-              <div className="px-4 py-3 border-b border-amber-200">
+              <button onClick={() => setAntesMatinalAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b border-amber-200 text-left">
+                {antesMatinalAberto ? <ChevronDown className="h-4 w-4 shrink-0 text-amber-800" /> : <ChevronRight className="h-4 w-4 shrink-0 text-amber-800" />}
                 <h2 className="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
                   <AlertTriangle className="h-4 w-4" /> Colaboradores que iniciaram o checklist antes da matinal
                 </h2>
-              </div>
-              <table className="w-full text-sm">
+              </button>
+              {antesMatinalAberto && <table className="w-full text-sm">
                 <thead>
                   <tr className="text-left text-xs text-amber-700 border-b border-amber-200">
                     <th className="py-2 px-4">Data</th>
@@ -691,18 +703,21 @@ export default function DistribuicaoTMLDeslocamento() {
                     </tr>
                   ))}
                 </tbody>
-              </table>
+              </table>}
             </div>
           )}
 
           <div className="border rounded-xl bg-white shadow-sm">
-            <div className="px-4 py-3 border-b">
-              <h2 className="text-sm font-semibold">Histórico de estouros — matinal e deslocamento</h2>
-              <p className="text-xs text-muted-foreground">
-                Todo dia em que a matinal passou da meta ou o checklist começou com mais que o gatilho de estouro vigente naquela data, com o motivo registrado (quando houver).
-              </p>
-            </div>
-            {historicoEstouros.length === 0 ? (
+            <button onClick={() => setHistoricoEstourosAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b text-left">
+              {historicoEstourosAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+              <div>
+                <h2 className="text-sm font-semibold">Histórico de estouros — matinal e deslocamento</h2>
+                <p className="text-xs text-muted-foreground">
+                  Todo dia em que a matinal passou da meta ou o checklist começou com mais que o gatilho de estouro vigente naquela data, com o motivo registrado (quando houver).
+                </p>
+              </div>
+            </button>
+            {historicoEstourosAberto && (historicoEstouros.length === 0 ? (
               <p className="text-sm text-muted-foreground p-4">Nenhum estouro registrado no período.</p>
             ) : (
               <table className="w-full text-sm">
@@ -731,7 +746,7 @@ export default function DistribuicaoTMLDeslocamento() {
                   ))}
                 </tbody>
               </table>
-            )}
+            ))}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -759,11 +774,14 @@ export default function DistribuicaoTMLDeslocamento() {
           )}
 
           <div className="border rounded-xl bg-white shadow-sm">
-            <div className="px-4 py-3 border-b">
-              <h2 className="text-sm font-semibold">Histórico da matinal</h2>
-              <p className="text-xs text-muted-foreground">Todos os registros de início/fim da matinal feitos no Timer da Matinal, no período.</p>
-            </div>
-            {matinaisFiltradas.length === 0 ? (
+            <button onClick={() => setHistoricoMatinalAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b text-left">
+              {historicoMatinalAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+              <div>
+                <h2 className="text-sm font-semibold">Histórico da matinal</h2>
+                <p className="text-xs text-muted-foreground">Todos os registros de início/fim da matinal feitos no Timer da Matinal, no período.</p>
+              </div>
+            </button>
+            {historicoMatinalAberto && (matinaisFiltradas.length === 0 ? (
               <p className="text-sm text-muted-foreground p-4">Nenhuma matinal registrada no período.</p>
             ) : (
               <table className="w-full text-sm">
@@ -800,7 +818,7 @@ export default function DistribuicaoTMLDeslocamento() {
                   ))}
                 </tbody>
               </table>
-            )}
+            ))}
           </div>
         </>
       )}
