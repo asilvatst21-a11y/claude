@@ -456,6 +456,8 @@ export default function Relatos() {
   const [data,      setData]      = useState<Relato[]>([])
   const [acoes,     setAcoes]     = useState<RelatoAcao[]>([])
   const [loading,   setLoading]   = useState(true)
+  const [relatantesAberto, setRelatantesAberto] = useState(true)
+  const [relatadosAberto, setRelatadosAberto] = useState(true)
   const [uploading, setUploading] = useState(false)
   const [tab,       setTab]       = useState(0)
   const [dateFrom, setDateFrom] = useState(() => isoMinus(30))
@@ -945,10 +947,11 @@ export default function Relatos() {
               )}
 
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 text-xs font-medium text-gray-500">
+                <button onClick={() => setRelatantesAberto(v => !v)} className="w-full flex items-center gap-1.5 bg-gray-50 px-4 py-2.5 border-b border-gray-200 text-left text-xs font-medium text-gray-500">
+                  <ChevronDown size={13} className={`transition-transform ${relatantesAberto ? 'rotate-180' : ''}`} />
                   {relatantes.length} relatantes únicos · clique para ver detalhes
-                </div>
-                <table className="w-full text-sm">
+                </button>
+                {relatantesAberto && <table className="w-full text-sm">
                   <thead className="border-b border-gray-100">
                     <tr>
                       {['#', 'Nome', 'Função', 'Equipe', 'Total', 'Positivos', 'Cond.Ins.', 'Atos Ins.', 'Última'].map(h => (
@@ -984,7 +987,7 @@ export default function Relatos() {
                       </Fragment>
                     ))}
                   </tbody>
-                </table>
+                </table>}
               </div>
             </div>
           )}
@@ -1016,11 +1019,14 @@ export default function Relatos() {
                   </div>
 
                   <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                    <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200 flex items-center justify-between">
-                      <span className="text-xs font-medium text-gray-500">{relatados.length} pessoas relatadas · clique para ver detalhes e registrar ações disciplinares</span>
+                    <button onClick={() => setRelatadosAberto(v => !v)} className="w-full bg-gray-50 px-4 py-2.5 border-b border-gray-200 flex items-center justify-between text-left">
+                      <span className="flex items-center gap-1.5 text-xs font-medium text-gray-500">
+                        <ChevronDown size={13} className={`transition-transform ${relatadosAberto ? 'rotate-180' : ''}`} />
+                        {relatados.length} pessoas relatadas · clique para ver detalhes e registrar ações disciplinares
+                      </span>
                       {recorrentes > 0 && <span className="text-xs bg-red-100 text-red-700 border border-red-200 px-2 py-0.5 rounded-full">{recorrentes} recorrentes (3+)</span>}
-                    </div>
-                    <table className="w-full text-sm">
+                    </button>
+                    {relatadosAberto && <table className="w-full text-sm">
                       <thead className="border-b border-gray-100">
                         <tr>
                           {['#', 'Pessoa Relatada', 'Empresa', 'Total', 'Atos Ins.', 'Cond.Ins.', 'Ações Disc.', 'Última'].map(h => (
@@ -1063,7 +1069,7 @@ export default function Relatos() {
                           )
                         })}
                       </tbody>
-                    </table>
+                    </table>}
                   </div>
                 </>
               )}
