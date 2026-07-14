@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart, Upload, Loader2, X } from "lucide-react";
+import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart, Upload, Loader2, X, Trash2 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatCurrency, formatDateBR } from "@/lib/valesUtils";
 import { valesSupabase } from "@/lib/valesSupabase";
@@ -531,6 +531,16 @@ export default function ReposicoesPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // Exclui a solicitação de reposição (ex.: duplicada ou lançada por engano).
+  async function excluirReposicao(rep: Reposicao) {
+    if (!confirm(`Excluir a reposição ${rep.numero}? Essa ação não pode ser desfeita.`)) return;
+    setActionLoading(rep.id + "excluir");
+    const { error } = await valesSupabase.from("reposicoes").delete().eq("id", rep.id);
+    setActionLoading(null);
+    if (error) { alert(`Falha ao excluir a reposição:\n${error.message}`); return; }
+    await fetchData();
+  }
+
   // Marca como "Registrado no sistema" (registrado no sistema Ambev p/ envio do produto)
   async function marcarRegistrado(rep: Reposicao) {
     setActionLoading(rep.id + "registrado");
@@ -700,6 +710,14 @@ export default function ReposicoesPage() {
         )}
         <button onClick={() => setExpanded(expanded === r.id ? null : r.id)} className="p-1 rounded hover:bg-accent transition-colors">
           {expanded === r.id ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          onClick={() => excluirReposicao(r)}
+          disabled={!!actionLoading}
+          title="Excluir esta solicitação de reposição"
+          className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-red-50 text-red-700 hover:bg-red-100 disabled:opacity-50 transition-colors"
+        >
+          <Trash2 className="h-3 w-3" />{actionLoading === r.id + "excluir" ? "..." : "Excluir"}
         </button>
       </div>
     );
