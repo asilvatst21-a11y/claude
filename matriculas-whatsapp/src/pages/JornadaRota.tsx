@@ -9,7 +9,7 @@ import {
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { parseBeesBuffer, parseRoteirizadorBuffer } from '../lib/tmlParser'
-import { enviarMensagemWhatsApp, enviarMensagemGrupo, enviarImagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { enviarMensagemWhatsApp, enviarImagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   buscarJornadaDoDia, calcularKpis, agruparPorSala,
@@ -603,9 +603,13 @@ export default function JornadaRota() {
       await fetchUltimosImports()
 
       // Envio automático a cada import do BEES (Tracking), conforme combinado.
-      await enviarMensagensAutomatico()
+      const errosEnvio = await enviarMensagensAutomatico()
+      if (errosEnvio.length > 0) console.error('[Jornada] falhas no envio automático:', errosEnvio)
 
-      alert(`${agregados.length} mapa(s) atualizado(s) a partir do BEES. Mensagens enviadas por sala + resumo do CDD.`)
+      alert(
+        `${agregados.length} mapa(s) atualizado(s) a partir do BEES. Mensagens enviadas por sala + resumo do CDD.` +
+        (errosEnvio.length > 0 ? `\n\n⚠️ Falhas no envio:\n${errosEnvio.join('\n')}` : '')
+      )
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar o BEES')
     } finally {
@@ -666,8 +670,9 @@ export default function JornadaRota() {
 
   // Reusa os dados já calculados no estado, sem precisar buscar de novo —
   // chamado tanto pelo botão manual quanto automaticamente após o import.
-  async function enviarMensagensAutomatico() {
-    if (!usuario) return
+  async function enviarMensagensAutomatico(): Promise<string[]> {
+    if (!usuario) return []
+    const erros: string[] = []
     const lista = await buscarJornadaDoDia(usuario.filial, dataOperacao)
     const porSala = agruparPorSala(lista)
 
@@ -699,13 +704,10 @@ export default function JornadaRota() {
         await enviarMensagemWhatsApp(sup.telefone, msgIv)
         await enviarMensagemWhatsApp(sup.telefone, msgAderencia)
       }
-      // Monitoramento (grupo do CDD) recebe a aderência de cada sala também.
-      if (filialConfig?.grupo_jornada_whatsapp) {
-        await enviarMensagemGrupo(filialConfig.grupo_jornada_whatsapp, msgAderencia)
-      }
       // Número extra: recebe a aderência das duas salas (uma mensagem por sala).
       if (numeroExtra) {
-        await enviarMensagemWhatsApp(numeroExtra, msgAderencia)
+        const r = await enviarMensagemWhatsApp(numeroExtra, msgAderencia)
+        if (!r.sucesso) erros.push(`Número extra (${SALA_JORNADA_LABEL[sala]}): ${r.erro ?? 'falha desconhecida'}`)
       }
     }
 
@@ -756,14 +758,19 @@ export default function JornadaRota() {
       }
       setChartLinhas([])
     }
+    return erros
   }
 
   async function handleEnviarManual() {
     setEnviando(true)
     setErro('')
     try {
-      await enviarMensagensAutomatico()
-      alert('Mensagens enviadas por sala + resumo do CDD.')
+      const erros = await enviarMensagensAutomatico()
+      alert(
+        erros.length > 0
+          ? `Mensagens enviadas por sala + resumo do CDD.\n\n⚠️ Falhas:\n${erros.join('\n')}`
+          : 'Mensagens enviadas por sala + resumo do CDD.'
+      )
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao enviar mensagens')
     } finally {
@@ -886,7 +893,8 @@ export default function JornadaRota() {
             <label className="block text-sm font-medium">Número extra — aderência das duas salas</label>
             <p className="text-xs text-muted-foreground mt-0.5 mb-1.5">
               Opcional. Esse número recebe a mensagem de aderência de COLORADO e de SUB-FURIA, além dos
-              supervisores de cada sala e do grupo de monitoramento (acima).
+              supervisores de cada sala. O grupo de monitoramento (acima) não recebe a mensagem de
+              aderência — só o resumo em imagem do CDD.
             </p>
             <input
               type="text"
