@@ -837,13 +837,29 @@ async function tratarReposicao(
 
     if (!pend) return { ok: true, action: 'repos-sem-pendencia' }
 
+    // Reivindica a confirmação de forma atômica (update condicional no status
+    // atual) ANTES de processar. O Z-API às vezes reentrega o mesmo webhook
+    // (ou o motorista toca duas vezes no botão) — sem isso, duas chamadas
+    // concorrentes liam a mesma pendência "aguardando", geravam o mesmo
+    // número de reposição (gerarNumeroReposicao não é atômico) e uma das
+    // duas falhava no insert com "❌ Erro ao registrar", além de mensagens
+    // duplicadas. Se ninguém mais reivindicar, `claimed` vem vazio e essa
+    // chamada simplesmente para aqui, sem reprocessar nem responder de novo.
+    const { data: claimed } = await supabase
+      .from('reposicao_confirmacoes')
+      .update({ status: 'processando' })
+      .eq('id', pend.id)
+      .eq('status', 'aguardando')
+      .select('id')
+      .maybeSingle()
+    if (!claimed) return { ok: true, action: 'repos-ja-processado' }
+
     if (resposta === 'nao') {
       await supabase.from('reposicao_confirmacoes').update({ status: 'cancelado' }).eq('id', pend.id)
       await enviar(grupoId, `❌ ${pend.motorista_nome ?? ''}, solicitação cancelada. Pode enviar novamente.`)
       return { ok: true, action: 'repos-cancelado' }
     }
 
-    const numero = await gerarNumeroReposicao()
     const tipo = pend.tipo_reposicao ?? 'indefinido'
 
     // Falta/Inversão (e indefinido) precisam de conferência do controle — mas só
@@ -855,27 +871,40 @@ async function tratarReposicao(
     const precisaValidacao = (tipo === 'falta' || tipo === 'inversao' || tipo === 'indefinido') &&
       (pend.embalagem === 'fardo' || pend.embalagem === 'caixa')
 
-    const { data: novaRep, error: insErr } = await supabase.from('reposicoes').insert({
-      numero,
-      filial,
-      motorista_nome: pend.motorista_nome,
-      motorista_telefone: pend.motorista_telefone || participante,
-      codigo_pdv: pend.codigo_pdv || null,
-      cliente: pend.codigo_pdv || null,
-      mapa: pend.mapa || null,
-      produto: pend.produto || null,
-      quantidade: pend.quantidade || null,
-      tipo_reposicao: tipo,
-      embalagem: pend.embalagem || null,
-      motivo: TIPO_LABEL[tipo] ?? null,
-      mensagem_original: pend.mensagem_original,
-      status: precisaValidacao ? 'pendente' : 'registrado',
-    }).select('id, numero').single()
+    // Tenta algumas vezes com um número novo se colidir com um já existente
+    // (ex.: outra reposição registrada bem no mesmo instante).
+    let novaRep: { id: string; numero: string } | null = null
+    let insErr: { code?: string; message?: string } | null = null
+    for (let tentativa = 0; tentativa < 3 && !novaRep; tentativa++) {
+      const numero = await gerarNumeroReposicao()
+      const resultado = await supabase.from('reposicoes').insert({
+        numero,
+        filial,
+        motorista_nome: pend.motorista_nome,
+        motorista_telefone: pend.motorista_telefone || participante,
+        codigo_pdv: pend.codigo_pdv || null,
+        cliente: pend.codigo_pdv || null,
+        mapa: pend.mapa || null,
+        produto: pend.produto || null,
+        quantidade: pend.quantidade || null,
+        tipo_reposicao: tipo,
+        embalagem: pend.embalagem || null,
+        motivo: TIPO_LABEL[tipo] ?? null,
+        mensagem_original: pend.mensagem_original,
+        status: precisaValidacao ? 'pendente' : 'registrado',
+      }).select('id, numero').single()
+      insErr = resultado.error
+      novaRep = resultado.data
+      if (insErr && insErr.code !== '23505') break // só retenta em colisão de número único
+    }
     if (insErr || !novaRep) {
       console.error('Erro ao inserir reposição:', insErr)
+      // Devolve pro status "aguardando" pra um reenvio do "sim" poder tentar de novo.
+      await supabase.from('reposicao_confirmacoes').update({ status: 'aguardando' }).eq('id', pend.id)
       await enviar(grupoId, '❌ Erro ao registrar. Tente novamente.')
       return { ok: false, action: 'repos-erro' }
     }
+    const numero = novaRep.numero
     await supabase.from('reposicao_confirmacoes').update({ status: 'confirmado' }).eq('id', pend.id)
 
     if (precisaValidacao) {
