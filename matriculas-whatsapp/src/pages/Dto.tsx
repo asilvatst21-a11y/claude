@@ -117,6 +117,8 @@ export default function Dto() {
   const { usuario } = useAuth()
   const [observacoes, setObservacoes] = useState<DtoObservacao[]>([])
   const [carregando, setCarregando] = useState(false)
+  const [rankingAvaliadoresAberto, setRankingAvaliadoresAberto] = useState(true)
+  const [rankingTarefasAberto, setRankingTarefasAberto] = useState(true)
   const [uploadando, setUploadando] = useState(false)
   const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'atividades' | 'colaboradores' | 'acoes' | 'avaliadores' | 'tarefas'>('dashboard')
   const [filtroArea, setFiltroArea] = useState('Todas')
@@ -875,7 +877,11 @@ export default function Dto() {
               )}
 
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <table className="w-full text-sm">
+                <button onClick={() => setRankingAvaliadoresAberto(v => !v)} className="w-full flex items-center gap-1.5 px-4 py-2.5 text-left text-xs font-medium text-gray-500 border-b border-gray-200">
+                  <ChevronDown size={13} className={`transition-transform ${rankingAvaliadoresAberto ? 'rotate-180' : ''}`} />
+                  Ranking de avaliadores
+                </button>
+                {rankingAvaliadoresAberto && <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="text-left px-4 py-3 font-medium text-gray-600">Avaliador</th>
@@ -921,7 +927,7 @@ export default function Dto() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table>}
               </div>
 
               {rankingAvaliadores.length >= 2 && (
@@ -967,7 +973,11 @@ export default function Dto() {
               )}
 
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <table className="w-full text-sm">
+                <button onClick={() => setRankingTarefasAberto(v => !v)} className="w-full flex items-center gap-1.5 px-4 py-2.5 text-left text-xs font-medium text-gray-500 border-b border-gray-200">
+                  <ChevronDown size={13} className={`transition-transform ${rankingTarefasAberto ? 'rotate-180' : ''}`} />
+                  Ranking de tarefas
+                </button>
+                {rankingTarefasAberto && <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="text-left px-4 py-3 font-medium text-gray-600">Tarefa</th>
@@ -991,7 +1001,7 @@ export default function Dto() {
                       </tr>
                     ))}
                   </tbody>
-                </table>
+                </table>}
               </div>
 
               {rankingTarefas.filter(t => t.comDesvio > 0).length >= 1 && (
