@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ArrowLeft, CheckCircle2, Image, Loader2, RefreshCw, Search } from 'lucide-react'
+import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronDown, ChevronRight, Image, Loader2, RefreshCw, Search } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { listarGrupos, type GrupoZApi } from '../lib/zapi'
@@ -13,6 +13,7 @@ export default function FrotaPlacas() {
   const { usuario } = useAuth()
   const [placas, setPlacas] = useState<FrotaPlaca[]>([])
   const [loading, setLoading] = useState(true)
+  const [listaAberta, setListaAberta] = useState(true)
   const [busca, setBusca] = useState('')
 
   // Grupo de WhatsApp que recebe a imagem-resumo da Disponibilidade (botão
@@ -265,21 +266,26 @@ export default function FrotaPlacas() {
 
       <div className="border rounded-lg bg-white">
         <div className="px-4 py-3 border-b flex items-center justify-between gap-3">
-          <div>
-            <h2 className="font-semibold text-sm">Lista de Placas</h2>
-            <p className="text-xs text-muted-foreground">{placas.length} placa(s) cadastrada(s) · {ativas} ativa(s)</p>
-          </div>
-          <div className="relative shrink-0">
-            <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
-            <input
-              value={busca}
-              onChange={e => setBusca(e.target.value)}
-              placeholder="Buscar placa..."
-              className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-md w-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
-            />
-          </div>
+          <button onClick={() => setListaAberta(v => !v)} className="flex items-center gap-2 text-left min-w-0">
+            {listaAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+            <div className="min-w-0">
+              <h2 className="font-semibold text-sm">Lista de Placas</h2>
+              <p className="text-xs text-muted-foreground">{placas.length} placa(s) cadastrada(s) · {ativas} ativa(s)</p>
+            </div>
+          </button>
+          {listaAberta && (
+            <div className="relative shrink-0">
+              <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                value={busca}
+                onChange={e => setBusca(e.target.value)}
+                placeholder="Buscar placa..."
+                className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-md w-40 focus:outline-none focus:ring-1 focus:ring-brand-500"
+              />
+            </div>
+          )}
         </div>
-        {loading ? (
+        {listaAberta && (loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
           </div>
@@ -351,7 +357,7 @@ export default function FrotaPlacas() {
               </tbody>
             </table>
           </div>
-        )}
+        ))}
       </div>
     </div>
   )

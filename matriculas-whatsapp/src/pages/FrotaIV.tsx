@@ -4,7 +4,7 @@ import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
 } from 'recharts'
 import {
-  AlertTriangle, ArrowLeft, BarChart2, Building2, CalendarClock, CheckCircle2, ChevronLeft, ChevronRight, Loader2, Settings, Target, TrendingUp, Truck,
+  AlertTriangle, ArrowLeft, BarChart2, Building2, CalendarClock, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, Loader2, Settings, Target, TrendingUp, Truck,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -51,6 +51,8 @@ export default function FrotaIV() {
   const [placas, setPlacas] = useState<FrotaPlaca[]>([])
   const [tratativas, setTratativas] = useState<FrotaIVTratativa[]>([])
   const [carregando, setCarregando] = useState(true)
+  const [projecaoAberta, setProjecaoAberta] = useState(true)
+  const [motivosAberto, setMotivosAberto] = useState(true)
   const hoje = new Date()
   const [mesSel, setMesSel] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 })
   const [diaTratativa, setDiaTratativa] = useState<string>('')
@@ -282,8 +284,11 @@ export default function FrotaIV() {
 
           {projecao.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-1.5"><TrendingUp size={14} /> Projeção de DU (conforme previsões de retorno registradas)</h3>
-              <table className="w-full text-sm">
+              <button onClick={() => setProjecaoAberta(v => !v)} className="w-full flex items-center gap-1.5 text-left mb-3">
+                {projecaoAberta ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
+                <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5"><TrendingUp size={14} /> Projeção de DU (conforme previsões de retorno registradas)</h3>
+              </button>
+              {projecaoAberta && <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 text-xs text-gray-500">
                     <th className="text-left py-2 font-medium">Data</th>
@@ -306,14 +311,17 @@ export default function FrotaIV() {
                     )
                   })}
                 </tbody>
-              </table>
+              </table>}
             </div>
           )}
 
           <div className="grid lg:grid-cols-2 gap-5">
             <div className="bg-white rounded-xl border border-gray-200 p-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Principais motivos de indisponibilidade (mês)</h3>
-              {rankingMotivos.length === 0 ? (
+              <button onClick={() => setMotivosAberto(v => !v)} className="w-full flex items-center gap-1.5 text-left mb-3">
+                {motivosAberto ? <ChevronDown size={14} className="shrink-0" /> : <ChevronRight size={14} className="shrink-0" />}
+                <h3 className="text-sm font-semibold text-gray-700">Principais motivos de indisponibilidade (mês)</h3>
+              </button>
+              {motivosAberto && (rankingMotivos.length === 0 ? (
                 <p className="text-sm text-gray-400 py-6 text-center">Nenhum VUC indisponível no mês.</p>
               ) : (
                 <table className="w-full text-sm">
@@ -332,7 +340,7 @@ export default function FrotaIV() {
                     ))}
                   </tbody>
                 </table>
-              )}
+              ))}
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 p-4">
