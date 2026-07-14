@@ -131,6 +131,25 @@ export interface FrotaPlaca {
   updated_at: string
 }
 
+export interface SetorRoteirizacao {
+  id: number
+  filial: string
+  nome: string
+  ativo: boolean
+  created_at: string
+}
+
+export type DiaSemanaRoteirizacao = 'SEG' | 'TER' | 'QUA' | 'QUI' | 'SEX' | 'SAB'
+
+export interface RoteirizacaoPlacaDia {
+  id: number
+  filial: string
+  placa: string
+  dia_semana: DiaSemanaRoteirizacao
+  territorio: string | null
+  updated_at: string
+}
+
 export interface FrotaIVTratativa {
   id: string
   filial: string

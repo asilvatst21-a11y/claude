@@ -5,7 +5,7 @@ import html2canvas from 'html2canvas'
 import {
   ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend,
 } from 'recharts'
-import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy, Send, Pencil, X, Search, AlertTriangle, Download } from 'lucide-react'
+import { Building2, Truck, CheckCircle2, XCircle, Upload, Loader2, FileSpreadsheet, MapPinned, Image, Settings, ChevronLeft, ChevronRight, LayoutGrid, UserCheck, Trophy, Send, Pencil, X, Search, AlertTriangle, Download, Map as MapIcon } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { valesSupabase } from '../lib/valesSupabase'
 import { useAuth } from '../lib/auth'
@@ -605,9 +605,14 @@ export default function Frota() {
           <h2 className="text-2xl font-bold text-gray-900">Frota</h2>
           {usuario && <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1"><Building2 size={12} /> {usuario.filial}</p>}
         </div>
-        <Link to="/frota/placas" className="flex items-center gap-2 text-sm text-gray-600 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50">
-          <Settings size={14} /> Cadastro de placas
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link to="/frota/roteirizacao" className="flex items-center gap-2 text-sm text-gray-600 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50">
+            <MapIcon size={14} /> Roteirização
+          </Link>
+          <Link to="/frota/placas" className="flex items-center gap-2 text-sm text-gray-600 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50">
+            <Settings size={14} /> Cadastro de placas
+          </Link>
+        </div>
       </div>
 
       <div className="flex gap-4 mb-4 border-b border-gray-200">
