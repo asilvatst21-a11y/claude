@@ -541,13 +541,21 @@ function extrairEmbalagem(body: any): 'unidade' | 'fardo' | null {
   return null
 }
 
+// Baseia o próximo número no MAIOR sequencial já usado hoje (não na
+// contagem de linhas) — contar linhas quebra assim que alguma reposição do
+// meio da sequência é excluída (ex.: pela tela de Reposições), pois a
+// contagem cai mas o sequencial mais alto continua existindo, gerando
+// sempre o mesmo número (já usado) a cada tentativa.
 async function gerarNumeroReposicao(): Promise<string> {
   const hoje = new Date().toISOString().slice(0, 10).replace(/-/g, '')
-  const { count } = await supabase
+  const { data } = await supabase
     .from('reposicoes')
-    .select('*', { count: 'exact', head: true })
+    .select('numero')
     .like('numero', `REP-${hoje}-%`)
-  const seq = String((count ?? 0) + 1).padStart(3, '0')
+    .order('numero', { ascending: false })
+    .limit(1)
+  const ultimoSeq = data?.[0]?.numero ? parseInt(data[0].numero.slice(-3), 10) || 0 : 0
+  const seq = String(ultimoSeq + 1).padStart(3, '0')
   return `REP-${hoje}-${seq}`
 }
 
