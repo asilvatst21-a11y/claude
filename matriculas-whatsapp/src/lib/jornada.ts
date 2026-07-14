@@ -388,20 +388,27 @@ export function montarMensagemIvSala(sala: SalaJornada, linhas: LinhaJornada[], 
 }
 
 export function montarMensagemAderenciaSala(sala: SalaJornada, linhas: LinhaJornada[], data: string): string {
-  const top = linhas
-    .filter((l): l is LinhaJornada & { aderencia: number } => l.aderencia != null)
+  const comDados = linhas.filter((l): l is LinhaJornada & { aderencia: number } => l.aderencia != null)
+  // Só entra na lista quem está abaixo da meta — não é mais um "Top 5" fixo:
+  // pode sair com 4, 3, 2, 1 ou nenhum nome, dependendo de quantos motoristas
+  // estiverem realmente abaixo de 95% hoje.
+  const abaixoDaMeta = comDados
+    .filter((l) => l.aderencia < ADERENCIA_MINIMA)
     .sort((a, b) => a.aderencia - b.aderencia)
     .slice(0, 5)
 
   let texto = `🎯 *ADERÊNCIA — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)} · meta ${formatarPct(ADERENCIA_MINIMA)}\n\n`
-  if (top.length === 0) {
+  if (comDados.length === 0) {
     texto += `Sem dados de aderência ainda.`
     return texto
   }
-  texto += `Top 5 — menor aderência:\n`
-  top.forEach((l, i) => {
-    const abaixo = l.aderencia < ADERENCIA_MINIMA ? ' ⚠️' : ''
-    texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — ${formatarPct(l.aderencia)}${abaixo}\n`
+  if (abaixoDaMeta.length === 0) {
+    texto += `Ninguém abaixo da meta hoje ✅`
+    return texto
+  }
+  texto += `Abaixo da meta:\n`
+  abaixoDaMeta.forEach((l, i) => {
+    texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — ${formatarPct(l.aderencia)} ⚠️\n`
   })
   return texto
 }

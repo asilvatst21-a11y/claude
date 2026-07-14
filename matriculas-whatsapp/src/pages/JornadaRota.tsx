@@ -9,7 +9,7 @@ import {
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { parseBeesBuffer, parseRoteirizadorBuffer } from '../lib/tmlParser'
-import { enviarMensagemWhatsApp, enviarImagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { enviarMensagemWhatsApp, enviarMensagemGrupo, enviarImagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   buscarJornadaDoDia, calcularKpis, agruparPorSala,
@@ -499,6 +499,8 @@ export default function JornadaRota() {
   const [configAberta, setConfigAberta] = useState(false)
   const [grupoJornada, setGrupoJornada] = useState('')
   const [grupoJornadaOriginal, setGrupoJornadaOriginal] = useState('')
+  const [numeroExtraAderencia, setNumeroExtraAderencia] = useState('')
+  const [numeroExtraAderenciaOriginal, setNumeroExtraAderenciaOriginal] = useState('')
   const [ultimoImportBees, setUltimoImportBees] = useState<string | null>(null)
   const [ultimoImportRot, setUltimoImportRot] = useState<string | null>(null)
   const [grupos, setGrupos] = useState<GrupoZApi[]>([])
@@ -522,12 +524,15 @@ export default function JornadaRota() {
     if (!usuario) return
     const { data } = await supabase
       .from('filiais')
-      .select('grupo_jornada_whatsapp')
+      .select('grupo_jornada_whatsapp, numero_extra_aderencia_whatsapp')
       .eq('nome', usuario.filial)
       .maybeSingle()
     const v = data?.grupo_jornada_whatsapp ?? ''
     setGrupoJornada(v)
     setGrupoJornadaOriginal(v)
+    const n = data?.numero_extra_aderencia_whatsapp ?? ''
+    setNumeroExtraAderencia(n)
+    setNumeroExtraAderenciaOriginal(n)
   }, [usuario])
 
   async function buscarGruposZapi() {
@@ -666,6 +671,13 @@ export default function JornadaRota() {
     const lista = await buscarJornadaDoDia(usuario.filial, dataOperacao)
     const porSala = agruparPorSala(lista)
 
+    const { data: filialConfig } = await supabase
+      .from('filiais')
+      .select('grupo_jornada_whatsapp, numero_extra_aderencia_whatsapp')
+      .eq('nome', usuario.filial)
+      .maybeSingle()
+    const numeroExtra = filialConfig?.numero_extra_aderencia_whatsapp || null
+
     for (const sala of SALAS_JORNADA) {
       const linhasSala = porSala.get(sala) ?? []
       if (linhasSala.length === 0) continue
@@ -687,6 +699,14 @@ export default function JornadaRota() {
         await enviarMensagemWhatsApp(sup.telefone, msgIv)
         await enviarMensagemWhatsApp(sup.telefone, msgAderencia)
       }
+      // Monitoramento (grupo do CDD) recebe a aderência de cada sala também.
+      if (filialConfig?.grupo_jornada_whatsapp) {
+        await enviarMensagemGrupo(filialConfig.grupo_jornada_whatsapp, msgAderencia)
+      }
+      // Número extra: recebe a aderência das duas salas (uma mensagem por sala).
+      if (numeroExtra) {
+        await enviarMensagemWhatsApp(numeroExtra, msgAderencia)
+      }
     }
 
     // Alerta direto pro motorista (não pro supervisor) quando a aderência
@@ -701,12 +721,7 @@ export default function JornadaRota() {
       await enviarMensagemWhatsApp(l.telefone, montarMensagemAlertaAderenciaMotorista(l, dataOperacao))
     }
 
-    const { data: filialRow } = await supabase
-      .from('filiais')
-      .select('grupo_jornada_whatsapp')
-      .eq('nome', usuario.filial)
-      .maybeSingle()
-    if (filialRow?.grupo_jornada_whatsapp) {
+    if (filialConfig?.grupo_jornada_whatsapp) {
       // No lugar da mensagem de texto: 3 imagens em sequência — geral +
       // uma por sala (só as salas com supervisor mapeado; EXTERNOS entra
       // apenas no geral). Cada imagem substitui o `imagemAtual` via
@@ -727,7 +742,7 @@ export default function JornadaRota() {
         if (!exportRef.current) continue
         const canvas = await html2canvas(exportRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
         const img = canvas.toDataURL('image/png')
-        await enviarImagemGrupo(filialRow.grupo_jornada_whatsapp, img, `📊 Jornada — ${item.titulo} — ${formatarDataBR(dataOperacao)}`)
+        await enviarImagemGrupo(filialConfig.grupo_jornada_whatsapp, img, `📊 Jornada — ${item.titulo} — ${formatarDataBR(dataOperacao)}`)
       }
       setImagemAtual(null)
 
@@ -737,7 +752,7 @@ export default function JornadaRota() {
       if (chartRef.current) {
         const canvasChart = await html2canvas(chartRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
         const imgChart = canvasChart.toDataURL('image/png')
-        await enviarImagemGrupo(filialRow.grupo_jornada_whatsapp, imgChart, `📈 Carta de Controle da Jornada — ${formatarDataBR(dataOperacao)}`)
+        await enviarImagemGrupo(filialConfig.grupo_jornada_whatsapp, imgChart, `📈 Carta de Controle da Jornada — ${formatarDataBR(dataOperacao)}`)
       }
       setChartLinhas([])
     }
@@ -759,9 +774,14 @@ export default function JornadaRota() {
   async function handleSalvarGrupo() {
     if (!usuario) return
     const v = grupoJornada.trim()
-    await supabase.from('filiais').update({ grupo_jornada_whatsapp: v || null }).eq('nome', usuario.filial)
+    const n = numeroExtraAderencia.trim()
+    await supabase.from('filiais').update({
+      grupo_jornada_whatsapp: v || null,
+      numero_extra_aderencia_whatsapp: n || null,
+    }).eq('nome', usuario.filial)
     setGrupoJornadaOriginal(v)
-    alert('Grupo salvo.')
+    setNumeroExtraAderenciaOriginal(n)
+    alert('Configuração salva.')
   }
 
   const kpis = useMemo(() => calcularKpis(linhas), [linhas])
@@ -862,10 +882,25 @@ export default function JornadaRota() {
             copiado={copiado}
           />
 
+          <div>
+            <label className="block text-sm font-medium">Número extra — aderência das duas salas</label>
+            <p className="text-xs text-muted-foreground mt-0.5 mb-1.5">
+              Opcional. Esse número recebe a mensagem de aderência de COLORADO e de SUB-FURIA, além dos
+              supervisores de cada sala e do grupo de monitoramento (acima).
+            </p>
+            <input
+              type="text"
+              value={numeroExtraAderencia}
+              onChange={(e) => setNumeroExtraAderencia(e.target.value)}
+              placeholder="Ex.: 5511999999999"
+              className="w-full border rounded-md px-3 py-2 text-sm"
+            />
+          </div>
+
           <div className="flex justify-end">
             <button
               onClick={handleSalvarGrupo}
-              disabled={grupoJornada.trim() === grupoJornadaOriginal}
+              disabled={grupoJornada.trim() === grupoJornadaOriginal && numeroExtraAderencia.trim() === numeroExtraAderenciaOriginal}
               className="px-4 py-2 rounded-lg text-sm bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white transition-colors"
             >
               Salvar
