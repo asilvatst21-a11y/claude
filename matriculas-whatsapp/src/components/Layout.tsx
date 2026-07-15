@@ -25,6 +25,7 @@ const segItems = [
 ]
 
 const genteItems = [
+  { permKey: 'jornada',      to: '/colaboradores', label: 'Colaboradores',       icon: Users },
   { permKey: 'jornada',      to: '/jornada',      label: 'Controle de Jornada', icon: Clock },
   { permKey: 'distribuicao', to: '/distribuicao', label: 'Solicitação Extra',   icon: Truck, end: true },
 ]

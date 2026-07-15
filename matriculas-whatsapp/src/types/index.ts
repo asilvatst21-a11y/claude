@@ -513,6 +513,10 @@ export interface Colaborador {
   funcao: string | null
   equipe: string | null
   cargo: string | null
+  telefone?: string | null
+  cpf?: string | null
+  data_admissao?: string | null
+  sala?: string | null
   created_at: string
 }
 
