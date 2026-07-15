@@ -146,7 +146,7 @@ export default function FrotaIV() {
             <span className="text-xs font-medium text-gray-400 border border-gray-200 rounded-full px-2 py-0.5">Disponibilidade de VUC</span>
           </h2>
           <p className="text-xs text-gray-500 mt-0.5 flex items-center gap-1">
-            {usuario && <><Building2 size={12} /> {usuario.filial} ·</>} Disponibilidade de Unidades (VUCs) · meta {META_DU}%
+            {usuario && <><Building2 size={12} /> {usuario.filial} ·</>} % de atingimento da meta de disponibilidade de VUCs (meta: {META_DU}% dos VUCs disponíveis = 100%)
           </p>
         </div>
         <Link to="/frota/placas" className="flex items-center gap-2 text-sm text-gray-600 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50">
@@ -209,20 +209,20 @@ export default function FrotaIV() {
               accent={farolMes === 'verde' ? 'text-green-700 bg-green-50' : farolMes === 'amarelo' ? 'text-amber-700 bg-amber-50' : 'text-red-700 bg-red-50'}
             />
             <Card icon={AlertTriangle} label="VUCs indisponíveis hoje" value={ultimoDia ? String(ultimoDia.totalVuc - ultimoDia.disponiveis) : '—'} accent="text-red-700 bg-red-50" />
-            <Card icon={CheckCircle2} label="Meta" value={`${META_DU}%`} hint={acumuladoMesAtual.mediaPercentual >= META_DU ? 'Meta atingida' : `Faltam ${META_DU - acumuladoMesAtual.mediaPercentual} p.p.`} accent="text-accent-600 bg-accent/40" />
+            <Card icon={CheckCircle2} label="Meta" value="100%" hint={acumuladoMesAtual.mediaPercentual >= 100 ? 'Meta atingida' : `Faltam ${100 - acumuladoMesAtual.mediaPercentual} p.p. de atingimento`} accent="text-accent-600 bg-accent/40" />
           </div>
 
           {/* Progresso vs meta */}
           <div className="bg-white rounded-xl border border-gray-200 p-4">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-semibold text-gray-700">Acumulado do mês vs meta ({META_DU}%)</h3>
+              <h3 className="text-sm font-semibold text-gray-700">Acumulado do mês vs meta (100%)</h3>
               <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${corFarolMes.bg} ${corFarolMes.text} ${corFarolMes.border}`}>
                 {acumuladoMesAtual.mediaPercentual}%
               </span>
             </div>
             <div className="h-3 rounded-full bg-gray-100 overflow-hidden relative">
               <div className={`h-full ${corFarolMes.bar} transition-all`} style={{ width: `${Math.min(acumuladoMesAtual.mediaPercentual, 100)}%` }} />
-              <div className="absolute top-0 bottom-0 border-l-2 border-dashed border-gray-500" style={{ left: `${META_DU}%` }} title={`Meta ${META_DU}%`} />
+              <div className="absolute top-0 bottom-0 border-l-2 border-dashed border-gray-500" style={{ left: '100%' }} title="Meta 100%" />
             </div>
           </div>
 
@@ -236,9 +236,9 @@ export default function FrotaIV() {
                 <ComposedChart data={duDiarioMes}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="data" tick={{ fontSize: 11 }} />
-                  <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="%" />
+                  <YAxis tick={{ fontSize: 11 }} domain={[0, (dataMax: number) => Math.max(100, dataMax)]} unit="%" />
                   <Tooltip contentStyle={TOOLTIP_STYLE} />
-                  <ReferenceLine y={META_DU} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: `Meta ${META_DU}%`, fontSize: 10, fill: '#64748b', position: 'insideTopLeft' }} />
+                  <ReferenceLine y={100} stroke="#94a3b8" strokeDasharray="4 4" label={{ value: 'Meta 100%', fontSize: 10, fill: '#64748b', position: 'insideTopLeft' }} />
                   <Line type="monotone" dataKey="percentual" name="% DU" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
                 </ComposedChart>
               </ResponsiveContainer>
@@ -258,7 +258,7 @@ export default function FrotaIV() {
                   return (
                     <div key={`${m.ano}-${m.mes}`} className="flex-1 flex flex-col items-center justify-end h-full">
                       <span className="text-xs font-bold text-gray-700 mb-1">{m.acumulado.mediaPercentual}%</span>
-                      <div className="w-full rounded-t-md relative" style={{ height: `${Math.max(m.acumulado.mediaPercentual, 2)}%` }}>
+                      <div className="w-full rounded-t-md relative" style={{ height: `${Math.min(Math.max(m.acumulado.mediaPercentual, 2), 100)}%` }}>
                         <div className={`absolute inset-0 rounded-t-md ${cor}`} />
                       </div>
                       <span className="text-xs text-gray-500 mt-1.5">{MESES_PT[m.mes - 1]}/{String(m.ano).slice(2)}</span>

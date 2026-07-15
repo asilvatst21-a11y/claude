@@ -682,8 +682,16 @@ export function detectarTrocasTerritorio(cruzamento: CruzamentoTerritorioItem[])
 
 export const META_DU = 80
 
-export function farolDu(percentual: number): 'verde' | 'amarelo' | 'vermelho' {
-  return percentual >= 80 ? 'verde' : percentual >= 60 ? 'amarelo' : 'vermelho'
+// O "percentual" de DU usado em todo o painel de IV é o % de ATINGIMENTO da
+// meta (disponibilidade real ÷ META_DU), não a disponibilidade bruta —
+// bater exatamente a meta de 80% de VUCs disponíveis já mostra 100%. Pode
+// passar de 100% quando a disponibilidade supera a meta.
+function atingimentoDu(percentualBruto: number): number {
+  return Math.round((percentualBruto / META_DU) * 100)
+}
+
+export function farolDu(percentualAtingimento: number): 'verde' | 'amarelo' | 'vermelho' {
+  return percentualAtingimento >= 100 ? 'verde' : percentualAtingimento >= 75 ? 'amarelo' : 'vermelho'
 }
 
 // Placas ativas classificadas como VUC no cadastro.
@@ -714,11 +722,12 @@ export function calcularDuPorDia(rows: FrotaDisponibilidade[], placas: FrotaPlac
   return Array.from(porDia.entries())
     .map(([data, linhas]) => {
       const disponiveis = linhas.filter(l => normalizar(l.status) === 'DISPONIVEL').length
+      const percentualBruto = linhas.length > 0 ? (disponiveis / linhas.length) * 100 : 0
       return {
         data,
         totalVuc: linhas.length,
         disponiveis,
-        percentual: linhas.length > 0 ? Math.round((disponiveis / linhas.length) * 100) : 0,
+        percentual: atingimentoDu(percentualBruto),
       }
     })
     .sort((a, b) => a.data.localeCompare(b.data))
@@ -740,11 +749,12 @@ export function calcularDuAcumulado(duPorDia: DuDia[], ano: number, mes: number)
   const doMes = duPorDia.filter(d => d.data.startsWith(prefixo))
   const totalDisponivelDias = doMes.reduce((acc, d) => acc + d.disponiveis, 0)
   const totalVucDias = doMes.reduce((acc, d) => acc + d.totalVuc, 0)
+  const percentualBruto = totalVucDias > 0 ? (totalDisponivelDias / totalVucDias) * 100 : 0
   return {
     ano,
     mes,
     diasComDado: doMes.length,
-    mediaPercentual: totalVucDias > 0 ? Math.round((totalDisponivelDias / totalVucDias) * 100) : 0,
+    mediaPercentual: atingimentoDu(percentualBruto),
     totalDisponivelDias,
     totalVucDias,
   }
@@ -914,12 +924,13 @@ export function calcularProjecaoDu(
     const retornamPrevistos = previsoes.filter(d => d === data).length
     disponiveisAcumulado += retornamPrevistos
     const disponiveisProjetado = Math.min(disponiveisAcumulado, totalVuc)
+    const percentualBruto = totalVuc > 0 ? (disponiveisProjetado / totalVuc) * 100 : 0
     return {
       data,
       retornamPrevistos,
       totalVuc,
       disponiveisProjetado,
-      percentualProjetado: totalVuc > 0 ? Math.round((disponiveisProjetado / totalVuc) * 100) : 0,
+      percentualProjetado: atingimentoDu(percentualBruto),
     }
   })
 }
