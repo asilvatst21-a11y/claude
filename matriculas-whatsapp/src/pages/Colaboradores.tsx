@@ -34,7 +34,9 @@ export default function Colaboradores() {
 
   const [filtroEquipe, setFiltroEquipe] = useState('todas')
   const [filtroFuncao, setFiltroFuncao] = useState<string[]>([])
-  const [filtroStatus, setFiltroStatus] = useState('todos')
+  // Desligados ficam ocultos por padrão — só aparecem escolhendo
+  // "Desligados" ou "Todos".
+  const [filtroStatus, setFiltroStatus] = useState<'ativos' | 'desligados' | 'todos'>('ativos')
   const [filtroTelefone, setFiltroTelefone] = useState<'todos' | 'com' | 'sem'>('todos')
   type CampoOrdenacao = 'nome' | 'matricula' | 'matricula_promax' | 'equipe' | 'status'
   const [ordenarPor, setOrdenarPor] = useState<CampoOrdenacao>('nome')
@@ -52,7 +54,7 @@ export default function Colaboradores() {
 
   function abrirCriar() {
     setEditando(null)
-    setNome(''); setMatricula(''); setMatriculaPromax(''); setCargo(''); setFuncao(''); setEquipe(''); setTelefone(''); setCpf(''); setStatus('')
+    setNome(''); setMatricula(''); setMatriculaPromax(''); setCargo(''); setFuncao(''); setEquipe(''); setTelefone(''); setCpf(''); setStatus('TRABALHANDO')
     setErro('')
     setModal(true)
   }
@@ -171,10 +173,6 @@ export default function Colaboradores() {
     () => Array.from(new Set(colaboradores.map(c => c.equipe ?? c.sala).filter((v): v is string => !!v))).sort(),
     [colaboradores]
   )
-  const statusDisponiveis = useMemo(
-    () => Array.from(new Set(colaboradores.map(c => c.status).filter((v): v is string => !!v))).sort(),
-    [colaboradores]
-  )
   const funcoesDisponiveis = useMemo(
     () => Array.from(new Set(colaboradores.map(c => c.funcao).filter((v): v is string => !!v))).sort(),
     [colaboradores]
@@ -194,7 +192,8 @@ export default function Colaboradores() {
     }
     if (filtroEquipe !== 'todas') lista = lista.filter(c => (c.equipe ?? c.sala) === filtroEquipe)
     if (filtroFuncao.length > 0) lista = lista.filter(c => c.funcao && filtroFuncao.includes(c.funcao))
-    if (filtroStatus !== 'todos') lista = lista.filter(c => c.status === filtroStatus)
+    if (filtroStatus === 'ativos') lista = lista.filter(c => c.status !== 'DESLIGADO')
+    else if (filtroStatus === 'desligados') lista = lista.filter(c => c.status === 'DESLIGADO')
     if (filtroTelefone === 'com') lista = lista.filter(c => !!c.telefone)
     if (filtroTelefone === 'sem') lista = lista.filter(c => !c.telefone)
 
@@ -283,18 +282,19 @@ export default function Colaboradores() {
             {equipesDisponiveis.map(eq => <option key={eq} value={eq}>{eq}</option>)}
           </select>
           <FiltroMulti label="Função" selected={filtroFuncao} onChange={setFiltroFuncao} options={funcoesDisponiveis} />
-          <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+          <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value as 'ativos' | 'desligados' | 'todos')} className="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+            <option value="ativos">Trabalhando (oculta desligados)</option>
+            <option value="desligados">Só desligados</option>
             <option value="todos">Todos os status</option>
-            {statusDisponiveis.map(st => <option key={st} value={st}>{st}</option>)}
           </select>
           <select value={filtroTelefone} onChange={e => setFiltroTelefone(e.target.value as 'todos' | 'com' | 'sem')} className="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
             <option value="todos">Com ou sem telefone</option>
             <option value="com">Só com telefone</option>
             <option value="sem">Só sem telefone</option>
           </select>
-          {(filtroEquipe !== 'todas' || filtroFuncao.length > 0 || filtroStatus !== 'todos' || filtroTelefone !== 'todos') && (
+          {(filtroEquipe !== 'todas' || filtroFuncao.length > 0 || filtroStatus !== 'ativos' || filtroTelefone !== 'todos') && (
             <button
-              onClick={() => { setFiltroEquipe('todas'); setFiltroFuncao([]); setFiltroStatus('todos'); setFiltroTelefone('todos') }}
+              onClick={() => { setFiltroEquipe('todas'); setFiltroFuncao([]); setFiltroStatus('ativos'); setFiltroTelefone('todos') }}
               className="text-xs text-muted-foreground hover:text-foreground underline"
             >
               Limpar filtros
@@ -427,7 +427,11 @@ export default function Colaboradores() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1.5">Status</label>
-                  <input value={status} onChange={e => setStatus(e.target.value)} placeholder="Ex: TRABALHANDO" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  <select value={status} onChange={e => setStatus(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white">
+                    <option value="">— sem status —</option>
+                    <option value="TRABALHANDO">Trabalhando</option>
+                    <option value="DESLIGADO">Desligado</option>
+                  </select>
                 </div>
               </div>
               <div>
