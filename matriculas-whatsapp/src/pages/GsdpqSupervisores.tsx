@@ -151,7 +151,10 @@ export default function GsdpqSupervisores() {
           </Link>
           <h1 className="text-xl sm:text-2xl font-bold mt-1">Supervisores — GSDPQ</h1>
           <p className="text-sm text-muted-foreground">
-            Cadastre o supervisor responsável por equipe para receber os alertas de vencimento do GSD
+            Cadastre o supervisor responsável por equipe para receber os alertas de vencimento do GSD. O telefone
+            também pode ser corrigido em{' '}
+            <Link to="/colaboradores" className="underline hover:text-foreground">Gente → Colaboradores</Link>,
+            que já mantém esse número sincronizado aqui.
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">

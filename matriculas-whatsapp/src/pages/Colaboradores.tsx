@@ -52,6 +52,18 @@ export default function Colaboradores() {
     setModal(true)
   }
 
+  // Motoristas TML, Supervisores TML e Supervisores GSD ainda guardam seu
+  // próprio telefone (usado direto pelos fluxos de WhatsApp) — em vez de já
+  // trocar essas tabelas por completo, sincroniza o valor pra lá também
+  // sempre que o telefone é corrigido aqui, casando por (filial, nome).
+  async function sincronizarTelefone(filial: string, nomeColaborador: string, telefoneNovo: string | null) {
+    await Promise.all([
+      supabase.from('motoristas_sala_tml').update({ telefone: telefoneNovo }).eq('filial', filial).ilike('nome', nomeColaborador),
+      supabase.from('supervisores_tml').update({ telefone: telefoneNovo }).eq('filial', filial).ilike('nome', nomeColaborador),
+      supabase.from('gsdpq_supervisores').update({ telefone: telefoneNovo }).eq('filial', filial).ilike('nome', nomeColaborador),
+    ])
+  }
+
   async function handleSalvar() {
     if (!usuario || !nome.trim()) return
     setSalvando(true)
@@ -75,6 +87,7 @@ export default function Colaboradores() {
       setErro(error.message.includes('duplicate') || error.message.includes('unique') ? 'Já existe um colaborador com esse nome.' : error.message)
       return
     }
+    await sincronizarTelefone(usuario.filial, nome.trim(), campos.telefone)
     setModal(false)
     await fetchColaboradores()
   }
@@ -84,6 +97,10 @@ export default function Colaboradores() {
     setSalvandoId(id)
     setColaboradores(prev => prev.map(c => (c.id === id ? { ...c, ...campos } : c)))
     await supabase.from('colaboradores').update(campos).eq('id', id)
+    if ('telefone' in campos && usuario) {
+      const colaborador = colaboradores.find(c => c.id === id)
+      if (colaborador) await sincronizarTelefone(usuario.filial, colaborador.nome, campos.telefone ?? null)
+    }
     setSalvandoId(null)
   }
 

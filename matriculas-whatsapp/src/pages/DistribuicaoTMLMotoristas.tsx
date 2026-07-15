@@ -162,7 +162,9 @@ export default function DistribuicaoTMLMotoristas() {
           </Link>
           <h1 className="text-xl sm:text-2xl font-bold mt-1">Relação de Motoristas — TML</h1>
           <p className="text-sm text-muted-foreground">
-            Cadastro fixo de motorista x sala. Atualize apenas quando um motorista novo chegar.
+            Cadastro fixo de motorista x sala. Atualize apenas quando um motorista novo chegar. O telefone também
+            pode ser corrigido em <Link to="/colaboradores" className="underline hover:text-foreground">Gente → Colaboradores</Link>,
+            que já mantém esse número sincronizado aqui.
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
