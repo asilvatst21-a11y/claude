@@ -85,6 +85,14 @@ export default function Colaboradores() {
         supabase.from('motoristas_sala_tml').update({ telefone: telefoneNovo }).eq('filial', filial).eq('matricula', Number(matriculaPromax)),
         supabase.from('ajudantes').update({ telefone: telefoneNovo }).eq('codigo', Number(matriculaPromax)),
       )
+      // A tela de Motoristas TML na verdade mostra o telefone vindo daqui
+      // (tabela legada `matriculas`, casando pelo número = matrícula Promax)
+      // sempre que motoristas_sala_tml.telefone está vazio — por isso
+      // precisa ficar em dia também. `whatsapp` não aceita nulo, então só
+      // atualiza quando há um número novo (não apaga registro existente).
+      if (telefoneNovo) {
+        tarefas.push(supabase.from('matriculas').update({ whatsapp: telefoneNovo }).eq('numero', matriculaPromax.trim()))
+      }
     } else {
       tarefas.push(supabase.from('motoristas_sala_tml').update({ telefone: telefoneNovo }).eq('filial', filial).ilike('nome', nomeColaborador))
     }
