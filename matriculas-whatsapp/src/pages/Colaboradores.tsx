@@ -57,16 +57,29 @@ export default function Colaboradores() {
     setModal(true)
   }
 
-  // Motoristas TML, Supervisores TML e Supervisores GSD ainda guardam seu
-  // próprio telefone (usado direto pelos fluxos de WhatsApp) — em vez de já
-  // trocar essas tabelas por completo, sincroniza o valor pra lá também
-  // sempre que o telefone é corrigido aqui, casando por (filial, nome).
-  async function sincronizarTelefone(filial: string, nomeColaborador: string, telefoneNovo: string | null) {
-    await Promise.all([
-      supabase.from('motoristas_sala_tml').update({ telefone: telefoneNovo }).eq('filial', filial).ilike('nome', nomeColaborador),
+  // Motoristas TML, Ajudantes (Financeiro), Supervisores TML e Supervisores
+  // GSD ainda guardam seu próprio telefone (usado direto pelos fluxos de
+  // WhatsApp) — em vez de já trocar essas tabelas por completo, sincroniza
+  // o valor pra lá também sempre que o telefone é corrigido aqui. Motorista
+  // e Ajudante são casados pela matrícula Promax (mais confiável — nome tem
+  // variações de grafia entre as bases); Supervisor não tem matrícula, casa
+  // por nome mesmo.
+  async function sincronizarTelefone(
+    filial: string, nomeColaborador: string, matriculaPromax: string | null, telefoneNovo: string | null
+  ) {
+    const tarefas = [
       supabase.from('supervisores_tml').update({ telefone: telefoneNovo }).eq('filial', filial).ilike('nome', nomeColaborador),
       supabase.from('gsdpq_supervisores').update({ telefone: telefoneNovo }).eq('filial', filial).ilike('nome', nomeColaborador),
-    ])
+    ]
+    if (matriculaPromax && matriculaPromax.trim()) {
+      tarefas.push(
+        supabase.from('motoristas_sala_tml').update({ telefone: telefoneNovo }).eq('filial', filial).eq('matricula', Number(matriculaPromax)),
+        supabase.from('ajudantes').update({ telefone: telefoneNovo }).eq('codigo', Number(matriculaPromax)),
+      )
+    } else {
+      tarefas.push(supabase.from('motoristas_sala_tml').update({ telefone: telefoneNovo }).eq('filial', filial).ilike('nome', nomeColaborador))
+    }
+    await Promise.all(tarefas)
   }
 
   async function handleSalvar() {
@@ -93,7 +106,7 @@ export default function Colaboradores() {
       setErro(error.message.includes('duplicate') || error.message.includes('unique') ? 'Já existe um colaborador com esse nome.' : error.message)
       return
     }
-    await sincronizarTelefone(usuario.filial, nome.trim(), campos.telefone)
+    await sincronizarTelefone(usuario.filial, nome.trim(), campos.matricula_promax, campos.telefone)
     setModal(false)
     await fetchColaboradores()
   }
@@ -114,7 +127,7 @@ export default function Colaboradores() {
       // Propaga o telefone recém-importado pras tabelas que os fluxos de
       // WhatsApp ainda leem direto (motoristas/supervisores TML e GSD).
       const comTelefoneNovo = rows.filter(r => r.telefone)
-      await Promise.all(comTelefoneNovo.map(r => sincronizarTelefone(usuario.filial, r.nome, r.telefone ?? null)))
+      await Promise.all(comTelefoneNovo.map(r => sincronizarTelefone(usuario.filial, r.nome, r.matricula_promax ?? null, r.telefone ?? null)))
       await fetchColaboradores()
       const comTel = comTelefoneNovo.length
       alert(`${rows.length} colaborador(es) importado(s)/atualizado(s). ${comTel} com telefone reconhecido na planilha.`)
@@ -132,7 +145,7 @@ export default function Colaboradores() {
     await supabase.from('colaboradores').update(campos).eq('id', id)
     if ('telefone' in campos && usuario) {
       const colaborador = colaboradores.find(c => c.id === id)
-      if (colaborador) await sincronizarTelefone(usuario.filial, colaborador.nome, campos.telefone ?? null)
+      if (colaborador) await sincronizarTelefone(usuario.filial, colaborador.nome, colaborador.matricula_promax ?? null, campos.telefone ?? null)
     }
     setSalvandoId(null)
   }

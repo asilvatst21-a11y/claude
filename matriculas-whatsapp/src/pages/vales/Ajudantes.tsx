@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Pencil, Loader2, RefreshCw, Phone, Save, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -93,7 +93,11 @@ export default function AjudantesPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Ajudantes</h1>
-          <p className="text-muted-foreground">Gerencie os ajudantes e seus contatos WhatsApp</p>
+          <p className="text-muted-foreground">
+            Gerencie os ajudantes e seus contatos WhatsApp. O telefone também pode ser corrigido em{' '}
+            <Link to="/colaboradores" className="underline hover:text-foreground">Gente → Colaboradores</Link>,
+            que já mantém esse número sincronizado aqui (casando pelo código, que é a matrícula Promax).
+          </p>
         </div>
         <Button variant="outline" onClick={fetchAjudantes} disabled={isLoading}>
           <RefreshCw className={`h-4 w-4 mr-2 ${isLoading ? "animate-spin" : ""}`} />
