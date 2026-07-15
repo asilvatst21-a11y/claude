@@ -680,7 +680,7 @@ export function detectarTrocasTerritorio(cruzamento: CruzamentoTerritorioItem[])
 // indisponível, pois para o indicador de DU o que importa é se o VUC está
 // rodando ou não, independente do motivo.
 
-export const META_DU = 80
+export const META_DU = 84
 
 // O "percentual" de DU usado em todo o painel de IV é o % de ATINGIMENTO da
 // meta (disponibilidade real ÷ META_DU), não a disponibilidade bruta —
