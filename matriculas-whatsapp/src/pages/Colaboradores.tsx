@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Loader2, Plus, RefreshCw, Search, Users, X } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { CheckCircle2, Loader2, Plus, RefreshCw, Search, Upload, Users, X } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
+import { parseColaboradores } from '../lib/colaboradores'
 import type { Colaborador } from '../types'
 
 // Campos que hoje são mantidos em duplicidade em outras telas (GSD, TML,
@@ -26,6 +27,9 @@ export default function Colaboradores() {
   const [telefone, setTelefone] = useState('')
   const [cpf, setCpf] = useState('')
   const [status, setStatus] = useState('')
+  const [matriculaPromax, setMatriculaPromax] = useState('')
+  const [importando, setImportando] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   const fetchColaboradores = useCallback(async () => {
     if (!usuario) return
@@ -39,14 +43,15 @@ export default function Colaboradores() {
 
   function abrirCriar() {
     setEditando(null)
-    setNome(''); setMatricula(''); setCargo(''); setFuncao(''); setEquipe(''); setTelefone(''); setCpf(''); setStatus('')
+    setNome(''); setMatricula(''); setMatriculaPromax(''); setCargo(''); setFuncao(''); setEquipe(''); setTelefone(''); setCpf(''); setStatus('')
     setErro('')
     setModal(true)
   }
 
   function abrirEditar(c: Colaborador) {
     setEditando(c)
-    setNome(c.nome); setMatricula(c.matricula ?? ''); setCargo(c.cargo ?? ''); setFuncao(c.funcao ?? '')
+    setNome(c.nome); setMatricula(c.matricula ?? ''); setMatriculaPromax(c.matricula_promax ?? '')
+    setCargo(c.cargo ?? ''); setFuncao(c.funcao ?? '')
     setEquipe(c.equipe ?? ''); setTelefone(c.telefone ?? ''); setCpf(c.cpf ?? ''); setStatus(c.status ?? '')
     setErro('')
     setModal(true)
@@ -72,6 +77,7 @@ export default function Colaboradores() {
       filial: usuario.filial,
       nome: nome.trim(),
       matricula: matricula.trim() || null,
+      matricula_promax: matriculaPromax.trim() || null,
       cargo: cargo.trim() || null,
       funcao: funcao.trim() || null,
       equipe: equipe.trim() || null,
@@ -90,6 +96,33 @@ export default function Colaboradores() {
     await sincronizarTelefone(usuario.filial, nome.trim(), campos.telefone)
     setModal(false)
     await fetchColaboradores()
+  }
+
+  async function handleImportar(file: File) {
+    if (!usuario) return
+    setImportando(true)
+    try {
+      const buffer = await file.arrayBuffer()
+      const rows = parseColaboradores(buffer, usuario.filial)
+      if (rows.length === 0) throw new Error('Nenhum colaborador encontrado na planilha (esperado colunas COLABORADOR, FUNCAO, EQUIPE).')
+      const CHUNK = 100
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const lote = rows.slice(i, i + CHUNK).map(({ email: _email, ...resto }) => resto)
+        const { error } = await supabase.from('colaboradores').upsert(lote, { onConflict: 'filial,nome_norm' })
+        if (error) throw new Error(error.message)
+      }
+      // Propaga o telefone recém-importado pras tabelas que os fluxos de
+      // WhatsApp ainda leem direto (motoristas/supervisores TML e GSD).
+      const comTelefoneNovo = rows.filter(r => r.telefone)
+      await Promise.all(comTelefoneNovo.map(r => sincronizarTelefone(usuario.filial, r.nome, r.telefone ?? null)))
+      await fetchColaboradores()
+      const comTel = comTelefoneNovo.length
+      alert(`${rows.length} colaborador(es) importado(s)/atualizado(s). ${comTel} com telefone reconhecido na planilha.`)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao importar planilha.')
+    } finally {
+      setImportando(false)
+    }
   }
 
   // Edição rápida de telefone/cpf direto na tabela, sem abrir o modal.
@@ -132,6 +165,20 @@ export default function Colaboradores() {
           <button onClick={fetchColaboradores} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
           </button>
+          <button onClick={() => inputRef.current?.click()} disabled={importando} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50">
+            {importando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />} Importar planilha
+          </button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={e => {
+              const file = e.target.files?.[0]
+              if (file) handleImportar(file)
+              if (inputRef.current) inputRef.current.value = ''
+            }}
+          />
           <button onClick={abrirCriar} className="flex items-center gap-2 px-3 py-2 rounded-md bg-accent-500 hover:bg-accent-600 text-white text-sm transition-colors">
             <Plus className="h-4 w-4" /> Novo colaborador
           </button>
@@ -169,7 +216,8 @@ export default function Colaboradores() {
               <thead className="bg-muted/50">
                 <tr>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Nome</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Matrícula</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Matrícula (LOG20)</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Matrícula (Promax)</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Cargo / Função</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Equipe</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Telefone</th>
@@ -183,6 +231,7 @@ export default function Colaboradores() {
                   <tr key={c.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-2.5 font-medium">{c.nome}</td>
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">{c.matricula ?? '—'}</td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground">{c.matricula_promax ?? '—'}</td>
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">{[c.cargo, c.funcao].filter(Boolean).join(' · ') || '—'}</td>
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">{c.equipe ?? c.sala ?? '—'}</td>
                     <td className="px-4 py-2.5">
@@ -239,13 +288,17 @@ export default function Colaboradores() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Matrícula</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Matrícula (LOG20)</label>
                   <input value={matricula} onChange={e => setMatricula(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">CPF</label>
-                  <input value={cpf} onChange={e => setCpf(e.target.value)} placeholder="Só números" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Matrícula (Promax)</label>
+                  <input value={matriculaPromax} onChange={e => setMatriculaPromax(e.target.value)} placeholder="Só motoristas/ajudantes" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
                 </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1.5">CPF</label>
+                <input value={cpf} onChange={e => setCpf(e.target.value)} placeholder="Só números" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>

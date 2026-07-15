@@ -506,6 +506,7 @@ export interface Colaborador {
   id: string
   filial: string
   matricula: string | null
+  matricula_promax?: string | null
   nome: string
   status: string | null
   projeto: string | null

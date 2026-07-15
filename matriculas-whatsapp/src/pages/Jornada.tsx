@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { isColaboradoresFile, parseColaboradores } from '../lib/colaboradores'
 import type { JornadaRegistro, Colaborador } from '../types'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────────────────
@@ -215,47 +216,6 @@ function parseDadosPonto(wb: XLSX.WorkBook, filial: string): Omit<JornadaRegistr
   return results
 }
 
-function isColaboradoresFile(wb: XLSX.WorkBook): boolean {
-  const ws = wb.Sheets[wb.SheetNames[0]]
-  if (!ws) return false
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as unknown[][]
-  const hdr = (rows[0] ?? []).map(h => String(h).trim().toUpperCase())
-  return hdr.includes('COLABORADOR') && hdr.includes('FUNCAO') && hdr.includes('EQUIPE')
-}
-
-function parseColaboradores(buffer: ArrayBuffer, filial: string): Omit<Colaborador, 'id' | 'created_at'>[] {
-  const wb = XLSX.read(buffer)
-  const ws = wb.Sheets[wb.SheetNames[0]]
-  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '' }) as unknown[][]
-  const hdr = (rows[0] ?? []).map(h => String(h).trim().toUpperCase())
-  const col = (name: string) => hdr.indexOf(name)
-  const iMat = col('MATR'), iNome = col('COLABORADOR'), iStatus = col('STATUS')
-  const iProj = col('PROJETO'), iSub = col('SUBPROJETO'), iFunc = col('FUNCAO')
-  const iEq = col('EQUIPE'), iCargo = col('CARGO AMBEV')
-
-  const seen = new Set<string>()
-  const out: Omit<Colaborador, 'id' | 'created_at'>[] = []
-  rows.slice(1).forEach(r => {
-    const nome = String(r[iNome] ?? '').trim()
-    if (!nome) return
-    const key = normName(nome)
-    if (seen.has(key)) return
-    seen.add(key)
-    const val = (i: number) => (i >= 0 ? String(r[i] ?? '').trim() || null : null)
-    out.push({
-      filial, nome,
-      matricula:  val(iMat),
-      status:     val(iStatus),
-      projeto:    val(iProj),
-      subprojeto: val(iSub),
-      funcao:     val(iFunc),
-      equipe:     val(iEq),
-      cargo:      val(iCargo),
-    })
-  })
-  return out
-}
-
 // ─── Upload Zone ──────────────────────────────────────────────────────────────────────────────
 
 function UploadZone({ onUpload, uploading }: { onUpload: (f: File) => void; uploading: boolean }) {
@@ -334,8 +294,11 @@ export default function Jornada() {
         const rows = parseColaboradores(buffer, usuario.filial)
         const CHUNK = 100
         for (let i = 0; i < rows.length; i += CHUNK) {
+          // "email" é só extraído pra referência futura, não existe coluna
+          // hoje em `colaboradores` — não entra no upsert.
+          const lote = rows.slice(i, i + CHUNK).map(({ email: _email, ...resto }) => resto)
           await supabase.from('colaboradores')
-            .upsert(rows.slice(i, i + CHUNK), { onConflict: 'filial,nome' })
+            .upsert(lote, { onConflict: 'filial,nome_norm' })
         }
       } else {
         const rows = parseJornada(buffer, usuario.filial)
