@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CheckCircle2, Loader2, Plus, RefreshCw, Search, Upload, Users, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, Loader2, Plus, RefreshCw, Search, Upload, Users, X } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { parseColaboradores } from '../lib/colaboradores'
@@ -30,6 +30,13 @@ export default function Colaboradores() {
   const [matriculaPromax, setMatriculaPromax] = useState('')
   const [importando, setImportando] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
+
+  const [filtroEquipe, setFiltroEquipe] = useState('todas')
+  const [filtroStatus, setFiltroStatus] = useState('todos')
+  const [filtroTelefone, setFiltroTelefone] = useState<'todos' | 'com' | 'sem'>('todos')
+  type CampoOrdenacao = 'nome' | 'matricula' | 'matricula_promax' | 'equipe' | 'status'
+  const [ordenarPor, setOrdenarPor] = useState<CampoOrdenacao>('nome')
+  const [ordemDesc, setOrdemDesc] = useState(false)
 
   const fetchColaboradores = useCallback(async () => {
     if (!usuario) return
@@ -150,16 +157,57 @@ export default function Colaboradores() {
     setSalvandoId(null)
   }
 
+  const equipesDisponiveis = useMemo(
+    () => Array.from(new Set(colaboradores.map(c => c.equipe ?? c.sala).filter((v): v is string => !!v))).sort(),
+    [colaboradores]
+  )
+  const statusDisponiveis = useMemo(
+    () => Array.from(new Set(colaboradores.map(c => c.status).filter((v): v is string => !!v))).sort(),
+    [colaboradores]
+  )
+
   const buscaNorm = busca.trim().toLowerCase()
   const filtrados = useMemo(() => {
-    if (!buscaNorm) return colaboradores
-    return colaboradores.filter(c =>
-      c.nome.toLowerCase().includes(buscaNorm) ||
-      (c.matricula ?? '').toLowerCase().includes(buscaNorm) ||
-      (c.equipe ?? '').toLowerCase().includes(buscaNorm) ||
-      (c.funcao ?? '').toLowerCase().includes(buscaNorm)
-    )
-  }, [colaboradores, buscaNorm])
+    let lista = colaboradores
+    if (buscaNorm) {
+      lista = lista.filter(c =>
+        c.nome.toLowerCase().includes(buscaNorm) ||
+        (c.matricula ?? '').toLowerCase().includes(buscaNorm) ||
+        (c.matricula_promax ?? '').toLowerCase().includes(buscaNorm) ||
+        (c.equipe ?? '').toLowerCase().includes(buscaNorm) ||
+        (c.funcao ?? '').toLowerCase().includes(buscaNorm)
+      )
+    }
+    if (filtroEquipe !== 'todas') lista = lista.filter(c => (c.equipe ?? c.sala) === filtroEquipe)
+    if (filtroStatus !== 'todos') lista = lista.filter(c => c.status === filtroStatus)
+    if (filtroTelefone === 'com') lista = lista.filter(c => !!c.telefone)
+    if (filtroTelefone === 'sem') lista = lista.filter(c => !c.telefone)
+
+    const valor = (c: Colaborador): string => {
+      switch (ordenarPor) {
+        case 'matricula': return c.matricula ?? ''
+        case 'matricula_promax': return c.matricula_promax ?? ''
+        case 'equipe': return c.equipe ?? c.sala ?? ''
+        case 'status': return c.status ?? ''
+        default: return c.nome
+      }
+    }
+    const ordenada = [...lista].sort((a, b) => {
+      const cmp = valor(a).localeCompare(valor(b), 'pt-BR', { numeric: true, sensitivity: 'base' })
+      return ordemDesc ? -cmp : cmp
+    })
+    return ordenada
+  }, [colaboradores, buscaNorm, filtroEquipe, filtroStatus, filtroTelefone, ordenarPor, ordemDesc])
+
+  function alternarOrdenacao(campo: CampoOrdenacao) {
+    if (ordenarPor === campo) setOrdemDesc(v => !v)
+    else { setOrdenarPor(campo); setOrdemDesc(false) }
+  }
+
+  function IconeOrdenacao({ campo }: { campo: CampoOrdenacao }) {
+    if (ordenarPor !== campo) return <ArrowUpDown className="h-3 w-3 opacity-40" />
+    return ordemDesc ? <ArrowDown className="h-3 w-3" /> : <ArrowUp className="h-3 w-3" />
+  }
 
   const comTelefone = colaboradores.filter(c => c.telefone).length
 
@@ -202,7 +250,7 @@ export default function Colaboradores() {
         <div className="px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h2 className="font-semibold text-sm">Lista de Colaboradores</h2>
-            <p className="text-xs text-muted-foreground">{colaboradores.length} cadastrado(s) · {comTelefone} com telefone</p>
+            <p className="text-xs text-muted-foreground">{filtrados.length} de {colaboradores.length} cadastrado(s) · {comTelefone} com telefone</p>
           </div>
           <div className="relative shrink-0">
             <Search className="h-3.5 w-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
@@ -213,6 +261,29 @@ export default function Colaboradores() {
               className="pl-8 pr-3 py-1.5 text-sm border border-gray-200 rounded-md w-56 focus:outline-none focus:ring-1 focus:ring-brand-500"
             />
           </div>
+        </div>
+        <div className="px-4 py-2.5 border-b flex items-center gap-2 flex-wrap bg-muted/20">
+          <select value={filtroEquipe} onChange={e => setFiltroEquipe(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+            <option value="todas">Todas as equipes</option>
+            {equipesDisponiveis.map(eq => <option key={eq} value={eq}>{eq}</option>)}
+          </select>
+          <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+            <option value="todos">Todos os status</option>
+            {statusDisponiveis.map(st => <option key={st} value={st}>{st}</option>)}
+          </select>
+          <select value={filtroTelefone} onChange={e => setFiltroTelefone(e.target.value as 'todos' | 'com' | 'sem')} className="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+            <option value="todos">Com ou sem telefone</option>
+            <option value="com">Só com telefone</option>
+            <option value="sem">Só sem telefone</option>
+          </select>
+          {(filtroEquipe !== 'todas' || filtroStatus !== 'todos' || filtroTelefone !== 'todos') && (
+            <button
+              onClick={() => { setFiltroEquipe('todas'); setFiltroStatus('todos'); setFiltroTelefone('todos') }}
+              className="text-xs text-muted-foreground hover:text-foreground underline"
+            >
+              Limpar filtros
+            </button>
+          )}
         </div>
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -228,14 +299,24 @@ export default function Colaboradores() {
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Nome</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Matrícula (LOG20)</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Matrícula (Promax)</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                    <button onClick={() => alternarOrdenacao('nome')} className="flex items-center gap-1 hover:text-foreground">Nome <IconeOrdenacao campo="nome" /></button>
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                    <button onClick={() => alternarOrdenacao('matricula')} className="flex items-center gap-1 hover:text-foreground">Matrícula (LOG20) <IconeOrdenacao campo="matricula" /></button>
+                  </th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                    <button onClick={() => alternarOrdenacao('matricula_promax')} className="flex items-center gap-1 hover:text-foreground">Matrícula (Promax) <IconeOrdenacao campo="matricula_promax" /></button>
+                  </th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Cargo / Função</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Equipe</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                    <button onClick={() => alternarOrdenacao('equipe')} className="flex items-center gap-1 hover:text-foreground">Equipe <IconeOrdenacao campo="equipe" /></button>
+                  </th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Telefone</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">CPF</th>
-                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Status</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">
+                    <button onClick={() => alternarOrdenacao('status')} className="flex items-center gap-1 hover:text-foreground">Status <IconeOrdenacao campo="status" /></button>
+                  </th>
                   <th className="text-right px-4 py-3 font-medium text-muted-foreground">Ações</th>
                 </tr>
               </thead>
