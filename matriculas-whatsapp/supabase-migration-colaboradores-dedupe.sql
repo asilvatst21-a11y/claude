@@ -48,6 +48,28 @@ from principal p
 join colaboradores dup on dup.filial = p.filial and lower(trim(dup.nome)) = p.nome_norm and dup.id <> p.id_principal
 where c.id = p.id_principal;
 
+-- CTE precisa ser repetida: ela só vale dentro da instrução (UPDATE) em que
+-- foi declarada, o DELETE abaixo é uma instrução nova e não a enxerga.
+with normalizados as (
+  select id, filial, lower(trim(nome)) as nome_norm,
+         (case when matricula is not null then 1 else 0 end
+        + case when telefone  is not null then 1 else 0 end
+        + case when cpf       is not null then 1 else 0 end
+        + case when cargo     is not null then 1 else 0 end
+        + case when funcao    is not null then 1 else 0 end
+        + case when equipe    is not null then 1 else 0 end
+        + case when status    is not null then 1 else 0 end) as preenchidos
+  from colaboradores
+),
+ranking as (
+  select id, filial, nome_norm,
+         row_number() over (partition by filial, nome_norm order by preenchidos desc, id) as rn
+  from normalizados
+),
+principal as (
+  select r.filial, r.nome_norm, r.id as id_principal
+  from ranking r where r.rn = 1
+)
 delete from colaboradores c
 using principal p
 where c.filial = p.filial and lower(trim(c.nome)) = p.nome_norm and c.id <> p.id_principal;
