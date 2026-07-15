@@ -3,6 +3,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, Loader2, Plus, RefreshCw
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { parseColaboradores } from '../lib/colaboradores'
+import { FiltroMulti } from '../components/FiltroMulti'
 import type { Colaborador } from '../types'
 
 // Campos que hoje são mantidos em duplicidade em outras telas (GSD, TML,
@@ -32,6 +33,7 @@ export default function Colaboradores() {
   const inputRef = useRef<HTMLInputElement>(null)
 
   const [filtroEquipe, setFiltroEquipe] = useState('todas')
+  const [filtroFuncao, setFiltroFuncao] = useState<string[]>([])
   const [filtroStatus, setFiltroStatus] = useState('todos')
   const [filtroTelefone, setFiltroTelefone] = useState<'todos' | 'com' | 'sem'>('todos')
   type CampoOrdenacao = 'nome' | 'matricula' | 'matricula_promax' | 'equipe' | 'status'
@@ -165,6 +167,10 @@ export default function Colaboradores() {
     () => Array.from(new Set(colaboradores.map(c => c.status).filter((v): v is string => !!v))).sort(),
     [colaboradores]
   )
+  const funcoesDisponiveis = useMemo(
+    () => Array.from(new Set(colaboradores.map(c => c.funcao).filter((v): v is string => !!v))).sort(),
+    [colaboradores]
+  )
 
   const buscaNorm = busca.trim().toLowerCase()
   const filtrados = useMemo(() => {
@@ -179,6 +185,7 @@ export default function Colaboradores() {
       )
     }
     if (filtroEquipe !== 'todas') lista = lista.filter(c => (c.equipe ?? c.sala) === filtroEquipe)
+    if (filtroFuncao.length > 0) lista = lista.filter(c => c.funcao && filtroFuncao.includes(c.funcao))
     if (filtroStatus !== 'todos') lista = lista.filter(c => c.status === filtroStatus)
     if (filtroTelefone === 'com') lista = lista.filter(c => !!c.telefone)
     if (filtroTelefone === 'sem') lista = lista.filter(c => !c.telefone)
@@ -197,7 +204,7 @@ export default function Colaboradores() {
       return ordemDesc ? -cmp : cmp
     })
     return ordenada
-  }, [colaboradores, buscaNorm, filtroEquipe, filtroStatus, filtroTelefone, ordenarPor, ordemDesc])
+  }, [colaboradores, buscaNorm, filtroEquipe, filtroFuncao, filtroStatus, filtroTelefone, ordenarPor, ordemDesc])
 
   function alternarOrdenacao(campo: CampoOrdenacao) {
     if (ordenarPor === campo) setOrdemDesc(v => !v)
@@ -267,6 +274,7 @@ export default function Colaboradores() {
             <option value="todas">Todas as equipes</option>
             {equipesDisponiveis.map(eq => <option key={eq} value={eq}>{eq}</option>)}
           </select>
+          <FiltroMulti label="Função" selected={filtroFuncao} onChange={setFiltroFuncao} options={funcoesDisponiveis} />
           <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} className="text-xs border border-gray-200 rounded-md px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
             <option value="todos">Todos os status</option>
             {statusDisponiveis.map(st => <option key={st} value={st}>{st}</option>)}
@@ -276,9 +284,9 @@ export default function Colaboradores() {
             <option value="com">Só com telefone</option>
             <option value="sem">Só sem telefone</option>
           </select>
-          {(filtroEquipe !== 'todas' || filtroStatus !== 'todos' || filtroTelefone !== 'todos') && (
+          {(filtroEquipe !== 'todas' || filtroFuncao.length > 0 || filtroStatus !== 'todos' || filtroTelefone !== 'todos') && (
             <button
-              onClick={() => { setFiltroEquipe('todas'); setFiltroStatus('todos'); setFiltroTelefone('todos') }}
+              onClick={() => { setFiltroEquipe('todas'); setFiltroFuncao([]); setFiltroStatus('todos'); setFiltroTelefone('todos') }}
               className="text-xs text-muted-foreground hover:text-foreground underline"
             >
               Limpar filtros
