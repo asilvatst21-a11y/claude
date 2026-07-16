@@ -17,14 +17,14 @@ import {
   cruzarMotorista, rankingMotoristasPerdaFixacao, calcularAderenciaMotoristaPorDia, calcularAderenciaMotoristaMeses, calcularAderenciaMotoristaPorDiaESala,
   processarFixacaoMotorista, parseBaseMapaTerritorio, MOTIVOS_FIXACAO_MOTORISTA,
   detalhePorPlaca, sequenciaAtualIndisponivel, rankingMotivosPeriodo,
-  agruparRegioesPorPlacaData, agruparRoteirizacaoPorPlacaDia, avaliarTerritorioMotorista,
+  agruparRegioesPorPlacaData, agruparTerritorioProgramadoPorPlacaData, avaliarTerritorioMotorista,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
   type CruzamentoTerritorioItem, type TrocaTerritorioItem, type HistoricoTmlMotorista, type CruzamentoMotoristaItem,
   type TerritorioMotoristaInfo,
 } from '../lib/frota'
 import { parseEscalaBuffer } from '../lib/tmlParser'
 import { isSalaTML } from '../lib/tml'
-import type { FrotaDisponibilidade, FrotaPlaca, AlertaFixacaoMotorista, RoteirizacaoPlacaDia } from '../types'
+import type { FrotaDisponibilidade, FrotaPlaca, AlertaFixacaoMotorista } from '../types'
 
 const STATUS_FIXACAO_LABEL: Record<AlertaFixacaoMotorista['status'], string> = {
   pendente: 'Pendente de envio',
@@ -96,7 +96,7 @@ function baixarCSVFrota(nomeArquivo: string, linhas: (string | number)[][]) {
 // Badge da coluna Território no cruzamento de Fixação de Motorista.
 function BadgeTerritorioMotorista({ info }: { info: TerritorioMotoristaInfo }) {
   if (info.status === 'sem_roteirizacao') {
-    return <span className="text-[10px] text-gray-400">— sem roteirização</span>
+    return <span className="text-[10px] text-gray-400">— sem território no PCD</span>
   }
   if (info.status === 'sem_execucao') {
     return (
@@ -140,7 +140,6 @@ export default function Frota() {
   const [historicoTml, setHistoricoTml] = useState<HistoricoTmlRegiao[]>([])
   const [historicoTmlMotorista, setHistoricoTmlMotorista] = useState<HistoricoTmlMotorista[]>([])
   const [alertasFixacao, setAlertasFixacao] = useState<AlertaFixacaoMotorista[]>([])
-  const [roteirizacao, setRoteirizacao] = useState<RoteirizacaoPlacaDia[]>([])
   const [placas, setPlacas] = useState<FrotaPlaca[]>([])
   const [carregando, setCarregando] = useState(true)
   const [uploadando, setUploadando] = useState(false)
@@ -172,7 +171,7 @@ export default function Frota() {
   const carregarDados = useCallback(async () => {
     if (!usuario) return
     setCarregando(true)
-    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }, { data: dataPlacas }, { data: dataMotoristaBase }, { data: dataRosterSala }, { data: dataAlertasFixacao }, { data: dataRoteirizacao }] = await Promise.all([
+    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }, { data: dataPlacas }, { data: dataMotoristaBase }, { data: dataRosterSala }, { data: dataAlertasFixacao }] = await Promise.all([
       supabase.from('frota_disponibilidade')
         .select('*')
         .eq('filial', usuario.filial)
@@ -198,7 +197,6 @@ export default function Frota() {
         .select('matricula, sala')
         .eq('filial', usuario.filial),
       supabase.from('alertas_fixacao_motorista').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
-      supabase.from('roteirizacao_placa_dia').select('*').eq('filial', usuario.filial),
     ])
     setRegistros((data ?? []) as FrotaDisponibilidade[])
     setHistoricoTml([
@@ -221,7 +219,6 @@ export default function Frota() {
         })) as HistoricoTmlMotorista[],
     )
     setAlertasFixacao((dataAlertasFixacao ?? []) as AlertaFixacaoMotorista[])
-    setRoteirizacao((dataRoteirizacao ?? []) as RoteirizacaoPlacaDia[])
     setPlacas((dataPlacas ?? []) as FrotaPlaca[])
     setCarregando(false)
   }, [usuario])
@@ -578,19 +575,20 @@ export default function Frota() {
     ? Math.round((cruzamentoMotoristaFiltrado.filter(c => c.bate).length / cruzamentoMotoristaFiltrado.length) * 100)
     : null
   const linhasMotoristaExibidas = statusMotorista === 'todos' ? cruzamentoMotoristaFiltrado : cruzamentoMotoristaFiltrado.filter(c => statusMotorista === 'ok' ? c.bate : !c.bate)
-  // Território programado (Roteirização) x região executada (mesma fonte da
-  // Fixação de Território) — pra saber, linha a linha, se a placa também
-  // rodou no território certo naquele dia, além do motorista.
-  const roteirizacaoPorPlacaDia = useMemo(() => agruparRoteirizacaoPorPlacaDia(roteirizacao), [roteirizacao])
+  // Território disponibilizado no PCD (mesma fonte da Fixação de Território,
+  // só placas roteirizadas no PCD) x região executada — pra saber, linha a
+  // linha, se a placa também rodou no território certo naquele dia, além do
+  // motorista.
+  const territorioProgramadoPorPlacaData = useMemo(() => agruparTerritorioProgramadoPorPlacaData(registrosAtivos), [registrosAtivos])
   const regioesPorPlacaData = useMemo(() => agruparRegioesPorPlacaData(historicoTml), [historicoTml])
   const territorioPorLinhaMotorista = useMemo(() => {
     const mapa = new Map<string, TerritorioMotoristaInfo>()
     for (const c of linhasMotoristaExibidas) {
       const chave = `${c.placa}|${c.data}`
-      if (!mapa.has(chave)) mapa.set(chave, avaliarTerritorioMotorista(c.placa, c.data, roteirizacaoPorPlacaDia, regioesPorPlacaData))
+      if (!mapa.has(chave)) mapa.set(chave, avaliarTerritorioMotorista(c.placa, c.data, territorioProgramadoPorPlacaData, regioesPorPlacaData))
     }
     return mapa
-  }, [linhasMotoristaExibidas, roteirizacaoPorPlacaDia, regioesPorPlacaData])
+  }, [linhasMotoristaExibidas, territorioProgramadoPorPlacaData, regioesPorPlacaData])
   const rankingMotorista = useMemo(() => rankingMotoristasPerdaFixacao(cruzamentoMotorista), [cruzamentoMotorista])
   const rankingMotivos = useMemo(() => {
     const map = new Map<string, number>()
@@ -1435,7 +1433,7 @@ export default function Frota() {
                     <span><span className="inline-block px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 font-bold">✓</span> rodou no território programado</span>
                     <span><span className="inline-block px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 font-bold">✕</span> rodou em território diferente</span>
                     <span><span className="inline-block px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 font-bold">◐</span> falta importar a região executada do dia</span>
-                    <span>— sem território definido em Roteirização pra essa placa/dia</span>
+                    <span>— placa não roteirizada no PCD (sem território disponibilizado) pra essa data</span>
                   </div>
                 )}
               </div>

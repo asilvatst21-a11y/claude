@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import type { FrotaDisponibilidade, FrotaPlaca, FrotaIVTratativa, DiaSemanaRoteirizacao, RoteirizacaoPlacaDia } from '../types'
+import type { FrotaDisponibilidade, FrotaPlaca, FrotaIVTratativa } from '../types'
 import { supabase } from './supabase'
 import { enviarListaOpcoesWhatsApp } from './zapi'
 import { formatarDataBR } from './utils'
@@ -1003,19 +1003,14 @@ export function cruzarMotorista(
 // ─── Fixação de Motorista × Território: a placa também rodou no território
 // programado pra ela naquele dia? ────────────────────────────────────────
 
-// Dia da semana (SEG a SÁB) de uma data ISO ("yyyy-mm-dd") — domingo não tem
-// roteirização (não há entrega), então retorna null.
-export function diaSemanaDeData(dataISO: string): DiaSemanaRoteirizacao | null {
-  const dias: (DiaSemanaRoteirizacao | null)[] = [null, 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB']
-  return dias[new Date(`${dataISO}T00:00:00`).getDay()] ?? null
-}
-
-// Mapa placa|dia_semana -> território programado (Roteirização), pronto pra
-// consultar por O(1) no cruzamento.
-export function agruparRoteirizacaoPorPlacaDia(rows: RoteirizacaoPlacaDia[]): Map<string, string> {
+// Mapa placa|data -> território disponibilizado no PCD (frota_disponibilidade
+// .regiao), mesma fonte e mesmo filtro (DISPONIVEL + regiao presente) usados
+// no cruzamento da aba Fixação de Território — só placas roteirizadas no PCD
+// entram aqui.
+export function agruparTerritorioProgramadoPorPlacaData(frotaRows: FrotaDisponibilidade[]): Map<string, string> {
   const mapa = new Map<string, string>()
-  for (const r of rows) {
-    if (r.territorio) mapa.set(`${r.placa}|${r.dia_semana}`, r.territorio)
+  for (const r of frotaRows) {
+    if (normalizar(r.status) === 'DISPONIVEL' && r.regiao) mapa.set(`${r.placa}|${r.data}`, r.regiao)
   }
   return mapa
 }
@@ -1029,18 +1024,17 @@ export interface TerritorioMotoristaInfo {
 }
 
 // Compara, pra uma placa+dia do cruzamento de Fixação de Motorista, o
-// território que ela deveria rodar (Roteirização, pelo dia da semana) com a
-// região que ela realmente executou (mesma fonte usada na Fixação de
-// Território — Base do Mapa/TML). Reaproveita bairroBateNaRegiao, a mesma
-// comparação aproximada já usada pra cruzar território x placa.
+// território disponibilizado no PCD com a região que ela realmente executou
+// (mesma fonte e lógica usadas na Fixação de Território — Base do
+// Mapa/TML). Reaproveita bairroBateNaRegiao, a mesma comparação aproximada
+// já usada pra cruzar território x placa.
 export function avaliarTerritorioMotorista(
   placa: string,
   data: string,
-  roteirizacaoPorPlacaDia: Map<string, string>,
+  territorioProgramadoPorPlacaData: Map<string, string>,
   regioesPorPlacaData: Map<string, string[]>,
 ): TerritorioMotoristaInfo {
-  const diaSemana = diaSemanaDeData(data)
-  const territorioProgramado = diaSemana ? roteirizacaoPorPlacaDia.get(`${placa}|${diaSemana}`) ?? null : null
+  const territorioProgramado = territorioProgramadoPorPlacaData.get(`${placa}|${data}`) ?? null
   if (!territorioProgramado) return { status: 'sem_roteirizacao', territorioProgramado: null, regiaoExecutada: null }
 
   const regioes = regioesPorPlacaData.get(`${placa}|${data}`) ?? []
@@ -1272,16 +1266,16 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
     : { data: [] as { matricula: number; nome: string }[] }
   const nomePorMatricula = new Map((roster ?? []).map((r) => [String(r.matricula), r.nome]))
 
-  // Território programado (Roteirização) x região realmente executada
-  // (mesma fonte da Fixação de Território) — pra avisar o supervisor se a
+  // Território disponibilizado no PCD x região realmente executada (mesma
+  // fonte e lógica da Fixação de Território) — pra avisar o supervisor se a
   // placa também saiu do território, além do motorista.
   const placasNok = [...new Set(nokUnico.map((c) => c.placa))]
-  const [{ data: dataRoteirizacao }, { data: dataHistoricoTml }, { data: dataTerritorioHist }] = await Promise.all([
-    supabase.from('roteirizacao_placa_dia').select('placa, dia_semana, territorio').eq('filial', filial).in('placa', placasNok),
+  const [{ data: dataDisponibilidade }, { data: dataHistoricoTml }, { data: dataTerritorioHist }] = await Promise.all([
+    supabase.from('frota_disponibilidade').select('placa, data, status, regiao').eq('filial', filial).in('placa', placasNok),
     supabase.from('historico_tml').select('placa, data_saida, regiao_entregas, cidades_entregas').eq('filial', filial).in('placa', placasNok),
     supabase.from('frota_territorio_historico').select('placa, data, regiao_entregas').eq('filial', filial).in('placa', placasNok),
   ])
-  const roteirizacaoPorPlacaDia = agruparRoteirizacaoPorPlacaDia((dataRoteirizacao ?? []) as RoteirizacaoPlacaDia[])
+  const territorioProgramadoPorPlacaData = agruparTerritorioProgramadoPorPlacaData((dataDisponibilidade ?? []) as FrotaDisponibilidade[])
   const regioesPorPlacaData = agruparRegioesPorPlacaData([
     ...((dataHistoricoTml ?? []) as HistoricoTmlRegiao[]),
     ...((dataTerritorioHist ?? []) as { placa: string | null; data: string | null; regiao_entregas: string | null }[])
@@ -1301,7 +1295,7 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
       ...item,
       nomeEsperada1: item.matriculaEsperada1 ? nomePorMatricula.get(item.matriculaEsperada1) ?? null : null,
       nomeEsperada2: item.matriculaEsperada2 ? nomePorMatricula.get(item.matriculaEsperada2) ?? null : null,
-      territorio: avaliarTerritorioMotorista(item.placa, item.data, roteirizacaoPorPlacaDia, regioesPorPlacaData),
+      territorio: avaliarTerritorioMotorista(item.placa, item.data, territorioProgramadoPorPlacaData, regioesPorPlacaData),
     })
     const numero = await gerarNumeroFixacao(filial)
 
