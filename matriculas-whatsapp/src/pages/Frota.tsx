@@ -806,7 +806,6 @@ export default function Frota() {
                   <div className="flex-1">
                     <p className="text-xs text-muted-foreground">Frota Contratada</p>
                     <p className="text-xl font-bold leading-tight">{contratadaExibida}</p>
-                    {metaContratada !== null && <p className="text-xs text-accent-600 mt-0.5">Ajustado manualmente (relatório: {ultimo.contratada})</p>}
                   </div>
                   <button
                     onClick={() => { setMetaContratadaInput(String(contratadaExibida)); setEditandoMetaContratada(true) }}
