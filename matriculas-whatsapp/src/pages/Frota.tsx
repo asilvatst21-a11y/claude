@@ -17,12 +17,14 @@ import {
   cruzarMotorista, rankingMotoristasPerdaFixacao, calcularAderenciaMotoristaPorDia, calcularAderenciaMotoristaMeses, calcularAderenciaMotoristaPorDiaESala,
   processarFixacaoMotorista, parseBaseMapaTerritorio, MOTIVOS_FIXACAO_MOTORISTA,
   detalhePorPlaca, sequenciaAtualIndisponivel, rankingMotivosPeriodo,
+  agruparRegioesPorPlacaData, agruparRoteirizacaoPorPlacaDia, avaliarTerritorioMotorista,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
   type CruzamentoTerritorioItem, type TrocaTerritorioItem, type HistoricoTmlMotorista, type CruzamentoMotoristaItem,
+  type TerritorioMotoristaInfo,
 } from '../lib/frota'
 import { parseEscalaBuffer } from '../lib/tmlParser'
 import { isSalaTML } from '../lib/tml'
-import type { FrotaDisponibilidade, FrotaPlaca, AlertaFixacaoMotorista } from '../types'
+import type { FrotaDisponibilidade, FrotaPlaca, AlertaFixacaoMotorista, RoteirizacaoPlacaDia } from '../types'
 
 const STATUS_FIXACAO_LABEL: Record<AlertaFixacaoMotorista['status'], string> = {
   pendente: 'Pendente de envio',
@@ -91,6 +93,31 @@ function baixarCSVFrota(nomeArquivo: string, linhas: (string | number)[][]) {
   URL.revokeObjectURL(url)
 }
 
+// Badge da coluna Território no cruzamento de Fixação de Motorista.
+function BadgeTerritorioMotorista({ info }: { info: TerritorioMotoristaInfo }) {
+  if (info.status === 'sem_roteirizacao') {
+    return <span className="text-[10px] text-gray-400">— sem roteirização</span>
+  }
+  if (info.status === 'sem_execucao') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 w-fit">◐ Sem execução</span>
+        <span className="text-[10px] text-gray-500">Programado: {info.territorioProgramado}</span>
+      </div>
+    )
+  }
+  if (info.status === 'divergente') {
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 w-fit">✕ Divergente</span>
+        <span className="text-[10px] text-gray-500">Devia: {info.territorioProgramado}</span>
+        <span className="text-[10px] text-red-600 font-medium">Rodou: {info.regiaoExecutada}</span>
+      </div>
+    )
+  }
+  return <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-green-50 text-green-700">✓ {info.territorioProgramado}</span>
+}
+
 // Cadastra placas novas em frota_placas (ativo=true, perfil em branco) sem
 // sobrescrever o que já existe — quem edita ativo/perfil é a tela de Placas.
 async function semearPlacas(filial: string, rows: { placa: string }[]) {
@@ -113,6 +140,7 @@ export default function Frota() {
   const [historicoTml, setHistoricoTml] = useState<HistoricoTmlRegiao[]>([])
   const [historicoTmlMotorista, setHistoricoTmlMotorista] = useState<HistoricoTmlMotorista[]>([])
   const [alertasFixacao, setAlertasFixacao] = useState<AlertaFixacaoMotorista[]>([])
+  const [roteirizacao, setRoteirizacao] = useState<RoteirizacaoPlacaDia[]>([])
   const [placas, setPlacas] = useState<FrotaPlaca[]>([])
   const [carregando, setCarregando] = useState(true)
   const [uploadando, setUploadando] = useState(false)
@@ -144,7 +172,7 @@ export default function Frota() {
   const carregarDados = useCallback(async () => {
     if (!usuario) return
     setCarregando(true)
-    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }, { data: dataPlacas }, { data: dataMotoristaBase }, { data: dataRosterSala }, { data: dataAlertasFixacao }] = await Promise.all([
+    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }, { data: dataPlacas }, { data: dataMotoristaBase }, { data: dataRosterSala }, { data: dataAlertasFixacao }, { data: dataRoteirizacao }] = await Promise.all([
       supabase.from('frota_disponibilidade')
         .select('*')
         .eq('filial', usuario.filial)
@@ -170,6 +198,7 @@ export default function Frota() {
         .select('matricula, sala')
         .eq('filial', usuario.filial),
       supabase.from('alertas_fixacao_motorista').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
+      supabase.from('roteirizacao_placa_dia').select('*').eq('filial', usuario.filial),
     ])
     setRegistros((data ?? []) as FrotaDisponibilidade[])
     setHistoricoTml([
@@ -192,6 +221,7 @@ export default function Frota() {
         })) as HistoricoTmlMotorista[],
     )
     setAlertasFixacao((dataAlertasFixacao ?? []) as AlertaFixacaoMotorista[])
+    setRoteirizacao((dataRoteirizacao ?? []) as RoteirizacaoPlacaDia[])
     setPlacas((dataPlacas ?? []) as FrotaPlaca[])
     setCarregando(false)
   }, [usuario])
@@ -548,6 +578,19 @@ export default function Frota() {
     ? Math.round((cruzamentoMotoristaFiltrado.filter(c => c.bate).length / cruzamentoMotoristaFiltrado.length) * 100)
     : null
   const linhasMotoristaExibidas = statusMotorista === 'todos' ? cruzamentoMotoristaFiltrado : cruzamentoMotoristaFiltrado.filter(c => statusMotorista === 'ok' ? c.bate : !c.bate)
+  // Território programado (Roteirização) x região executada (mesma fonte da
+  // Fixação de Território) — pra saber, linha a linha, se a placa também
+  // rodou no território certo naquele dia, além do motorista.
+  const roteirizacaoPorPlacaDia = useMemo(() => agruparRoteirizacaoPorPlacaDia(roteirizacao), [roteirizacao])
+  const regioesPorPlacaData = useMemo(() => agruparRegioesPorPlacaData(historicoTml), [historicoTml])
+  const territorioPorLinhaMotorista = useMemo(() => {
+    const mapa = new Map<string, TerritorioMotoristaInfo>()
+    for (const c of linhasMotoristaExibidas) {
+      const chave = `${c.placa}|${c.data}`
+      if (!mapa.has(chave)) mapa.set(chave, avaliarTerritorioMotorista(c.placa, c.data, roteirizacaoPorPlacaDia, regioesPorPlacaData))
+    }
+    return mapa
+  }, [linhasMotoristaExibidas, roteirizacaoPorPlacaDia, regioesPorPlacaData])
   const rankingMotorista = useMemo(() => rankingMotoristasPerdaFixacao(cruzamentoMotorista), [cruzamentoMotorista])
   const rankingMotivos = useMemo(() => {
     const map = new Map<string, number>()
@@ -1341,6 +1384,7 @@ export default function Frota() {
                         <th className="text-left py-2 font-medium">Sala</th>
                         <th className="text-left py-2 font-medium">Motorista fixado</th>
                         <th className="text-left py-2 font-medium">Motorista que rodou</th>
+                        <th className="text-left py-2 font-medium">Território</th>
                         <th className="text-center py-2 font-medium">Status</th>
                         <th className="text-left py-2 font-medium">Justificativa</th>
                       </tr>
@@ -1348,6 +1392,7 @@ export default function Frota() {
                     <tbody>
                       {linhasMotoristaExibidas.map((c, i) => {
                         const alerta = alertaPorPlacaData.get(`${c.placa}|${c.data}`)
+                        const territorio = territorioPorLinhaMotorista.get(`${c.placa}|${c.data}`)
                         return (
                           <tr key={`${c.placa}-${c.data}-${i}`} className="border-b border-gray-50">
                             <td className="py-2 text-gray-600">{formatarDataBR(c.data)}</td>
@@ -1355,6 +1400,7 @@ export default function Frota() {
                             <td className="py-2 text-gray-600">{c.sala ?? '—'}</td>
                             <td className="py-2 text-gray-600">{[c.matriculaEsperada1, c.matriculaEsperada2].filter(Boolean).join(' / ') || '—'}</td>
                             <td className="py-2 text-gray-600">{c.nomeExecutou ?? '—'} ({c.matriculaExecutou})</td>
+                            <td className="py-2">{territorio && <BadgeTerritorioMotorista info={territorio} />}</td>
                             <td className="py-2 text-center">
                               {c.bate ? (
                                 <CheckCircle2 size={16} className="inline text-green-600" />
@@ -1383,6 +1429,14 @@ export default function Frota() {
                     </tbody>
                   </table>
                 </div>
+                )}
+                {cruzamentoMotoristaAberto && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-gray-500 pt-3 mt-3 border-t border-gray-100">
+                    <span><span className="inline-block px-1.5 py-0.5 rounded-full bg-green-50 text-green-700 font-bold">✓</span> rodou no território programado</span>
+                    <span><span className="inline-block px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 font-bold">✕</span> rodou em território diferente</span>
+                    <span><span className="inline-block px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 font-bold">◐</span> falta importar a região executada do dia</span>
+                    <span>— sem território definido em Roteirização pra essa placa/dia</span>
+                  </div>
                 )}
               </div>
 
@@ -1415,7 +1469,7 @@ export default function Frota() {
                 </div>
               )}
 
-              <FixacaoMotoristaExportTemplate ref={exportMotoristaRef} filial={usuario?.filial ?? ''} dia={diaMotorista} linhas={linhasMotoristaExibidas} aderencia={aderenciaMotorista} alertas={alertasFixacao} />
+              <FixacaoMotoristaExportTemplate ref={exportMotoristaRef} filial={usuario?.filial ?? ''} dia={diaMotorista} linhas={linhasMotoristaExibidas} aderencia={aderenciaMotorista} alertas={alertasFixacao} territorioPorLinha={territorioPorLinhaMotorista} />
             </>
           )}
         </div>
@@ -1771,13 +1825,21 @@ const TerritorioCruzamentoExportTemplate = forwardRef<HTMLDivElement, {
   )
 })
 
+const TERRITORIO_EXPORT_ESTILO: Record<TerritorioMotoristaInfo['status'], { bg: string; fg: string; border: string; label: string }> = {
+  ok: { bg: '#dcfce7', fg: '#15803d', border: '#bbf7d0', label: 'OK' },
+  divergente: { bg: '#fee2e2', fg: '#b91c1c', border: '#fecaca', label: 'NOK' },
+  sem_execucao: { bg: '#fef3c7', fg: '#92400e', border: '#fde68a', label: 'S/ EXEC.' },
+  sem_roteirizacao: { bg: '#f1f5f9', fg: '#64748b', border: '#e2e8f0', label: '—' },
+}
+
 const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
   filial: string
   dia: string
   linhas: CruzamentoMotoristaItem[]
   aderencia: number | null
   alertas: AlertaFixacaoMotorista[]
-}>(function FixacaoMotoristaExportTemplate({ filial, dia, linhas, aderencia, alertas }, ref) {
+  territorioPorLinha: Map<string, TerritorioMotoristaInfo>
+}>(function FixacaoMotoristaExportTemplate({ filial, dia, linhas, aderencia, alertas, territorioPorLinha }, ref) {
   const th: React.CSSProperties = { padding: '7px 10px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', whiteSpace: 'nowrap' }
   const td: React.CSSProperties = { padding: '6px 10px', fontSize: '11px', verticalAlign: 'middle' }
   const alertaPorChave = new Map(alertas.map(a => [`${a.placa}|${a.data}`, a]))
@@ -1813,6 +1875,7 @@ const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
             <th style={th}>Sala</th>
             <th style={th}>Motorista fixado</th>
             <th style={th}>Motorista que rodou</th>
+            <th style={th}>Território</th>
             <th style={{ ...th, textAlign: 'center' }}>Status</th>
             <th style={th}>Justificativa</th>
           </tr>
@@ -1820,6 +1883,8 @@ const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
         <tbody>
           {linhas.map((c, i) => {
             const alerta = alertaPorChave.get(`${c.placa}|${c.data}`)
+            const territorio = territorioPorLinha.get(`${c.placa}|${c.data}`)
+            const estiloTerr = territorio ? TERRITORIO_EXPORT_ESTILO[territorio.status] : null
             return (
             <tr key={`${c.placa}-${c.data}-${i}`} style={{ background: i % 2 === 0 ? '#fff' : '#f8fafc', borderTop: '1px solid #f1f5f9' }}>
               <td style={{ ...td, color: '#475569' }}>{formatarDataBR(c.data)}</td>
@@ -1827,6 +1892,13 @@ const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
               <td style={{ ...td, color: '#475569' }}>{c.sala ?? '—'}</td>
               <td style={{ ...td, color: '#475569' }}>{[c.matriculaEsperada1, c.matriculaEsperada2].filter(Boolean).join(' ou ') || '—'}</td>
               <td style={{ ...td, color: '#475569' }}>{c.nomeExecutou ?? '—'} ({c.matriculaExecutou})</td>
+              <td style={{ ...td, color: '#475569' }}>
+                {territorio && estiloTerr && territorio.status !== 'sem_roteirizacao' ? (
+                  <span style={{ display: 'inline-block', background: estiloTerr.bg, color: estiloTerr.fg, border: `1px solid ${estiloTerr.border}`, borderRadius: '999px', padding: '2px 8px', fontSize: '9px', fontWeight: 700 }}>
+                    {territorio.status === 'ok' ? territorio.territorioProgramado : territorio.status === 'divergente' ? `${territorio.regiaoExecutada} ≠ ${territorio.territorioProgramado}` : 'sem execução'}
+                  </span>
+                ) : '—'}
+              </td>
               <td style={{ ...td, textAlign: 'center' }}>
                 <span style={{ display: 'inline-block', background: c.bate ? '#dcfce7' : '#fee2e2', color: c.bate ? '#15803d' : '#b91c1c', border: `1px solid ${c.bate ? '#bbf7d0' : '#fecaca'}`, borderRadius: '999px', padding: '2px 9px', fontSize: '10px', fontWeight: 700, textTransform: 'uppercase' }}>
                   {c.bate ? 'OK' : 'NOK'}

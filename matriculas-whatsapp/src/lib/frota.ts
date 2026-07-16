@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx'
-import type { FrotaDisponibilidade, FrotaPlaca, FrotaIVTratativa } from '../types'
+import type { FrotaDisponibilidade, FrotaPlaca, FrotaIVTratativa, DiaSemanaRoteirizacao, RoteirizacaoPlacaDia } from '../types'
 import { supabase } from './supabase'
 import { enviarListaOpcoesWhatsApp } from './zapi'
 import { formatarDataBR } from './utils'
@@ -583,16 +583,10 @@ export interface CruzamentoTerritorioItem {
   bate: boolean | null
 }
 
-// Cruza, por placa+dia, o território disponibilizado com a(s) região(ões)
-// realmente entregue(s) naquele dia (pode haver mais de um mapa/viagem por
-// placa no mesmo dia). `bate: null` quando não há dado do TML para comparar.
-// Usa a coluna "Região" (ex.: "910 - Correas") — no relatório/histórico de
-// Frota a coluna "Território" vem sempre zerada ("0000"); quem traz o
-// código + nome do bairro disponibilizado é a "Região".
-export function cruzarTerritorio(
-  frotaRows: FrotaDisponibilidade[],
-  historicoTml: HistoricoTmlRegiao[],
-): CruzamentoTerritorioItem[] {
+// Agrupa "Região +Entregas" e "Cidades +Entregas" por placa+dia — usado
+// tanto por cruzarTerritorio (território x placa disponibilizada) quanto
+// por avaliarTerritorioMotorista (território x motorista fixado).
+export function agruparRegioesPorPlacaData(historicoTml: HistoricoTmlRegiao[]): Map<string, string[]> {
   const regioesPorPlacaData = new Map<string, string[]>()
   for (const h of historicoTml) {
     if (!h.placa || !h.data_saida) continue
@@ -605,6 +599,20 @@ export function cruzarTerritorio(
     if (h.regiao_entregas) regioesPorPlacaData.get(key)!.push(h.regiao_entregas)
     if (h.cidades_entregas) regioesPorPlacaData.get(key)!.push(h.cidades_entregas)
   }
+  return regioesPorPlacaData
+}
+
+// Cruza, por placa+dia, o território disponibilizado com a(s) região(ões)
+// realmente entregue(s) naquele dia (pode haver mais de um mapa/viagem por
+// placa no mesmo dia). `bate: null` quando não há dado do TML para comparar.
+// Usa a coluna "Região" (ex.: "910 - Correas") — no relatório/histórico de
+// Frota a coluna "Território" vem sempre zerada ("0000"); quem traz o
+// código + nome do bairro disponibilizado é a "Região".
+export function cruzarTerritorio(
+  frotaRows: FrotaDisponibilidade[],
+  historicoTml: HistoricoTmlRegiao[],
+): CruzamentoTerritorioItem[] {
+  const regioesPorPlacaData = agruparRegioesPorPlacaData(historicoTml)
 
   return frotaRows
     .filter(r => normalizar(r.status) === 'DISPONIVEL' && r.regiao)
@@ -992,6 +1000,56 @@ export function cruzarMotorista(
   return resultado.sort((a, b) => b.data.localeCompare(a.data) || a.placa.localeCompare(b.placa))
 }
 
+// ─── Fixação de Motorista × Território: a placa também rodou no território
+// programado pra ela naquele dia? ────────────────────────────────────────
+
+// Dia da semana (SEG a SÁB) de uma data ISO ("yyyy-mm-dd") — domingo não tem
+// roteirização (não há entrega), então retorna null.
+export function diaSemanaDeData(dataISO: string): DiaSemanaRoteirizacao | null {
+  const dias: (DiaSemanaRoteirizacao | null)[] = [null, 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB']
+  return dias[new Date(`${dataISO}T00:00:00`).getDay()] ?? null
+}
+
+// Mapa placa|dia_semana -> território programado (Roteirização), pronto pra
+// consultar por O(1) no cruzamento.
+export function agruparRoteirizacaoPorPlacaDia(rows: RoteirizacaoPlacaDia[]): Map<string, string> {
+  const mapa = new Map<string, string>()
+  for (const r of rows) {
+    if (r.territorio) mapa.set(`${r.placa}|${r.dia_semana}`, r.territorio)
+  }
+  return mapa
+}
+
+export type StatusTerritorioMotorista = 'ok' | 'divergente' | 'sem_execucao' | 'sem_roteirizacao'
+
+export interface TerritorioMotoristaInfo {
+  status: StatusTerritorioMotorista
+  territorioProgramado: string | null
+  regiaoExecutada: string | null
+}
+
+// Compara, pra uma placa+dia do cruzamento de Fixação de Motorista, o
+// território que ela deveria rodar (Roteirização, pelo dia da semana) com a
+// região que ela realmente executou (mesma fonte usada na Fixação de
+// Território — Base do Mapa/TML). Reaproveita bairroBateNaRegiao, a mesma
+// comparação aproximada já usada pra cruzar território x placa.
+export function avaliarTerritorioMotorista(
+  placa: string,
+  data: string,
+  roteirizacaoPorPlacaDia: Map<string, string>,
+  regioesPorPlacaData: Map<string, string[]>,
+): TerritorioMotoristaInfo {
+  const diaSemana = diaSemanaDeData(data)
+  const territorioProgramado = diaSemana ? roteirizacaoPorPlacaDia.get(`${placa}|${diaSemana}`) ?? null : null
+  if (!territorioProgramado) return { status: 'sem_roteirizacao', territorioProgramado: null, regiaoExecutada: null }
+
+  const regioes = regioesPorPlacaData.get(`${placa}|${data}`) ?? []
+  if (regioes.length === 0) return { status: 'sem_execucao', territorioProgramado, regiaoExecutada: null }
+
+  const bate = bairroBateNaRegiao(territorioProgramado, regioes)
+  return { status: bate ? 'ok' : 'divergente', territorioProgramado, regiaoExecutada: regioes.join(' / ') }
+}
+
 export interface RankingMotoristaFixacao {
   matricula: number
   nome: string | null
@@ -1140,6 +1198,16 @@ async function gerarNumeroFixacao(filial: string): Promise<string> {
   return `FIX-${ds}-${n}`
 }
 
+// Linha extra sobre território pra mensagem de fixação de motorista — null
+// quando a placa/dia nem tem território programado ainda (não vale a pena
+// avisar sobre um dado que não existe).
+function linhaTerritorioFixacaoMotorista(info: TerritorioMotoristaInfo): string | null {
+  if (info.status === 'sem_roteirizacao') return null
+  if (info.status === 'ok') return `📍 Território: rodou em ${info.regiaoExecutada} — bate com o programado (${info.territorioProgramado}) ✅`
+  if (info.status === 'divergente') return `📍 Território: devia rodar em ${info.territorioProgramado}, rodou em ${info.regiaoExecutada} ⚠️`
+  return `📍 Território: programado ${info.territorioProgramado} — ainda sem região executada pra confirmar`
+}
+
 function montarMensagemFixacaoMotorista(item: {
   placa: string
   data: string
@@ -1147,16 +1215,19 @@ function montarMensagemFixacaoMotorista(item: {
   nomeExecutou: string | null
   nomeEsperada1: string | null
   nomeEsperada2: string | null
+  territorio?: TerritorioMotoristaInfo
 }): string {
   const esperados = [item.nomeEsperada1, item.nomeEsperada2].filter(Boolean).join(' ou ')
+  const linhaTerritorio = item.territorio ? linhaTerritorioFixacaoMotorista(item.territorio) : null
   return (
     `⚠️ *FIXAÇÃO DE MOTORISTA — DIVERGÊNCIA*\n\n` +
     `🚛 Placa: ${item.placa}\n` +
     `📅 Data: ${formatarDataBR(item.data)}\n` +
     `🏢 Sala: ${item.sala ?? '—'}\n` +
     `👤 Motorista que rodou: ${item.nomeExecutou ?? '—'}\n` +
-    `📌 Motorista(s) fixado(s) na placa: ${esperados || '—'}\n\n` +
-    `A placa rodou com um motorista diferente do fixado. *Selecione abaixo o motivo da divergência*:`
+    `📌 Motorista(s) fixado(s) na placa: ${esperados || '—'}\n` +
+    (linhaTerritorio ? `${linhaTerritorio}\n` : '') +
+    `\nA placa rodou com um motorista diferente do fixado. *Selecione abaixo o motivo da divergência*:`
   )
 }
 
@@ -1201,6 +1272,22 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
     : { data: [] as { matricula: number; nome: string }[] }
   const nomePorMatricula = new Map((roster ?? []).map((r) => [String(r.matricula), r.nome]))
 
+  // Território programado (Roteirização) x região realmente executada
+  // (mesma fonte da Fixação de Território) — pra avisar o supervisor se a
+  // placa também saiu do território, além do motorista.
+  const placasNok = [...new Set(nokUnico.map((c) => c.placa))]
+  const [{ data: dataRoteirizacao }, { data: dataHistoricoTml }, { data: dataTerritorioHist }] = await Promise.all([
+    supabase.from('roteirizacao_placa_dia').select('placa, dia_semana, territorio').eq('filial', filial).in('placa', placasNok),
+    supabase.from('historico_tml').select('placa, data_saida, regiao_entregas, cidades_entregas').eq('filial', filial).in('placa', placasNok),
+    supabase.from('frota_territorio_historico').select('placa, data, regiao_entregas').eq('filial', filial).in('placa', placasNok),
+  ])
+  const roteirizacaoPorPlacaDia = agruparRoteirizacaoPorPlacaDia((dataRoteirizacao ?? []) as RoteirizacaoPlacaDia[])
+  const regioesPorPlacaData = agruparRegioesPorPlacaData([
+    ...((dataHistoricoTml ?? []) as HistoricoTmlRegiao[]),
+    ...((dataTerritorioHist ?? []) as { placa: string | null; data: string | null; regiao_entregas: string | null }[])
+      .map((r) => ({ placa: r.placa, data_saida: r.data, regiao_entregas: r.regiao_entregas, cidades_entregas: null })),
+  ])
+
   for (const item of nokUnico) {
     if (jaAlertados.has(`${item.placa}|${item.data}`)) continue
 
@@ -1214,6 +1301,7 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
       ...item,
       nomeEsperada1: item.matriculaEsperada1 ? nomePorMatricula.get(item.matriculaEsperada1) ?? null : null,
       nomeEsperada2: item.matriculaEsperada2 ? nomePorMatricula.get(item.matriculaEsperada2) ?? null : null,
+      territorio: avaliarTerritorioMotorista(item.placa, item.data, roteirizacaoPorPlacaDia, regioesPorPlacaData),
     })
     const numero = await gerarNumeroFixacao(filial)
 
