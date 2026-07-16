@@ -164,6 +164,10 @@ export default function Frota() {
   const [alertasFixacao, setAlertasFixacao] = useState<AlertaFixacaoMotorista[]>([])
   const [nomePorMatriculaFrota, setNomePorMatriculaFrota] = useState<Map<string, string>>(new Map())
   const [placas, setPlacas] = useState<FrotaPlaca[]>([])
+  const [metaContratada, setMetaContratada] = useState<number | null>(null)
+  const [editandoMetaContratada, setEditandoMetaContratada] = useState(false)
+  const [metaContratadaInput, setMetaContratadaInput] = useState('')
+  const [salvandoMetaContratada, setSalvandoMetaContratada] = useState(false)
   const [carregando, setCarregando] = useState(true)
   const [uploadando, setUploadando] = useState(false)
   const [importResult, setImportResult] = useState<{ tipo: 'sucesso' | 'erro'; mensagem: string } | null>(null)
@@ -197,7 +201,7 @@ export default function Frota() {
   const carregarDados = useCallback(async () => {
     if (!usuario) return
     setCarregando(true)
-    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }, { data: dataPlacas }, { data: dataMotoristaBase }, { data: dataRosterSala }, { data: dataAlertasFixacao }] = await Promise.all([
+    const [{ data }, { data: dataTml }, { data: dataTerritorioHist }, { data: dataPlacas }, { data: dataMotoristaBase }, { data: dataRosterSala }, { data: dataAlertasFixacao }, { data: dataMetaContratada }] = await Promise.all([
       supabase.from('frota_disponibilidade')
         .select('*')
         .eq('filial', usuario.filial)
@@ -223,6 +227,7 @@ export default function Frota() {
         .select('matricula, sala, nome')
         .eq('filial', usuario.filial),
       supabase.from('alertas_fixacao_motorista').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
+      supabase.from('frota_meta_contratada').select('quantidade').eq('filial', usuario.filial).maybeSingle(),
     ])
     setRegistros((data ?? []) as FrotaDisponibilidade[])
     setHistoricoTml([
@@ -244,11 +249,26 @@ export default function Frota() {
         })) as HistoricoTmlMotorista[],
     )
     setAlertasFixacao((dataAlertasFixacao ?? []) as AlertaFixacaoMotorista[])
+    setMetaContratada((dataMetaContratada as { quantidade: number } | null)?.quantidade ?? null)
     setPlacas((dataPlacas ?? []) as FrotaPlaca[])
     setCarregando(false)
   }, [usuario])
 
   useEffect(() => { carregarDados() }, [carregarDados])
+
+  async function salvarMetaContratada() {
+    if (!usuario) return
+    const quantidade = Number(metaContratadaInput)
+    if (!Number.isInteger(quantidade) || quantidade < 0) return
+    setSalvandoMetaContratada(true)
+    try {
+      await supabase.from('frota_meta_contratada').upsert({ filial: usuario.filial, quantidade, atualizado_em: new Date().toISOString() }, { onConflict: 'filial' })
+      setMetaContratada(quantidade)
+      setEditandoMetaContratada(false)
+    } finally {
+      setSalvandoMetaContratada(false)
+    }
+  }
 
   const onDropCsv = useCallback((files: File[]) => {
     if (!usuario || !files[0]) return
@@ -558,6 +578,12 @@ export default function Frota() {
   const registrosAtivos = useMemo(() => placasAtivasFiltro(registros, placas), [registros, placas])
   const resumos = useMemo(() => resumoPorDia(registrosAtivos), [registrosAtivos])
   const ultimo = resumos[resumos.length - 1] ?? null
+  // Frota Contratada exibida no card usa o ajuste manual (frota_meta_
+  // contratada) quando cadastrado, no lugar da contagem derivada do
+  // relatório — só recalcula o % Disponibilidade; Indisponível continua
+  // vindo do relatório sem alteração.
+  const contratadaExibida = metaContratada ?? ultimo?.contratada ?? 0
+  const percentualExibido = ultimo && contratadaExibida > 0 ? Math.round((ultimo.disponivel / contratadaExibida) * 100) : ultimo?.percentual ?? 0
   const grafico = resumos.map(r => ({ data: formatarDataBR(r.data), percentual: r.percentual }))
   const disponiveis = ultimo ? disponiveisNoDia(registrosAtivos, ultimo.data) : []
   const statusPlacas = useMemo(() => (ultimo ? statusPlacasNoDia(registrosAtivos, ultimo.data, placas) : []), [registrosAtivos, ultimo, placas])
@@ -773,10 +799,47 @@ export default function Frota() {
               </div>
 
               <div className="grid sm:grid-cols-4 gap-4">
-                <Card icon={Truck} label="Frota Contratada" value={String(ultimo.contratada)} accent="text-brand-700 bg-brand-50" />
+                <div className="border rounded-xl bg-white p-4 flex items-start gap-3 shadow-sm hover:shadow-md transition-shadow relative">
+                  <div className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0 text-brand-700 bg-brand-50">
+                    <Truck className="h-5 w-5" />
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs text-muted-foreground">Frota Contratada</p>
+                    <p className="text-xl font-bold leading-tight">{contratadaExibida}</p>
+                    {metaContratada !== null && <p className="text-xs text-accent-600 mt-0.5">Ajustado manualmente (relatório: {ultimo.contratada})</p>}
+                  </div>
+                  <button
+                    onClick={() => { setMetaContratadaInput(String(contratadaExibida)); setEditandoMetaContratada(true) }}
+                    className="text-gray-300 hover:text-brand-600 shrink-0"
+                    title="Ajustar frota contratada"
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  {editandoMetaContratada && (
+                    <div className="absolute z-10 top-full left-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-lg p-3" onClick={e => e.stopPropagation()}>
+                      <p className="text-xs font-medium text-gray-600 mb-2">Quantidade de frota contratada (quinzena atual)</p>
+                      <div className="flex gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          value={metaContratadaInput}
+                          onChange={e => setMetaContratadaInput(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && salvarMetaContratada()}
+                          className="flex-1 text-sm border border-gray-200 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                          autoFocus
+                        />
+                        <button onClick={salvarMetaContratada} disabled={salvandoMetaContratada} className="px-3 py-1.5 bg-brand-700 text-white text-xs font-medium rounded-lg disabled:opacity-40">
+                          {salvandoMetaContratada ? <Loader2 size={12} className="animate-spin" /> : 'Salvar'}
+                        </button>
+                        <button onClick={() => setEditandoMetaContratada(false)} className="px-2 text-gray-400 hover:text-gray-600"><X size={14} /></button>
+                      </div>
+                      <p className="text-[11px] text-gray-400 mt-2">Substitui a contagem do relatório ({ultimo.contratada}) só neste card e no % Disponibilidade, até o próximo ajuste.</p>
+                    </div>
+                  )}
+                </div>
                 <Card icon={CheckCircle2} label="Disponível" value={String(ultimo.disponivel)} accent="text-green-700 bg-green-50" />
                 <Card icon={XCircle} label="Indisponível" value={String(ultimo.indisponivel)} accent="text-red-700 bg-red-50" />
-                <Card icon={Truck} label="% Disponibilidade" value={`${ultimo.percentual}%`} accent="text-accent-600 bg-accent/40" />
+                <Card icon={Truck} label="% Disponibilidade" value={`${percentualExibido}%`} accent="text-accent-600 bg-accent/40" />
               </div>
 
               {perfis.length > 0 && (
@@ -794,7 +857,7 @@ export default function Frota() {
                 </div>
               )}
 
-              <FrotaExportTemplate ref={exportRef} filial={usuario?.filial ?? ''} resumo={ultimo} perfis={perfis} />
+              <FrotaExportTemplate ref={exportRef} filial={usuario?.filial ?? ''} resumo={{ ...ultimo, contratada: contratadaExibida, percentual: percentualExibido }} perfis={perfis} />
               <FrotaPlacasExportTemplate ref={exportPlacasRef} filial={usuario?.filial ?? ''} data={ultimo.data} placas={statusPlacas} />
 
               <div className="grid lg:grid-cols-2 gap-5">
