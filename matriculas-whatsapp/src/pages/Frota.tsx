@@ -174,6 +174,8 @@ export default function Frota() {
   const [dataFimMotorista, setDataFimMotorista] = useState<string>('')
   const defaultDataMotoristaAplicado = useRef(false)
   const [statusMotorista, setStatusMotorista] = useState<'todos' | 'ok' | 'nok'>('todos')
+  const [salaMotorista, setSalaMotorista] = useState<'todas' | 'COLORADO' | 'SUB-FURIA'>('todas')
+  const [respostaMotorista, setRespostaMotorista] = useState<'todos' | 'respondido' | 'aguardando'>('todos')
   const [exportandoImg, setExportandoImg] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
   const exportPlacasRef = useRef<HTMLDivElement>(null)
@@ -609,7 +611,21 @@ export default function Frota() {
   const aderenciaMotorista = cruzamentoMotoristaFiltrado.length > 0
     ? Math.round((cruzamentoMotoristaFiltrado.filter(c => c.bate).length / cruzamentoMotoristaFiltrado.length) * 100)
     : null
-  const linhasMotoristaExibidas = statusMotorista === 'todos' ? cruzamentoMotoristaFiltrado : cruzamentoMotoristaFiltrado.filter(c => statusMotorista === 'ok' ? c.bate : !c.bate)
+  const alertaPorPlacaData = useMemo(() => new Map(alertasFixacao.map(a => [`${a.placa}|${a.data}`, a])), [alertasFixacao])
+  const linhasMotoristaExibidas = useMemo(() => {
+    let base = cruzamentoMotoristaFiltrado
+    if (salaMotorista !== 'todas') base = base.filter(c => c.sala === salaMotorista)
+    if (statusMotorista !== 'todos') base = base.filter(c => statusMotorista === 'ok' ? c.bate : !c.bate)
+    if (respostaMotorista !== 'todos') {
+      base = base.filter(c => {
+        if (c.bate) return false
+        const alerta = alertaPorPlacaData.get(`${c.placa}|${c.data}`)
+        const respondeu = alerta?.status === 'respondido' || alerta?.status === 'justificado'
+        return respostaMotorista === 'respondido' ? respondeu : !respondeu
+      })
+    }
+    return base
+  }, [cruzamentoMotoristaFiltrado, salaMotorista, statusMotorista, respostaMotorista, alertaPorPlacaData])
   // Território disponibilizado no PCD (mesma fonte da Fixação de Território,
   // só placas roteirizadas no PCD) x região executada — pra saber, linha a
   // linha, se a placa também rodou no território certo naquele dia, além do
@@ -666,7 +682,6 @@ export default function Frota() {
       return { sala, comDado: itens.length, percentual: itens.length > 0 ? Math.round((ok / itens.length) * 100) : null }
     })
   }, [cruzamentoMotoristaFiltrado])
-  const alertaPorPlacaData = useMemo(() => new Map(alertasFixacao.map(a => [`${a.placa}|${a.data}`, a])), [alertasFixacao])
 
   return (
     <div className="p-8 max-w-6xl">
@@ -1270,6 +1285,48 @@ export default function Frota() {
                         onClick={() => setStatusMotorista(valor)}
                         className={`px-3 py-1.5 font-medium transition-colors ${
                           statusMotorista === valor ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {rotulo}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-gray-500">Sala:</label>
+                  <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+                    {([
+                      ['todas', 'Todas'],
+                      ['COLORADO', 'Colorado'],
+                      ['SUB-FURIA', 'Sub-Fúria'],
+                    ] as const).map(([valor, rotulo]) => (
+                      <button
+                        key={valor}
+                        onClick={() => setSalaMotorista(valor)}
+                        className={`px-3 py-1.5 font-medium transition-colors whitespace-nowrap ${
+                          salaMotorista === valor ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                        }`}
+                      >
+                        {rotulo}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <label className="text-xs font-medium text-gray-500">Supervisor:</label>
+                  <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+                    {([
+                      ['todos', 'Todos'],
+                      ['respondido', 'Respondido'],
+                      ['aguardando', 'Aguardando'],
+                    ] as const).map(([valor, rotulo]) => (
+                      <button
+                        key={valor}
+                        onClick={() => setRespostaMotorista(valor)}
+                        className={`px-3 py-1.5 font-medium transition-colors whitespace-nowrap ${
+                          respostaMotorista === valor ? 'bg-brand-700 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
                         }`}
                       >
                         {rotulo}
