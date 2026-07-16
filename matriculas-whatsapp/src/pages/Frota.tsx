@@ -160,7 +160,7 @@ export default function Frota() {
   const [exportandoMotorista, setExportandoMotorista] = useState(false)
   const [exportandoResumoMotorista, setExportandoResumoMotorista] = useState(false)
   const [forcandoEnvioJustificativa, setForcandoEnvioJustificativa] = useState(false)
-  const [editandoMotivo, setEditandoMotivo] = useState<{ placa: string; data: string; alertaId: string | null } | null>(null)
+  const [editandoMotivo, setEditandoMotivo] = useState<{ placa: string; data: string; alertaId: string | null; respostaSupervisor: string | null } | null>(null)
   const [motivoCustom, setMotivoCustom] = useState('')
   const [salvandoMotivo, setSalvandoMotivo] = useState(false)
   const exportMotoristaRef = useRef<HTMLDivElement>(null)
@@ -1412,13 +1412,20 @@ export default function Frota() {
                               ) : alerta?.justificativa ? (
                                 <span className="flex items-center gap-1.5">
                                   <span className="text-xs text-gray-800 font-medium">{alerta.justificativa}</span>
-                                  <button onClick={() => { setEditandoMotivo({ placa: c.placa, data: c.data, alertaId: alerta.id }); setMotivoCustom('') }} className="text-gray-400 hover:text-brand-600"><Pencil size={11} /></button>
+                                  <button onClick={() => { setEditandoMotivo({ placa: c.placa, data: c.data, alertaId: alerta.id, respostaSupervisor: alerta.resposta_supervisor }); setMotivoCustom('') }} className="text-gray-400 hover:text-brand-600"><Pencil size={11} /></button>
                                 </span>
                               ) : (
-                                <span className="flex items-center gap-1.5">
-                                  {alerta && <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_FIXACAO_COR[alerta.status]}`}>{STATUS_FIXACAO_LABEL[alerta.status]}</span>}
-                                  <button onClick={() => { setEditandoMotivo({ placa: c.placa, data: c.data, alertaId: alerta?.id ?? null }); setMotivoCustom('') }} className="flex items-center gap-1 text-xs text-brand-600 hover:underline"><Pencil size={11} /> Registrar</button>
-                                </span>
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="flex items-center gap-1.5">
+                                    {alerta && <span className={`inline-block text-xs font-medium px-2 py-0.5 rounded-full border ${STATUS_FIXACAO_COR[alerta.status]}`}>{STATUS_FIXACAO_LABEL[alerta.status]}</span>}
+                                    <button onClick={() => { setEditandoMotivo({ placa: c.placa, data: c.data, alertaId: alerta?.id ?? null, respostaSupervisor: alerta?.resposta_supervisor ?? null }); setMotivoCustom('') }} className="flex items-center gap-1 text-xs text-brand-600 hover:underline"><Pencil size={11} /> Registrar</button>
+                                  </span>
+                                  {alerta?.resposta_supervisor && (
+                                    <span className="text-[11px] text-gray-500 italic max-w-[220px] truncate" title={alerta.resposta_supervisor}>
+                                      "{alerta.resposta_supervisor}"
+                                    </span>
+                                  )}
+                                </div>
                               )}
                             </td>
                           </tr>
@@ -1445,6 +1452,14 @@ export default function Frota() {
                       <h3 className="text-sm font-semibold text-gray-900">Registrar motivo — {editandoMotivo.placa} ({formatarDataBR(editandoMotivo.data)})</h3>
                       <button onClick={() => setEditandoMotivo(null)} className="text-gray-400 hover:text-gray-600"><X size={16} /></button>
                     </div>
+                    {editandoMotivo.respostaSupervisor ? (
+                      <div className="mb-3 bg-gray-50 border border-gray-200 rounded-lg p-2.5">
+                        <p className="text-[10px] font-semibold uppercase tracking-wide text-gray-400 mb-1">O que o supervisor respondeu</p>
+                        <p className="text-xs text-gray-700 whitespace-pre-wrap">{editandoMotivo.respostaSupervisor}</p>
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-400 italic mb-3">O supervisor ainda não respondeu — escolha o motivo manualmente.</p>
+                    )}
                     <div className="grid grid-cols-2 gap-2 mb-3">
                       {MOTIVOS_FIXACAO_MOTORISTA.filter(m => m !== 'OUTRO').map(m => (
                         <button key={m} onClick={() => salvarMotivoManual(m)} disabled={salvandoMotivo} className="text-left text-xs px-3 py-2 rounded-lg border border-gray-200 hover:border-brand-400 hover:bg-brand-50 text-gray-700 disabled:opacity-40">{m}</button>
