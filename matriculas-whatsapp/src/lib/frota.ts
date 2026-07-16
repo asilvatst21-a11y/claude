@@ -593,11 +593,14 @@ export function agruparRegioesPorPlacaData(historicoTml: HistoricoTmlRegiao[]): 
     if (!h.regiao_entregas && !h.cidades_entregas) continue
     const key = `${h.placa}|${h.data_saida}`
     if (!regioesPorPlacaData.has(key)) regioesPorPlacaData.set(key, [])
+    const lista = regioesPorPlacaData.get(key)!
     // Mescla "Região +Entregas" com "Cidades +Entregas": algumas rotas só têm
     // o bairro do território identificável no texto de cidades, e comparar
-    // apenas a região fazia o cruzamento marcar NOK indevidamente.
-    if (h.regiao_entregas) regioesPorPlacaData.get(key)!.push(h.regiao_entregas)
-    if (h.cidades_entregas) regioesPorPlacaData.get(key)!.push(h.cidades_entregas)
+    // apenas a região fazia o cruzamento marcar NOK indevidamente. O mesmo
+    // texto pode vir tanto do historico_tml quanto do frota_territorio_
+    // historico pra placa+data — sem esse dedupe o texto aparecia repetido.
+    if (h.regiao_entregas && !lista.includes(h.regiao_entregas)) lista.push(h.regiao_entregas)
+    if (h.cidades_entregas && !lista.includes(h.cidades_entregas)) lista.push(h.cidades_entregas)
   }
   return regioesPorPlacaData
 }

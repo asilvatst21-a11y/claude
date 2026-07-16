@@ -93,6 +93,27 @@ function baixarCSVFrota(nomeArquivo: string, linhas: (string | number)[][]) {
   URL.revokeObjectURL(url)
 }
 
+// Nome + matrícula do motorista, usado nas colunas "Motorista fixado" e
+// "Motorista que rodou" do cruzamento de Fixação de Motorista. Some o nome
+// pra matrícula quando não tem cadastro em motoristas_sala_tml.
+function PessoaMotorista({ nome, matricula, destaque }: { nome: string | null; matricula: string; destaque?: boolean }) {
+  return (
+    <div className="flex flex-col leading-tight">
+      <span className={`font-medium ${destaque ? 'text-red-600' : 'text-gray-800'}`}>{nome ?? `Mat. ${matricula}`}</span>
+      {nome && <span className="text-[10px] text-gray-400">Mat. {matricula}</span>}
+    </div>
+  )
+}
+
+// Resume uma lista de bairros "A / B / C / D" pros 2 primeiros + "+N", com o
+// texto completo disponível no tooltip — evita que a célula estoure quando
+// a placa entrega em muitos bairros no mesmo dia.
+function resumirRegiao(regiao: string, max = 2): { resumo: string; completo: string } {
+  const partes = regiao.split('/').map(p => p.trim()).filter(Boolean)
+  if (partes.length <= max) return { resumo: regiao, completo: regiao }
+  return { resumo: `${partes.slice(0, max).join(', ')} +${partes.length - max}`, completo: regiao }
+}
+
 // Badge da coluna Território no cruzamento de Fixação de Motorista.
 function BadgeTerritorioMotorista({ info }: { info: TerritorioMotoristaInfo }) {
   if (info.status === 'sem_roteirizacao') {
@@ -107,11 +128,12 @@ function BadgeTerritorioMotorista({ info }: { info: TerritorioMotoristaInfo }) {
     )
   }
   if (info.status === 'divergente') {
+    const { resumo, completo } = info.regiaoExecutada ? resumirRegiao(info.regiaoExecutada) : { resumo: '—', completo: '' }
     return (
       <div className="flex flex-col gap-0.5">
         <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-red-50 text-red-700 w-fit">✕ Divergente</span>
         <span className="text-[10px] text-gray-500">Devia: {info.territorioProgramado}</span>
-        <span className="text-[10px] text-red-600 font-medium">Rodou: {info.regiaoExecutada}</span>
+        <span className="text-[10px] text-red-600 font-medium" title={completo !== resumo ? completo : undefined}>Rodou: {resumo}</span>
       </div>
     )
   }
@@ -140,6 +162,7 @@ export default function Frota() {
   const [historicoTml, setHistoricoTml] = useState<HistoricoTmlRegiao[]>([])
   const [historicoTmlMotorista, setHistoricoTmlMotorista] = useState<HistoricoTmlMotorista[]>([])
   const [alertasFixacao, setAlertasFixacao] = useState<AlertaFixacaoMotorista[]>([])
+  const [nomePorMatriculaFrota, setNomePorMatriculaFrota] = useState<Map<string, string>>(new Map())
   const [placas, setPlacas] = useState<FrotaPlaca[]>([])
   const [carregando, setCarregando] = useState(true)
   const [uploadando, setUploadando] = useState(false)
@@ -147,8 +170,9 @@ export default function Frota() {
   const [mesTerritorio, setMesTerritorio] = useState<string>('todos')
   const [diaTerritorio, setDiaTerritorio] = useState<string>('todos')
   const [statusTerritorio, setStatusTerritorio] = useState<'todos' | 'ok' | 'nok'>('todos')
-  const [mesMotorista, setMesMotorista] = useState<string>('todos')
-  const [diaMotorista, setDiaMotorista] = useState<string>('todos')
+  const [dataInicioMotorista, setDataInicioMotorista] = useState<string>('')
+  const [dataFimMotorista, setDataFimMotorista] = useState<string>('')
+  const defaultDataMotoristaAplicado = useRef(false)
   const [statusMotorista, setStatusMotorista] = useState<'todos' | 'ok' | 'nok'>('todos')
   const [exportandoImg, setExportandoImg] = useState(false)
   const exportRef = useRef<HTMLDivElement>(null)
@@ -194,7 +218,7 @@ export default function Frota() {
         .eq('filial', usuario.filial)
         .not('matricula', 'is', null),
       valesSupabase.from('motoristas_sala_tml')
-        .select('matricula, sala')
+        .select('matricula, sala, nome')
         .eq('filial', usuario.filial),
       supabase.from('alertas_fixacao_motorista').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
     ])
@@ -204,10 +228,9 @@ export default function Frota() {
       ...((dataTerritorioHist ?? []) as { placa: string | null; data: string | null; regiao_entregas: string | null }[])
         .map(r => ({ placa: r.placa, data_saida: r.data, regiao_entregas: r.regiao_entregas, cidades_entregas: null })),
     ])
-    const salaPorMatricula = new Map(
-      ((dataRosterSala ?? []) as { matricula: number; sala: string | null }[])
-        .map(r => [r.matricula, isSalaTML(r.sala) ? r.sala : null]),
-    )
+    const rosterSala = (dataRosterSala ?? []) as { matricula: number; sala: string | null; nome: string | null }[]
+    const salaPorMatricula = new Map(rosterSala.map(r => [r.matricula, isSalaTML(r.sala) ? r.sala : null]))
+    setNomePorMatriculaFrota(new Map(rosterSala.filter(r => r.nome).map(r => [String(r.matricula), r.nome as string])))
     setHistoricoTmlMotorista(
       ((dataMotoristaBase ?? []) as { placa: string | null; data: string | null; matricula: number | null; nome: string | null }[])
         .map(r => ({
@@ -446,8 +469,7 @@ export default function Frota() {
         alert('Grupo de WhatsApp da Fixação de Motorista não configurado. Configure em /frota/placas.')
         return
       }
-      const refData = diaMotorista === 'todos' ? cruzamentoMotorista[0]?.data : diaMotorista
-      const legenda = `🚗 Resumo de Fixação de Motorista — ${refData ? formatarDataBR(refData) : ''}${aderenciaMotorista !== null ? ` — Aderência: ${aderenciaMotorista}%` : ''}`
+      const legenda = `🚗 Resumo de Fixação de Motorista — ${periodoMotoristaLabel}${aderenciaMotorista !== null ? ` — Aderência: ${aderenciaMotorista}%` : ''}`
       const canvas = await html2canvas(exportMotoristaRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
       const img = canvas.toDataURL('image/png')
       const { sucesso, erro } = await enviarImagemGrupo(grupoId, img, legenda)
@@ -468,7 +490,7 @@ export default function Frota() {
   // duplica envios já feitos.
   async function forcarEnvioJustificativas() {
     if (!usuario) return
-    const dataAlvo = diaMotorista === 'todos' ? new Date().toISOString().slice(0, 10) : diaMotorista
+    const dataAlvo = dataInicioMotorista && dataInicioMotorista === dataFimMotorista ? dataInicioMotorista : new Date().toISOString().slice(0, 10)
     const historicoDoDia = historicoTmlMotorista.filter(h => h.data_saida === dataAlvo)
     if (historicoDoDia.length === 0) {
       alert(`Nenhum registro de saída encontrado para ${formatarDataBR(dataAlvo)}.`)
@@ -558,19 +580,32 @@ export default function Frota() {
   const trocas = useMemo(() => detectarTrocasTerritorio(comDadoFiltrado), [comDadoFiltrado])
 
   const cruzamentoMotorista = useMemo(() => cruzarMotorista(historicoTmlMotorista, placas), [historicoTmlMotorista, placas])
-  // Meses com dado (YYYY-MM), mais recente primeiro. O filtro de dia lista só
-  // os dias do mês selecionado; escolher um dia específico refina dentro do mês.
-  const mesesComDadoMotorista = useMemo(() => Array.from(new Set(cruzamentoMotorista.map(c => c.data.slice(0, 7)))).sort((a, b) => b.localeCompare(a)), [cruzamentoMotorista])
-  const diasComDadoMotorista = useMemo(() => Array.from(new Set(
-    cruzamentoMotorista
-      .filter(c => mesMotorista === 'todos' || c.data.slice(0, 7) === mesMotorista)
-      .map(c => c.data),
-  )).sort((a, b) => b.localeCompare(a)), [cruzamentoMotorista, mesMotorista])
+  // Dias com dado, mais recente primeiro — usado só pra achar o dia mais
+  // recente (default do filtro) e povoar o resumo/exportação.
+  const diasComDadoMotorista = useMemo(() => Array.from(new Set(cruzamentoMotorista.map(c => c.data))).sort((a, b) => b.localeCompare(a)), [cruzamentoMotorista])
+  // Por padrão o filtro mostra só o dia mais recente — assim que o dado
+  // carrega, se o usuário ainda não tiver escolhido nada, aplica esse default
+  // uma única vez (depois disso ele manda: outro dia, um intervalo, ou "ver
+  // todos" limpando os dois campos).
+  useEffect(() => {
+    if (defaultDataMotoristaAplicado.current || diasComDadoMotorista.length === 0) return
+    const maisRecente = diasComDadoMotorista[0]
+    setDataInicioMotorista(maisRecente)
+    setDataFimMotorista(maisRecente)
+    defaultDataMotoristaAplicado.current = true
+  }, [diasComDadoMotorista])
   const cruzamentoMotoristaFiltrado = useMemo(() => cruzamentoMotorista.filter(c =>
-    (diaMotorista !== 'todos'
-      ? c.data === diaMotorista
-      : mesMotorista === 'todos' || c.data.slice(0, 7) === mesMotorista),
-  ), [cruzamentoMotorista, diaMotorista, mesMotorista])
+    (!dataInicioMotorista || c.data >= dataInicioMotorista) && (!dataFimMotorista || c.data <= dataFimMotorista),
+  ), [cruzamentoMotorista, dataInicioMotorista, dataFimMotorista])
+  const periodoMotoristaLabel = dataInicioMotorista && dataFimMotorista && dataInicioMotorista === dataFimMotorista
+    ? formatarDataBR(dataInicioMotorista)
+    : dataInicioMotorista && dataFimMotorista
+    ? `${formatarDataBR(dataInicioMotorista)} a ${formatarDataBR(dataFimMotorista)}`
+    : dataInicioMotorista
+    ? `A partir de ${formatarDataBR(dataInicioMotorista)}`
+    : dataFimMotorista
+    ? `Até ${formatarDataBR(dataFimMotorista)}`
+    : 'Todos os dias'
   const aderenciaMotorista = cruzamentoMotoristaFiltrado.length > 0
     ? Math.round((cruzamentoMotoristaFiltrado.filter(c => c.bate).length / cruzamentoMotoristaFiltrado.length) * 100)
     : null
@@ -594,12 +629,12 @@ export default function Frota() {
     const map = new Map<string, number>()
     for (const a of alertasFixacao) {
       if (!a.justificativa) continue
-      const inPeriod = diaMotorista !== 'todos' ? a.data === diaMotorista : mesMotorista === 'todos' || a.data.slice(0, 7) === mesMotorista
+      const inPeriod = (!dataInicioMotorista || a.data >= dataInicioMotorista) && (!dataFimMotorista || a.data <= dataFimMotorista)
       if (!inPeriod) continue
       map.set(a.justificativa, (map.get(a.justificativa) ?? 0) + 1)
     }
     return Array.from(map.entries()).map(([motivo, count]) => ({ motivo, count })).sort((a, b) => b.count - a.count)
-  }, [alertasFixacao, diaMotorista, mesMotorista])
+  }, [alertasFixacao, dataInicioMotorista, dataFimMotorista])
   const aderenciaMotoristaPorDia = useMemo(() => calcularAderenciaMotoristaPorDia(cruzamentoMotorista), [cruzamentoMotorista])
   const aderenciaMotoristaPorDiaSala = useMemo(() => calcularAderenciaMotoristaPorDiaESala(cruzamentoMotorista), [cruzamentoMotorista])
   const evolucaoMotoristaMeses = useMemo(() => calcularAderenciaMotoristaMeses(aderenciaMotoristaPorDia, 6), [aderenciaMotoristaPorDia])
@@ -1194,31 +1229,33 @@ export default function Frota() {
             <>
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex items-center gap-2">
-                  <label className="text-xs font-medium text-gray-500">Mês:</label>
-                  <select
-                    value={mesMotorista}
-                    onChange={e => { setMesMotorista(e.target.value); setDiaMotorista('todos') }}
+                  <label className="text-xs font-medium text-gray-500">De:</label>
+                  <input
+                    type="date"
+                    value={dataInicioMotorista}
+                    onChange={e => setDataInicioMotorista(e.target.value)}
                     className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
-                  >
-                    <option value="todos">Todos os meses</option>
-                    {mesesComDadoMotorista.map(m => {
-                      const [ano, mes] = m.split('-')
-                      return <option key={m} value={m}>{`${mes}/${ano.slice(2)}`}</option>
-                    })}
-                  </select>
+                  />
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <label className="text-xs font-medium text-gray-500">Dia:</label>
-                  <select
-                    value={diaMotorista}
-                    onChange={e => setDiaMotorista(e.target.value)}
+                  <label className="text-xs font-medium text-gray-500">Até:</label>
+                  <input
+                    type="date"
+                    value={dataFimMotorista}
+                    onChange={e => setDataFimMotorista(e.target.value)}
                     className="text-xs border border-gray-200 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500"
-                  >
-                    <option value="todos">Todos os dias</option>
-                    {diasComDadoMotorista.map(d => <option key={d} value={d}>{formatarDataBR(d)}</option>)}
-                  </select>
+                  />
                 </div>
+
+                {(dataInicioMotorista || dataFimMotorista) && (
+                  <button
+                    onClick={() => { setDataInicioMotorista(''); setDataFimMotorista('') }}
+                    className="text-xs text-brand-600 hover:underline"
+                  >
+                    Ver todos os dias
+                  </button>
+                )}
 
                 <div className="flex items-center gap-2">
                   <label className="text-xs font-medium text-gray-500">Status:</label>
@@ -1355,7 +1392,7 @@ export default function Frota() {
                       Enviar resumo para o grupo
                     </button>
                     <button
-                      onClick={() => baixarImagem(exportMotoristaRef, setExportandoMotorista, `Frota_Fixacao_Motorista_${diaMotorista === 'todos' ? 'todos' : diaMotorista}.png`)}
+                      onClick={() => baixarImagem(exportMotoristaRef, setExportandoMotorista, `Frota_Fixacao_Motorista_${dataInicioMotorista || 'inicio'}_a_${dataFimMotorista || 'fim'}.png`)}
                       disabled={exportandoMotorista}
                       className="flex items-center gap-1.5 text-xs text-brand-700 border border-brand-200 px-2.5 py-1 rounded-lg hover:bg-brand-50 disabled:opacity-40"
                     >
@@ -1395,9 +1432,26 @@ export default function Frota() {
                           <tr key={`${c.placa}-${c.data}-${i}`} className="border-b border-gray-50">
                             <td className="py-2 text-gray-600">{formatarDataBR(c.data)}</td>
                             <td className="py-2 text-gray-900 font-medium">{c.placa}</td>
-                            <td className="py-2 text-gray-600">{c.sala ?? '—'}</td>
-                            <td className="py-2 text-gray-600">{[c.matriculaEsperada1, c.matriculaEsperada2].filter(Boolean).join(' / ') || '—'}</td>
-                            <td className="py-2 text-gray-600">{c.nomeExecutou ?? '—'} ({c.matriculaExecutou})</td>
+                            <td className="py-2">
+                              {c.sala ? (
+                                <span className="inline-block text-[10.5px] font-semibold px-2 py-0.5 rounded-full bg-brand-100 text-brand-700 whitespace-nowrap">{c.sala}</span>
+                              ) : '—'}
+                            </td>
+                            <td className="py-2 text-gray-600">
+                              {[c.matriculaEsperada1, c.matriculaEsperada2].filter((m): m is string => !!m).length === 0 ? '—' : (
+                                <div className="flex flex-col gap-1">
+                                  {[c.matriculaEsperada1, c.matriculaEsperada2].filter((m): m is string => !!m).map((m, idx, arr) => (
+                                    <div key={m}>
+                                      <PessoaMotorista nome={nomePorMatriculaFrota.get(m) ?? null} matricula={m} destaque={!c.bate} />
+                                      {idx < arr.length - 1 && <span className="text-[9px] text-gray-400 uppercase">ou</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2 text-gray-600">
+                              <PessoaMotorista nome={c.nomeExecutou} matricula={String(c.matriculaExecutou)} />
+                            </td>
                             <td className="py-2">{territorio && <BadgeTerritorioMotorista info={territorio} />}</td>
                             <td className="py-2 text-center">
                               {c.bate ? (
@@ -1482,7 +1536,7 @@ export default function Frota() {
                 </div>
               )}
 
-              <FixacaoMotoristaExportTemplate ref={exportMotoristaRef} filial={usuario?.filial ?? ''} dia={diaMotorista} linhas={linhasMotoristaExibidas} aderencia={aderenciaMotorista} alertas={alertasFixacao} territorioPorLinha={territorioPorLinhaMotorista} />
+              <FixacaoMotoristaExportTemplate ref={exportMotoristaRef} filial={usuario?.filial ?? ''} periodoLabel={periodoMotoristaLabel} linhas={linhasMotoristaExibidas} aderencia={aderenciaMotorista} alertas={alertasFixacao} territorioPorLinha={territorioPorLinhaMotorista} nomePorMatricula={nomePorMatriculaFrota} />
             </>
           )}
         </div>
@@ -1847,12 +1901,13 @@ const TERRITORIO_EXPORT_ESTILO: Record<TerritorioMotoristaInfo['status'], { bg: 
 
 const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
   filial: string
-  dia: string
+  periodoLabel: string
   linhas: CruzamentoMotoristaItem[]
   aderencia: number | null
   alertas: AlertaFixacaoMotorista[]
   territorioPorLinha: Map<string, TerritorioMotoristaInfo>
-}>(function FixacaoMotoristaExportTemplate({ filial, dia, linhas, aderencia, alertas, territorioPorLinha }, ref) {
+  nomePorMatricula: Map<string, string>
+}>(function FixacaoMotoristaExportTemplate({ filial, periodoLabel, linhas, aderencia, alertas, territorioPorLinha, nomePorMatricula }, ref) {
   const th: React.CSSProperties = { padding: '7px 10px', fontSize: '10px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.05em', textAlign: 'left', whiteSpace: 'nowrap' }
   const td: React.CSSProperties = { padding: '6px 10px', fontSize: '11px', verticalAlign: 'middle' }
   const alertaPorChave = new Map(alertas.map(a => [`${a.placa}|${a.data}`, a]))
@@ -1866,7 +1921,7 @@ const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
           <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Frota</p>
           <h1 style={{ fontSize: '18px', fontWeight: 700, color: '#0f172a', margin: 0 }}>Fixação de Motorista — Cruzamento por Placa/Dia</h1>
         </div>
-        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0 }}>{filial}<br />{dia === 'todos' ? 'Todos os dias' : formatarDataBR(dia)}</p>
+        <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0 }}>{filial}<br />{periodoLabel}</p>
       </div>
 
       <div style={{ display: 'flex', gap: '10px', marginBottom: '16px' }}>
@@ -1903,8 +1958,11 @@ const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
               <td style={{ ...td, color: '#475569' }}>{formatarDataBR(c.data)}</td>
               <td style={{ ...td, fontWeight: 700, color: '#0f172a' }}>{c.placa}</td>
               <td style={{ ...td, color: '#475569' }}>{c.sala ?? '—'}</td>
-              <td style={{ ...td, color: '#475569' }}>{[c.matriculaEsperada1, c.matriculaEsperada2].filter(Boolean).join(' ou ') || '—'}</td>
-              <td style={{ ...td, color: '#475569' }}>{c.nomeExecutou ?? '—'} ({c.matriculaExecutou})</td>
+              <td style={{ ...td, color: c.bate ? '#475569' : '#dc2626' }}>
+                {[c.matriculaEsperada1, c.matriculaEsperada2].filter((m): m is string => !!m)
+                  .map(m => nomePorMatricula.get(m) ?? `Mat. ${m}`).join(' ou ') || '—'}
+              </td>
+              <td style={{ ...td, color: '#475569' }}>{c.nomeExecutou ?? `Mat. ${c.matriculaExecutou}`}</td>
               <td style={{ ...td, color: '#475569' }}>
                 {territorio && estiloTerr && territorio.status !== 'sem_roteirizacao' ? (
                   <span style={{ display: 'inline-block', background: estiloTerr.bg, color: estiloTerr.fg, border: `1px solid ${estiloTerr.border}`, borderRadius: '999px', padding: '2px 8px', fontSize: '9px', fontWeight: 700 }}>
@@ -1925,7 +1983,7 @@ const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
       </table>
 
       <div style={{ paddingTop: '10px', fontSize: '10px', color: '#94a3b8' }}>
-        Gerado em {formatarDataBR(dia === 'todos' ? linhas[0]?.data ?? '' : dia)}
+        Gerado em {formatarDataBR(new Date().toISOString().slice(0, 10))}
       </div>
     </div>
   )
