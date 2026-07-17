@@ -10,6 +10,7 @@ export interface PendenciaItem {
   itemId: string
   valeId: string
   numeroVale: number
+  ajudanteId: string
   data: string | null
   mapa: number | null
   produto: string | null
@@ -54,19 +55,26 @@ export async function buscarPendenciasPorCpf(digitos: string): Promise<Candidato
   const { data } = await supabase
     .from('ajudantes')
     .select(`
-      codigo,
+      id, codigo,
       vale_ajudantes (
         vales (
           id, numero_vale, data_rota, mapa, status_vale,
-          vale_itens ( id, item, unidade, qtde_saida, qtde_retorno, qtde_diferenca, justificativa_previa_colaborador )
+          vale_itens ( id, item, unidade, qtde_saida, qtde_retorno, qtde_diferenca )
         )
       )
     `)
     .in('codigo', codigos)
 
-  const itensPorCodigo = new Map<number, PendenciaItem[]>()
-  for (const aj of (data ?? []) as any[]) {
-    const itens: PendenciaItem[] = []
+  const ajudantes = (data ?? []) as any[]
+
+  // Vale com 2 ajudantes: os itens são do vale (a diferença não é de uma
+  // pessoa só), então os dois recebem o aviso de WhatsApp e os dois podem
+  // ver e justificar — cada um só vê a PRÓPRIA justificativa, gravada por
+  // ajudante_id, nunca a do colega.
+  const itensPorAjudanteId = new Map<string, PendenciaItem[]>()
+  const todosItemIds: string[] = []
+  for (const aj of ajudantes) {
+    const itens: Omit<PendenciaItem, 'justificativaPrevia'>[] = []
     for (const va of aj.vale_ajudantes ?? []) {
       const v = va.vales
       if (!v) continue
@@ -76,6 +84,7 @@ export async function buscarPendenciasPorCpf(digitos: string): Promise<Candidato
           itemId: it.id,
           valeId: v.id,
           numeroVale: v.numero_vale,
+          ajudanteId: aj.id,
           data: v.data_rota,
           mapa: v.mapa,
           produto: it.item,
@@ -84,10 +93,31 @@ export async function buscarPendenciasPorCpf(digitos: string): Promise<Candidato
           qtdeRetorno: it.qtde_retorno,
           qtdeDiferenca: it.qtde_diferenca,
           statusVale: v.status_vale,
-          justificativaPrevia: it.justificativa_previa_colaborador,
         })
+        todosItemIds.push(it.id)
       }
     }
+    itensPorAjudanteId.set(aj.id, itens as PendenciaItem[])
+  }
+
+  const justificativaPorChave = new Map<string, string>()
+  if (todosItemIds.length > 0) {
+    const { data: justificativas } = await supabase
+      .from('pendencia_justificativas')
+      .select('vale_item_id, ajudante_id, texto')
+      .in('vale_item_id', [...new Set(todosItemIds)])
+      .in('ajudante_id', ajudantes.map((aj) => aj.id))
+    for (const j of justificativas ?? []) {
+      justificativaPorChave.set(`${j.ajudante_id}|${j.vale_item_id}`, j.texto)
+    }
+  }
+
+  const itensPorCodigo = new Map<number, PendenciaItem[]>()
+  for (const aj of ajudantes) {
+    const itens = (itensPorAjudanteId.get(aj.id) ?? []).map((item) => ({
+      ...item,
+      justificativaPrevia: justificativaPorChave.get(`${aj.id}|${item.itemId}`) ?? null,
+    }))
     itensPorCodigo.set(aj.codigo, itens)
   }
 
@@ -96,8 +126,10 @@ export async function buscarPendenciasPorCpf(digitos: string): Promise<Candidato
     .filter((c) => c.itens.length > 0)
 }
 
-export async function enviarJustificativaPendencia(itemId: string, texto: string): Promise<boolean> {
-  const { error } = await supabase.from('vale_itens').update({ justificativa_previa_colaborador: texto }).eq('id', itemId)
+export async function enviarJustificativaPendencia(itemId: string, ajudanteId: string, texto: string): Promise<boolean> {
+  const { error } = await supabase
+    .from('pendencia_justificativas')
+    .upsert({ vale_item_id: itemId, ajudante_id: ajudanteId, texto, criado_em: new Date().toISOString() }, { onConflict: 'vale_item_id,ajudante_id' })
   return !error
 }
 

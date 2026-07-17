@@ -229,7 +229,7 @@ export default function ValesPage() {
           contestado, motivo_contestacao, contestado_em,
           notificacao_pendente_enviada, notificacao_final_enviada,
           vale_ajudantes ( posicao, ajudantes ( id, codigo, nome, telefone ) ),
-          vale_itens ( id, tipo_item, item, unidade, qtde_diferenca, qtde_diferenca_avulsa, valor, justificativa_previa_colaborador )
+          vale_itens ( id, tipo_item, item, unidade, qtde_diferenca, qtde_diferenca_avulsa, valor )
         `)
         .order("created_at", { ascending: false });
 

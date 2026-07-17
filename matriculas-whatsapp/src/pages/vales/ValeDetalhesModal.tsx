@@ -28,13 +28,23 @@ interface ValeItem {
   qtde_diferenca: number | null;
   qtde_diferenca_avulsa: number | null;
   valor: number | null;
-  justificativa_previa_colaborador: string | null;
 }
 
 interface ValeNota {
   id: string;
   texto: string;
   created_at: string;
+}
+
+// Vale com 2 ajudantes: cada um pode mandar a própria justificativa prévia
+// pelo link de autoatendimento — por isso é 1 linha por item+ajudante, não
+// um campo só no item.
+interface PendenciaJustificativa {
+  id: number;
+  vale_item_id: string;
+  texto: string;
+  criado_em: string;
+  ajudantes: { nome: string } | null;
 }
 
 export interface ValeDetalhes {
@@ -104,6 +114,7 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
   const [novoTexto, setNovoTexto] = useState("");
   const [salvandoNota, setSalvandoNota] = useState(false);
   const [erroNota, setErroNota] = useState<string | null>(null);
+  const [justificativasPendencia, setJustificativasPendencia] = useState<PendenciaJustificativa[]>([]);
 
   const fetchNotas = useCallback(async () => {
     if (!vale) return;
@@ -120,14 +131,28 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
     }
   }, [vale]);
 
+  const fetchJustificativasPendencia = useCallback(async () => {
+    if (!vale || vale.itens.length === 0) {
+      setJustificativasPendencia([]);
+      return;
+    }
+    const { data } = await valesSupabase
+      .from("pendencia_justificativas")
+      .select("id, vale_item_id, texto, criado_em, ajudantes ( nome )")
+      .in("vale_item_id", vale.itens.map((i) => i.id));
+    setJustificativasPendencia((data ?? []) as never as PendenciaJustificativa[]);
+  }, [vale]);
+
   useEffect(() => {
     if (open && vale) {
       fetchNotas();
+      fetchJustificativasPendencia();
     } else {
       setNotas([]);
       setNovoTexto("");
+      setJustificativasPendencia([]);
     }
-  }, [open, vale, fetchNotas]);
+  }, [open, vale, fetchNotas, fetchJustificativasPendencia]);
 
   const handleAdicionarNota = async () => {
     if (!vale || !novoTexto.trim()) return;
@@ -215,16 +240,19 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
                 </TableBody>
               </Table>
             </div>
-            {vale.itens.some((item) => item.justificativa_previa_colaborador) && (
+            {justificativasPendencia.length > 0 && (
               <div className="mt-3 space-y-2">
-                {vale.itens.filter((item) => item.justificativa_previa_colaborador).map((item) => (
-                  <div key={item.id} className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-1">
-                      Justificativa prévia do colaborador{item.item ? ` — ${item.item}` : ""} (via link de autoatendimento)
-                    </p>
-                    <p className="text-sm text-amber-900">{item.justificativa_previa_colaborador}</p>
-                  </div>
-                ))}
+                {justificativasPendencia.map((j) => {
+                  const item = vale.itens.find((i) => i.id === j.vale_item_id);
+                  return (
+                    <div key={j.id} className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2">
+                      <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-1">
+                        Justificativa prévia{j.ajudantes?.nome ? ` — ${j.ajudantes.nome}` : ""}{item?.item ? ` (${item.item})` : ""} · via link de autoatendimento
+                      </p>
+                      <p className="text-sm text-amber-900">{j.texto}</p>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </section>

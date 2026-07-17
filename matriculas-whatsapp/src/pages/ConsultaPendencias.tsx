@@ -278,7 +278,7 @@ function DetalheItem({ item, mostrarBannerTeste, onVoltar, onJustificado }: {
     setEnviando(true)
     setErro('')
     try {
-      const ok = await enviarJustificativaPendencia(item.itemId, texto.trim())
+      const ok = await enviarJustificativaPendencia(item.itemId, item.ajudanteId, texto.trim())
       if (ok) {
         onJustificado(texto.trim())
         setEnviado(true)
@@ -338,21 +338,21 @@ function DetalheItem({ item, mostrarBannerTeste, onVoltar, onJustificado }: {
                 className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none"
               />
               {erro && <p className="text-xs text-red-600">{erro}</p>}
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-3">
                 <button
                   onClick={alternarGravacao}
                   disabled={transcrevendo}
-                  className={`flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 rounded-lg ${gravando ? 'bg-red-100 text-red-700' : 'bg-brand-100 text-brand-700'}`}
+                  className={`flex-1 flex items-center justify-center gap-2 text-base font-semibold py-4 rounded-xl ${gravando ? 'bg-red-100 text-red-700' : 'bg-brand-100 text-brand-700'}`}
                 >
-                  {transcrevendo ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : gravando ? <Square className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+                  {transcrevendo ? <Loader2 className="h-5 w-5 animate-spin" /> : gravando ? <Square className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
                   {transcrevendo ? 'Transcrevendo…' : gravando ? 'Parar gravação' : 'Gravar áudio'}
                 </button>
                 <button
                   onClick={enviarJustificativa}
                   disabled={!texto.trim() || enviando}
-                  className="flex-1 flex items-center justify-center gap-1.5 text-xs font-semibold py-2.5 rounded-lg bg-accent-500 text-white disabled:opacity-40"
+                  className="flex-1 flex items-center justify-center gap-2 text-base font-semibold py-4 rounded-xl bg-accent-500 text-white disabled:opacity-40"
                 >
-                  {enviando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  {enviando ? <Loader2 className="h-5 w-5 animate-spin" /> : <Send className="h-5 w-5" />}
                   Enviar justificativa
                 </button>
               </div>
