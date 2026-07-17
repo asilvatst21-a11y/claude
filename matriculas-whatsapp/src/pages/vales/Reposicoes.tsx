@@ -464,6 +464,9 @@ export default function ReposicoesPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [filtroTipo, setFiltroTipo] = useState<"todos" | string>("todos");
+  const [ordenacao, setOrdenacao] = useState<"recentes" | "antigos" | "mapa" | "tipo">("recentes");
+  const [equipePorChave, setEquipePorChave] = useState<Map<string, string[]>>(new Map());
 
   const [coraModalOpen, setCoraModalOpen] = useState(false);
   const [coraImportando, setCoraImportando] = useState(false);
@@ -530,6 +533,51 @@ export default function ReposicoesPage() {
   }, [tab]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Nome do(s) ajudante(s) da reposição: ela só guarda o mapa, então cruza
+  // mapa + filial + dia (do created_at) com mapa_equipe (mesma planilha
+  // "Base" que a Frota e a Consulta de Pendências já usam) — mesmo mapa pode
+  // ter 2 ajudantes.
+  useEffect(() => {
+    if (reposicoes.length === 0) { setEquipePorChave(new Map()); return; }
+    const filiais = [...new Set(reposicoes.map((r) => r.filial).filter((f): f is string => !!f))];
+    const dias = [...new Set(reposicoes.map((r) => r.created_at.slice(0, 10)))];
+    if (filiais.length === 0 || dias.length === 0) { setEquipePorChave(new Map()); return; }
+    valesSupabase
+      .from("mapa_equipe")
+      .select("filial, data, mapa, ajudante1_nome, ajudante2_nome")
+      .in("filial", filiais)
+      .in("data", dias)
+      .then(({ data }) => {
+        const mapa = new Map<string, string[]>();
+        for (const e of data ?? []) {
+          const nomes = [e.ajudante1_nome, e.ajudante2_nome].filter(Boolean) as string[];
+          if (nomes.length > 0) mapa.set(`${e.filial}|${e.data}|${e.mapa}`, nomes);
+        }
+        setEquipePorChave(mapa);
+      });
+  }, [reposicoes]);
+
+  function ajudantesDe(r: Reposicao): string {
+    if (!r.mapa || !r.filial) return "—";
+    const nomes = equipePorChave.get(`${r.filial}|${r.created_at.slice(0, 10)}|${r.mapa}`);
+    return nomes && nomes.length > 0 ? nomes.join(" / ") : "—";
+  }
+
+  const reposicoesExibidas = useMemo(() => {
+    let base = reposicoes;
+    if (filtroTipo !== "todos") base = base.filter((r) => (r.tipo_reposicao ?? "indefinido") === filtroTipo);
+    const ordenadas = [...base];
+    if (ordenacao === "recentes") ordenadas.sort((a, b) => b.created_at.localeCompare(a.created_at));
+    else if (ordenacao === "antigos") ordenadas.sort((a, b) => a.created_at.localeCompare(b.created_at));
+    else if (ordenacao === "mapa") ordenadas.sort((a, b) => (a.mapa ?? "").localeCompare(b.mapa ?? "", undefined, { numeric: true }));
+    else if (ordenacao === "tipo") {
+      ordenadas.sort((a, b) =>
+        (TIPO_REPOSICAO_LABEL[a.tipo_reposicao ?? "indefinido"] ?? "").localeCompare(TIPO_REPOSICAO_LABEL[b.tipo_reposicao ?? "indefinido"] ?? ""),
+      );
+    }
+    return ordenadas;
+  }, [reposicoes, filtroTipo, ordenacao]);
 
   // Exclui a solicitação de reposição (ex.: duplicada ou lançada por engano).
   async function excluirReposicao(rep: Reposicao) {
@@ -807,6 +855,40 @@ export default function ReposicoesPage() {
         ))}
       </div>
 
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-medium text-muted-foreground">Tipo:</span>
+          <button
+            onClick={() => setFiltroTipo("todos")}
+            className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${filtroTipo === "todos" ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent"}`}
+          >
+            Todos
+          </button>
+          {(["falta", "inversao", "avaria", "troca", "remessa", "indefinido"] as const).map((tipo) => (
+            <button
+              key={tipo}
+              onClick={() => setFiltroTipo(tipo)}
+              className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${filtroTipo === tipo ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-accent"}`}
+            >
+              {TIPO_REPOSICAO_LABEL[tipo] ?? tipo}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-2 sm:ml-auto">
+          <span className="text-xs font-medium text-muted-foreground">Ordenar por:</span>
+          <select
+            value={ordenacao}
+            onChange={(e) => setOrdenacao(e.target.value as typeof ordenacao)}
+            className="text-xs border rounded-md px-2 py-1.5 bg-white"
+          >
+            <option value="recentes">Mais recentes</option>
+            <option value="antigos">Mais antigos</option>
+            <option value="mapa">Mapa</option>
+            <option value="tipo">Tipo</option>
+          </select>
+        </div>
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-12 text-muted-foreground">Carregando...</div>
       ) : reposicoes.length === 0 ? (
@@ -824,6 +906,7 @@ export default function ReposicoesPage() {
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Número</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Data</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Motorista</th>
+                <th className="text-left px-4 py-3 font-medium text-muted-foreground">Ajudante</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Tipo</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Produto</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">PDV</th>
@@ -834,7 +917,7 @@ export default function ReposicoesPage() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {reposicoes.map((r) => (
+              {reposicoesExibidas.map((r) => (
                 <React.Fragment key={r.id}>
                   <tr className="hover:bg-muted/30 transition-colors">
                     <td className="px-4 py-3 font-mono text-xs font-medium">{r.numero}</td>
@@ -843,6 +926,7 @@ export default function ReposicoesPage() {
                       <div>{r.motorista_nome ?? "—"}</div>
                       {r.motorista_telefone && <div className="text-xs text-muted-foreground">{r.motorista_telefone}</div>}
                     </td>
+                    <td className="px-4 py-3">{ajudantesDe(r)}</td>
                     <td className="px-4 py-3">
                       {r.tipo_reposicao ? (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
@@ -865,7 +949,7 @@ export default function ReposicoesPage() {
                   </tr>
                   {expanded === r.id && (
                     <tr className="bg-muted/20">
-                      <td colSpan={10} className="px-4 py-4"><Detalhe r={r} /></td>
+                      <td colSpan={11} className="px-4 py-4"><Detalhe r={r} /></td>
                     </tr>
                   )}
                 </React.Fragment>
@@ -876,7 +960,7 @@ export default function ReposicoesPage() {
 
         {/* Mobile: cartões */}
         <div className="md:hidden space-y-3">
-          {reposicoes.map((r) => (
+          {reposicoesExibidas.map((r) => (
             <div key={r.id} className="border rounded-lg bg-white p-3 space-y-2">
               <div className="flex items-center justify-between gap-2">
                 <span className="font-mono text-xs font-medium">{r.numero}</span>
@@ -899,6 +983,7 @@ export default function ReposicoesPage() {
                 <div><span className="text-xs text-muted-foreground block">PDV</span>{r.codigo_pdv ?? r.cliente ?? "—"}</div>
                 <div><span className="text-xs text-muted-foreground block">Mapa</span>{r.mapa ?? "—"}</div>
                 <div className="col-span-2"><span className="text-xs text-muted-foreground block">Motorista</span>{r.motorista_nome ?? "—"}</div>
+                <div className="col-span-2"><span className="text-xs text-muted-foreground block">Ajudante</span>{ajudantesDe(r)}</div>
               </div>
               <div className="pt-1 border-t"><Acoes r={r} /></div>
               {expanded === r.id && <div className="pt-1 border-t"><Detalhe r={r} /></div>}
