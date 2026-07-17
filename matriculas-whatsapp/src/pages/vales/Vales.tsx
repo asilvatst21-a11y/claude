@@ -154,6 +154,17 @@ const TEMPLATE_DEFAULT =
 const MENSAGEM_TELEFONE_MANUAL =
   "Prezado colaborador, você possui pendências, procure o setor financeiro em até 24h.";
 
+// Acrescenta o link de autoatendimento na MESMA mensagem (nunca uma segunda
+// mensagem) — só quando a Consulta de Pendências estiver ativa.
+function comLinkPendencias(mensagem: string, ativo: boolean): string {
+  if (!ativo) return mensagem;
+  const link = `${window.location.origin}/consulta-pendencias`;
+  return `${mensagem} Se quiser já adiantar uma explicação, acesse: ${link}`;
+}
+
+const MENSAGEM_ATUALIZACAO_FINAL =
+  "Olá {nome}! Há uma atualização nas suas pendências financeiras. Acesse: {link}";
+
 export default function ValesPage() {
   const [searchParams] = useSearchParams();
   const { toast } = useToast();
@@ -200,6 +211,11 @@ export default function ValesPage() {
   const [motivoContestacao, setMotivoContestacao] = useState("");
   const [contestando, setContestando] = useState(false);
 
+  // Consulta de Pendências (link de autoatendimento) — só entra na mensagem
+  // quando a chave "consulta_pendencias_ativa" estiver ligada em Configurações.
+  const [linkPendenciasAtivo, setLinkPendenciasAtivo] = useState(false);
+  const [notificandoResolucaoId, setNotificandoResolucaoId] = useState<string | null>(null);
+
   const fetchVales = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -213,7 +229,7 @@ export default function ValesPage() {
           contestado, motivo_contestacao, contestado_em,
           notificacao_pendente_enviada, notificacao_final_enviada,
           vale_ajudantes ( posicao, ajudantes ( id, codigo, nome, telefone ) ),
-          vale_itens ( id, tipo_item, item, unidade, qtde_diferenca, qtde_diferenca_avulsa, valor )
+          vale_itens ( id, tipo_item, item, unidade, qtde_diferenca, qtde_diferenca_avulsa, valor, justificativa_ajudante )
         `)
         .order("created_at", { ascending: false });
 
@@ -253,6 +269,12 @@ export default function ValesPage() {
   useEffect(() => {
     fetchVales();
     fetchAjudantes();
+    valesSupabase
+      .from("configuracoes")
+      .select("valor")
+      .eq("chave", "consulta_pendencias_ativa")
+      .maybeSingle()
+      .then(({ data }) => setLinkPendenciasAtivo(data?.valor === "true"));
   }, [fetchVales, fetchAjudantes]);
 
   const openPreview = useCallback(async (vale: ValeRow) => {
@@ -266,6 +288,7 @@ export default function ValesPage() {
       const config: Record<string, string> = {};
       for (const row of data ?? []) config[row.chave] = row.valor ?? "";
       setPreviewTemplate(config.notificacao_template_pendente || TEMPLATE_DEFAULT);
+      setLinkPendenciasAtivo(config.consulta_pendencias_ativa === "true");
     } catch {
       setPreviewTemplate(TEMPLATE_DEFAULT);
     }
@@ -284,14 +307,15 @@ export default function ValesPage() {
         const phone = formatPhoneForZAPI(telefoneManual);
         if (!phone) throw new Error("Telefone inválido");
 
-        const result = await sendMessage(phone, MENSAGEM_TELEFONE_MANUAL);
+        const mensagemManual = comLinkPendencias(MENSAGEM_TELEFONE_MANUAL, linkPendenciasAtivo);
+        const result = await sendMessage(phone, mensagemManual);
 
         await valesSupabase.from("notificacoes").insert({
           vale_id: valeId,
           ajudante_id: null,
           tipo: "pendente",
           telefone: phone,
-          mensagem: MENSAGEM_TELEFONE_MANUAL,
+          mensagem: mensagemManual,
           status: result.success ? "enviado" : "erro",
           erro_detalhe: result.error ?? null,
           enviada_em: result.success ? new Date().toISOString() : null,
@@ -325,16 +349,17 @@ export default function ValesPage() {
       const config: Record<string, string> = {};
       for (const row of configData ?? []) config[row.chave] = row.valor ?? "";
       const template = config.notificacao_template_pendente || TEMPLATE_DEFAULT;
+      const ativo = config.consulta_pendencias_ativa === "true";
 
       let sent = 0;
       for (const ajudante of ajudantesComTel) {
         const phone = formatPhoneForZAPI(ajudante.telefone);
         if (!phone) continue;
-        const mensagem = buildMensagem(template, {
+        const mensagem = comLinkPendencias(buildMensagem(template, {
           nome: ajudante.nome,
           qtd: "1",
           vales: `#${numeroVale}`,
-        });
+        }), ativo);
         const result = await sendMessage(phone, mensagem);
 
         await valesSupabase.from("notificacoes").insert({
@@ -372,6 +397,56 @@ export default function ValesPage() {
     } finally {
       setNotifyingId(null);
       setManualPhone("");
+    }
+  };
+
+  // Aviso de atualização (tratativa final Abonado/Faturado) — mesmo link e
+  // mesmo login por CPF da notificação inicial, sem gerar um link novo por
+  // pendência. Só aparece com a Consulta de Pendências ativa.
+  const notificarResolucao = async (vale: ValeRow) => {
+    setNotificandoResolucaoId(vale.id);
+    try {
+      const ajudantesComTel = vale.ajudantes.filter((a) => a.telefone);
+      if (ajudantesComTel.length === 0) {
+        throw new Error("Nenhum ajudante com telefone cadastrado");
+      }
+      const link = `${window.location.origin}/consulta-pendencias`;
+      let sent = 0;
+      for (const ajudante of ajudantesComTel) {
+        const phone = formatPhoneForZAPI(ajudante.telefone);
+        if (!phone) continue;
+        const mensagem = buildMensagem(MENSAGEM_ATUALIZACAO_FINAL, { nome: ajudante.nome, link });
+        const result = await sendMessage(phone, mensagem);
+
+        await valesSupabase.from("notificacoes").insert({
+          vale_id: vale.id,
+          ajudante_id: ajudante.id,
+          tipo: "resolvido",
+          telefone: ajudante.telefone,
+          mensagem: `Vale #${vale.numero_vale} resolvido - Status: ${vale.status_vale}`,
+          status: result.success ? "enviado" : "erro",
+          erro_detalhe: result.error ?? null,
+          enviada_em: result.success ? new Date().toISOString() : null,
+        });
+        if (result.success) sent++;
+      }
+
+      if (sent > 0) {
+        await valesSupabase.from("vales").update({ notificacao_final_enviada: true }).eq("id", vale.id);
+      }
+      toast({
+        title: "Aviso de atualização enviado",
+        description: `${sent} mensagem(ns) WhatsApp enviada(s) para vale #${vale.numero_vale}`,
+      });
+      await fetchVales();
+    } catch (err) {
+      toast({
+        variant: "destructive",
+        title: "Erro ao notificar",
+        description: err instanceof Error ? err.message : "Erro desconhecido",
+      });
+    } finally {
+      setNotificandoResolucaoId(null);
     }
   };
 
@@ -683,11 +758,11 @@ export default function ValesPage() {
                       </p>
                       <div className="bg-green-50 border border-green-200 rounded p-2.5">
                         <p className="text-sm text-green-900 leading-snug whitespace-pre-wrap">
-                          {buildMensagem(previewTemplate, {
+                          {comLinkPendencias(buildMensagem(previewTemplate, {
                             nome: aj.nome,
                             qtd: "1",
                             vales: `#${previewVale.numero_vale}`,
-                          })}
+                          }), linkPendenciasAtivo)}
                         </p>
                       </div>
                     </div>
@@ -719,7 +794,7 @@ export default function ValesPage() {
                   </div>
                   <div className="bg-green-50 border border-green-200 rounded p-2.5">
                     <p className="text-sm text-green-900 leading-snug whitespace-pre-wrap">
-                      {MENSAGEM_TELEFONE_MANUAL}
+                      {comLinkPendencias(MENSAGEM_TELEFONE_MANUAL, linkPendenciasAtivo)}
                     </p>
                   </div>
                 </div>
@@ -1157,6 +1232,22 @@ export default function ValesPage() {
                                 )}
                                 <span className="ml-1 hidden sm:inline">Notificar</span>
                               </Button>
+                              {linkPendenciasAtivo && (vale.status_vale === "Abonado" || vale.status_vale === "Faturado") && !vale.notificacao_final_enviada && (
+                                <Button
+                                  variant="outline" size="sm"
+                                  onClick={() => notificarResolucao(vale)}
+                                  disabled={notificandoResolucaoId === vale.id}
+                                  title="Avisar o colaborador da tratativa final"
+                                  className="border-green-200 text-green-700 hover:bg-green-50"
+                                >
+                                  {notificandoResolucaoId === vale.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <MessageCircle className="h-4 w-4" />
+                                  )}
+                                  <span className="ml-1 hidden sm:inline">Avisar resolução</span>
+                                </Button>
+                              )}
                               {(vale.status_vale === "Faturado" || vale.status_vale === "Faturar") && (
                                 <Button
                                   variant="outline" size="sm"

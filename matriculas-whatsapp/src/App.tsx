@@ -54,6 +54,7 @@ import ArmazemDashboard from './pages/armazem/Dashboard'
 import ArmazemVariavel from './pages/armazem/Variavel'
 import ColaboradoresArmazem from './pages/armazem/ColaboradoresArmazem'
 import VariavelTotem from './pages/VariavelTotem'
+import ConsultaPendencias from './pages/ConsultaPendencias'
 
 function ProtectedRoutes() {
   const { usuario, loading } = useAuth()
@@ -96,6 +97,7 @@ export default function App() {
           <Route path="/matinal-tml" element={<MatinalTML />} />
           <Route path="/conferencia" element={<ConferenciaDigital />} />
           <Route path="/variavel-armazem" element={<VariavelTotem />} />
+          <Route path="/consulta-pendencias" element={<ConsultaPendencias />} />
           <Route path="/armazem" element={<ArmazemOperadorRoute />} />
           <Route element={<ProtectedRoutes />}>
             <Route path="/" element={<Home />} />

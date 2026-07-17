@@ -37,6 +37,7 @@ export default function ValesConfiguracoesPage() {
   const [automatica, setAutomatica] = useState(false);
   const [horario, setHorario] = useState("08:00");
   const [template, setTemplate] = useState(TEMPLATE_DEFAULT);
+  const [consultaPendenciasAtiva, setConsultaPendenciasAtiva] = useState(false);
 
   useEffect(() => {
     valesSupabase
@@ -48,6 +49,7 @@ export default function ValesConfiguracoesPage() {
         setAutomatica(config.notificacao_automatica === "true");
         if (config.notificacao_horario_utc) setHorario(utcHourToBrt(Number(config.notificacao_horario_utc)));
         if (config.notificacao_template_pendente) setTemplate(config.notificacao_template_pendente);
+        setConsultaPendenciasAtiva(config.consulta_pendencias_ativa === "true");
         setLoading(false);
       });
   }, []);
@@ -58,6 +60,7 @@ export default function ValesConfiguracoesPage() {
       { chave: "notificacao_automatica", valor: String(automatica), updated_at: new Date().toISOString() },
       { chave: "notificacao_horario_utc", valor: String(brtToUtcHour(horario)), updated_at: new Date().toISOString() },
       { chave: "notificacao_template_pendente", valor: template, updated_at: new Date().toISOString() },
+      { chave: "consulta_pendencias_ativa", valor: String(consultaPendenciasAtiva), updated_at: new Date().toISOString() },
     ];
     const { error } = await valesSupabase.from("configuracoes").upsert(rows, { onConflict: "chave" });
     setSaving(false);
@@ -167,6 +170,39 @@ export default function ValesConfiguracoesPage() {
           <div className="rounded-lg border bg-green-50 border-green-200 p-3">
             <p className="text-xs font-medium text-green-800 mb-1.5">Preview da mensagem:</p>
             <p className="text-sm text-green-900 leading-snug whitespace-pre-wrap">{previewMensagem}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Consulta de Pendências (link de autoatendimento)</CardTitle>
+          <CardDescription>
+            Página pública onde o colaborador se identifica pelos 3 primeiros dígitos do CPF, vê a
+            pendência sem valores e pode enviar uma justificativa prévia antes da tratativa final.
+            Aguardando aprovação do jurídico — mantenha desligado até ter sinal verde.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-3">
+            <button
+              onClick={() => setConsultaPendenciasAtiva(false)}
+              className={`flex-1 rounded-lg border p-4 text-left transition-colors ${!consultaPendenciasAtiva ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-accent"}`}
+            >
+              <p className="font-medium text-sm">Desligado</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Mensagens continuam exatamente como hoje, sem o link</p>
+            </button>
+            <button
+              onClick={() => setConsultaPendenciasAtiva(true)}
+              className={`flex-1 rounded-lg border p-4 text-left transition-colors ${consultaPendenciasAtiva ? "border-primary bg-primary/5 ring-1 ring-primary" : "hover:bg-accent"}`}
+            >
+              <p className="font-medium text-sm">Ligado</p>
+              <p className="text-xs text-muted-foreground mt-0.5">Acrescenta o link na mensagem e habilita o aviso de resolução</p>
+            </button>
+          </div>
+          <div className="rounded-lg border bg-muted/30 p-3">
+            <p className="text-xs font-medium text-muted-foreground mb-1">Link público (mesmo para todos, sem token por pendência):</p>
+            <p className="text-sm font-mono break-all">{typeof window !== "undefined" ? `${window.location.origin}/consulta-pendencias` : "/consulta-pendencias"}</p>
           </div>
         </CardContent>
       </Card>

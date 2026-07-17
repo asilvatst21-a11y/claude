@@ -28,6 +28,7 @@ interface ValeItem {
   qtde_diferenca: number | null;
   qtde_diferenca_avulsa: number | null;
   valor: number | null;
+  justificativa_ajudante: string | null;
 }
 
 interface ValeNota {
@@ -214,6 +215,18 @@ export function ValeDetalhesModal({ vale, open, onClose }: Props) {
                 </TableBody>
               </Table>
             </div>
+            {vale.itens.some((item) => item.justificativa_ajudante) && (
+              <div className="mt-3 space-y-2">
+                {vale.itens.filter((item) => item.justificativa_ajudante).map((item) => (
+                  <div key={item.id} className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-amber-700 mb-1">
+                      Justificativa do colaborador{item.item ? ` — ${item.item}` : ""} (via link de autoatendimento)
+                    </p>
+                    <p className="text-sm text-amber-900">{item.justificativa_ajudante}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
 
           <Separator />
