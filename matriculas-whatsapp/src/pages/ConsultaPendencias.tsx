@@ -10,6 +10,10 @@ import {
 type StatusItem = 'aguardando' | 'justificado' | 'abonado' | 'faturado'
 type Aba = 'financeiro' | 'reposicoes'
 
+// 4 dígitos em vez de 3: reduz bastante a chance de duas pessoas caírem na
+// mesma tela de desambiguação por coincidência de CPF.
+const QTD_DIGITOS_CPF = 4
+
 const TIPO_REPOSICAO_LABEL: Record<string, string> = {
   falta: 'Falta',
   inversao: 'Inversão',
@@ -54,14 +58,14 @@ export default function ConsultaPendencias() {
   useEffect(() => { consultaPendenciasEstaAtiva().then(setAtiva) }, [])
 
   function tecla(n: string) {
-    if (digitos.length >= 3) return
+    if (digitos.length >= QTD_DIGITOS_CPF) return
     setErro('')
-    setDigitos((d) => (d + n).slice(0, 3))
+    setDigitos((d) => (d + n).slice(0, QTD_DIGITOS_CPF))
   }
   function apagar() { setErro(''); setDigitos((d) => d.slice(0, -1)) }
 
   async function buscar() {
-    if (digitos.length !== 3) { setErro('Digite os 3 primeiros números do seu CPF.'); return }
+    if (digitos.length !== QTD_DIGITOS_CPF) { setErro(`Digite os ${QTD_DIGITOS_CPF} primeiros números do seu CPF.`); return }
     setErro(''); setBuscando(true)
     try {
       const resultado = await buscarPendenciasPorCpf(digitos)
@@ -192,7 +196,7 @@ export default function ConsultaPendencias() {
                     >
                       <div>
                         <p className="font-bold text-gray-900">{formatarDataBR(rep.data)}{rep.produto ? ` · ${rep.produto}` : ''}</p>
-                        <p className="text-xs text-gray-400">{TIPO_REPOSICAO_LABEL[rep.tipoReposicao ?? 'indefinido'] ?? 'Não informado'}{rep.mapa ? ` · Mapa ${rep.mapa}` : ''}</p>
+                        <p className="text-xs text-gray-400">{TIPO_REPOSICAO_LABEL[rep.tipoReposicao ?? 'indefinido'] ?? 'Não informado'}{rep.mapa ? ` · Mapa ${rep.mapa}` : ''}{rep.cliente ? ` · ${rep.cliente}` : ''}</p>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <StatusReposicaoPill status={rep.status} />
@@ -240,12 +244,12 @@ export default function ConsultaPendencias() {
         <Link to="/login" className="inline-flex items-center gap-1.5 text-brand-200 text-sm mb-6"><ArrowLeft className="h-4 w-4" /> Voltar</Link>
         <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Wallet className="h-4 w-4" /> Pendências</div>
         <h1 className="text-2xl font-bold">Consultar minhas pendências</h1>
-        <p className="text-brand-200 text-sm mt-1">Digite os 3 primeiros números do seu CPF.</p>
+        <p className="text-brand-200 text-sm mt-1">Digite os {QTD_DIGITOS_CPF} primeiros números do seu CPF.</p>
       </div>
       <div className="flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 pb-8 flex flex-col gap-5">
         <div className="flex justify-center gap-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className={`w-16 h-20 rounded-2xl border-2 grid place-items-center text-4xl font-extrabold tabular-nums ${digitos[i] ? 'border-accent-500 text-gray-900' : 'border-gray-200 text-gray-300'}`}>
+          {Array.from({ length: QTD_DIGITOS_CPF }, (_, i) => i).map((i) => (
+            <div key={i} className={`w-14 h-20 rounded-2xl border-2 grid place-items-center text-4xl font-extrabold tabular-nums ${digitos[i] ? 'border-accent-500 text-gray-900' : 'border-gray-200 text-gray-300'}`}>
               {digitos[i] ?? '•'}
             </div>
           ))}
@@ -259,7 +263,7 @@ export default function ConsultaPendencias() {
           ))}
           <button onClick={apagar} className="py-4 rounded-xl border border-gray-200 grid place-items-center active:bg-gray-100 transition"><Delete className="h-6 w-6 text-gray-500" /></button>
           <button onClick={() => tecla('0')} className="py-4 rounded-xl border border-gray-200 text-2xl font-bold tabular-nums active:bg-gray-100 transition">0</button>
-          <button onClick={buscar} disabled={buscando || digitos.length !== 3} className="py-4 rounded-xl bg-accent-500 disabled:opacity-40 text-white grid place-items-center active:bg-accent-600 transition">
+          <button onClick={buscar} disabled={buscando || digitos.length !== QTD_DIGITOS_CPF} className="py-4 rounded-xl bg-accent-500 disabled:opacity-40 text-white grid place-items-center active:bg-accent-600 transition">
             {buscando ? <Loader2 className="h-6 w-6 animate-spin" /> : <Search className="h-6 w-6" />}
           </button>
         </div>
@@ -465,6 +469,7 @@ function DetalheReposicao({ reposicao, mostrarBannerTeste, onVoltar }: {
         <div className="border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
           <div className="grid grid-cols-2 gap-3">
             <Campo label="Mapa" valor={reposicao.mapa ?? '—'} />
+            <Campo label="Cliente" valor={reposicao.cliente ?? '—'} />
             <Campo label="Tipo" valor={TIPO_REPOSICAO_LABEL[reposicao.tipoReposicao ?? 'indefinido'] ?? 'Não informado'} />
             <Campo label="Produto" valor={reposicao.produto ?? '—'} />
             <Campo label="Quantidade" valor={reposicao.quantidade ?? '—'} />

@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 
 // ─── Consulta de Pendências — autoatendimento público (link enviado no aviso
-// de WhatsApp). Colaborador se identifica pelos 3 primeiros dígitos do CPF
+// de WhatsApp). Colaborador se identifica pelos 4 primeiros dígitos do CPF
 // (mesmo padrão da consulta de variável do armazém), vê as pendências sem
 // valores e pode registrar uma justificativa prévia (texto ou áudio) antes
 // da tratativa final do financeiro. ──────────────────────────────────────
@@ -29,6 +29,7 @@ export interface ReposicaoPendencia {
   numero: string
   data: string
   mapa: string | null
+  cliente: string | null
   tipoReposicao: string | null
   produto: string | null
   quantidade: string | null
@@ -84,7 +85,7 @@ async function buscarReposicoesPorCandidatos(candidatos: Candidato[]): Promise<M
   const [{ data: reposicoes }, { data: equipes }] = await Promise.all([
     supabase
       .from('reposicoes')
-      .select('id, numero, filial, mapa, tipo_reposicao, produto, quantidade, embalagem, status, cora_motivo_reprovacao, created_at')
+      .select('id, numero, filial, mapa, cliente, tipo_reposicao, produto, quantidade, embalagem, status, cora_motivo_reprovacao, created_at')
       .in('filial', filiais)
       .in('status', ['pendente', 'validado', 'negado'])
       .gte('created_at', desde),
@@ -115,6 +116,7 @@ async function buscarReposicoesPorCandidatos(candidatos: Candidato[]): Promise<M
       numero: r.numero,
       data: dia,
       mapa: r.mapa,
+      cliente: r.cliente,
       tipoReposicao: r.tipo_reposicao,
       produto: r.produto,
       quantidade: r.quantidade,
