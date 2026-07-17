@@ -34,6 +34,16 @@ const STATUS_ACAO: StatusAcao[] = ['Pendente', 'Em Andamento', 'Concluído']
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/** Normaliza uma data (ISO ou DD/MM/AAAA) para chave YYYY-MM-DD comparável. */
+function diaKey(s: string | null): string {
+  if (!s) return ''
+  const iso = s.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
+  const br = s.match(/^(\d{2})\/(\d{2})\/(\d{4})/)
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`
+  return s
+}
+
 function excelDate(val: string): string {
   const n = parseFloat(val)
   if (!isNaN(n) && n > 40000 && n < 100000) {
@@ -176,8 +186,8 @@ export default function Dto() {
   const obsFiltradas = observacoes.filter(obs => {
     if (filtroArea !== 'Todas' && obs.area !== filtroArea) return false
     if (filtroAvaliador !== 'Todos' && obs.avaliador !== filtroAvaliador) return false
-    if (filtroPeriodo.de && obs.data_aplicacao && obs.data_aplicacao < filtroPeriodo.de) return false
-    if (filtroPeriodo.ate && obs.data_aplicacao && obs.data_aplicacao > filtroPeriodo.ate) return false
+    if (filtroPeriodo.de && obs.data_aplicacao && diaKey(obs.data_aplicacao) < filtroPeriodo.de) return false
+    if (filtroPeriodo.ate && obs.data_aplicacao && diaKey(obs.data_aplicacao) > filtroPeriodo.ate) return false
     return true
   })
 
@@ -416,9 +426,12 @@ export default function Dto() {
               ))}
               <div className="flex items-center gap-2 ml-auto">
                 <span className="text-xs text-gray-500">Período:</span>
-                <input type="text" placeholder="DD/MM/AAAA" value={filtroPeriodo.de} onChange={e => setFiltroPeriodo(p => ({ ...p, de: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                <input type="date" value={filtroPeriodo.de} onChange={e => setFiltroPeriodo(p => ({ ...p, de: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500" />
                 <span className="text-xs text-gray-400">até</span>
-                <input type="text" placeholder="DD/MM/AAAA" value={filtroPeriodo.ate} onChange={e => setFiltroPeriodo(p => ({ ...p, ate: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs w-28 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                <input type="date" value={filtroPeriodo.ate} onChange={e => setFiltroPeriodo(p => ({ ...p, ate: e.target.value }))} className="border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                {(filtroPeriodo.de || filtroPeriodo.ate) && (
+                  <button onClick={() => setFiltroPeriodo({ de: '', ate: '' })} className="text-xs text-brand-600 hover:underline">Limpar</button>
+                )}
               </div>
             </div>
             {avaliadores.length > 2 && (
