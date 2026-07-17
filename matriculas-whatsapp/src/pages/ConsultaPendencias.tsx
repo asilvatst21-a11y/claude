@@ -4,10 +4,20 @@ import { ArrowLeft, Delete, Search, Loader2, Mic, Square, Send, ChevronRight, Wa
 import { formatarDataBR } from '../lib/utils'
 import {
   buscarPendenciasPorCpf, consultaPendenciasEstaAtiva, enviarJustificativaPendencia, transcreverAudioPendencia,
-  type CandidatoPendencia, type PendenciaItem,
+  type CandidatoPendencia, type PendenciaItem, type ReposicaoPendencia,
 } from '../lib/consultaPendencias'
 
 type StatusItem = 'aguardando' | 'justificado' | 'abonado' | 'faturado'
+type Aba = 'financeiro' | 'reposicoes'
+
+const TIPO_REPOSICAO_LABEL: Record<string, string> = {
+  falta: 'Falta',
+  inversao: 'Inversão',
+  avaria: 'Avaria',
+  troca: 'Troca',
+  remessa: 'Simples Remessa',
+  indefinido: 'Não informado',
+}
 
 function statusDoItem(item: PendenciaItem): StatusItem {
   if (item.statusVale === 'Abonado') return 'abonado'
@@ -16,8 +26,8 @@ function statusDoItem(item: PendenciaItem): StatusItem {
   return 'aguardando'
 }
 
-function agruparPorData(itens: PendenciaItem[]): { data: string; itens: PendenciaItem[] }[] {
-  const mapa = new Map<string, PendenciaItem[]>()
+function agruparPorData<T extends { data: string | null }>(itens: T[]): { data: string; itens: T[] }[] {
+  const mapa = new Map<string, T[]>()
   for (const item of itens) {
     const chave = item.data ?? 'sem-data'
     if (!mapa.has(chave)) mapa.set(chave, [])
@@ -38,6 +48,8 @@ export default function ConsultaPendencias() {
   const [candidatos, setCandidatos] = useState<CandidatoPendencia[] | null>(null)
   const [pessoa, setPessoa] = useState<CandidatoPendencia | null>(null)
   const [itemAberto, setItemAberto] = useState<PendenciaItem | null>(null)
+  const [reposicaoAberta, setReposicaoAberta] = useState<ReposicaoPendencia | null>(null)
+  const [aba, setAba] = useState<Aba>('financeiro')
 
   useEffect(() => { consultaPendenciasEstaAtiva().then(setAtiva) }, [])
 
@@ -71,6 +83,7 @@ export default function ConsultaPendencias() {
 
   function reiniciar() {
     setDigitos(''); setErro(''); setCandidatos(null); setPessoa(null); setItemAberto(null)
+    setReposicaoAberta(null); setAba('financeiro')
   }
 
   // Enquanto a funcionalidade não estiver liberada (Vales > Configurações),
@@ -113,42 +126,84 @@ export default function ConsultaPendencias() {
     )
   }
 
-  // ── Lista de pendências por data ────────────────────────────────────
+  // ── Detalhe de uma reposição (só leitura — sem justificativa) ──────────
+  if (pessoa && reposicaoAberta) {
+    return <DetalheReposicao reposicao={reposicaoAberta} mostrarBannerTeste={mostrarBannerTeste} onVoltar={() => setReposicaoAberta(null)} />
+  }
+
+  // ── Lista de pendências por data (abas Financeiro / Reposições) ────────
   if (pessoa) {
     const buckets = agruparPorData(pessoa.itens)
+    const bucketsReposicoes = agruparPorData(pessoa.reposicoes)
+    const temReposicoes = pessoa.reposicoes.length > 0
     return (
       <div className="min-h-screen bg-brand-900 text-white flex flex-col">
         {mostrarBannerTeste && <ModoTesteBanner />}
         <div className="px-5 pt-8 pb-6">
           <button onClick={reiniciar} className="inline-flex items-center gap-1.5 text-brand-200 text-sm mb-6"><ArrowLeft className="h-4 w-4" /> Voltar</button>
-          <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Wallet className="h-4 w-4" /> Pendências</div>
+          <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Wallet className="h-4 w-4" /> Consulta</div>
           <h1 className="text-2xl font-bold">Olá, {pessoa.nome.split(' ')[0]}</h1>
           <p className="text-brand-200 text-sm mt-1">Toque numa data pra ver os detalhes.</p>
         </div>
-        <div className="flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 pb-8 flex flex-col gap-2.5">
-          {buckets.map((b) => (
-            <div key={b.data} className="flex flex-col gap-1.5">
-              {b.itens.map((item) => {
-                const status = statusDoItem(item)
-                return (
-                  <button
-                    key={item.itemId}
-                    onClick={() => setItemAberto(item)}
-                    className="flex items-center justify-between gap-3 border border-gray-200 rounded-xl px-4 py-3 text-left hover:border-accent-300 transition-colors"
-                  >
-                    <div>
-                      <p className="font-bold text-gray-900">{formatarDataBR(item.data)}</p>
-                      <p className="text-xs text-gray-400">{item.mapa ? `Mapa ${item.mapa}` : '—'}{item.produto ? ` · ${item.produto}` : ''}</p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <StatusPill status={status} />
-                      <ChevronRight className="h-4 w-4 text-gray-300" />
-                    </div>
-                  </button>
-                )
-              })}
+        <div className="flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 pb-8 flex flex-col gap-3">
+          {temReposicoes && (
+            <div className="flex gap-1 bg-gray-100 rounded-xl p-1">
+              <button onClick={() => setAba('financeiro')} className={`flex-1 text-center text-xs font-bold py-2 rounded-lg transition-colors ${aba === 'financeiro' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-400'}`}>Financeiro</button>
+              <button onClick={() => setAba('reposicoes')} className={`flex-1 text-center text-xs font-bold py-2 rounded-lg transition-colors ${aba === 'reposicoes' ? 'bg-white text-brand-700 shadow-sm' : 'text-gray-400'}`}>Reposições</button>
             </div>
-          ))}
+          )}
+          <div className="flex flex-col gap-2.5">
+            {aba === 'financeiro' ? (
+              buckets.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">Nenhuma pendência financeira no momento.</p>
+              ) : buckets.map((b) => (
+                <div key={b.data} className="flex flex-col gap-1.5">
+                  {b.itens.map((item) => {
+                    const status = statusDoItem(item)
+                    return (
+                      <button
+                        key={item.itemId}
+                        onClick={() => setItemAberto(item)}
+                        className="flex items-center justify-between gap-3 border border-gray-200 rounded-xl px-4 py-3 text-left hover:border-accent-300 transition-colors"
+                      >
+                        <div>
+                          <p className="font-bold text-gray-900">{formatarDataBR(item.data)}</p>
+                          <p className="text-xs text-gray-400">{item.mapa ? `Mapa ${item.mapa}` : '—'}{item.produto ? ` · ${item.produto}` : ''}</p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <StatusPill status={status} />
+                          <ChevronRight className="h-4 w-4 text-gray-300" />
+                        </div>
+                      </button>
+                    )
+                  })}
+                </div>
+              ))
+            ) : (
+              bucketsReposicoes.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">Nenhuma reposição em validação no momento.</p>
+              ) : bucketsReposicoes.map((b) => (
+                <div key={b.data} className="flex flex-col gap-1.5">
+                  {b.itens.map((rep) => (
+                    <button
+                      key={rep.id}
+                      onClick={() => setReposicaoAberta(rep)}
+                      className="flex items-center justify-between gap-3 border border-gray-200 rounded-xl px-4 py-3 text-left hover:border-accent-300 transition-colors"
+                    >
+                      <div>
+                        <p className="font-bold text-gray-900">{formatarDataBR(rep.data)}{rep.produto ? ` · ${rep.produto}` : ''}</p>
+                        <p className="text-xs text-gray-400">{TIPO_REPOSICAO_LABEL[rep.tipoReposicao ?? 'indefinido'] ?? 'Não informado'}{rep.mapa ? ` · Mapa ${rep.mapa}` : ''}</p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <StatusReposicaoPill status={rep.status} />
+                        <ChevronRight className="h-4 w-4 text-gray-300" />
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
     )
@@ -167,7 +222,7 @@ export default function ConsultaPendencias() {
         </div>
         <div className="flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 pb-8 flex flex-col gap-2">
           {candidatos.map((c) => (
-            <button key={c.colaboradorId} onClick={() => setPessoa(c)} className="flex items-center justify-between border border-gray-200 rounded-xl px-4 py-3 text-left hover:border-accent-300 transition-colors">
+            <button key={c.colaboradorId} onClick={() => { setPessoa(c); setAba('financeiro') }} className="flex items-center justify-between border border-gray-200 rounded-xl px-4 py-3 text-left hover:border-accent-300 transition-colors">
               <span className="font-medium text-gray-900">{c.nome}</span>
               <ChevronRight className="h-4 w-4 text-gray-300" />
             </button>
@@ -381,6 +436,55 @@ function Campo({ label, valor }: { label: string; valor: string }) {
     <div className="flex flex-col gap-0.5">
       <span className="text-[9.5px] font-bold uppercase tracking-wide text-gray-400">{label}</span>
       <span className="text-sm font-semibold text-gray-900">{valor}</span>
+    </div>
+  )
+}
+
+function StatusReposicaoPill({ status }: { status: ReposicaoPendencia['status'] }) {
+  if (status === 'pendente') return <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 whitespace-nowrap">Aguardando</span>
+  if (status === 'validado') return <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-green-50 text-green-700 whitespace-nowrap">Aprovada</span>
+  return <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-red-50 text-red-700 whitespace-nowrap">Reprovada</span>
+}
+
+// ─── Detalhe de uma reposição: só leitura, sem campo de justificativa — o
+// colaborador apenas acompanha se a validação foi aprovada ou reprovada. ───
+function DetalheReposicao({ reposicao, mostrarBannerTeste, onVoltar }: {
+  reposicao: ReposicaoPendencia
+  mostrarBannerTeste: boolean
+  onVoltar: () => void
+}) {
+  return (
+    <div className="min-h-screen bg-brand-900 text-white flex flex-col">
+      {mostrarBannerTeste && <ModoTesteBanner />}
+      <div className="px-5 pt-8 pb-6">
+        <button onClick={onVoltar} className="inline-flex items-center gap-1.5 text-brand-200 text-sm mb-6"><ArrowLeft className="h-4 w-4" /> Voltar</button>
+        <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Wallet className="h-4 w-4" /> Consulta</div>
+        <h1 className="text-xl font-bold">Reposição de {formatarDataBR(reposicao.data)}</h1>
+      </div>
+      <div className="flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 pb-8 flex flex-col gap-4">
+        <div className="border border-gray-200 rounded-xl p-4 flex flex-col gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Campo label="Mapa" valor={reposicao.mapa ?? '—'} />
+            <Campo label="Tipo" valor={TIPO_REPOSICAO_LABEL[reposicao.tipoReposicao ?? 'indefinido'] ?? 'Não informado'} />
+            <Campo label="Produto" valor={reposicao.produto ?? '—'} />
+            <Campo label="Quantidade" valor={reposicao.quantidade ?? '—'} />
+          </div>
+          <div>
+            <StatusReposicaoPill status={reposicao.status} />
+          </div>
+          {reposicao.status === 'negado' && reposicao.motivoReprovacao && (
+            <div className="bg-red-50 border border-red-600 rounded-lg p-3">
+              <p className="text-[10px] font-bold uppercase text-red-700 mb-1">Motivo da reprovação</p>
+              <p className="text-sm text-red-800">{reposicao.motivoReprovacao}</p>
+            </div>
+          )}
+          <p className="text-xs text-gray-400 border-t border-gray-100 pt-3">
+            {reposicao.status === 'pendente'
+              ? 'Essa solicitação foi registrada pelo robô de reposição e está com o controle pra validar. Você só acompanha o status aqui — não precisa fazer nada.'
+              : 'Em caso de dúvidas, procure o setor financeiro.'}
+          </p>
+        </div>
+      </div>
     </div>
   )
 }

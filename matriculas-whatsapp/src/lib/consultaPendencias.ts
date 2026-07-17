@@ -22,18 +22,41 @@ export interface PendenciaItem {
   justificativaPrevia: string | null
 }
 
+export type StatusReposicao = 'pendente' | 'validado' | 'negado'
+
+export interface ReposicaoPendencia {
+  id: string
+  numero: string
+  data: string
+  mapa: string | null
+  tipoReposicao: string | null
+  produto: string | null
+  quantidade: string | null
+  embalagem: string | null
+  status: StatusReposicao
+  motivoReprovacao: string | null
+}
+
 export interface CandidatoPendencia {
   colaboradorId: string
   nome: string
   itens: PendenciaItem[]
+  reposicoes: ReposicaoPendencia[]
+}
+
+interface Candidato {
+  colaboradorId: string
+  nome: string
+  matriculaPromax: string
+  filial: string | null
 }
 
 // Liga por matrícula Promax (mesma convenção já usada em Colaboradores.tsx
 // pra sincronizar telefone): colaboradores.matricula_promax === ajudantes.codigo.
-async function buscarCandidatosPorCpf(digitos: string): Promise<{ colaboradorId: string; nome: string; matriculaPromax: string }[]> {
+async function buscarCandidatosPorCpf(digitos: string): Promise<Candidato[]> {
   const { data } = await supabase
     .from('colaboradores')
-    .select('id, nome, cpf, matricula_promax, funcao, status')
+    .select('id, nome, cpf, matricula_promax, funcao, status, filial')
     .like('cpf', `${digitos}%`)
 
   return (data ?? [])
@@ -42,7 +65,77 @@ async function buscarCandidatosPorCpf(digitos: string): Promise<{ colaboradorId:
       /AJUDANTE|MOTORISTA/i.test(c.funcao ?? '') &&
       (c.status ?? '').toUpperCase() !== 'DESLIGADO',
     )
-    .map((c) => ({ colaboradorId: c.id as string, nome: c.nome as string, matriculaPromax: c.matricula_promax as string }))
+    .map((c) => ({ colaboradorId: c.id as string, nome: c.nome as string, matriculaPromax: c.matricula_promax as string, filial: c.filial as string | null }))
+}
+
+// Reposição não guarda matrícula — só o mapa. Cruza mapa + filial + dia (do
+// created_at) com mapa_equipe (mesma planilha "Base" que a Frota já usa) pra
+// achar a matrícula do(s) ajudante(s) daquele mapa naquele dia. Um mapa pode
+// ter 2 ajudantes — igual aos vales, os dois recebem o aviso e os dois
+// enxergam a própria reposição aqui (é só leitura, sem justificativa).
+const DIAS_JANELA_REPOSICAO = 60
+
+async function buscarReposicoesPorCandidatos(candidatos: Candidato[]): Promise<Map<string, ReposicaoPendencia[]>> {
+  const filiais = [...new Set(candidatos.map((c) => c.filial).filter((f): f is string => !!f))]
+  if (filiais.length === 0) return new Map()
+
+  const desde = new Date(Date.now() - DIAS_JANELA_REPOSICAO * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+  const [{ data: reposicoes }, { data: equipes }] = await Promise.all([
+    supabase
+      .from('reposicoes')
+      .select('id, numero, filial, mapa, tipo_reposicao, produto, quantidade, embalagem, status, cora_motivo_reprovacao, created_at')
+      .in('filial', filiais)
+      .in('status', ['pendente', 'validado', 'negado'])
+      .gte('created_at', desde),
+    supabase
+      .from('mapa_equipe')
+      .select('filial, data, mapa, ajudante1_matricula, ajudante2_matricula')
+      .in('filial', filiais)
+      .gte('data', desde),
+  ])
+
+  const equipePorChave = new Map<string, { m1: number | null; m2: number | null }>()
+  for (const e of equipes ?? []) {
+    const chave = `${e.filial}|${e.data}|${e.mapa}`
+    equipePorChave.set(chave, {
+      m1: e.ajudante1_matricula ? Number(e.ajudante1_matricula) : null,
+      m2: e.ajudante2_matricula ? Number(e.ajudante2_matricula) : null,
+    })
+  }
+
+  const reposicoesPorMatricula = new Map<number, ReposicaoPendencia[]>()
+  for (const r of reposicoes ?? []) {
+    if (!r.mapa || !r.filial) continue
+    const dia = String(r.created_at).slice(0, 10)
+    const equipe = equipePorChave.get(`${r.filial}|${dia}|${r.mapa}`)
+    if (!equipe) continue
+    const item: ReposicaoPendencia = {
+      id: r.id,
+      numero: r.numero,
+      data: dia,
+      mapa: r.mapa,
+      tipoReposicao: r.tipo_reposicao,
+      produto: r.produto,
+      quantidade: r.quantidade,
+      embalagem: r.embalagem,
+      status: r.status as StatusReposicao,
+      motivoReprovacao: r.cora_motivo_reprovacao,
+    }
+    for (const matricula of [equipe.m1, equipe.m2]) {
+      if (matricula == null) continue
+      if (!reposicoesPorMatricula.has(matricula)) reposicoesPorMatricula.set(matricula, [])
+      reposicoesPorMatricula.get(matricula)!.push(item)
+    }
+  }
+
+  const porColaborador = new Map<string, ReposicaoPendencia[]>()
+  for (const c of candidatos) {
+    const matricula = Number(c.matriculaPromax)
+    if (Number.isNaN(matricula)) continue
+    porColaborador.set(c.colaboradorId, reposicoesPorMatricula.get(matricula) ?? [])
+  }
+  return porColaborador
 }
 
 export async function buscarPendenciasPorCpf(digitos: string): Promise<CandidatoPendencia[]> {
@@ -121,9 +214,16 @@ export async function buscarPendenciasPorCpf(digitos: string): Promise<Candidato
     itensPorCodigo.set(aj.codigo, itens)
   }
 
+  const reposicoesPorColaborador = await buscarReposicoesPorCandidatos(candidatos)
+
   return candidatos
-    .map((c) => ({ colaboradorId: c.colaboradorId, nome: c.nome, itens: itensPorCodigo.get(Number(c.matriculaPromax)) ?? [] }))
-    .filter((c) => c.itens.length > 0)
+    .map((c) => ({
+      colaboradorId: c.colaboradorId,
+      nome: c.nome,
+      itens: itensPorCodigo.get(Number(c.matriculaPromax)) ?? [],
+      reposicoes: reposicoesPorColaborador.get(c.colaboradorId) ?? [],
+    }))
+    .filter((c) => c.itens.length > 0 || c.reposicoes.length > 0)
 }
 
 export async function enviarJustificativaPendencia(itemId: string, ajudanteId: string, texto: string): Promise<boolean> {
