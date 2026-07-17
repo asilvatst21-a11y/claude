@@ -178,7 +178,7 @@ export default function ValesConfiguracoesPage() {
         <CardHeader>
           <CardTitle className="text-base">Consulta de Pendências (link de autoatendimento)</CardTitle>
           <CardDescription>
-            Página pública onde o colaborador se identifica pelos 4 primeiros dígitos do CPF, vê a
+            Página pública onde o colaborador se identifica pelos 6 primeiros dígitos do CPF, vê a
             pendência sem valores e pode enviar uma justificativa prévia antes da tratativa final.
             Aguardando aprovação do jurídico — mantenha desligado até ter sinal verde.
           </CardDescription>

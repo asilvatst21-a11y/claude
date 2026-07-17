@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 
 // ─── Consulta de Pendências — autoatendimento público (link enviado no aviso
-// de WhatsApp). Colaborador se identifica pelos 4 primeiros dígitos do CPF
+// de WhatsApp). Colaborador se identifica pelos 6 primeiros dígitos do CPF
 // (mesmo padrão da consulta de variável do armazém), vê as pendências sem
 // valores e pode registrar uma justificativa prévia (texto ou áudio) antes
 // da tratativa final do financeiro. ──────────────────────────────────────

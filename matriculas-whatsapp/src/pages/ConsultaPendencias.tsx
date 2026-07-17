@@ -10,9 +10,9 @@ import {
 type StatusItem = 'aguardando' | 'justificado' | 'abonado' | 'faturado'
 type Aba = 'financeiro' | 'reposicoes'
 
-// 4 dígitos em vez de 3: reduz bastante a chance de duas pessoas caírem na
-// mesma tela de desambiguação por coincidência de CPF.
-const QTD_DIGITOS_CPF = 4
+// 6 dígitos: reduz bastante a chance de duas pessoas caírem na mesma tela
+// de desambiguação por coincidência de CPF.
+const QTD_DIGITOS_CPF = 6
 
 const TIPO_REPOSICAO_LABEL: Record<string, string> = {
   falta: 'Falta',
@@ -247,9 +247,9 @@ export default function ConsultaPendencias() {
         <p className="text-brand-200 text-sm mt-1">Digite os {QTD_DIGITOS_CPF} primeiros números do seu CPF.</p>
       </div>
       <div className="flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 pb-8 flex flex-col gap-5">
-        <div className="flex justify-center gap-3">
+        <div className="flex justify-center gap-1.5">
           {Array.from({ length: QTD_DIGITOS_CPF }, (_, i) => i).map((i) => (
-            <div key={i} className={`w-14 h-20 rounded-2xl border-2 grid place-items-center text-4xl font-extrabold tabular-nums ${digitos[i] ? 'border-accent-500 text-gray-900' : 'border-gray-200 text-gray-300'}`}>
+            <div key={i} className={`w-9 h-16 rounded-xl border-2 grid place-items-center text-2xl font-extrabold tabular-nums ${digitos[i] ? 'border-accent-500 text-gray-900' : 'border-gray-200 text-gray-300'}`}>
               {digitos[i] ?? '•'}
             </div>
           ))}
