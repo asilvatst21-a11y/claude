@@ -12,7 +12,7 @@ type StatusItem = 'aguardando' | 'justificado' | 'abonado' | 'faturado'
 function statusDoItem(item: PendenciaItem): StatusItem {
   if (item.statusVale === 'Abonado') return 'abonado'
   if (item.statusVale === 'Faturado') return 'faturado'
-  if (item.justificativaAjudante) return 'justificado'
+  if (item.justificativaPrevia) return 'justificado'
   return 'aguardando'
 }
 
@@ -103,10 +103,10 @@ export default function ConsultaPendencias() {
         mostrarBannerTeste={mostrarBannerTeste}
         onVoltar={() => setItemAberto(null)}
         onJustificado={(texto) => {
-          setItemAberto({ ...itemAberto, justificativaAjudante: texto })
+          setItemAberto({ ...itemAberto, justificativaPrevia: texto })
           setPessoa({
             ...pessoa,
-            itens: pessoa.itens.map((i) => (i.itemId === itemAberto.itemId ? { ...i, justificativaAjudante: texto } : i)),
+            itens: pessoa.itens.map((i) => (i.itemId === itemAberto.itemId ? { ...i, justificativaPrevia: texto } : i)),
           })
         }}
       />
@@ -319,7 +319,7 @@ function DetalheItem({ item, mostrarBannerTeste, onVoltar, onJustificado }: {
             <DetalheGrid item={item} />
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
               <p className="text-[10px] font-bold uppercase text-blue-700 mb-1">Sua justificativa</p>
-              <p className="text-sm text-blue-900">{item.justificativaAjudante}</p>
+              <p className="text-sm text-blue-900">{item.justificativaPrevia}</p>
             </div>
             <p className="text-xs text-gray-400">Sua presença no financeiro ainda é obrigatória para resolver a pendência.</p>
           </div>

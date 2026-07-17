@@ -18,7 +18,7 @@ export interface PendenciaItem {
   qtdeRetorno: number | null
   qtdeDiferenca: number | null
   statusVale: string | null
-  justificativaAjudante: string | null
+  justificativaPrevia: string | null
 }
 
 export interface CandidatoPendencia {
@@ -58,7 +58,7 @@ export async function buscarPendenciasPorCpf(digitos: string): Promise<Candidato
       vale_ajudantes (
         vales (
           id, numero_vale, data_rota, mapa, status_vale,
-          vale_itens ( id, item, unidade, qtde_saida, qtde_retorno, qtde_diferenca, justificativa_ajudante )
+          vale_itens ( id, item, unidade, qtde_saida, qtde_retorno, qtde_diferenca, justificativa_previa_colaborador )
         )
       )
     `)
@@ -84,7 +84,7 @@ export async function buscarPendenciasPorCpf(digitos: string): Promise<Candidato
           qtdeRetorno: it.qtde_retorno,
           qtdeDiferenca: it.qtde_diferenca,
           statusVale: v.status_vale,
-          justificativaAjudante: it.justificativa_ajudante,
+          justificativaPrevia: it.justificativa_previa_colaborador,
         })
       }
     }
@@ -97,7 +97,7 @@ export async function buscarPendenciasPorCpf(digitos: string): Promise<Candidato
 }
 
 export async function enviarJustificativaPendencia(itemId: string, texto: string): Promise<boolean> {
-  const { error } = await supabase.from('vale_itens').update({ justificativa_ajudante: texto }).eq('id', itemId)
+  const { error } = await supabase.from('vale_itens').update({ justificativa_previa_colaborador: texto }).eq('id', itemId)
   return !error
 }
 
