@@ -1,18 +1,14 @@
 /// <reference types="node" />
-import { createClient } from '@supabase/supabase-js'
 
 // Transcreve o áudio gravado no navegador (Consulta de Pendências) usando o
 // mesmo Whisper da Groq já usado no robô de WhatsApp (api/zapi-webhook.ts) —
 // a chave da Groq nunca pode ir pro bundle do cliente, por isso passa por
-// aqui. Só funciona com a funcionalidade ativa (chave "consulta_pendencias_
-// ativa" em `configuracoes"), mesma trava usada no restante da feature.
-const SUPABASE_URL = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? ''
-const SUPABASE_KEY =
-  process.env.SUPABASE_SERVICE_ROLE ?? process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? ''
+// aqui. Não trava pela chave "consulta_pendencias_ativa" — a página em si já
+// fica de portas fechadas pro público enquanto isso, mas libera o link de
+// teste (`?preview=1`) pra validar o fluxo completo (texto e áudio) antes de
+// ligar de vez.
 const GROQ_API_KEY = process.env.GROQ_API_KEY ?? ''
 const GROQ_TRANSCRIBE_MODEL = process.env.GROQ_TRANSCRIBE_MODEL ?? 'whisper-large-v3-turbo'
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 function safeJson(s: string): any {
   try {
@@ -29,16 +25,6 @@ export default async function handler(req: any, res: any) {
   }
   if (!GROQ_API_KEY) {
     res.status(503).json({ erro: 'Transcrição de áudio não configurada.' })
-    return
-  }
-
-  const { data: config } = await supabase
-    .from('configuracoes')
-    .select('valor')
-    .eq('chave', 'consulta_pendencias_ativa')
-    .maybeSingle()
-  if (config?.valor !== 'true') {
-    res.status(403).json({ erro: 'Funcionalidade ainda não está ativa.' })
     return
   }
 

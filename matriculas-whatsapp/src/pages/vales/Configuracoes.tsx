@@ -204,6 +204,14 @@ export default function ValesConfiguracoesPage() {
             <p className="text-xs font-medium text-muted-foreground mb-1">Link público (mesmo para todos, sem token por pendência):</p>
             <p className="text-sm font-mono break-all">{typeof window !== "undefined" ? `${window.location.origin}/consulta-pendencias` : "/consulta-pendencias"}</p>
           </div>
+          <div className="rounded-lg border border-amber-300 bg-amber-50 p-3">
+            <p className="text-xs font-medium text-amber-800 mb-1">
+              Link de teste (funciona mesmo com "Desligado" — não envia nada pra ninguém, só pra você validar com o CPF de um colaborador):
+            </p>
+            <p className="text-sm font-mono break-all text-amber-900">
+              {typeof window !== "undefined" ? `${window.location.origin}/consulta-pendencias?preview=1` : "/consulta-pendencias?preview=1"}
+            </p>
+          </div>
         </CardContent>
       </Card>
 

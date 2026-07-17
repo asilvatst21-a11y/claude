@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, Delete, Search, Loader2, Mic, Square, Send, ChevronRight, Wallet } from 'lucide-react'
 import { formatarDataBR } from '../lib/utils'
 import {
@@ -29,6 +29,8 @@ function agruparPorData(itens: PendenciaItem[]): { data: string; itens: Pendenci
 }
 
 export default function ConsultaPendencias() {
+  const [searchParams] = useSearchParams()
+  const modoTeste = searchParams.get('preview') === '1'
   const [ativa, setAtiva] = useState<boolean | null>(null)
   const [digitos, setDigitos] = useState('')
   const [buscando, setBuscando] = useState(false)
@@ -81,7 +83,7 @@ export default function ConsultaPendencias() {
       </div>
     )
   }
-  if (ativa === false) {
+  if (ativa === false && !modoTeste) {
     return (
       <div className="min-h-screen bg-brand-900 text-white flex flex-col items-center justify-center gap-3 px-6 text-center">
         <Wallet className="h-8 w-8 text-accent-300" />
@@ -91,11 +93,14 @@ export default function ConsultaPendencias() {
     )
   }
 
+  const mostrarBannerTeste = modoTeste && !ativa
+
   // ── Detalhe de um item (justificativa ou status final) ────────────────
   if (pessoa && itemAberto) {
     return (
       <DetalheItem
         item={itemAberto}
+        mostrarBannerTeste={mostrarBannerTeste}
         onVoltar={() => setItemAberto(null)}
         onJustificado={(texto) => {
           setItemAberto({ ...itemAberto, justificativaAjudante: texto })
@@ -113,6 +118,7 @@ export default function ConsultaPendencias() {
     const buckets = agruparPorData(pessoa.itens)
     return (
       <div className="min-h-screen bg-brand-900 text-white flex flex-col">
+        {mostrarBannerTeste && <ModoTesteBanner />}
         <div className="px-5 pt-8 pb-6">
           <button onClick={reiniciar} className="inline-flex items-center gap-1.5 text-brand-200 text-sm mb-6"><ArrowLeft className="h-4 w-4" /> Voltar</button>
           <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Wallet className="h-4 w-4" /> Pendências</div>
@@ -152,6 +158,7 @@ export default function ConsultaPendencias() {
   if (candidatos) {
     return (
       <div className="min-h-screen bg-brand-900 text-white flex flex-col">
+        {mostrarBannerTeste && <ModoTesteBanner />}
         <div className="px-5 pt-8 pb-6">
           <button onClick={reiniciar} className="inline-flex items-center gap-1.5 text-brand-200 text-sm mb-6"><ArrowLeft className="h-4 w-4" /> Voltar</button>
           <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Wallet className="h-4 w-4" /> Pendências</div>
@@ -173,6 +180,7 @@ export default function ConsultaPendencias() {
   // ── Entrada (CPF) ────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-brand-900 text-white flex flex-col">
+      {mostrarBannerTeste && <ModoTesteBanner />}
       <div className="px-5 pt-8 pb-6">
         <Link to="/login" className="inline-flex items-center gap-1.5 text-brand-200 text-sm mb-6"><ArrowLeft className="h-4 w-4" /> Voltar</Link>
         <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Wallet className="h-4 w-4" /> Pendências</div>
@@ -205,6 +213,14 @@ export default function ConsultaPendencias() {
   )
 }
 
+function ModoTesteBanner() {
+  return (
+    <div className="bg-amber-500 text-amber-950 text-center text-[11px] font-bold uppercase tracking-wide py-1.5">
+      Modo teste — ainda não está ligado pro público
+    </div>
+  )
+}
+
 function StatusPill({ status }: { status: StatusItem }) {
   if (status === 'aguardando') return <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 whitespace-nowrap">Aguardando</span>
   if (status === 'justificado') return <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 whitespace-nowrap">Justificado</span>
@@ -213,8 +229,9 @@ function StatusPill({ status }: { status: StatusItem }) {
 
 // ─── Detalhe de um item: dados operacionais (sem valores) + justificativa
 // prévia (texto ou áudio), ou o status final quando já concluído. ────────
-function DetalheItem({ item, onVoltar, onJustificado }: {
+function DetalheItem({ item, mostrarBannerTeste, onVoltar, onJustificado }: {
   item: PendenciaItem
+  mostrarBannerTeste: boolean
   onVoltar: () => void
   onJustificado: (texto: string) => void
 }) {
@@ -275,6 +292,7 @@ function DetalheItem({ item, onVoltar, onJustificado }: {
 
   return (
     <div className="min-h-screen bg-brand-900 text-white flex flex-col">
+      {mostrarBannerTeste && <ModoTesteBanner />}
       <div className="px-5 pt-8 pb-6">
         <button onClick={onVoltar} className="inline-flex items-center gap-1.5 text-brand-200 text-sm mb-6"><ArrowLeft className="h-4 w-4" /> Voltar</button>
         <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Wallet className="h-4 w-4" /> Pendências</div>
