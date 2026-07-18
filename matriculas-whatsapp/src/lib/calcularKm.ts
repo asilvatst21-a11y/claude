@@ -4,6 +4,21 @@ export interface ResultadoKm {
   enderecoFormatado: string
 }
 
+export async function buscarSugestoesEndereco(input: string): Promise<string[]> {
+  try {
+    const resp = await fetch('/api/autocomplete-endereco', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ input }),
+    })
+    if (!resp.ok) return []
+    const data = await resp.json()
+    return Array.isArray(data?.sugestoes) ? data.sugestoes : []
+  } catch {
+    return []
+  }
+}
+
 export async function calcularKmIdaVolta(endereco: string): Promise<ResultadoKm | { erro: string }> {
   try {
     const resp = await fetch('/api/calcular-km', {

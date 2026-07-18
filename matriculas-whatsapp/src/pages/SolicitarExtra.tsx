@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { Building2, CheckCircle2, Loader2, ArrowLeft, MapPin, Route } from 'lucide-react'
+import { Building2, CheckCircle2, Loader2, ArrowLeft, Route } from 'lucide-react'
 import PessoaValorCard from '../components/PessoaValorCard'
+import { EnderecoAutocompleteInput } from '../components/EnderecoAutocompleteInput'
 import { calcularKmIdaVolta } from '../lib/calcularKm'
 
 const TIPOS_SOLICITACAO = ['Finalizar Rota', 'Entrega/Recolha de Materiais', 'Outros'] as const
@@ -265,15 +266,12 @@ export default function SolicitarExtra() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1.5">Endereço da Entrega/Recolha</label>
                 <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <MapPin size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                    <input
-                      value={enderecoEntrega}
-                      onChange={e => { setEnderecoEntrega(e.target.value); setKmPrevisto(null); setKmErro('') }}
-                      placeholder="Rua, número, bairro, cidade"
-                      className="w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-                    />
-                  </div>
+                  <EnderecoAutocompleteInput
+                    value={enderecoEntrega}
+                    onChange={v => { setEnderecoEntrega(v); setKmPrevisto(null); setKmErro('') }}
+                    placeholder="Rua, número, bairro, cidade"
+                    inputClassName="w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                  />
                   <button
                     type="button"
                     onClick={calcularKm}
