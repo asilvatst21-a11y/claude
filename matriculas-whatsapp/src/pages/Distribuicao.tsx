@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { Truck, RefreshCw, FileSpreadsheet, Plus, X, Building2, CalendarDays, Check, Pencil, Loader2 } from 'lucide-react'
+import { Truck, RefreshCw, FileSpreadsheet, Plus, X, Building2, CalendarDays, Check, Pencil, Loader2, MapPin, Route } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import type { SolicitacaoExtra } from '../types'
 import PessoaValorCard from '../components/PessoaValorCard'
 import { formatarDataBR } from '../lib/utils'
+import { calcularKmIdaVolta } from '../lib/calcularKm'
 
 const TIPOS_SOLICITACAO = ['Finalizar Rota', 'Entrega/Recolha de Materiais', 'Outros'] as const
 const SOLICITANTES_AMBEV = ['Isabela Kimel', 'Takasi Augusto', 'Roberta Soares', 'Outro']
@@ -45,6 +46,10 @@ export default function Distribuicao() {
   const [descricao, setDescricao] = useState('')
   const [mapa, setMapa] = useState('')
   const [local, setLocal] = useState('')
+  const [enderecoEntrega, setEnderecoEntrega] = useState('')
+  const [calculandoKm, setCalculandoKm] = useState(false)
+  const [kmPrevisto, setKmPrevisto] = useState<number | null>(null)
+  const [kmErro, setKmErro] = useState('')
   const [solicitanteAmbev, setSolicitanteAmbev] = useState('')
   const [solicitanteAmbevOutro, setSolicitanteAmbevOutro] = useState('')
   const [motoristaNome, setMotoristaNome] = useState('')
@@ -151,6 +156,9 @@ export default function Distribuicao() {
     setDescricao('')
     setMapa('')
     setLocal('')
+    setEnderecoEntrega('')
+    setKmPrevisto(null)
+    setKmErro('')
     setSolicitanteAmbev('')
     setSolicitanteAmbevOutro('')
     setMotoristaNome('')
@@ -163,6 +171,23 @@ export default function Distribuicao() {
     setValorAjudante2('')
     setErro('')
     setModal(true)
+  }
+
+  async function calcularKm() {
+    if (!enderecoEntrega.trim()) {
+      setKmErro('Digite o endereço antes de calcular.')
+      return
+    }
+    setKmErro('')
+    setKmPrevisto(null)
+    setCalculandoKm(true)
+    const resultado = await calcularKmIdaVolta(enderecoEntrega.trim())
+    setCalculandoKm(false)
+    if ('erro' in resultado) {
+      setKmErro(resultado.erro)
+      return
+    }
+    setKmPrevisto(resultado.kmIdaVolta)
   }
 
   async function handleSalvar() {
@@ -178,6 +203,10 @@ export default function Distribuicao() {
     }
     if (tipoSolicitacao === 'Entrega/Recolha de Materiais' && !local.trim()) {
       setErro('Informe o local da entrega/recolha.')
+      return
+    }
+    if (tipoSolicitacao === 'Entrega/Recolha de Materiais' && !enderecoEntrega.trim()) {
+      setErro('Informe o endereço da entrega/recolha.')
       return
     }
     setSalvando(true)
@@ -205,6 +234,8 @@ export default function Distribuicao() {
       descricao: descricao.trim() || null,
       mapa: tipoSolicitacao === 'Finalizar Rota' ? mapa.trim() : null,
       local: tipoSolicitacao === 'Entrega/Recolha de Materiais' ? local.trim() : null,
+      endereco_entrega: tipoSolicitacao === 'Entrega/Recolha de Materiais' ? enderecoEntrega.trim() : null,
+      km_previsto: tipoSolicitacao === 'Entrega/Recolha de Materiais' ? kmPrevisto : null,
       solicitante_ambev: solicitanteAmbev === 'Outro' ? (solicitanteAmbevOutro.trim() || null) : (solicitanteAmbev || null),
       motorista_nome: motoristaNome || null,
       ajudante1_nome: ajudante1Nome || null,
@@ -235,6 +266,8 @@ export default function Distribuicao() {
       'Descrição': s.descricao ?? '',
       'Mapa': s.mapa ?? '',
       'Local': s.local ?? '',
+      'Endereço Entrega/Recolha': s.endereco_entrega ?? '',
+      'KM Previsto (ida+volta)': s.km_previsto ?? '',
       'Solicitante Ambev': s.solicitante_ambev ?? '',
       'Motorista': s.motorista_nome ?? '',
       'Valor Motorista': s.valor_motorista ?? '',
@@ -316,7 +349,14 @@ export default function Distribuicao() {
                     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 ${risco}`}>{s.tipo_solicitacao}</span>
                     {s.descricao && <div className={`text-xs text-muted-foreground mt-1 max-w-xs ${risco}`}>{s.descricao}</div>}
                   </td>
-                  <td className={`px-4 py-3 ${risco}`}>{s.mapa ?? s.local ?? '—'}</td>
+                  <td className={`px-4 py-3 ${risco}`}>
+                    {s.mapa ?? s.local ?? '—'}
+                    {s.km_previsto != null && (
+                      <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+                        <MapPin className="h-3 w-3" />{s.km_previsto.toLocaleString('pt-BR')} km (ida+volta)
+                      </div>
+                    )}
+                  </td>
                   <td className={`px-4 py-3 ${risco}`}>
                     <div>{s.motorista_nome ?? '—'}{s.valor_motorista != null && <span className="text-xs text-muted-foreground"> ({formatCurrency(s.valor_motorista)})</span>}</div>
                     {s.ajudante1_nome && (
@@ -370,7 +410,10 @@ export default function Distribuicao() {
               <div className={`font-medium text-sm ${s.pago ? 'line-through text-muted-foreground' : ''}`}>{s.nome_solicitante}</div>
               {s.descricao && <div className={`text-xs text-muted-foreground ${s.pago ? 'line-through' : ''}`}>{s.descricao}</div>}
               <div className={`grid grid-cols-2 gap-x-4 gap-y-1 text-sm ${s.pago ? 'line-through text-muted-foreground' : ''}`}>
-                <div><span className="text-xs text-muted-foreground block">Mapa/Local</span>{s.mapa ?? s.local ?? '—'}</div>
+                <div>
+                  <span className="text-xs text-muted-foreground block">Mapa/Local</span>{s.mapa ?? s.local ?? '—'}
+                  {s.km_previsto != null && <span className="text-xs text-muted-foreground"> · {s.km_previsto.toLocaleString('pt-BR')} km</span>}
+                </div>
                 <div>
                   <span className="text-xs text-muted-foreground block">Valor</span>
                   <span className="inline-flex items-center gap-1.5">
@@ -458,10 +501,40 @@ export default function Distribuicao() {
               )}
 
               {tipoSolicitacao === 'Entrega/Recolha de Materiais' && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Local</label>
-                  <input value={local} onChange={e => setLocal(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-                </div>
+                <>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Local</label>
+                    <input value={local} onChange={e => setLocal(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm" />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1.5">Endereço da Entrega/Recolha</label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <MapPin size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                        <input
+                          value={enderecoEntrega}
+                          onChange={e => { setEnderecoEntrega(e.target.value); setKmPrevisto(null); setKmErro('') }}
+                          placeholder="Rua, número, bairro, cidade"
+                          className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        onClick={calcularKm}
+                        disabled={calculandoKm || !enderecoEntrega.trim()}
+                        className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium bg-accent-50 text-accent-700 hover:bg-accent-100 disabled:opacity-40 transition-colors"
+                      >
+                        {calculandoKm ? <Loader2 size={14} className="animate-spin" /> : <Route size={14} />}
+                        Calcular KM
+                      </button>
+                    </div>
+                    {kmErro && <p className="text-xs text-red-600 mt-1.5">{kmErro}</p>}
+                    {kmPrevisto != null && (
+                      <p className="text-xs text-green-700 mt-1.5">KM previsto (ida + volta): <span className="font-bold">{kmPrevisto.toLocaleString('pt-BR')} km</span></p>
+                    )}
+                  </div>
+                </>
               )}
 
               <div>

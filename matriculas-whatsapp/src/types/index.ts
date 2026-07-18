@@ -356,6 +356,8 @@ export interface SolicitacaoExtra {
   descricao: string | null
   mapa: string | null
   local: string | null
+  endereco_entrega: string | null
+  km_previsto: number | null
   solicitante_ambev: string | null
   motorista_nome: string | null
   ajudante1_nome: string | null
