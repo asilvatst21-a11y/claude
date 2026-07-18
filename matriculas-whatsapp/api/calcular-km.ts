@@ -1,12 +1,12 @@
 /// <reference types="node" />
 
-// Calcula o KM previsto de ida + volta entre a sede (Rua Mário Gelli, 119) e
-// o endereço de entrega/recolha digitado na Solicitação Extra, via Google
-// Maps Distance Matrix. A chave fica só no servidor (nunca no bundle do
-// cliente) — por isso passa por um endpoint em vez de chamar a API direto
-// do navegador.
+// Calcula o KM previsto de ida + volta entre a sede (Rua Mário Gelli, 119 —
+// Petrópolis, RJ) e o endereço de entrega/recolha digitado na Solicitação
+// Extra, via Google Maps Distance Matrix. A chave fica só no servidor
+// (nunca no bundle do cliente) — por isso passa por um endpoint em vez de
+// chamar a API direto do navegador.
 const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY ?? ''
-const ORIGEM = 'Rua Mário Gelli, 119'
+const ORIGEM = 'Rua Mário Gelli, 119, Petrópolis, RJ'
 
 function safeJson(s: string): any {
   try {
