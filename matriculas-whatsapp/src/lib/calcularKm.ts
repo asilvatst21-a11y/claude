@@ -4,18 +4,25 @@ export interface ResultadoKm {
   enderecoFormatado: string
 }
 
-export async function buscarSugestoesEndereco(input: string): Promise<string[]> {
+export interface ResultadoSugestoes {
+  sugestoes: string[]
+  detalhe?: string
+}
+
+export async function buscarSugestoesEndereco(input: string): Promise<ResultadoSugestoes> {
   try {
     const resp = await fetch('/api/autocomplete-endereco', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ input }),
     })
-    if (!resp.ok) return []
     const data = await resp.json()
-    return Array.isArray(data?.sugestoes) ? data.sugestoes : []
-  } catch {
-    return []
+    return {
+      sugestoes: Array.isArray(data?.sugestoes) ? data.sugestoes : [],
+      detalhe: data?.detalhe,
+    }
+  } catch (e) {
+    return { sugestoes: [], detalhe: e instanceof Error ? e.message : 'Erro de conexão' }
   }
 }
 

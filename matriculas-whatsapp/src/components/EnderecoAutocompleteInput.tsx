@@ -16,6 +16,7 @@ interface Props {
 // (clicando numa opção ou digitando livremente).
 export function EnderecoAutocompleteInput({ value, onChange, placeholder, inputClassName, iconSize = 18 }: Props) {
   const [sugestoes, setSugestoes] = useState<string[]>([])
+  const [erroDebug, setErroDebug] = useState('')
   const [aberto, setAberto] = useState(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -27,8 +28,9 @@ export function EnderecoAutocompleteInput({ value, onChange, placeholder, inputC
       return
     }
     debounceRef.current = setTimeout(async () => {
-      const lista = await buscarSugestoesEndereco(v.trim())
-      setSugestoes(lista)
+      const resultado = await buscarSugestoesEndereco(v.trim())
+      setSugestoes(resultado.sugestoes)
+      setErroDebug(resultado.detalhe ?? '')
       setAberto(true)
     }, 350)
   }
@@ -65,6 +67,9 @@ export function EnderecoAutocompleteInput({ value, onChange, placeholder, inputC
           ))}
         </div>
       )}
+      {/* Diagnóstico temporário — remover depois que o autocomplete estiver
+          funcionando de ponta a ponta em produção. */}
+      {erroDebug && <p className="text-[11px] text-red-500 mt-1 break-all">Debug: {erroDebug}</p>}
     </div>
   )
 }

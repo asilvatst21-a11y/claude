@@ -43,11 +43,13 @@ export default async function handler(req: any, res: any) {
         languageCode: 'pt-BR',
       }),
     })
+    const textoResposta = await resp.text()
     if (!resp.ok) {
-      res.status(200).json({ sugestoes: [] })
+      console.error('autocomplete-endereco: Google respondeu erro', resp.status, textoResposta)
+      res.status(200).json({ sugestoes: [], detalhe: `Google ${resp.status}: ${textoResposta}` })
       return
     }
-    const data: any = await resp.json()
+    const data: any = safeJson(textoResposta)
     const sugestoes = (data.suggestions ?? [])
       .map((s: any) => s?.placePrediction?.text?.text)
       .filter((s: unknown): s is string => typeof s === 'string' && s.length > 0)
@@ -55,6 +57,6 @@ export default async function handler(req: any, res: any) {
     res.status(200).json({ sugestoes })
   } catch (e) {
     console.error('autocomplete-endereco exception:', e)
-    res.status(200).json({ sugestoes: [] })
+    res.status(200).json({ sugestoes: [], detalhe: e instanceof Error ? e.message : String(e) })
   }
 }
