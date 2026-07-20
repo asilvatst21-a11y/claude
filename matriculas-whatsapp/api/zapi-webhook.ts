@@ -1787,10 +1787,10 @@ async function perguntarPassoSaida(passo: string, grupoId: string, filial: strin
   if (passo === 'condutor') {
     const conds = await condutoresFrotaLeve(filial)
     if (conds.length) {
-      await enviarOpcoes(grupoId, `👤 ${nome}, quem é o *condutor*?\n(ou digite o nome)`, 'Condutores', 'Escolher',
+      await enviarOpcoes(grupoId, `👤 ${nome}, quem é o *condutor*?\n(ou digite o nome — responda *CANCELAR* para desistir)`, 'Condutores', 'Escolher',
         conds.slice(0, 9).map(c => ({ id: `frl_cond:${c.id}`, title: c.nome })))
     } else {
-      await enviar(grupoId, `👤 ${nome}, quem é o *condutor*? Responda com o nome.`)
+      await enviar(grupoId, `👤 ${nome}, quem é o *condutor*? Responda com o nome.\n_(ou responda *CANCELAR* para desistir)_`)
     }
     return
   }
@@ -1846,7 +1846,7 @@ async function iniciarSaidaFrotaLeve(grupoId: string, filial: string, participan
 async function iniciarRetornoFrotaLeve(sess: any, grupoId: string, participante: string): Promise<void> {
   await supabase.from('frota_leve_saidas').update({ status: 'coletando_retorno', passo: 'km', sessao_telefone: participante }).eq('id', sess.id)
   const nome = sess.condutor_nome || sess.motorista_nome || 'Motorista'
-  await enviar(grupoId, `📥 ${nome}, vamos registrar o *retorno* da placa *${sess.placa}*.`)
+  await enviar(grupoId, `📥 ${nome}, vamos registrar o *retorno* da placa *${sess.placa}*.\n_(responda *CANCELAR* para desistir)_`)
   await perguntarPassoRetorno('km', grupoId, nome)
 }
 
@@ -1866,10 +1866,20 @@ async function avancarSessaoFrotaLeve(
 ): Promise<{ ok: boolean; action: string }> {
   nome = sess.condutor_nome || sess.motorista_nome || nome
   const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
-  // Cancelamento explícito em qualquer etapa
-  if (/^\s*(cancelar|cancela)\s*$/i.test(texto)) {
+  // Cancelamento em qualquer etapa: "CANCELAR" (também aceita "cancela",
+  // "desistir", mesmo com texto em volta, ex.: "quero cancelar").
+  if (/\b(cancelar|cancela|cancele|desistir|desisto)\b/.test(norm(texto))) {
+    if (sess.status === 'coletando_retorno' || sess.status === 'aguardando_foto_retorno') {
+      // Desistiu do RETORNO → a viagem volta a ficar em rota (não perde a saída).
+      await supabase.from('frota_leve_saidas').update({ status: 'em_rota', passo: null }).eq('id', sess.id)
+      await enviar(grupoId,
+        `↩️ ${nome}, retorno cancelado. A viagem da placa *${sess.placa}* continua *em aberto*.\n` +
+        `Mande *registro* → *Retorno* quando quiser fechá-la.`)
+      return { ok: true, action: 'frl-retorno-cancelado' }
+    }
+    // Desistiu da SAÍDA (ainda não registrada) → cancela o registro.
     await supabase.from('frota_leve_saidas').update({ status: 'cancelado' }).eq('id', sess.id)
-    await enviar(grupoId, `❌ ${nome}, registro cancelado. Mande *registro* para começar de novo.`)
+    await enviar(grupoId, `❌ ${nome}, registro *cancelado*. Quando quiser, mande *registro* para começar de novo.`)
     return { ok: true, action: 'frl-cancelado' }
   }
 
