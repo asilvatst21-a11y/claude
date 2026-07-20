@@ -138,6 +138,15 @@ function extrairAudioUrl(body: any): string {
   return String(body?.audio?.audioUrl ?? body?.audio?.url ?? '').trim()
 }
 
+// Imagem enviada pelo motorista (foto do painel na frota leve).
+function extrairImagemUrl(body: any): string {
+  return String(body?.image?.imageUrl ?? body?.image?.url ?? body?.image?.thumbnailUrl ?? '').trim()
+}
+
+function temImagem(body: any): boolean {
+  return !!extrairImagemUrl(body) || body?.type === 'ImageMessage'
+}
+
 // Baixa o áudio do Z-API e transcreve via Whisper da Groq (endpoint compatível
 // com a OpenAI). Retorna o texto transcrito ou null se falhar / sem chave.
 async function transcreverAudio(url: string): Promise<string | null> {
@@ -1567,6 +1576,476 @@ async function tratarTml(body: any, remetente: string): Promise<{ ok: boolean; a
   return await registrarRespostaSupervisorTml(alertaTml!.id, texto, remetente)
 }
 
+// ── Controle de Saída da Frota Leve (grupo dedicado) ──────────────────────────────
+// Fluxo: o motorista manda "registro" → o bot oferece Saída / Retorno. Na saída
+// coleta placa, KM, hora, destino, previsão e a foto do painel (lê o KM da foto
+// e confere). Bloqueia nova saída na MESMA placa enquanto houver viagem em rota.
+// Quando a previsão expira sem o check de retorno, o bot pergunta se já voltou.
+
+// Sessões de coleta abandonadas expiram (o veículo "em_rota" NÃO usa este TTL —
+// esse é buscado por status, sem prazo, já que a viagem pode durar horas).
+const FROTA_LEVE_TTL_MIN = 180
+
+const FROTA_LEVE_COLETANDO = ['coletando_saida', 'aguardando_foto_saida', 'coletando_retorno', 'aguardando_foto_retorno']
+
+function soDigitos(s: string): string {
+  return String(s ?? '').replace(/\D/g, '')
+}
+
+// Normaliza uma placa (ABC-1234 antigo ou ABC1D23 Mercosul) para "ABC-1234".
+function extrairPlaca(s: string): string | null {
+  const t = String(s ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '')
+  const m = t.match(/[A-Z]{3}\d[A-Z0-9]\d{2}/)
+  if (!m) return null
+  const p = m[0]
+  return `${p.slice(0, 3)}-${p.slice(3)}`
+}
+
+// Extrai o KM (aceita "km 45230", "KM: 45.230", "hodômetro 45230").
+function extrairKm(s: string): number | null {
+  const m = String(s ?? '').match(/(?:km|quilomet|hod[oô]met)\D{0,5}(\d{1,3}(?:[.\s]\d{3})+|\d{2,7})/i)
+  if (m) {
+    const n = parseInt(soDigitos(m[1]))
+    return Number.isFinite(n) ? n : null
+  }
+  return null
+}
+
+// Uma mensagem que é basicamente só um número (correção de KM digitada).
+function kmDeNumeroSolto(s: string): number | null {
+  const t = String(s ?? '').trim()
+  if (!/^\s*\d{1,3}(?:[.\s]\d{3})*\s*$|^\s*\d{2,7}\s*$/.test(t)) return null
+  const n = parseInt(soDigitos(t))
+  return Number.isFinite(n) ? n : null
+}
+
+// Converte a previsão de retorno em minutos ("2 horas", "1h30", "90 min", "2").
+function parsePrevisaoMin(s: string): number | null {
+  const t = norm(s)
+  let m = t.match(/(\d+)\s*h(?:oras?)?\s*(\d{1,2})?/)
+  if (m) return parseInt(m[1]) * 60 + (m[2] ? parseInt(m[2]) : 0)
+  m = t.match(/(\d+)\s*min/)
+  if (m) return parseInt(m[1])
+  m = t.match(/(\d+(?:[.,]\d+)?)\s*hora/)
+  if (m) return Math.round(parseFloat(m[1].replace(',', '.')) * 60)
+  m = t.match(/^\s*(\d{1,3})\s*$/)
+  if (m) { const n = parseInt(m[1]); return n <= 12 ? n * 60 : n }  // número solto: ≤12 = horas
+  return null
+}
+
+function extrairHora(s: string): string | null {
+  const m = String(s ?? '').match(/(\d{1,2})[:h](\d{2})/)
+  if (!m) return null
+  const h = parseInt(m[1]), mm = parseInt(m[2])
+  if (h > 23 || mm > 59) return null
+  return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+}
+
+function horaAgoraBR(): string {
+  return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }).format(new Date())
+}
+
+// Quebra a mensagem em tokens (uma linha OU um item separado por vírgula/;).
+// Não quebra em ':' de propósito — o horário "09:35" tem ':' e não é separador.
+function tokensCampos(texto: string): string[] {
+  return String(texto ?? '').split(/\r?\n|;|,/).map(t => t.trim()).filter(Boolean)
+}
+
+// Remove a palavra-rótulo do início do token, devolvendo só o valor ("Destino: PDV" → "PDV").
+function valorAposRotulo(token: string, rotulo: RegExp): string {
+  return token.replace(rotulo, '').replace(/^\s*[:=\-]\s*/, '').trim()
+}
+
+interface CamposSaida { placa?: string | null; km?: number | null; hora?: string | null; destino?: string | null; previsao?: number | null }
+
+function parseCamposSaida(texto: string): CamposSaida {
+  const out: CamposSaida = {}
+  for (const tok of tokensCampos(texto)) {
+    const n = norm(tok)
+    // Ordem importa: "previsão/retorno" antes de "hora" (senão "2 horas" cai no ramo da hora).
+    if (/plac/.test(n))                        { const p = extrairPlaca(tok); if (p) out.placa = p }
+    else if (/\bkm\b|quilomet|hod[oô]met/.test(n)) { const k = extrairKm(tok) ?? (parseInt(soDigitos(tok)) || null); if (k != null) out.km = k }
+    else if (/previs|retorn/.test(n))          { const pv = parsePrevisaoMin(valorAposRotulo(tok, /.*?(previs\w*|retorno)/i)); if (pv != null) out.previsao = pv }
+    else if (/sa[ií]da|hora/.test(n))          { const h = extrairHora(tok); if (h) out.hora = h }
+    else if (/destin|local/.test(n))           { const d = valorAposRotulo(tok, /.*?(destino|local)/i); if (d) out.destino = d }
+  }
+  // Fallbacks: procura placa/km/hora em qualquer parte da mensagem
+  if (!out.placa) out.placa = extrairPlaca(texto)
+  if (out.km == null) out.km = extrairKm(texto)
+  return out
+}
+
+interface CamposRetorno { km?: number | null; hora?: string | null; obs?: string | null }
+
+function parseCamposRetorno(texto: string): CamposRetorno {
+  const out: CamposRetorno = {}
+  for (const tok of tokensCampos(texto)) {
+    const n = norm(tok)
+    if (/\bkm\b|quilomet|hod[oô]met/.test(n))  { const k = extrairKm(tok) ?? (parseInt(soDigitos(tok)) || null); if (k != null) out.km = k }
+    else if (/obs|observ/.test(n))             { const o = valorAposRotulo(tok, /.*?(observ\w*|obs)/i); if (o) out.obs = o }
+    else if (/hora|retorn|cheg/.test(n))       { const h = extrairHora(tok); if (h) out.hora = h }
+  }
+  if (out.km == null) out.km = extrairKm(texto)
+  return out
+}
+
+// Lê o hodômetro (KM total) de uma foto do painel usando o Claude (visão).
+// Retorna o inteiro lido ou null quando não há chave, a foto não abre ou a
+// leitura é incerta — nesse caso o fluxo aceita o KM digitado sem travar.
+async function lerKmDaFoto(url: string): Promise<number | null> {
+  if (!ANTHROPIC_API_KEY || !url) return null
+  try {
+    const img = await fetch(url)
+    if (!img.ok) { console.error('lerKmDaFoto: falha ao baixar', img.status); return null }
+    const buf = Buffer.from(await img.arrayBuffer())
+    const b64 = buf.toString('base64')
+    let mime = (img.headers.get('content-type') ?? '').split(';')[0].trim()
+    if (!/^image\/(jpeg|png|gif|webp)$/.test(mime)) mime = 'image/jpeg'
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 120,
+        system:
+          'Você recebe a foto do painel de um veículo. Leia o hodômetro (quilometragem TOTAL do veículo), ' +
+          'ignorando o hodômetro parcial (trip), o relógio e o RPM. Retorne apenas os dígitos do KM total. ' +
+          'Se não conseguir ler com segurança, retorne km vazio ("").',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image', source: { type: 'base64', media_type: mime, data: b64 } },
+            { type: 'text', text: 'Qual é a quilometragem total (hodômetro) mostrada neste painel?' },
+          ],
+        }],
+        output_config: {
+          format: {
+            type: 'json_schema',
+            schema: { type: 'object', properties: { km: { type: 'string' } }, required: ['km'], additionalProperties: false },
+          },
+        },
+      }),
+    })
+    if (!resp.ok) { console.error('lerKmDaFoto Claude error:', resp.status, await resp.text().catch(() => '')); return null }
+    const data: any = await resp.json()
+    const bloco = (data.content ?? []).find((b: any) => b.type === 'text')
+    if (!bloco?.text) return null
+    const km = parseInt(soDigitos(String((JSON.parse(bloco.text)?.km) ?? '')))
+    return Number.isFinite(km) && km > 0 ? km : null
+  } catch (e) {
+    console.error('lerKmDaFoto exception:', e)
+    return null
+  }
+}
+
+// Campos ainda faltantes na saída (todos obrigatórios menos, na prática, o que já veio).
+function faltaSaida(s: any): string[] {
+  const f: string[] = []
+  if (!s.placa)          f.push('🚗 Placa')
+  if (s.km_saida == null) f.push('⏱️ KM atual')
+  if (!s.hora_saida)     f.push('🕐 Hora de saída (HH:MM)')
+  if (!s.destino)        f.push('📍 Destino')
+  if (s.previsao_min == null) f.push('⏳ Previsão de retorno (ex: 2 horas)')
+  return f
+}
+
+function resumoSaidaConfirmada(s: any): string {
+  const prev = s.previsao_retorno
+    ? new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' }).format(new Date(s.previsao_retorno))
+    : '—'
+  return [
+    `✅ *Saída registrada!*`,
+    `🚗 Placa: ${s.placa}`,
+    `⏱️ KM: ${s.km_saida?.toLocaleString('pt-BR')}`,
+    `🕐 Saída: ${s.hora_saida}`,
+    `📍 Destino: ${s.destino}`,
+    `⏳ Retorno previsto: *${prev}*`,
+    ``,
+    `Ao voltar, mande *registro* e toque em *Retorno* para fechar a viagem. 🚙`,
+  ].join('\n')
+}
+
+// Pede o retorno (km, hora, obs) e passa a sessão para 'coletando_retorno'.
+async function pedirRetornoFrotaLeve(sess: any, grupoId: string): Promise<void> {
+  await supabase.from('frota_leve_saidas').update({ status: 'coletando_retorno' }).eq('id', sess.id)
+  await enviar(grupoId,
+    `📥 ${sess.motorista_nome ?? 'Motorista'}, vamos registrar o *retorno* da placa *${sess.placa}*.\n\n` +
+    `Envie numa única mensagem:\n` +
+    `• *KM* atual (de retorno)\n` +
+    `• *Hora* de retorno (HH:MM)\n` +
+    `• *Obs* (opcional)\n\n` +
+    `E mande também a *foto do painel* com o KM.\n` +
+    `_Ex: KM 45285, Hora 11:37, Obs: entrega ok_`)
+}
+
+// Avança a sessão de coleta conforme o status atual e a mensagem recebida.
+async function avancarSessaoFrotaLeve(
+  sess: any, body: any, grupoId: string, filial: string, texto: string, nome: string,
+): Promise<{ ok: boolean; action: string }> {
+  // Cancelamento explícito em qualquer etapa
+  if (/^\s*(cancelar|cancela)\s*$/i.test(texto)) {
+    await supabase.from('frota_leve_saidas').update({ status: 'cancelado' }).eq('id', sess.id)
+    await enviar(grupoId, `❌ ${nome}, registro cancelado. Mande *registro* para começar de novo.`)
+    return { ok: true, action: 'frl-cancelado' }
+  }
+
+  // ── Coletando os campos da SAÍDA ──
+  if (sess.status === 'coletando_saida') {
+    const c = parseCamposSaida(texto)
+    const upd: Record<string, any> = {}
+    if (!sess.placa && c.placa)             upd.placa = c.placa
+    if (sess.km_saida == null && c.km != null) upd.km_saida = c.km
+    if (!sess.hora_saida && c.hora)          upd.hora_saida = c.hora
+    if (!sess.destino && c.destino)          upd.destino = c.destino
+    if (sess.previsao_min == null && c.previsao != null) upd.previsao_min = c.previsao
+    const merged = { ...sess, ...upd }
+    if (Object.keys(upd).length) await supabase.from('frota_leve_saidas').update(upd).eq('id', sess.id)
+
+    const falta = faltaSaida(merged)
+    if (falta.length) {
+      await enviar(grupoId,
+        `📝 ${nome}, ainda preciso de:\n${falta.map(f => `• ${f}`).join('\n')}\n\n` +
+        `Envie numa única mensagem.\n_Ex: Placa ABC-1234, KM 45230, Saída 09:35, Destino PDV Centro, Retorno 2 horas_`)
+      return { ok: true, action: 'frl-saida-coletando' }
+    }
+
+    // BLOQUEIO: já existe viagem EM ROTA nesta mesma placa? Precisa fechar antes.
+    const { data: aberta } = await supabase
+      .from('frota_leve_saidas').select('id, hora_saida, motorista_nome')
+      .eq('grupo_id', grupoId).eq('placa', merged.placa).eq('status', 'em_rota')
+      .neq('id', sess.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    if (aberta) {
+      await supabase.from('frota_leve_saidas').update({ status: 'cancelado' }).eq('id', sess.id)
+      await enviar(grupoId,
+        `⛔ ${nome}, a placa *${merged.placa}* já tem uma *saída em aberto* (registrada por ${aberta.motorista_nome ?? 'alguém'} às ${aberta.hora_saida ?? '—'}).\n` +
+        `Finalize o *retorno* dessa viagem antes de registrar uma nova saída na mesma placa.\n` +
+        `Mande *registro* e toque em *Retorno* para fechá-la.`)
+      return { ok: true, action: 'frl-placa-em-aberto' }
+    }
+
+    await supabase.from('frota_leve_saidas').update({ status: 'aguardando_foto_saida' }).eq('id', sess.id)
+    await enviar(grupoId,
+      `📸 ${nome}, quase lá! Agora envie a *foto do painel* mostrando o KM (${merged.km_saida?.toLocaleString('pt-BR')}).`)
+    return { ok: true, action: 'frl-saida-pede-foto' }
+  }
+
+  // ── Aguardando a FOTO da saída ──
+  if (sess.status === 'aguardando_foto_saida') {
+    const kmCorr = kmDeNumeroSolto(texto)
+    if (kmCorr != null) {  // motorista digitou um novo KM (correção)
+      await supabase.from('frota_leve_saidas').update({ km_saida: kmCorr }).eq('id', sess.id)
+      await enviar(grupoId, `👍 KM atualizado para *${kmCorr.toLocaleString('pt-BR')}*. Agora envie a *foto do painel*, por favor.`)
+      return { ok: true, action: 'frl-saida-km-corrigido' }
+    }
+    const url = extrairImagemUrl(body)
+    if (!url) {
+      await enviar(grupoId, `📸 ${nome}, ainda preciso da *foto do painel* com o KM ${sess.km_saida?.toLocaleString('pt-BR')} visível.`)
+      return { ok: true, action: 'frl-saida-sem-foto' }
+    }
+    const kmFoto = await lerKmDaFoto(url)
+    if (kmFoto != null && Math.abs(kmFoto - (sess.km_saida ?? 0)) > 2) {
+      await supabase.from('frota_leve_saidas').update({ foto_saida_url: url, km_saida_foto: kmFoto }).eq('id', sess.id)
+      await enviar(grupoId,
+        `⚠️ ${nome}, o KM que você informou foi *${sess.km_saida?.toLocaleString('pt-BR')}*, mas na foto do painel eu li *${kmFoto.toLocaleString('pt-BR')}*.\n` +
+        `Se o certo é o da foto, responda com o número *${kmFoto.toLocaleString('pt-BR')}*. Se preferir, reenvie uma foto mais nítida.`)
+      return { ok: true, action: 'frl-saida-km-divergente' }
+    }
+    const agora = new Date()
+    const previsao = new Date(agora.getTime() + (sess.previsao_min ?? 0) * 60_000)
+    const { data: reg } = await supabase.from('frota_leve_saidas').update({
+      status: 'em_rota',
+      hora_saida: sess.hora_saida || horaAgoraBR(),
+      foto_saida_url: url,
+      km_saida_foto: kmFoto,
+      previsao_retorno: previsao.toISOString(),
+      saida_registrada_em: agora.toISOString(),
+    }).eq('id', sess.id).select('*').single()
+    const nota = kmFoto == null ? `\n_(não consegui ler o KM da foto; registrei o valor que você informou)_` : `\n✅ KM conferido pela foto.`
+    await enviar(grupoId, resumoSaidaConfirmada(reg ?? sess) + nota)
+    return { ok: true, action: 'frl-saida-confirmada' }
+  }
+
+  // ── Coletando os campos do RETORNO ──
+  if (sess.status === 'coletando_retorno') {
+    const c = parseCamposRetorno(texto)
+    const upd: Record<string, any> = {}
+    if (sess.km_retorno == null && c.km != null) upd.km_retorno = c.km
+    if (!sess.hora_retorno && c.hora)  upd.hora_retorno = c.hora
+    if (!sess.observacoes && c.obs)    upd.observacoes = c.obs
+    const merged = { ...sess, ...upd }
+    if (Object.keys(upd).length) await supabase.from('frota_leve_saidas').update(upd).eq('id', sess.id)
+
+    if (merged.km_retorno == null) {
+      await enviar(grupoId, `📝 ${nome}, qual o *KM* de retorno? _(Ex: KM 45285)_`)
+      return { ok: true, action: 'frl-retorno-coletando' }
+    }
+    if (merged.km_saida != null && merged.km_retorno < merged.km_saida) {
+      await supabase.from('frota_leve_saidas').update({ km_retorno: null }).eq('id', sess.id)
+      await enviar(grupoId,
+        `⚠️ ${nome}, o KM de retorno (*${merged.km_retorno.toLocaleString('pt-BR')}*) está menor que o de saída (*${merged.km_saida.toLocaleString('pt-BR')}*).\n` +
+        `Confira o número e envie o KM de retorno novamente.`)
+      return { ok: true, action: 'frl-retorno-km-menor' }
+    }
+    await supabase.from('frota_leve_saidas').update({ status: 'aguardando_foto_retorno' }).eq('id', sess.id)
+    await enviar(grupoId, `📸 ${nome}, agora envie a *foto do painel* mostrando o KM de retorno (${merged.km_retorno.toLocaleString('pt-BR')}).`)
+    return { ok: true, action: 'frl-retorno-pede-foto' }
+  }
+
+  // ── Aguardando a FOTO do retorno → finaliza ──
+  if (sess.status === 'aguardando_foto_retorno') {
+    const kmCorr = kmDeNumeroSolto(texto)
+    if (kmCorr != null) {
+      if (sess.km_saida != null && kmCorr < sess.km_saida) {
+        await enviar(grupoId, `⚠️ Esse KM (${kmCorr.toLocaleString('pt-BR')}) está menor que o de saída. Confira e envie de novo.`)
+        return { ok: true, action: 'frl-retorno-km-menor' }
+      }
+      await supabase.from('frota_leve_saidas').update({ km_retorno: kmCorr }).eq('id', sess.id)
+      await enviar(grupoId, `👍 KM de retorno atualizado para *${kmCorr.toLocaleString('pt-BR')}*. Agora envie a *foto do painel*.`)
+      return { ok: true, action: 'frl-retorno-km-corrigido' }
+    }
+    const url = extrairImagemUrl(body)
+    if (!url) {
+      await enviar(grupoId, `📸 ${nome}, ainda preciso da *foto do painel* com o KM de retorno.`)
+      return { ok: true, action: 'frl-retorno-sem-foto' }
+    }
+    const kmFoto = await lerKmDaFoto(url)
+    if (kmFoto != null && Math.abs(kmFoto - (sess.km_retorno ?? 0)) > 2) {
+      await supabase.from('frota_leve_saidas').update({ foto_retorno_url: url, km_retorno_foto: kmFoto }).eq('id', sess.id)
+      await enviar(grupoId,
+        `⚠️ ${nome}, você informou *${sess.km_retorno?.toLocaleString('pt-BR')}*, mas na foto eu li *${kmFoto.toLocaleString('pt-BR')}*.\n` +
+        `Se o certo é o da foto, responda com o número *${kmFoto.toLocaleString('pt-BR')}*. Ou reenvie uma foto mais nítida.`)
+      return { ok: true, action: 'frl-retorno-km-divergente' }
+    }
+    const agora = new Date()
+    const { data: reg } = await supabase.from('frota_leve_saidas').update({
+      status: 'finalizado',
+      hora_retorno: sess.hora_retorno || horaAgoraBR(),
+      foto_retorno_url: url,
+      km_retorno_foto: kmFoto,
+      finalizado_em: agora.toISOString(),
+    }).eq('id', sess.id).select('*').single()
+    const r = reg ?? sess
+    const rodados = (r.km_retorno != null && r.km_saida != null) ? r.km_retorno - r.km_saida : null
+    let tempo = ''
+    if (r.saida_registrada_em) {
+      const min = Math.max(0, Math.round((agora.getTime() - new Date(r.saida_registrada_em).getTime()) / 60_000))
+      tempo = `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, '0')}min`
+    }
+    const linhas = [
+      `🏁 *Viagem finalizada!*`,
+      `🚗 Placa: ${r.placa}`,
+      `📍 Destino: ${r.destino ?? '—'}`,
+      `⏱️ Saída: ${r.km_saida?.toLocaleString('pt-BR')} (${r.hora_saida ?? '—'})`,
+      `⏱️ Retorno: ${r.km_retorno?.toLocaleString('pt-BR')} (${r.hora_retorno ?? '—'})`,
+    ]
+    if (rodados != null) linhas.push(`🛣️ KM rodados: *${rodados.toLocaleString('pt-BR')} km*`)
+    if (tempo) linhas.push(`⌛ Tempo em rota: *${tempo}*`)
+    if (r.observacoes) linhas.push(`📝 Obs: ${r.observacoes}`)
+    if (kmFoto == null) linhas.push(`_(não consegui ler o KM da foto; registrei o valor informado)_`)
+    await enviar(grupoId, linhas.join('\n'))
+    return { ok: true, action: 'frl-finalizada' }
+  }
+
+  return { ok: true, action: 'frl-estado-desconhecido' }
+}
+
+// Lembrete de retorno: viagens em rota cuja previsão expirou e que ainda não
+// receberam o aviso. Roda de forma oportunista a cada mensagem no grupo (e pode
+// ser chamada por um cron via /api/frota-leve-check). `grupoAlvo` opcional
+// restringe a um grupo (uso oportunista); sem ele, varre todos (uso do cron).
+export async function verificarLembretesFrotaLeve(grupoAlvo?: string): Promise<number> {
+  const agora = new Date().toISOString()
+  let q = supabase.from('frota_leve_saidas').select('*')
+    .eq('status', 'em_rota').lte('previsao_retorno', agora).is('lembrete_enviado_em', null)
+  if (grupoAlvo) q = q.eq('grupo_id', grupoAlvo)
+  const { data } = await q.limit(50)
+  let enviados = 0
+  for (const s of data ?? []) {
+    await enviarBotoes(String(s.grupo_id),
+      `⏰ ${s.motorista_nome ?? 'Motorista'}, o tempo previsto de retorno da placa *${s.placa}* (saída ${s.hora_saida ?? '—'}) já passou.\n` +
+      `Você já retornou? Toque em *Registrar Retorno* para fazer o check.`,
+      [{ id: `frl_ret_pick:${s.id}`, label: '📥 Registrar Retorno' }])
+    await supabase.from('frota_leve_saidas').update({ lembrete_enviado_em: new Date().toISOString() }).eq('id', s.id)
+    enviados++
+  }
+  return enviados
+}
+
+async function tratarFrotaLeve(
+  body: any, grupoId: string, filial: string, texto: string,
+  senderName: string, participante: string,
+): Promise<{ ok: boolean; action: string }> {
+  // Aproveita a passagem pra checar lembretes vencidos deste grupo (não bloqueia o fluxo).
+  await verificarLembretesFrotaLeve(grupoId).catch((e) => console.error('lembrete frota leve:', e))
+
+  const nome = senderName || 'Motorista'
+  const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
+
+  // Iniciar RETORNO de uma viagem específica (botão do lembrete ou do seletor)
+  if (btn.startsWith('frl_ret_pick:')) {
+    const id = btn.slice('frl_ret_pick:'.length)
+    const { data: sess } = await supabase.from('frota_leve_saidas').select('*').eq('id', id).eq('status', 'em_rota').maybeSingle()
+    if (!sess) { await enviar(grupoId, '⚠️ Essa viagem não está mais em aberto.'); return { ok: true, action: 'frl-pick-invalido' } }
+    await pedirRetornoFrotaLeve(sess, grupoId)
+    return { ok: true, action: 'frl-retorno-iniciado' }
+  }
+
+  // Botão SAÍDA: (re)inicia uma coleta de saída para este motorista
+  if (btn === 'frl_saida' || /^\s*sa[ií]da\s*$/i.test(texto)) {
+    const limite = new Date(Date.now() - FROTA_LEVE_TTL_MIN * 60_000).toISOString()
+    const { data: existente } = await supabase.from('frota_leve_saidas').select('id')
+      .eq('grupo_id', grupoId).eq('motorista_telefone', participante).eq('status', 'coletando_saida')
+      .gte('updated_at', limite).maybeSingle()
+    if (!existente) {
+      await supabase.from('frota_leve_saidas').insert({
+        filial, grupo_id: grupoId, motorista_telefone: participante, motorista_nome: nome, status: 'coletando_saida',
+      })
+    }
+    await enviar(grupoId,
+      `📤 ${nome}, vamos registrar a *saída*. Envie numa única mensagem:\n` +
+      `• *Placa*\n• *KM* atual\n• *Hora* de saída (HH:MM)\n• *Destino*\n• *Previsão* de retorno (ex: 2 horas)\n\n` +
+      `E depois mande a *foto do painel*.\n_Ex: Placa ABC-1234, KM 45230, Saída 09:35, Destino PDV Centro, Retorno 2 horas_`)
+    return { ok: true, action: 'frl-saida-iniciada' }
+  }
+
+  // Botão RETORNO: localiza viagem(ns) em rota deste motorista
+  if (btn === 'frl_retorno' || /^\s*retorno\s*$/i.test(texto)) {
+    const { data: abertas } = await supabase.from('frota_leve_saidas').select('*')
+      .eq('grupo_id', grupoId).eq('motorista_telefone', participante).eq('status', 'em_rota')
+      .order('created_at', { ascending: false })
+    if (!abertas || abertas.length === 0) {
+      await enviar(grupoId, `ℹ️ ${nome}, você não tem nenhuma saída em aberto no seu nome.`)
+      return { ok: true, action: 'frl-retorno-sem-aberta' }
+    }
+    if (abertas.length === 1) {
+      await pedirRetornoFrotaLeve(abertas[0], grupoId)
+      return { ok: true, action: 'frl-retorno-iniciado' }
+    }
+    await enviarOpcoes(grupoId, `📥 ${nome}, qual viagem você está retornando?`, 'Saídas em aberto', 'Escolher',
+      abertas.slice(0, 9).map((a: any) => ({ id: `frl_ret_pick:${a.id}`, title: `${a.placa} — saída ${a.hora_saida ?? '—'}`, description: a.destino ?? undefined })))
+    return { ok: true, action: 'frl-retorno-multiplas' }
+  }
+
+  // Sessão de coleta em andamento deste motorista?
+  const limite = new Date(Date.now() - FROTA_LEVE_TTL_MIN * 60_000).toISOString()
+  const { data: sess } = await supabase.from('frota_leve_saidas').select('*')
+    .eq('grupo_id', grupoId).eq('motorista_telefone', participante).in('status', FROTA_LEVE_COLETANDO)
+    .gte('updated_at', limite).order('updated_at', { ascending: false }).limit(1).maybeSingle()
+  if (sess) return await avancarSessaoFrotaLeve(sess, body, grupoId, filial, texto, nome)
+
+  // Palavra-gatilho: "registro", "registrar", ... → oferece os botões
+  if (/registr/.test(norm(texto))) {
+    await enviarBotoes(grupoId,
+      `🚗 ${nome}, o que deseja registrar?\nToque numa opção ou responda *Saída* ou *Retorno*.`,
+      [{ id: 'frl_saida', label: '📤 Saída do veículo' }, { id: 'frl_retorno', label: '📥 Retorno do veículo' }])
+    return { ok: true, action: 'frl-menu' }
+  }
+
+  // Qualquer outra coisa no grupo → silêncio (não polui o grupo)
+  return { ok: true, action: 'frl-nao-aplicavel' }
+}
+
 // ── Handler ──────────────────────────────────────────────────────────────────────
 
 export default async function handler(req: any, res: any) {
@@ -1611,7 +2090,7 @@ export default async function handler(req: any, res: any) {
       body.isGroup === true || body.isGroup === 'true' ||
       grupoId.endsWith('-group') || grupoId.endsWith('@g.us')
     const texto = extrairTexto(body)
-    const temConteudo = texto || body?.buttonsResponseMessage || body?.listResponseMessage || temAudioSemTexto(body)
+    const temConteudo = texto || body?.buttonsResponseMessage || body?.listResponseMessage || temAudioSemTexto(body) || temImagem(body)
     const senderName: string = String(body.senderName ?? body.chatName ?? body.pushName ?? '')
     const participante: string = String(body.participantPhone ?? body.participant ?? '')
 
@@ -1637,8 +2116,8 @@ export default async function handler(req: any, res: any) {
     // Descobre a qual fluxo este grupo pertence
     const { data: filialRow } = await supabase
       .from('filiais')
-      .select('nome, grupo_fluxo_whatsapp, grupo_reposicoes_whatsapp, grupo_solicitacao_2_whatsapp, grupo_validacao_whatsapp')
-      .or(`grupo_fluxo_whatsapp.eq.${grupoId},grupo_reposicoes_whatsapp.eq.${grupoId},grupo_solicitacao_2_whatsapp.eq.${grupoId},grupo_validacao_whatsapp.eq.${grupoId}`)
+      .select('nome, grupo_fluxo_whatsapp, grupo_reposicoes_whatsapp, grupo_solicitacao_2_whatsapp, grupo_validacao_whatsapp, grupo_frota_leve_whatsapp')
+      .or(`grupo_fluxo_whatsapp.eq.${grupoId},grupo_reposicoes_whatsapp.eq.${grupoId},grupo_solicitacao_2_whatsapp.eq.${grupoId},grupo_validacao_whatsapp.eq.${grupoId},grupo_frota_leve_whatsapp.eq.${grupoId}`)
       .maybeSingle()
 
     if (!filialRow) {
@@ -1660,6 +2139,13 @@ export default async function handler(req: any, res: any) {
     // Grupos de solicitação (1 e 2): motorista envia e confirma
     if (filialRow.grupo_reposicoes_whatsapp === grupoId || filialRow.grupo_solicitacao_2_whatsapp === grupoId) {
       const r = await tratarReposicao(body, grupoId, filial, texto, senderName, participante)
+      res.status(200).json(r)
+      return
+    }
+
+    // Grupo de controle da frota leve: registro de saída/retorno de veículo
+    if (filialRow.grupo_frota_leve_whatsapp === grupoId) {
+      const r = await tratarFrotaLeve(body, grupoId, filial, texto, senderName, participante)
       res.status(200).json(r)
       return
     }
