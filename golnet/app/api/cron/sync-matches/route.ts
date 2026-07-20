@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { refreshMatchScores, discoverNewFixtures } from "@/lib/sync-matches";
 import { calculatePoints, PREDICTION_LOCK_MINUTES } from "@/lib/scoring";
 import { sendPushToUser } from "@/lib/push";
-import { maybeGenerateRoundSummaries } from "@/lib/round-summary";
+import { maybeGenerateRoundSummaries, maybeGenerateChampionshipSummaries } from "@/lib/round-summary";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -133,6 +133,7 @@ async function runSync(): Promise<{ synced: number; warning?: string }> {
     distinct: ["round"],
   });
   await maybeGenerateRoundSummaries(allRounds.map((m) => m.round ?? "Fase de Grupos")).catch(() => {});
+  await maybeGenerateChampionshipSummaries().catch(() => {});
 
   await sendLockReminders();
 
