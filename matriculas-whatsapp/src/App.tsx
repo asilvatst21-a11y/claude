@@ -19,6 +19,7 @@ import DistribuicaoConferencia from './pages/DistribuicaoConferencia'
 import Frota from './pages/Frota'
 import FrotaIV from './pages/FrotaIV'
 import FrotaPlacas from './pages/FrotaPlacas'
+import FrotaLeve from './pages/FrotaLeve'
 import RoteirizacaoTerritorio from './pages/RoteirizacaoTerritorio'
 import Home from './pages/Home'
 import Disparos from './pages/Disparos'
@@ -133,6 +134,7 @@ export default function App() {
             <Route path="/frota" element={<Frota />} />
             <Route path="/frota/iv" element={<FrotaIV />} />
             <Route path="/frota/placas" element={<FrotaPlacas />} />
+            <Route path="/frota/leve" element={<FrotaLeve />} />
             <Route path="/frota/roteirizacao" element={<RoteirizacaoTerritorio />} />
             <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
             <Route path="/armazem/operadores" element={<ArmazemOperadores />} />
