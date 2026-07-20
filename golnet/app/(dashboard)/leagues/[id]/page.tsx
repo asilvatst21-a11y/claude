@@ -114,7 +114,7 @@ export default async function LeagueDetailPage({
   const championshipSummary = await prisma.championshipSummary.findUnique({
     where: { leagueId: params.id },
     select: { text: true },
-  });
+  }).catch(() => null);
 
   const isOwner = currentMember.role === "OWNER";
   const userPlan = userRecord?.plan ?? "FREE";
