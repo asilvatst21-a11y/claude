@@ -57,6 +57,7 @@ interface LeagueTabsProps {
   userPlan: string;
   userId: string;
   scoring: LeagueScoring;
+  championshipSummary?: string | null;
   initialTab?: string;
 }
 
@@ -102,6 +103,7 @@ export function LeagueTabs({
   userPlan,
   userId,
   scoring,
+  championshipSummary,
   initialTab,
 }: LeagueTabsProps) {
   const defaultTab = (TABS as readonly string[]).includes(initialTab ?? "") ? (initialTab as Tab) : "Jogos";
@@ -259,6 +261,23 @@ export function LeagueTabs({
       {/* Tab: Rodadas */}
       {activeTab === "Rodadas" && (
         <>
+          {championshipSummary && (
+            <div className="bg-gradient-to-br from-yellow-500/10 to-amber-600/10 border border-yellow-500/30 rounded-xl overflow-hidden mb-4">
+              <div className="px-4 py-3 border-b border-yellow-500/20 flex items-center gap-2">
+                <span className="text-yellow-400 text-lg">🏆</span>
+                <span className="font-bold text-yellow-400 text-sm uppercase tracking-wide">Encerramento do Torneio</span>
+              </div>
+              <div className="px-4 py-4">
+                <p className="text-sm text-zinc-200 whitespace-pre-wrap leading-relaxed">{championshipSummary}</p>
+                <button
+                  onClick={() => shareSummary(championshipSummary)}
+                  className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-yellow-400 hover:text-yellow-300 transition-colors"
+                >
+                  📤 Compartilhar no WhatsApp
+                </button>
+              </div>
+            </div>
+          )}
           {!isPro ? (
             <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-10 text-center">
               <span className="text-5xl mb-4 block">🔒</span>

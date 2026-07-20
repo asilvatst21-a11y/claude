@@ -111,6 +111,11 @@ export default async function LeagueDetailPage({
 
   const summaryByRound = Object.fromEntries(roundSummariesRaw.map((s) => [s.round, s.text]));
 
+  const championshipSummary = await prisma.championshipSummary.findUnique({
+    where: { leagueId: params.id },
+    select: { text: true },
+  });
+
   const isOwner = currentMember.role === "OWNER";
   const userPlan = userRecord?.plan ?? "FREE";
 
@@ -258,6 +263,7 @@ export default async function LeagueDetailPage({
         roundGroups={roundGroups}
         userPlan={userPlan}
         userId={userId}
+        championshipSummary={championshipSummary?.text ?? null}
         initialTab={searchParams.tab}
         scoring={{
           ptsExactScore: league.ptsExactScore,

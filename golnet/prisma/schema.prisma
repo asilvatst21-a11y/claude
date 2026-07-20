@@ -423,6 +423,15 @@ model RoundSummary {
   @@unique([leagueId, round])
 }
 
+// ─── Championship Summary ─────────────────────────────────────────────────────
+
+model ChampionshipSummary {
+  id        String   @id @default(cuid())
+  leagueId  String   @unique
+  text      String   @db.Text
+  createdAt DateTime @default(now())
+}
+
 // ─── Cron Log ─────────────────────────────────────────────────────────────────
 
 model CronLog {

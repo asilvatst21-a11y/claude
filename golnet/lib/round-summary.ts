@@ -463,3 +463,145 @@ async function buildSummaryText(leagueId: string, round: string, matchIds: strin
 
   return lines.join("\n");
 }
+
+// ─── Championship Summary ─────────────────────────────────────────────────────
+
+const CHAMP_INTROS = [
+  "O apito final soou e o campeonato acabou. Chegou a hora do veredicto! 🏆",
+  "Cabou! O torneio encerrou e é hora de coroar o campeão do bolão! 🥇",
+  "Depois de tantos palpites, tantas emoções e uns sustos, o campeão do bolão está definido. 🎉",
+  "Fim de papo, fim de torneio. Vamos ver quem mandou bem do começo ao fim! 🏁",
+];
+
+const CHAMP_TITLES = [
+  "🏆 O Campeão do Bolão!",
+  "🥇 Encerramento do Campeonato",
+  "🎉 É Campeão!",
+  "🏁 Fim de Torneio — O Veredicto Final",
+];
+
+const CHAMP_WINNER_TEMPLATES: Array<(name: string, pts: number) => string> = [
+  (name, pts) => `👑 ${name} é o grande campeão do bolão com ${pts} pontos! Intocável do começo ao fim.`,
+  (name, pts) => `🥇 ${name} dominou a temporada e fecha como campeão absoluto: ${pts} pontos. Parabéns!`,
+  (name, pts) => `🏆 Ninguém chegou perto de ${name} — ${pts} pontos e o troféu vai pra ele(a). Absurdo!`,
+  (name, pts) => `👑 A temporada foi longa, mas ${name} nunca vacilou: ${pts} pontos e título no bolso!`,
+];
+
+const CHAMP_PODIUM_TEMPLATES: Array<(second: string, third: string) => string> = [
+  (second, third) => `🥈 ${second} fica com o vice e 🥉 ${third} completa o pódio. Honra!`,
+  (second, third) => `O pódio: 🥈 ${second} e 🥉 ${third} na sequência. Quase lá!`,
+  (second, third) => `🥈 ${second} e 🥉 ${third} no pódio — chegaram perto mas o troféu não era pra eles.`,
+];
+
+const CHAMP_BEST_ROUND_TEMPLATES: Array<(name: string, round: string, pts: number) => string> = [
+  (name, round, pts) => `🔥 Maior pontuação de uma rodada foi de ${name}: ${pts} pts na rodada ${round}. Que rodada!`,
+  (name, round, pts) => `💥 ${name} teve a melhor rodada do campeonato — ${pts} pts na rodada ${round}. Chapéu!`,
+  (name, round, pts) => `🎯 Destaque de rodada: ${name} com ${pts} pontos na rodada ${round}. Impressionante!`,
+];
+
+const CHAMP_EXACT_TEMPLATES: Array<(name: string, count: number) => string> = [
+  (name, count) => `🎯 Mão de ouro do campeonato: ${name} com ${count} placar${count > 1 ? "es exatos" : " exato"} ao longo do torneio. Monstro!`,
+  (name, count) => `🏅 Craque dos cravados: ${name} acertou o placar exato ${count} vez${count > 1 ? "es" : ""}. Parabéns!`,
+];
+
+const CHAMP_CLOSINGS = [
+  "Obrigado a todos pela participação. Até o próximo torneio! 👋⚽",
+  "Foi incrível. Nos vemos no próximo campeonato! 🏆",
+  "Grande temporada! Bora repetir essa dose no próximo torneio? 🔥",
+  "Torneio encerrado com chave de ouro. Até a próxima! 🎊",
+];
+
+export async function maybeGenerateChampionshipSummaries(leagues?: { id: string; name: string; competitionName: string | null; teamFilter: string[] }[]) {
+  const allLeagues = leagues ?? await prisma.league.findMany({
+    select: { id: true, name: true, competitionName: true, teamFilter: true },
+  });
+
+  for (const league of allLeagues) {
+    // Only generate once per league
+    const exists = await prisma.championshipSummary.findUnique({ where: { leagueId: league.id } });
+    if (exists) continue;
+
+    // Find matches for this league's competition
+    const whereBase = league.competitionName
+      ? { leagueName: league.competitionName }
+      : {};
+    const teamFilter = league.teamFilter.length > 0
+      ? { OR: [{ homeTeam: { in: league.teamFilter } }, { awayTeam: { in: league.teamFilter } }] }
+      : {};
+
+    const allMatches = await prisma.match.findMany({
+      where: { ...whereBase, ...teamFilter },
+      select: { id: true, status: true, stage: true },
+    });
+
+    if (allMatches.length === 0) continue;
+
+    // Require ALL matches to be done, AND at least one FINAL stage match
+    if (!allMatches.every((m) => DONE_STATUSES.includes(m.status))) continue;
+    if (!allMatches.some((m) => m.stage === "FINAL")) continue;
+
+    const text = await buildChampionshipText(league.id);
+    if (!text) continue;
+
+    await prisma.championshipSummary.create({ data: { leagueId: league.id, text } });
+    await notifyMembers(league.id, league.name, "Encerramento");
+  }
+}
+
+async function buildChampionshipText(leagueId: string): Promise<string | null> {
+  const members = await prisma.leagueMember.findMany({
+    where: { leagueId },
+    include: { user: { select: { name: true, username: true } } },
+    orderBy: { totalPoints: "desc" },
+  });
+  if (members.length < 2) return null;
+
+  const memberIds = members.map((m) => m.userId);
+  const nameOf = (userId: string) =>
+    displayName(members.find((m) => m.userId === userId)!.user);
+
+  // Best single round
+  const allRoundRankings = await prisma.roundRanking.findMany({
+    where: { leagueId, userId: { in: memberIds } },
+    orderBy: { points: "desc" },
+  });
+  const bestRound = allRoundRankings[0];
+
+  // Most exact scores
+  const exactCounts = await prisma.prediction.groupBy({
+    by: ["userId"],
+    where: { userId: { in: memberIds }, result: "EXACT_SCORE" },
+    _count: { id: true },
+    orderBy: { _count: { id: "desc" } },
+  });
+  const topExact = exactCounts[0];
+
+  const champion = members[0];
+  const second = members[1];
+  const third = members.length > 2 ? members[2] : null;
+
+  const lines: string[] = [];
+  lines.push(pick(CHAMP_TITLES));
+  lines.push("");
+  lines.push(pick(CHAMP_INTROS));
+  lines.push("");
+  lines.push(pick(CHAMP_WINNER_TEMPLATES)(displayName(champion.user), champion.totalPoints));
+  if (second && third) {
+    lines.push(pick(CHAMP_PODIUM_TEMPLATES)(displayName(second.user), displayName(third.user)));
+  } else if (second) {
+    lines.push(`🥈 ${displayName(second.user)} fica com o vice — chegou perto!`);
+  }
+  lines.push("");
+
+  if (bestRound) {
+    lines.push(pick(CHAMP_BEST_ROUND_TEMPLATES)(nameOf(bestRound.userId), bestRound.round, bestRound.points));
+  }
+  if (topExact && topExact._count.id > 0) {
+    lines.push(pick(CHAMP_EXACT_TEMPLATES)(nameOf(topExact.userId), topExact._count.id));
+  }
+
+  lines.push("");
+  lines.push(pick(CHAMP_CLOSINGS));
+
+  return lines.join("\n");
+}
