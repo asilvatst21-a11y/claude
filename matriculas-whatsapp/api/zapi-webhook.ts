@@ -1756,6 +1756,7 @@ function resumoSaidaConfirmada(s: any): string {
     : '—'
   return [
     `✅ *Saída registrada!*`,
+    `👤 Condutor: ${s.condutor_nome ?? '—'}`,
     `🚗 Placa: ${s.placa}`,
     `⏱️ KM: ${s.km_saida?.toLocaleString('pt-BR')}`,
     `🕐 Saída: ${s.hora_saida}`,
@@ -1766,23 +1767,105 @@ function resumoSaidaConfirmada(s: any): string {
   ].join('\n')
 }
 
-// Pede o retorno (km, hora, obs) e passa a sessão para 'coletando_retorno'.
-async function pedirRetornoFrotaLeve(sess: any, grupoId: string): Promise<void> {
-  await supabase.from('frota_leve_saidas').update({ status: 'coletando_retorno' }).eq('id', sess.id)
-  await enviar(grupoId,
-    `📥 ${sess.motorista_nome ?? 'Motorista'}, vamos registrar o *retorno* da placa *${sess.placa}*.\n\n` +
-    `Envie numa única mensagem:\n` +
-    `• *KM* atual (de retorno)\n` +
-    `• *Hora* de retorno (HH:MM)\n` +
-    `• *Obs* (opcional)\n\n` +
-    `E mande também a *foto do painel* com o KM.\n` +
-    `_Ex: KM 45285, Hora 11:37, Obs: entrega ok_`)
+// Statuses de uma viagem "aberta" (fora / sem retorno finalizado) — usados na trava.
+const FRL_ABERTO_TRAVA = ['aguardando_foto_saida', 'em_rota', 'coletando_retorno', 'aguardando_foto_retorno']
+
+async function condutoresFrotaLeve(filial: string): Promise<{ id: string; nome: string }[]> {
+  const { data } = await supabase.from('frota_leve_condutores').select('id, nome').eq('filial', filial).eq('ativo', true).order('nome')
+  return (data ?? []) as { id: string; nome: string }[]
+}
+
+async function veiculosFrotaLeve(filial: string): Promise<{ id: string; placa: string; modelo: string | null }[]> {
+  const { data } = await supabase.from('frota_leve_veiculos').select('id, placa, modelo').eq('filial', filial).eq('ativo', true).order('placa')
+  return (data ?? []) as { id: string; placa: string; modelo: string | null }[]
+}
+
+function normNome(s: string): string { return norm(s).replace(/\s+/g, ' ').trim() }
+
+// Pergunta o campo da SAÍDA correspondente ao passo atual.
+async function perguntarPassoSaida(passo: string, grupoId: string, filial: string, nome: string): Promise<void> {
+  if (passo === 'condutor') {
+    const conds = await condutoresFrotaLeve(filial)
+    if (conds.length) {
+      await enviarOpcoes(grupoId, `👤 ${nome}, quem é o *condutor*?\n(ou digite o nome)`, 'Condutores', 'Escolher',
+        conds.slice(0, 9).map(c => ({ id: `frl_cond:${c.id}`, title: c.nome })))
+    } else {
+      await enviar(grupoId, `👤 ${nome}, quem é o *condutor*? Responda com o nome.`)
+    }
+    return
+  }
+  if (passo === 'veiculo') {
+    const veics = await veiculosFrotaLeve(filial)
+    if (veics.length) {
+      await enviarOpcoes(grupoId, `🚗 Qual o *veículo*?\n(ou digite a placa)`, 'Veículos', 'Escolher',
+        veics.slice(0, 9).map(v => ({ id: `frl_veic:${v.id}`, title: v.placa, description: v.modelo ?? undefined })))
+    } else {
+      await enviar(grupoId, `🚗 Qual a *placa* do veículo?`)
+    }
+    return
+  }
+  if (passo === 'km')       { await enviar(grupoId, `⏱️ Qual o *KM atual* do painel?`); return }
+  if (passo === 'hora')     { await enviar(grupoId, `🕐 Qual a *hora de saída*? (HH:MM — ou responda *agora*)`); return }
+  if (passo === 'destino')  { await enviar(grupoId, `📍 Qual o *destino*?`); return }
+  if (passo === 'previsao') { await enviar(grupoId, `⏳ Qual a *previsão de retorno*? (ex: 2 horas, 30 min)`); return }
+}
+
+// Pergunta o campo do RETORNO correspondente ao passo atual.
+async function perguntarPassoRetorno(passo: string, grupoId: string, nome: string): Promise<void> {
+  if (passo === 'km')   { await enviar(grupoId, `⏱️ ${nome}, qual o *KM de retorno* (do painel)?`); return }
+  if (passo === 'hora') { await enviar(grupoId, `🕐 Qual a *hora de retorno*? (HH:MM — ou responda *agora*)`); return }
+  if (passo === 'obs')  { await enviar(grupoId, `📝 Alguma *observação*? (ou responda *não*)`); return }
+}
+
+// Trava: retorna a viagem aberta (mesma placa OU mesmo condutor) que impede uma
+// nova saída, ou null se estiver liberado. É a "trava de saída sem checklist de retorno".
+async function travaSaidaAberta(grupoId: string, placa: string, condutorId: string | null, exclId: string): Promise<any | null> {
+  const { data: porPlaca } = await supabase.from('frota_leve_saidas')
+    .select('id, placa, condutor_nome, hora_saida').eq('grupo_id', grupoId).eq('placa', placa)
+    .in('status', FRL_ABERTO_TRAVA).neq('id', exclId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+  if (porPlaca) return porPlaca
+  if (condutorId) {
+    const { data: porCond } = await supabase.from('frota_leve_saidas')
+      .select('id, placa, condutor_nome, hora_saida').eq('grupo_id', grupoId).eq('condutor_id', condutorId)
+      .in('status', FRL_ABERTO_TRAVA).neq('id', exclId).order('created_at', { ascending: false }).limit(1).maybeSingle()
+    if (porCond) return porCond
+  }
+  return null
+}
+
+// Cria a sessão de saída e faz a 1ª pergunta (condutor).
+async function iniciarSaidaFrotaLeve(grupoId: string, filial: string, participante: string, nome: string): Promise<void> {
+  await supabase.from('frota_leve_saidas').insert({
+    filial, grupo_id: grupoId, motorista_telefone: participante, motorista_nome: nome,
+    sessao_telefone: participante, status: 'coletando_saida', passo: 'condutor',
+  })
+  await perguntarPassoSaida('condutor', grupoId, filial, nome)
+}
+
+// Inicia o retorno de uma viagem específica (passo-a-passo).
+async function iniciarRetornoFrotaLeve(sess: any, grupoId: string, participante: string): Promise<void> {
+  await supabase.from('frota_leve_saidas').update({ status: 'coletando_retorno', passo: 'km', sessao_telefone: participante }).eq('id', sess.id)
+  const nome = sess.condutor_nome || sess.motorista_nome || 'Motorista'
+  await enviar(grupoId, `📥 ${nome}, vamos registrar o *retorno* da placa *${sess.placa}*.`)
+  await perguntarPassoRetorno('km', grupoId, nome)
+}
+
+// Lista as viagens em rota do grupo para o motorista escolher qual retornar.
+async function menuRetornoFrotaLeve(grupoId: string, participante: string, nome: string): Promise<void> {
+  const { data: abertas } = await supabase.from('frota_leve_saidas').select('*')
+    .eq('grupo_id', grupoId).eq('status', 'em_rota').order('created_at', { ascending: false })
+  if (!abertas || abertas.length === 0) { await enviar(grupoId, `ℹ️ ${nome}, não há nenhuma saída em aberto para retornar.`); return }
+  if (abertas.length === 1) { await iniciarRetornoFrotaLeve(abertas[0], grupoId, participante); return }
+  await enviarOpcoes(grupoId, `📥 ${nome}, qual viagem você está retornando?`, 'Saídas em aberto', 'Escolher',
+    abertas.slice(0, 9).map((a: any) => ({ id: `frl_ret_pick:${a.id}`, title: `${a.placa} — ${a.condutor_nome ?? 'condutor'}`, description: `saída ${a.hora_saida ?? '—'}` })))
 }
 
 // Avança a sessão de coleta conforme o status atual e a mensagem recebida.
 async function avancarSessaoFrotaLeve(
   sess: any, body: any, grupoId: string, filial: string, texto: string, nome: string,
 ): Promise<{ ok: boolean; action: string }> {
+  nome = sess.condutor_nome || sess.motorista_nome || nome
+  const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
   // Cancelamento explícito em qualquer etapa
   if (/^\s*(cancelar|cancela)\s*$/i.test(texto)) {
     await supabase.from('frota_leve_saidas').update({ status: 'cancelado' }).eq('id', sess.id)
@@ -1790,44 +1873,116 @@ async function avancarSessaoFrotaLeve(
     return { ok: true, action: 'frl-cancelado' }
   }
 
-  // ── Coletando os campos da SAÍDA ──
+  // ── SAÍDA: pergunta-a-pergunta ──
   if (sess.status === 'coletando_saida') {
-    const c = parseCamposSaida(texto)
-    const upd: Record<string, any> = {}
-    if (!sess.placa && c.placa)             upd.placa = c.placa
-    if (sess.km_saida == null && c.km != null) upd.km_saida = c.km
-    if (!sess.hora_saida && c.hora)          upd.hora_saida = c.hora
-    if (!sess.destino && c.destino)          upd.destino = c.destino
-    if (sess.previsao_min == null && c.previsao != null) upd.previsao_min = c.previsao
-    const merged = { ...sess, ...upd }
-    if (Object.keys(upd).length) await supabase.from('frota_leve_saidas').update(upd).eq('id', sess.id)
+    const passo = sess.passo || 'condutor'
 
-    const falta = faltaSaida(merged)
-    if (falta.length) {
-      await enviar(grupoId,
-        `📝 ${nome}, ainda preciso de:\n${falta.map(f => `• ${f}`).join('\n')}\n\n` +
-        `Envie numa única mensagem.\n_Ex: Placa ABC-1234, KM 45230, Saída 09:35, Destino PDV Centro, Retorno 2 horas_`)
-      return { ok: true, action: 'frl-saida-coletando' }
+    if (passo === 'condutor') {
+      let condId: string | null = null, condNome = ''
+      if (btn.startsWith('frl_cond:')) {
+        condId = btn.slice('frl_cond:'.length)
+        const { data: c } = await supabase.from('frota_leve_condutores').select('id, nome').eq('id', condId).maybeSingle()
+        if (c) condNome = c.nome
+      } else if (texto.trim()) {
+        const conds = await condutoresFrotaLeve(filial)
+        if (conds.length) {
+          const q = normNome(texto)
+          const m = conds.find(c => normNome(c.nome) === q) || conds.find(c => normNome(c.nome).includes(q) || q.includes(normNome(c.nome)))
+          if (m) { condId = m.id; condNome = m.nome }
+          else {
+            await enviar(grupoId, `🤔 Não achei esse condutor no cadastro. Toque na opção ou digite o nome como cadastrado.`)
+            await perguntarPassoSaida('condutor', grupoId, filial, nome)
+            return { ok: true, action: 'frl-saida-condutor-invalido' }
+          }
+        } else {
+          condNome = texto.trim()  // sem cadastro → aceita texto livre
+        }
+      } else {
+        await perguntarPassoSaida('condutor', grupoId, filial, nome)
+        return { ok: true, action: 'frl-saida-condutor-repergunta' }
+      }
+      await supabase.from('frota_leve_saidas').update({ condutor_id: condId, condutor_nome: condNome, passo: 'veiculo' }).eq('id', sess.id)
+      await perguntarPassoSaida('veiculo', grupoId, filial, condNome || nome)
+      return { ok: true, action: 'frl-saida-condutor-ok' }
     }
 
-    // BLOQUEIO: já existe viagem EM ROTA nesta mesma placa? Precisa fechar antes.
-    const { data: aberta } = await supabase
-      .from('frota_leve_saidas').select('id, hora_saida, motorista_nome')
-      .eq('grupo_id', grupoId).eq('placa', merged.placa).eq('status', 'em_rota')
-      .neq('id', sess.id).order('created_at', { ascending: false }).limit(1).maybeSingle()
-    if (aberta) {
-      await supabase.from('frota_leve_saidas').update({ status: 'cancelado' }).eq('id', sess.id)
-      await enviar(grupoId,
-        `⛔ ${nome}, a placa *${merged.placa}* já tem uma *saída em aberto* (registrada por ${aberta.motorista_nome ?? 'alguém'} às ${aberta.hora_saida ?? '—'}).\n` +
-        `Finalize o *retorno* dessa viagem antes de registrar uma nova saída na mesma placa.\n` +
-        `Mande *registro* e toque em *Retorno* para fechá-la.`)
-      return { ok: true, action: 'frl-placa-em-aberto' }
+    if (passo === 'veiculo') {
+      let veicId: string | null = null, placa = ''
+      if (btn.startsWith('frl_veic:')) {
+        veicId = btn.slice('frl_veic:'.length)
+        const { data: v } = await supabase.from('frota_leve_veiculos').select('id, placa').eq('id', veicId).maybeSingle()
+        if (v) placa = v.placa
+      } else if (texto.trim()) {
+        const veics = await veiculosFrotaLeve(filial)
+        const p = extrairPlaca(texto)
+        if (veics.length) {
+          const m = p ? veics.find(v => v.placa.replace(/\W/g, '').toUpperCase() === p.replace(/\W/g, '')) : null
+          if (m) { veicId = m.id; placa = m.placa }
+          else {
+            await enviar(grupoId, `🤔 Não achei esse veículo no cadastro. Toque na opção ou digite a placa cadastrada.`)
+            await perguntarPassoSaida('veiculo', grupoId, filial, nome)
+            return { ok: true, action: 'frl-saida-veiculo-invalido' }
+          }
+        } else if (p) {
+          placa = p  // sem cadastro → aceita placa válida
+        } else {
+          await enviar(grupoId, `🤔 Não entendi a placa. Envie no formato ABC-1234.`)
+          return { ok: true, action: 'frl-saida-placa-invalida' }
+        }
+      } else {
+        await perguntarPassoSaida('veiculo', grupoId, filial, nome)
+        return { ok: true, action: 'frl-saida-veiculo-repergunta' }
+      }
+      // TRAVA: placa ou condutor já com viagem aberta sem checklist de retorno
+      const bloq = await travaSaidaAberta(grupoId, placa, sess.condutor_id ?? null, sess.id)
+      if (bloq) {
+        await supabase.from('frota_leve_saidas').update({ status: 'cancelado' }).eq('id', sess.id)
+        await enviar(grupoId,
+          `⛔ ${nome}, já existe uma *saída em aberto* (placa *${bloq.placa}*, condutor ${bloq.condutor_nome ?? '—'}, saída ${bloq.hora_saida ?? '—'}) *sem o checklist de retorno*.\n` +
+          `Faça o *Retorno* dessa viagem antes de registrar uma nova saída.\nMande *registro* e toque em *Retorno*.`)
+        return { ok: true, action: 'frl-trava-saida' }
+      }
+      await supabase.from('frota_leve_saidas').update({ veiculo_id: veicId, placa, passo: 'km' }).eq('id', sess.id)
+      await perguntarPassoSaida('km', grupoId, filial, nome)
+      return { ok: true, action: 'frl-saida-veiculo-ok' }
     }
 
-    await supabase.from('frota_leve_saidas').update({ status: 'aguardando_foto_saida' }).eq('id', sess.id)
-    await enviar(grupoId,
-      `📸 ${nome}, quase lá! Agora envie a *foto do painel* mostrando o KM (${merged.km_saida?.toLocaleString('pt-BR')}).`)
-    return { ok: true, action: 'frl-saida-pede-foto' }
+    if (passo === 'km') {
+      const k = kmDeNumeroSolto(texto) ?? extrairKm(texto)
+      if (k == null) { await enviar(grupoId, `🔢 Envie só o *KM* (número). Ex: 45230`); return { ok: true, action: 'frl-saida-km-repergunta' } }
+      await supabase.from('frota_leve_saidas').update({ km_saida: k, passo: 'hora' }).eq('id', sess.id)
+      await perguntarPassoSaida('hora', grupoId, filial, nome)
+      return { ok: true, action: 'frl-saida-km-ok' }
+    }
+
+    if (passo === 'hora') {
+      const h = /agora/i.test(texto) ? horaAgoraBR() : extrairHora(texto)
+      if (!h) { await enviar(grupoId, `🕐 Envie a *hora* no formato HH:MM (ou responda *agora*).`); return { ok: true, action: 'frl-saida-hora-repergunta' } }
+      await supabase.from('frota_leve_saidas').update({ hora_saida: h, passo: 'destino' }).eq('id', sess.id)
+      await perguntarPassoSaida('destino', grupoId, filial, nome)
+      return { ok: true, action: 'frl-saida-hora-ok' }
+    }
+
+    if (passo === 'destino') {
+      const d = texto.trim()
+      if (!d) { await enviar(grupoId, `📍 Qual o *destino*?`); return { ok: true, action: 'frl-saida-destino-repergunta' } }
+      await supabase.from('frota_leve_saidas').update({ destino: d, passo: 'previsao' }).eq('id', sess.id)
+      await perguntarPassoSaida('previsao', grupoId, filial, nome)
+      return { ok: true, action: 'frl-saida-destino-ok' }
+    }
+
+    if (passo === 'previsao') {
+      const pv = parsePrevisaoMin(texto)
+      if (pv == null) { await enviar(grupoId, `⏳ Não entendi. Envie a *previsão* (ex: 2 horas, 90 min, 1h30).`); return { ok: true, action: 'frl-saida-previsao-repergunta' } }
+      await supabase.from('frota_leve_saidas').update({ previsao_min: pv, status: 'aguardando_foto_saida', passo: null }).eq('id', sess.id)
+      await enviar(grupoId, `📸 Por fim, envie a *foto do painel* mostrando o KM.`)
+      return { ok: true, action: 'frl-saida-pede-foto' }
+    }
+
+    // passo desconhecido → recomeça pela pergunta do condutor
+    await supabase.from('frota_leve_saidas').update({ passo: 'condutor' }).eq('id', sess.id)
+    await perguntarPassoSaida('condutor', grupoId, filial, nome)
+    return { ok: true, action: 'frl-saida-reset' }
   }
 
   // ── Aguardando a FOTO da saída ──
@@ -1866,30 +2021,40 @@ async function avancarSessaoFrotaLeve(
     return { ok: true, action: 'frl-saida-confirmada' }
   }
 
-  // ── Coletando os campos do RETORNO ──
+  // ── RETORNO: pergunta-a-pergunta ──
   if (sess.status === 'coletando_retorno') {
-    const c = parseCamposRetorno(texto)
-    const upd: Record<string, any> = {}
-    if (sess.km_retorno == null && c.km != null) upd.km_retorno = c.km
-    if (!sess.hora_retorno && c.hora)  upd.hora_retorno = c.hora
-    if (!sess.observacoes && c.obs)    upd.observacoes = c.obs
-    const merged = { ...sess, ...upd }
-    if (Object.keys(upd).length) await supabase.from('frota_leve_saidas').update(upd).eq('id', sess.id)
+    const passo = sess.passo || 'km'
 
-    if (merged.km_retorno == null) {
-      await enviar(grupoId, `📝 ${nome}, qual o *KM* de retorno? _(Ex: KM 45285)_`)
-      return { ok: true, action: 'frl-retorno-coletando' }
+    if (passo === 'km') {
+      const k = kmDeNumeroSolto(texto) ?? extrairKm(texto)
+      if (k == null) { await enviar(grupoId, `🔢 Envie só o *KM de retorno* (número). Ex: 45285`); return { ok: true, action: 'frl-retorno-km-repergunta' } }
+      if (sess.km_saida != null && k < sess.km_saida) {
+        await enviar(grupoId, `⚠️ O KM de retorno (*${k.toLocaleString('pt-BR')}*) está menor que o de saída (*${sess.km_saida.toLocaleString('pt-BR')}*). Confira e envie de novo.`)
+        return { ok: true, action: 'frl-retorno-km-menor' }
+      }
+      await supabase.from('frota_leve_saidas').update({ km_retorno: k, passo: 'hora' }).eq('id', sess.id)
+      await perguntarPassoRetorno('hora', grupoId, nome)
+      return { ok: true, action: 'frl-retorno-km-ok' }
     }
-    if (merged.km_saida != null && merged.km_retorno < merged.km_saida) {
-      await supabase.from('frota_leve_saidas').update({ km_retorno: null }).eq('id', sess.id)
-      await enviar(grupoId,
-        `⚠️ ${nome}, o KM de retorno (*${merged.km_retorno.toLocaleString('pt-BR')}*) está menor que o de saída (*${merged.km_saida.toLocaleString('pt-BR')}*).\n` +
-        `Confira o número e envie o KM de retorno novamente.`)
-      return { ok: true, action: 'frl-retorno-km-menor' }
+
+    if (passo === 'hora') {
+      const h = /agora/i.test(texto) ? horaAgoraBR() : extrairHora(texto)
+      if (!h) { await enviar(grupoId, `🕐 Envie a *hora de retorno* (HH:MM ou *agora*).`); return { ok: true, action: 'frl-retorno-hora-repergunta' } }
+      await supabase.from('frota_leve_saidas').update({ hora_retorno: h, passo: 'obs' }).eq('id', sess.id)
+      await perguntarPassoRetorno('obs', grupoId, nome)
+      return { ok: true, action: 'frl-retorno-hora-ok' }
     }
-    await supabase.from('frota_leve_saidas').update({ status: 'aguardando_foto_retorno' }).eq('id', sess.id)
-    await enviar(grupoId, `📸 ${nome}, agora envie a *foto do painel* mostrando o KM de retorno (${merged.km_retorno.toLocaleString('pt-BR')}).`)
-    return { ok: true, action: 'frl-retorno-pede-foto' }
+
+    if (passo === 'obs') {
+      const semObs = /^\s*(n[aã]o|-|sem|nenhuma?|n)\s*$/i.test(texto)
+      await supabase.from('frota_leve_saidas').update({ observacoes: semObs ? null : (texto.trim() || null), status: 'aguardando_foto_retorno', passo: null }).eq('id', sess.id)
+      await enviar(grupoId, `📸 Agora envie a *foto do painel* com o KM de retorno.`)
+      return { ok: true, action: 'frl-retorno-pede-foto' }
+    }
+
+    await supabase.from('frota_leve_saidas').update({ passo: 'km' }).eq('id', sess.id)
+    await perguntarPassoRetorno('km', grupoId, nome)
+    return { ok: true, action: 'frl-retorno-reset' }
   }
 
   // ── Aguardando a FOTO do retorno → finaliza ──
@@ -1963,8 +2128,8 @@ export async function verificarLembretesFrotaLeve(grupoAlvo?: string): Promise<n
   let enviados = 0
   for (const s of data ?? []) {
     await enviarBotoes(String(s.grupo_id),
-      `⏰ ${s.motorista_nome ?? 'Motorista'}, o tempo previsto de retorno da placa *${s.placa}* (saída ${s.hora_saida ?? '—'}) já passou.\n` +
-      `Você já retornou? Toque em *Registrar Retorno* para fazer o check.`,
+      `⏰ ${s.condutor_nome ?? s.motorista_nome ?? 'Motorista'}, o tempo previsto de retorno da placa *${s.placa}* (saída ${s.hora_saida ?? '—'}) já passou.\n` +
+      `Já retornou? Toque em *Registrar Retorno* para fazer o checklist.`,
       [{ id: `frl_ret_pick:${s.id}`, label: '📥 Registrar Retorno' }])
     await supabase.from('frota_leve_saidas').update({ lembrete_enviado_em: new Date().toISOString() }).eq('id', s.id)
     enviados++
@@ -1985,55 +2150,52 @@ async function tratarFrotaLeve(
   // Iniciar RETORNO de uma viagem específica (botão do lembrete ou do seletor)
   if (btn.startsWith('frl_ret_pick:')) {
     const id = btn.slice('frl_ret_pick:'.length)
-    const { data: sess } = await supabase.from('frota_leve_saidas').select('*').eq('id', id).eq('status', 'em_rota').maybeSingle()
-    if (!sess) { await enviar(grupoId, '⚠️ Essa viagem não está mais em aberto.'); return { ok: true, action: 'frl-pick-invalido' } }
-    await pedirRetornoFrotaLeve(sess, grupoId)
+    const { data: pick } = await supabase.from('frota_leve_saidas').select('*').eq('id', id).eq('status', 'em_rota').maybeSingle()
+    if (!pick) { await enviar(grupoId, '⚠️ Essa viagem não está mais em aberto.'); return { ok: true, action: 'frl-pick-invalido' } }
+    await iniciarRetornoFrotaLeve(pick, grupoId, participante)
     return { ok: true, action: 'frl-retorno-iniciado' }
   }
 
-  // Botão SAÍDA: (re)inicia uma coleta de saída para este motorista
-  if (btn === 'frl_saida' || /^\s*sa[ií]da\s*$/i.test(texto)) {
-    const limite = new Date(Date.now() - FROTA_LEVE_TTL_MIN * 60_000).toISOString()
-    const { data: existente } = await supabase.from('frota_leve_saidas').select('id')
-      .eq('grupo_id', grupoId).eq('motorista_telefone', participante).eq('status', 'coletando_saida')
-      .gte('updated_at', limite).maybeSingle()
-    if (!existente) {
-      await supabase.from('frota_leve_saidas').insert({
-        filial, grupo_id: grupoId, motorista_telefone: participante, motorista_nome: nome, status: 'coletando_saida',
-      })
-    }
-    await enviar(grupoId,
-      `📤 ${nome}, vamos registrar a *saída*. Envie numa única mensagem:\n` +
-      `• *Placa*\n• *KM* atual\n• *Hora* de saída (HH:MM)\n• *Destino*\n• *Previsão* de retorno (ex: 2 horas)\n\n` +
-      `E depois mande a *foto do painel*.\n_Ex: Placa ABC-1234, KM 45230, Saída 09:35, Destino PDV Centro, Retorno 2 horas_`)
+  // Botão explícito SAÍDA → começa uma coleta nova (passo-a-passo)
+  if (btn === 'frl_saida') {
+    await iniciarSaidaFrotaLeve(grupoId, filial, participante, nome)
     return { ok: true, action: 'frl-saida-iniciada' }
   }
-
-  // Botão RETORNO: localiza viagem(ns) em rota deste motorista
-  if (btn === 'frl_retorno' || /^\s*retorno\s*$/i.test(texto)) {
-    const { data: abertas } = await supabase.from('frota_leve_saidas').select('*')
-      .eq('grupo_id', grupoId).eq('motorista_telefone', participante).eq('status', 'em_rota')
-      .order('created_at', { ascending: false })
-    if (!abertas || abertas.length === 0) {
-      await enviar(grupoId, `ℹ️ ${nome}, você não tem nenhuma saída em aberto no seu nome.`)
-      return { ok: true, action: 'frl-retorno-sem-aberta' }
-    }
-    if (abertas.length === 1) {
-      await pedirRetornoFrotaLeve(abertas[0], grupoId)
-      return { ok: true, action: 'frl-retorno-iniciado' }
-    }
-    await enviarOpcoes(grupoId, `📥 ${nome}, qual viagem você está retornando?`, 'Saídas em aberto', 'Escolher',
-      abertas.slice(0, 9).map((a: any) => ({ id: `frl_ret_pick:${a.id}`, title: `${a.placa} — saída ${a.hora_saida ?? '—'}`, description: a.destino ?? undefined })))
-    return { ok: true, action: 'frl-retorno-multiplas' }
+  // Botão explícito RETORNO → lista viagens em rota do grupo
+  if (btn === 'frl_retorno') {
+    await menuRetornoFrotaLeve(grupoId, participante, nome)
+    return { ok: true, action: 'frl-retorno-menu' }
   }
 
-  // Sessão de coleta em andamento deste motorista?
+  // Sessão de coleta em andamento (quem está respondendo o bot)? Isso captura as
+  // respostas digitadas e os cliques nas listas de condutor/veículo.
   const limite = new Date(Date.now() - FROTA_LEVE_TTL_MIN * 60_000).toISOString()
-  const { data: sess } = await supabase.from('frota_leve_saidas').select('*')
-    .eq('grupo_id', grupoId).eq('motorista_telefone', participante).in('status', FROTA_LEVE_COLETANDO)
-    .gte('updated_at', limite).order('updated_at', { ascending: false }).limit(1).maybeSingle()
+  let sess: any = null
+  {
+    const { data } = await supabase.from('frota_leve_saidas').select('*')
+      .eq('grupo_id', grupoId).eq('sessao_telefone', participante).in('status', FROTA_LEVE_COLETANDO)
+      .gte('updated_at', limite).order('updated_at', { ascending: false }).limit(1).maybeSingle()
+    sess = data
+    // Clique numa lista de condutor/veículo pode não casar o telefone → cai na
+    // sessão de saída mais recente do grupo.
+    if (!sess && (btn.startsWith('frl_cond:') || btn.startsWith('frl_veic:'))) {
+      const { data: d2 } = await supabase.from('frota_leve_saidas').select('*')
+        .eq('grupo_id', grupoId).eq('status', 'coletando_saida')
+        .gte('updated_at', limite).order('updated_at', { ascending: false }).limit(1).maybeSingle()
+      sess = d2
+    }
+  }
   if (sess) return await avancarSessaoFrotaLeve(sess, body, grupoId, filial, texto, nome)
 
+  // Gatilhos por texto (sem sessão ativa)
+  if (/^\s*sa[ií]da\s*$/i.test(texto)) {
+    await iniciarSaidaFrotaLeve(grupoId, filial, participante, nome)
+    return { ok: true, action: 'frl-saida-iniciada' }
+  }
+  if (/^\s*retorno\s*$/i.test(texto)) {
+    await menuRetornoFrotaLeve(grupoId, participante, nome)
+    return { ok: true, action: 'frl-retorno-menu' }
+  }
   // Palavra-gatilho: "registro", "registrar", ... → oferece os botões
   if (/registr/.test(norm(texto))) {
     await enviarBotoes(grupoId,

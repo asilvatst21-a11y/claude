@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, CheckCircle2, Loader2, RefreshCw, Search, Truck, AlertTriangle, Clock } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, Loader2, RefreshCw, Search, Truck, AlertTriangle, Clock, Plus, Power, User } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { listarGrupos, type GrupoZApi } from '../lib/zapi'
@@ -14,6 +14,7 @@ interface FrotaLeveSaida {
   status: string
   placa: string | null
   motorista_nome: string | null
+  condutor_nome: string | null
   km_saida: number | null
   hora_saida: string | null
   destino: string | null
@@ -26,6 +27,9 @@ interface FrotaLeveSaida {
   finalizado_em: string | null
   created_at: string
 }
+
+interface Veiculo { id: string; placa: string; modelo: string | null; ativo: boolean }
+interface Condutor { id: string; nome: string; telefone: string | null; ativo: boolean }
 
 // Estados que contam como "viagem em aberto" (veículo fora / coleta em andamento).
 const STATUS_ABERTO = ['coletando_saida', 'aguardando_foto_saida', 'em_rota', 'coletando_retorno', 'aguardando_foto_retorno']
@@ -81,6 +85,25 @@ export default function FrotaLeve() {
   const [grupoSalvo, setGrupoSalvo] = useState(false)
   const [copiado, setCopiado] = useState<string | null>(null)
 
+  // Cadastros (veículos e condutores)
+  const [veiculos, setVeiculos] = useState<Veiculo[]>([])
+  const [condutores, setCondutores] = useState<Condutor[]>([])
+  const [novaPlaca, setNovaPlaca] = useState('')
+  const [novoModelo, setNovoModelo] = useState('')
+  const [novoCondutor, setNovoCondutor] = useState('')
+  const [novoTelefone, setNovoTelefone] = useState('')
+  const [salvandoCad, setSalvandoCad] = useState(false)
+
+  const fetchCadastros = useCallback(async () => {
+    if (!usuario) return
+    const [{ data: veic }, { data: cond }] = await Promise.all([
+      supabase.from('frota_leve_veiculos').select('*').eq('filial', usuario.filial).order('placa'),
+      supabase.from('frota_leve_condutores').select('*').eq('filial', usuario.filial).order('nome'),
+    ])
+    setVeiculos((veic ?? []) as Veiculo[])
+    setCondutores((cond ?? []) as Condutor[])
+  }, [usuario])
+
   const fetchViagens = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
@@ -92,8 +115,9 @@ export default function FrotaLeve() {
     const g = filialRow?.grupo_frota_leve_whatsapp ?? ''
     setGrupo(g)
     setGrupoOriginal(g)
+    await fetchCadastros()
     setLoading(false)
-  }, [usuario])
+  }, [usuario, fetchCadastros])
 
   useEffect(() => { fetchViagens() }, [fetchViagens])
 
@@ -125,6 +149,40 @@ export default function FrotaLeve() {
     })
   }
 
+  async function addVeiculo() {
+    if (!usuario) return
+    const placa = novaPlaca.trim().toUpperCase()
+    if (!placa) return
+    setSalvandoCad(true)
+    await supabase.from('frota_leve_veiculos').insert({ filial: usuario.filial, placa, modelo: novoModelo.trim() || null })
+    setNovaPlaca('')
+    setNovoModelo('')
+    await fetchCadastros()
+    setSalvandoCad(false)
+  }
+
+  async function toggleVeiculo(v: Veiculo) {
+    await supabase.from('frota_leve_veiculos').update({ ativo: !v.ativo }).eq('id', v.id)
+    await fetchCadastros()
+  }
+
+  async function addCondutor() {
+    if (!usuario) return
+    const nomeC = novoCondutor.trim()
+    if (!nomeC) return
+    setSalvandoCad(true)
+    await supabase.from('frota_leve_condutores').insert({ filial: usuario.filial, nome: nomeC, telefone: novoTelefone.trim() || null })
+    setNovoCondutor('')
+    setNovoTelefone('')
+    await fetchCadastros()
+    setSalvandoCad(false)
+  }
+
+  async function toggleCondutor(c: Condutor) {
+    await supabase.from('frota_leve_condutores').update({ ativo: !c.ativo }).eq('id', c.id)
+    await fetchCadastros()
+  }
+
   const abertas = useMemo(() => viagens.filter(v => STATUS_ABERTO.includes(v.status)), [viagens])
   const emRota = useMemo(() => viagens.filter(v => v.status === 'em_rota'), [viagens])
   const atrasadas = useMemo(
@@ -137,6 +195,7 @@ export default function FrotaLeve() {
     const q = busca.trim().toLowerCase()
     if (q) lista = lista.filter(v =>
       (v.placa ?? '').toLowerCase().includes(q) ||
+      (v.condutor_nome ?? '').toLowerCase().includes(q) ||
       (v.motorista_nome ?? '').toLowerCase().includes(q) ||
       (v.destino ?? '').toLowerCase().includes(q))
     return lista
@@ -213,6 +272,87 @@ export default function FrotaLeve() {
         </div>
       </div>
 
+      {/* Cadastros: Veículos e Condutores */}
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Veículos */}
+        <div className="rounded-lg border p-4 space-y-3">
+          <h2 className="font-semibold flex items-center gap-2"><Truck className="h-4 w-4" /> Veículos</h2>
+          <div className="flex gap-2 flex-wrap">
+            <input
+              value={novaPlaca}
+              onChange={e => setNovaPlaca(e.target.value)}
+              placeholder="Placa (ABC-1234)"
+              className="flex-1 min-w-[120px] px-3 py-2 text-sm border rounded-md font-mono uppercase focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <input
+              value={novoModelo}
+              onChange={e => setNovoModelo(e.target.value)}
+              placeholder="Modelo (opcional)"
+              className="flex-1 min-w-[120px] px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <button
+              onClick={addVeiculo}
+              disabled={!novaPlaca.trim() || salvandoCad}
+              className="flex items-center gap-1 text-sm px-3 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" /> Add
+            </button>
+          </div>
+          <div className="border rounded-md divide-y max-h-56 overflow-y-auto">
+            {veiculos.length === 0 ? (
+              <p className="px-3 py-4 text-xs text-muted-foreground text-center">Nenhum veículo cadastrado.</p>
+            ) : veiculos.map(v => (
+              <div key={v.id} className={`flex items-center gap-2 px-3 py-2 text-sm ${v.ativo ? '' : 'opacity-50'}`}>
+                <span className="font-mono font-medium">{v.placa}</span>
+                {v.modelo && <span className="text-muted-foreground text-xs">{v.modelo}</span>}
+                <button onClick={() => toggleVeiculo(v)} title={v.ativo ? 'Desativar' : 'Ativar'} className="ml-auto text-xs flex items-center gap-1 px-2 py-1 rounded border hover:bg-accent">
+                  <Power className={`h-3.5 w-3.5 ${v.ativo ? 'text-green-600' : 'text-gray-400'}`} /> {v.ativo ? 'Ativo' : 'Inativo'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Condutores */}
+        <div className="rounded-lg border p-4 space-y-3">
+          <h2 className="font-semibold flex items-center gap-2"><User className="h-4 w-4" /> Condutores</h2>
+          <div className="flex gap-2 flex-wrap">
+            <input
+              value={novoCondutor}
+              onChange={e => setNovoCondutor(e.target.value)}
+              placeholder="Nome do condutor"
+              className="flex-1 min-w-[120px] px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <input
+              value={novoTelefone}
+              onChange={e => setNovoTelefone(e.target.value)}
+              placeholder="Telefone (opcional)"
+              className="flex-1 min-w-[120px] px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+            <button
+              onClick={addCondutor}
+              disabled={!novoCondutor.trim() || salvandoCad}
+              className="flex items-center gap-1 text-sm px-3 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" /> Add
+            </button>
+          </div>
+          <div className="border rounded-md divide-y max-h-56 overflow-y-auto">
+            {condutores.length === 0 ? (
+              <p className="px-3 py-4 text-xs text-muted-foreground text-center">Nenhum condutor cadastrado.</p>
+            ) : condutores.map(c => (
+              <div key={c.id} className={`flex items-center gap-2 px-3 py-2 text-sm ${c.ativo ? '' : 'opacity-50'}`}>
+                <span className="font-medium">{c.nome}</span>
+                {c.telefone && <span className="text-muted-foreground text-xs">{c.telefone}</span>}
+                <button onClick={() => toggleCondutor(c)} title={c.ativo ? 'Desativar' : 'Ativar'} className="ml-auto text-xs flex items-center gap-1 px-2 py-1 rounded border hover:bg-accent">
+                  <Power className={`h-3.5 w-3.5 ${c.ativo ? 'text-green-600' : 'text-gray-400'}`} /> {c.ativo ? 'Ativo' : 'Inativo'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Filtros */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px]">
@@ -220,7 +360,7 @@ export default function FrotaLeve() {
           <input
             value={busca}
             onChange={e => setBusca(e.target.value)}
-            placeholder="Buscar por placa, motorista ou destino…"
+            placeholder="Buscar por placa, condutor ou destino…"
             className="w-full pl-9 pr-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
@@ -249,7 +389,7 @@ export default function FrotaLeve() {
             <thead>
               <tr className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
                 <th className="px-3 py-2 font-medium">Placa</th>
-                <th className="px-3 py-2 font-medium">Motorista</th>
+                <th className="px-3 py-2 font-medium">Condutor</th>
                 <th className="px-3 py-2 font-medium">Saída</th>
                 <th className="px-3 py-2 font-medium">Destino</th>
                 <th className="px-3 py-2 font-medium">Previsão</th>
@@ -268,7 +408,7 @@ export default function FrotaLeve() {
                 return (
                   <tr key={v.id} className="border-b last:border-0 hover:bg-muted/20">
                     <td className="px-3 py-2 font-medium">{v.placa ?? '—'}</td>
-                    <td className="px-3 py-2">{v.motorista_nome ?? '—'}</td>
+                    <td className="px-3 py-2">{v.condutor_nome ?? v.motorista_nome ?? '—'}</td>
                     <td className="px-3 py-2 whitespace-nowrap">
                       {km(v.km_saida)}{v.hora_saida ? ` · ${v.hora_saida}` : ''}
                     </td>
