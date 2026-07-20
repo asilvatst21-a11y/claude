@@ -93,6 +93,7 @@ export default function FrotaLeve() {
   const [novoCondutor, setNovoCondutor] = useState('')
   const [novoTelefone, setNovoTelefone] = useState('')
   const [salvandoCad, setSalvandoCad] = useState(false)
+  const [erroCad, setErroCad] = useState<string | null>(null)
 
   const fetchCadastros = useCallback(async () => {
     if (!usuario) return
@@ -154,15 +155,19 @@ export default function FrotaLeve() {
     const placa = novaPlaca.trim().toUpperCase()
     if (!placa) return
     setSalvandoCad(true)
-    await supabase.from('frota_leve_veiculos').insert({ filial: usuario.filial, placa, modelo: novoModelo.trim() || null })
+    setErroCad(null)
+    const { error } = await supabase.from('frota_leve_veiculos').insert({ filial: usuario.filial, placa, modelo: novoModelo.trim() || null })
+    setSalvandoCad(false)
+    if (error) { setErroCad(`Não foi possível salvar o veículo: ${error.message}`); return }
     setNovaPlaca('')
     setNovoModelo('')
     await fetchCadastros()
-    setSalvandoCad(false)
   }
 
   async function toggleVeiculo(v: Veiculo) {
-    await supabase.from('frota_leve_veiculos').update({ ativo: !v.ativo }).eq('id', v.id)
+    setErroCad(null)
+    const { error } = await supabase.from('frota_leve_veiculos').update({ ativo: !v.ativo }).eq('id', v.id)
+    if (error) { setErroCad(error.message); return }
     await fetchCadastros()
   }
 
@@ -171,15 +176,19 @@ export default function FrotaLeve() {
     const nomeC = novoCondutor.trim()
     if (!nomeC) return
     setSalvandoCad(true)
-    await supabase.from('frota_leve_condutores').insert({ filial: usuario.filial, nome: nomeC, telefone: novoTelefone.trim() || null })
+    setErroCad(null)
+    const { error } = await supabase.from('frota_leve_condutores').insert({ filial: usuario.filial, nome: nomeC, telefone: novoTelefone.trim() || null })
+    setSalvandoCad(false)
+    if (error) { setErroCad(`Não foi possível salvar o condutor: ${error.message}`); return }
     setNovoCondutor('')
     setNovoTelefone('')
     await fetchCadastros()
-    setSalvandoCad(false)
   }
 
   async function toggleCondutor(c: Condutor) {
-    await supabase.from('frota_leve_condutores').update({ ativo: !c.ativo }).eq('id', c.id)
+    setErroCad(null)
+    const { error } = await supabase.from('frota_leve_condutores').update({ ativo: !c.ativo }).eq('id', c.id)
+    if (error) { setErroCad(error.message); return }
     await fetchCadastros()
   }
 
@@ -273,6 +282,11 @@ export default function FrotaLeve() {
       </div>
 
       {/* Cadastros: Veículos e Condutores */}
+      {erroCad && (
+        <p className="flex items-start gap-1.5 text-xs text-red-600 border border-red-200 bg-red-50 rounded-md p-2">
+          <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" /> {erroCad}
+        </p>
+      )}
       <div className="grid md:grid-cols-2 gap-4">
         {/* Veículos */}
         <div className="rounded-lg border p-4 space-y-3">
