@@ -11,7 +11,7 @@ import { enviarImagemGrupo, enviarMensagemGrupo, enviarMensagemWhatsApp } from '
 import { formatarDataBR } from '../lib/utils'
 import {
   KPIS_FECHAMENTO, type KpiFechamento, type SalaFechamento, type ParametroFechamento,
-  recalcularAutomaticos, salvarValorManual, diasDaSemanaAte, buscarValoresFechamento, buscarParametros,
+  recalcularAutomaticos, recalcularAutomaticosPeriodo, primeiroDiaDoMes, salvarValorManual, diasDaSemanaAte, buscarValoresFechamento, buscarParametros,
   farolDoValor, parseFarolMotoristas, classificarResultado, montarTextosOrientacao, type LinhaFarolMotorista,
 } from '../lib/fechamentoDia'
 
@@ -43,6 +43,8 @@ export default function FechamentoDia() {
   const [acumMes, setAcumMes] = useState<Record<string, Record<string, number | null>>>({})
   const [loading, setLoading] = useState(true)
   const [recalculando, setRecalculando] = useState(false)
+  const [recalculandoMes, setRecalculandoMes] = useState(false)
+  const [progressoMes, setProgressoMes] = useState<string | null>(null)
   const [salaAtiva, setSalaAtiva] = useState<SalaFechamento>('COLORADO')
 
   const [manuais, setManuais] = useState<Record<string, string>>({}) // `${sala}|${kpi}` -> string digitada
@@ -90,6 +92,18 @@ export default function FechamentoDia() {
     await recalcularAutomaticos(usuario.filial, data)
     await fetchTudo()
     setRecalculando(false)
+  }
+
+  async function recalcularMesInteiro() {
+    if (!usuario) return
+    setRecalculandoMes(true)
+    setProgressoMes(null)
+    await recalcularAutomaticosPeriodo(usuario.filial, primeiroDiaDoMes(data), data, (feito, total, dia) => {
+      setProgressoMes(`${feito}/${total} — ${formatarDataBR(dia)}`)
+    })
+    await fetchTudo()
+    setProgressoMes(null)
+    setRecalculandoMes(false)
   }
 
   async function salvarManual(sala: SalaFechamento, kpi: KpiFechamento) {
@@ -274,9 +288,15 @@ export default function FechamentoDia() {
           <div className="rounded-lg border p-4 space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
               <h2 className="font-semibold text-sm">Relatórios do dia</h2>
-              <button onClick={recalcular} disabled={recalculando} className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded border hover:bg-accent disabled:opacity-50">
-                {recalculando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Recalcular automáticos
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                {progressoMes && <span className="text-[11px] text-muted-foreground">{progressoMes}</span>}
+                <button onClick={recalcularMesInteiro} disabled={recalculandoMes || recalculando} title="Recalcula dia por dia desde o início do mês — útil se os dias anteriores nunca foram recalculados" className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded border hover:bg-accent disabled:opacity-50">
+                  {recalculandoMes ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Recalcular o mês inteiro
+                </button>
+                <button onClick={recalcular} disabled={recalculando || recalculandoMes} className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded border hover:bg-accent disabled:opacity-50">
+                  {recalculando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Recalcular só hoje
+                </button>
+              </div>
             </div>
 
             <div className="grid sm:grid-cols-2 gap-2">

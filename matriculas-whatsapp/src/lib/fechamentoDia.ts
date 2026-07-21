@@ -117,6 +117,35 @@ export async function recalcularAutomaticos(filial: string, data: string): Promi
   await supabase.from('fechamento_dia_valores').upsert(linhas, { onConflict: 'filial,sala,data,kpi' })
 }
 
+// Todos os dias de um período já têm o dado-fonte importado (historico_tml,
+// jornada_bees, checklist_tml) — normalmente o mês inteiro até hoje, já que
+// esses relatórios são importados diariamente na Análise TML. Sem isso, só
+// o dia recalculado manualmente aparece na semana, e o "Acum. Mês" acaba
+// sendo a média de 1 dia só em vez do mês inteiro. Roda um dia de cada vez
+// (não em paralelo) pra não estourar o limite de conexões do Supabase.
+export async function recalcularAutomaticosPeriodo(
+  filial: string, dataInicio: string, dataFim: string,
+  onProgresso?: (feito: number, total: number, diaAtual: string) => void,
+): Promise<void> {
+  const dias: string[] = []
+  const cursor = new Date(`${dataInicio}T00:00:00`)
+  const fim = new Date(`${dataFim}T00:00:00`)
+  while (cursor <= fim) {
+    dias.push(cursor.toISOString().slice(0, 10))
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  for (let i = 0; i < dias.length; i++) {
+    await recalcularAutomaticos(filial, dias[i])
+    onProgresso?.(i + 1, dias.length, dias[i])
+  }
+}
+
+// Primeiro dia do mês de `data` (yyyy-mm-01) — usado como início padrão do
+// recálculo em lote (o mês corrente inteiro, até o dia do fechamento).
+export function primeiroDiaDoMes(data: string): string {
+  return `${data.slice(0, 7)}-01`
+}
+
 // Salva um valor manual (Devolução PDV, Jornada Líquida ou Rating) pra uma sala/CDD.
 export async function salvarValorManual(filial: string, sala: SalaFechamento, data: string, kpi: KpiFechamento, valor: number | null): Promise<{ error: string | null }> {
   const { error } = await supabase.from('fechamento_dia_valores').upsert(
