@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import { buscarJornadaDoDia, SALA_JORNADA_PARA_TML, type SalaJornada } from './jornada'
 import type { SalaTML } from './tml'
-import { REGRAS_TML, horarioParaMinutos } from './tml'
+import { REGRAS_TML, horarioParaMinutos, tempoDeslocamentoMinutos } from './tml'
 
 export type KpiFechamento = 'devolucao_pdv' | 'jornada_liquida' | 'aderencia_raio' | 'tml' | 'rating' | 'iv_deslocamento'
 export type SalaFechamento = SalaTML | 'CDD'
@@ -56,11 +56,12 @@ async function calcularAderenciaRaio(filial: string, data: string): Promise<Reco
 // início da matinal da sala e a saída real; exclui resultado='invalido').
 // Meta = tolerância da sala (REGRAS_TML.toleranciaMin, hoje 30min). ─────────
 async function calcularTml(filial: string, data: string): Promise<Record<SalaTML, number | null>> {
-  const { data: historico } = await supabase
+  const { data: historico, error } = await supabase
     .from('historico_tml')
     .select('sala, horario_saida, resultado')
     .eq('filial', filial)
     .eq('data_saida', data)
+  if (error) console.error(`calcularTml (${data}) select error:`, error.message)
   const porSala: Record<SalaTML, number[]> = { COLORADO: [], 'SUB-FURIA': [] }
   for (const h of historico ?? []) {
     if (!h.sala || (h.sala !== 'COLORADO' && h.sala !== 'SUB-FURIA') || !h.horario_saida) continue
@@ -73,18 +74,25 @@ async function calcularTml(filial: string, data: string): Promise<Record<SalaTML
   return { COLORADO: media(porSala.COLORADO), 'SUB-FURIA': media(porSala['SUB-FURIA']) }
 }
 
-// ── Cálculo automático: IV — Tempo de Deslocamento (checklist_tml já traz o
-// minuto calculado por saída, mesma régua da tela Tempo de Deslocamento) ────
+// ── Cálculo automático: IV — Tempo de Deslocamento, mesma régua da tela
+// Tempo de Deslocamento. checklist_tml.tempo_deslocamento_minutos só fica
+// preenchido quando alguém abre aquele dia na tela (ela recalcula usando o
+// horário REAL de fim da matinal e grava de volta) — pra não depender disso,
+// se a coluna ainda não tiver sido calculada, cai no cálculo simples
+// (checklist − horário padrão da matinal da sala), igual o import inicial. ──
 async function calcularDeslocamento(filial: string, data: string): Promise<Record<SalaTML, number | null>> {
-  const { data: checklist } = await supabase
+  const { data: checklist, error } = await supabase
     .from('checklist_tml')
-    .select('sala, tempo_deslocamento_minutos')
+    .select('sala, horario_inicio, tempo_deslocamento_minutos')
     .eq('filial', filial)
     .eq('data', data)
+  if (error) console.error(`calcularDeslocamento (${data}) select error:`, error.message)
   const porSala: Record<SalaTML, number[]> = { COLORADO: [], 'SUB-FURIA': [] }
   for (const c of checklist ?? []) {
-    if (!c.sala || (c.sala !== 'COLORADO' && c.sala !== 'SUB-FURIA') || c.tempo_deslocamento_minutos == null) continue
-    porSala[c.sala as SalaTML].push(c.tempo_deslocamento_minutos)
+    if (!c.sala || (c.sala !== 'COLORADO' && c.sala !== 'SUB-FURIA')) continue
+    const sala = c.sala as SalaTML
+    const tempo = c.tempo_deslocamento_minutos ?? (c.horario_inicio ? tempoDeslocamentoMinutos(sala, c.horario_inicio) : null)
+    if (tempo != null) porSala[sala].push(tempo)
   }
   const media = (arr: number[]) => (arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null)
   return { COLORADO: media(porSala.COLORADO), 'SUB-FURIA': media(porSala['SUB-FURIA']) }
