@@ -2375,6 +2375,46 @@ async function tratarDuvidaMatinal(
 // perguntar sobre um treinamento de outro dia), o bot descobre a sala dele e
 // oferece os treinamentos publicados pra escolher antes de responder. Estado
 // mantido em matinal_duvida_sessoes (escolhendo_tema → aguardando_pergunta).
+// Frase de início: qualquer pessoa que mandar isso — cadastrada ou não —
+// entra no fluxo de tirar dúvida de um treinamento.
+const GATILHO_DUVIDA_TREINAMENTO = /d[uú]vida|treinamento/
+
+async function iniciarEscolhaSala(remetente: string, nome: string | null, filial: string): Promise<{ ok: boolean; action: string }> {
+  await supabase.from('matinal_duvida_sessoes').insert({
+    colaborador_telefone: remetente, colaborador_nome: nome, filial, estado: 'escolhendo_sala',
+  })
+  await enviarBotoes(remetente, 'Você é da sala *Colorado* ou *Sub-Fúria*?',
+    [{ id: 'salamatinal:COLORADO', label: 'Colorado' }, { id: 'salamatinal:SUB-FURIA', label: 'Sub-Fúria' }])
+  return { ok: true, action: 'matinal-tema-pede-sala' }
+}
+
+async function iniciarEscolhaTema(
+  remetente: string, nome: string | null, filial: string, sala: string,
+): Promise<{ ok: boolean; action: string }> {
+  const { data: treinos } = await supabase
+    .from('treinamentos_matinal')
+    .select('id, titulo')
+    .eq('filial', filial)
+    .contains('salas', [sala])
+    .eq('status', 'publicado')
+    .order('data_treinamento', { ascending: false })
+    .limit(8)
+  if (!treinos || treinos.length === 0) {
+    await enviar(remetente, 'Não encontrei nenhum treinamento publicado pra essa sala no momento.')
+    return { ok: true, action: 'matinal-tema-sem-treinamento' }
+  }
+  await supabase.from('matinal_duvida_sessoes').insert({
+    colaborador_telefone: remetente, colaborador_nome: nome, filial, sala, estado: 'escolhendo_tema',
+  })
+  await enviarOpcoes(remetente, 'Sobre qual treinamento é sua dúvida?', 'Treinamentos', 'Escolher',
+    treinos.map((t: any) => ({
+      id: `temamatinal:${t.id}`,
+      title: t.titulo.length > 24 ? `${t.titulo.slice(0, 23)}…` : t.titulo,
+      description: t.titulo.length > 24 ? t.titulo : undefined,
+    })))
+  return { ok: true, action: 'matinal-tema-menu' }
+}
+
 async function tratarPreSelecaoTemaMatinal(
   body: any, remetente: string, senderName: string, texto: string,
 ): Promise<{ ok: boolean; action: string } | null> {
@@ -2387,6 +2427,12 @@ async function tratarPreSelecaoTemaMatinal(
     .maybeSingle()
 
   const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
+
+  if (sessao && /^\s*(cancelar|cancela)\s*$/i.test(texto)) {
+    await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
+    await enviar(remetente, '❌ Tudo bem, cancelado. Se quiser tirar outra dúvida, é só mandar "dúvida" de novo.')
+    return { ok: true, action: 'matinal-tema-cancelado' }
+  }
 
   if (sessao?.estado === 'aguardando_pergunta' && sessao.treinamento_id) {
     let conteudo = texto
@@ -2402,13 +2448,9 @@ async function tratarPreSelecaoTemaMatinal(
     }
     if (!conteudo) return { ok: true, action: 'matinal-tema-sem-conteudo' }
     await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
-    const [{ data: treinoSessao }, colab] = await Promise.all([
-      supabase.from('treinamentos_matinal').select('filial').eq('id', sessao.treinamento_id).maybeSingle(),
-      descobrirSalaColaborador(remetente),
-    ])
     return await processarDuvidaSobreTreinamento(
-      sessao.treinamento_id, treinoSessao?.filial ?? '', colab?.sala ?? '', remetente,
-      colab?.nome || senderName || 'Motorista', conteudo, porAudio,
+      sessao.treinamento_id, sessao.filial ?? '', sessao.sala ?? '', remetente,
+      sessao.colaborador_nome || senderName || 'Motorista', conteudo, porAudio,
     )
   }
 
@@ -2428,31 +2470,45 @@ async function tratarPreSelecaoTemaMatinal(
     return { ok: true, action: 'matinal-tema-aguardando-escolha' }
   }
 
-  // Nenhuma sessão em andamento: primeiro contato — descobre a sala do
-  // colaborador e oferece os treinamentos publicados dela pra escolher o tema.
+  if (sessao?.estado === 'escolhendo_sala') {
+    if (btn.startsWith('salamatinal:')) {
+      const sala = btn.slice('salamatinal:'.length)
+      const filial = sessao.filial ?? ''
+      await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
+      return await iniciarEscolhaTema(remetente, sessao.colaborador_nome ?? senderName ?? null, filial, sala)
+    }
+    return { ok: true, action: 'matinal-tema-aguardando-sala' }
+  }
+
+  if (sessao?.estado === 'escolhendo_filial') {
+    if (btn.startsWith('filialmatinal:')) {
+      const filial = btn.slice('filialmatinal:'.length)
+      await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
+      return await iniciarEscolhaSala(remetente, sessao.colaborador_nome ?? senderName ?? null, filial)
+    }
+    return { ok: true, action: 'matinal-tema-aguardando-filial' }
+  }
+
+  // Nenhuma sessão em andamento: só entra com a frase de início ("dúvida" /
+  // "treinamento") — qualquer pessoa pode mandar, cadastrada ou não.
+  if (!GATILHO_DUVIDA_TREINAMENTO.test(norm(texto))) return null
+
+  // Cadastrado em alguma sala? Pula direto pros temas. Senão, pergunta
+  // filial (se houver mais de uma) e depois a sala.
   const colab = await descobrirSalaColaborador(remetente)
-  if (!colab) return null
+  if (colab) return await iniciarEscolhaTema(remetente, colab.nome ?? senderName ?? null, colab.filial, colab.sala)
 
-  const { data: treinos } = await supabase
-    .from('treinamentos_matinal')
-    .select('id, titulo')
-    .eq('filial', colab.filial)
-    .contains('salas', [colab.sala])
-    .eq('status', 'publicado')
-    .order('data_treinamento', { ascending: false })
-    .limit(8)
-  if (!treinos || treinos.length === 0) return null
-
+  const { data: filiaisRows } = await supabase.from('filiais').select('nome').order('nome')
+  const nomesFiliais = (filiaisRows ?? []).map((f: any) => f.nome as string)
+  if (nomesFiliais.length <= 1) {
+    return await iniciarEscolhaSala(remetente, senderName || null, nomesFiliais[0] ?? '')
+  }
   await supabase.from('matinal_duvida_sessoes').insert({
-    colaborador_telefone: remetente, colaborador_nome: colab.nome ?? senderName ?? null, estado: 'escolhendo_tema',
+    colaborador_telefone: remetente, colaborador_nome: senderName || null, estado: 'escolhendo_filial',
   })
-  await enviarOpcoes(remetente, 'Sobre qual treinamento é sua dúvida?', 'Treinamentos', 'Escolher',
-    treinos.map((t: any) => ({
-      id: `temamatinal:${t.id}`,
-      title: t.titulo.length > 24 ? `${t.titulo.slice(0, 23)}…` : t.titulo,
-      description: t.titulo.length > 24 ? t.titulo : undefined,
-    })))
-  return { ok: true, action: 'matinal-tema-menu' }
+  await enviarOpcoes(remetente, 'De qual filial você é?', 'Filiais', 'Escolher',
+    nomesFiliais.map((f) => ({ id: `filialmatinal:${f}`, title: f })))
+  return { ok: true, action: 'matinal-tema-pede-filial' }
 }
 
 // Localiza o colaborador (nome, filial, sala) pelo telefone que mandou a
