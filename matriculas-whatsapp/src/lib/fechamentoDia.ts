@@ -117,6 +117,21 @@ export async function recalcularAutomaticos(filial: string, data: string): Promi
   await supabase.from('fechamento_dia_valores').upsert(linhas, { onConflict: 'filial,sala,data,kpi' })
 }
 
+// ── Aritmética de data em string "yyyy-mm-dd", sem passar por Date local ───
+// `new Date('yyyy-mm-ddT00:00:00')` + `.setDate()/.toISOString()` depende do
+// fuso do navegador — num fuso à frente de UTC, a volta pra string podia
+// "andar" um dia (foi a causa do recálculo salvar num dia e a tela consultar
+// outro). Tudo aqui usa Date.UTC explicitamente, imune ao fuso local.
+function somarDias(iso: string, dias: number): string {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + dias)).toISOString().slice(0, 10)
+}
+
+function diaDaSemanaUTC(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d)).getUTCDay() // 0=dom, 1=seg, ...
+}
+
 // Todos os dias de um período já têm o dado-fonte importado (historico_tml,
 // jornada_bees, checklist_tml) — normalmente o mês inteiro até hoje, já que
 // esses relatórios são importados diariamente na Análise TML. Sem isso, só
@@ -128,12 +143,7 @@ export async function recalcularAutomaticosPeriodo(
   onProgresso?: (feito: number, total: number, diaAtual: string) => void,
 ): Promise<void> {
   const dias: string[] = []
-  const cursor = new Date(`${dataInicio}T00:00:00`)
-  const fim = new Date(`${dataFim}T00:00:00`)
-  while (cursor <= fim) {
-    dias.push(cursor.toISOString().slice(0, 10))
-    cursor.setDate(cursor.getDate() + 1)
-  }
+  for (let cursor = dataInicio; cursor <= dataFim; cursor = somarDias(cursor, 1)) dias.push(cursor)
   for (let i = 0; i < dias.length; i++) {
     await recalcularAutomaticos(filial, dias[i])
     onProgresso?.(i + 1, dias.length, dias[i])
@@ -158,23 +168,16 @@ export async function salvarValorManual(filial: string, sala: SalaFechamento, da
 // Segunda-feira da semana de `data` (ISO yyyy-mm-dd), pra montar a janela
 // "seg → dia do fechamento" pedida pelo cliente.
 export function segundaDaSemana(data: string): string {
-  const d = new Date(`${data}T00:00:00`)
-  const diaSemana = d.getDay() // 0=dom, 1=seg, ...
+  const diaSemana = diaDaSemanaUTC(data)
   const offset = diaSemana === 0 ? -6 : 1 - diaSemana
-  d.setDate(d.getDate() + offset)
-  return d.toISOString().slice(0, 10)
+  return somarDias(data, offset)
 }
 
 // Lista de dias úteis (seg → data), pra exibir as colunas diárias.
 export function diasDaSemanaAte(data: string): string[] {
   const inicio = segundaDaSemana(data)
   const dias: string[] = []
-  const cursor = new Date(`${inicio}T00:00:00`)
-  const fim = new Date(`${data}T00:00:00`)
-  while (cursor <= fim) {
-    dias.push(cursor.toISOString().slice(0, 10))
-    cursor.setDate(cursor.getDate() + 1)
-  }
+  for (let cursor = inicio; cursor <= data; cursor = somarDias(cursor, 1)) dias.push(cursor)
   return dias
 }
 
