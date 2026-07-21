@@ -89,7 +89,9 @@ export default function FechamentoDia() {
   async function recalcular() {
     if (!usuario) return
     setRecalculando(true)
-    await recalcularAutomaticos(usuario.filial, data)
+    setErro('')
+    const { error } = await recalcularAutomaticos(usuario.filial, data)
+    if (error) setErro(`Erro ao recalcular ${formatarDataBR(data)}: ${error}`)
     await fetchTudo()
     setRecalculando(false)
   }
@@ -98,9 +100,13 @@ export default function FechamentoDia() {
     if (!usuario) return
     setRecalculandoMes(true)
     setProgressoMes(null)
-    await recalcularAutomaticosPeriodo(usuario.filial, primeiroDiaDoMes(data), data, (feito, total, dia) => {
+    setErro('')
+    const { erros } = await recalcularAutomaticosPeriodo(usuario.filial, primeiroDiaDoMes(data), data, (feito, total, dia) => {
       setProgressoMes(`${feito}/${total} — ${formatarDataBR(dia)}`)
     })
+    if (erros.length > 0) {
+      setErro(`${erros.length} dia(s) falharam ao recalcular: ${erros.map((e) => `${formatarDataBR(e.dia)} (${e.mensagem})`).join('; ')}`)
+    }
     await fetchTudo()
     setProgressoMes(null)
     setRecalculandoMes(false)

@@ -96,7 +96,7 @@ async function calcularDeslocamento(filial: string, data: string): Promise<Recor
 // combinável de forma ponderada de forma simples aqui) e grava em
 // fechamento_dia_valores. Os outros 3 KPIs (Devolução PDV, Jornada Líquida,
 // Rating) não são tocados por essa função — são sempre manuais.
-export async function recalcularAutomaticos(filial: string, data: string): Promise<void> {
+export async function recalcularAutomaticos(filial: string, data: string): Promise<{ error: string | null }> {
   const [aderencia, tml, deslocamento] = await Promise.all([
     calcularAderenciaRaio(filial, data),
     calcularTml(filial, data),
@@ -114,7 +114,9 @@ export async function recalcularAutomaticos(filial: string, data: string): Promi
   combinar('iv_deslocamento', deslocamento)
   combinar('tml', tml)
 
-  await supabase.from('fechamento_dia_valores').upsert(linhas, { onConflict: 'filial,sala,data,kpi' })
+  const { error } = await supabase.from('fechamento_dia_valores').upsert(linhas, { onConflict: 'filial,sala,data,kpi' })
+  if (error) console.error(`recalcularAutomaticos (${data}) upsert error:`, error.message)
+  return { error: error?.message ?? null }
 }
 
 // ── Aritmética de data em string "yyyy-mm-dd", sem passar por Date local ───
@@ -141,13 +143,16 @@ function diaDaSemanaUTC(iso: string): number {
 export async function recalcularAutomaticosPeriodo(
   filial: string, dataInicio: string, dataFim: string,
   onProgresso?: (feito: number, total: number, diaAtual: string) => void,
-): Promise<void> {
+): Promise<{ erros: { dia: string; mensagem: string }[] }> {
   const dias: string[] = []
   for (let cursor = dataInicio; cursor <= dataFim; cursor = somarDias(cursor, 1)) dias.push(cursor)
+  const erros: { dia: string; mensagem: string }[] = []
   for (let i = 0; i < dias.length; i++) {
-    await recalcularAutomaticos(filial, dias[i])
+    const { error } = await recalcularAutomaticos(filial, dias[i])
+    if (error) erros.push({ dia: dias[i], mensagem: error })
     onProgresso?.(i + 1, dias.length, dias[i])
   }
+  return { erros }
 }
 
 // Primeiro dia do mês de `data` (yyyy-mm-01) — usado como início padrão do
