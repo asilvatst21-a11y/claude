@@ -149,8 +149,8 @@ export default function MatinalTML() {
     const grupoSala = sala === 'COLORADO' ? filialRow?.grupo_matinal_colorado_whatsapp : filialRow?.grupo_matinal_subfuria_whatsapp
     if (grupoSala) {
       await enviarMensagemGrupo(grupoSala,
-        `📋 Hoje na matinal vimos *${treino.titulo}*.\n` +
-        `Ficou alguma dúvida? Chama o bot na conversa particular (mensagem individual) pra perguntar — pode ser por texto ou áudio.`)
+        `📋 Hoje na matinal tivemos o treinamento *${treino.titulo}*.\n` +
+        `Quem ficou com alguma dúvida, me chama aqui no privado dizendo algo como *"fiquei com dúvida no treinamento"* — eu já te ajudo a tirar.`)
     }
 
     await supabase.from('matinal_tml').update({ treinamento_avisado_em: new Date().toISOString() }).eq('id', matinalId)

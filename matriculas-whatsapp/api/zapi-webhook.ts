@@ -2480,35 +2480,18 @@ async function tratarPreSelecaoTemaMatinal(
     return { ok: true, action: 'matinal-tema-aguardando-sala' }
   }
 
-  if (sessao?.estado === 'escolhendo_filial') {
-    if (btn.startsWith('filialmatinal:')) {
-      const filial = btn.slice('filialmatinal:'.length)
-      await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
-      return await iniciarEscolhaSala(remetente, sessao.colaborador_nome ?? senderName ?? null, filial)
-    }
-    return { ok: true, action: 'matinal-tema-aguardando-filial' }
-  }
-
   // Nenhuma sessão em andamento: só entra com a frase de início ("dúvida" /
   // "treinamento") — qualquer pessoa pode mandar, cadastrada ou não.
   if (!GATILHO_DUVIDA_TREINAMENTO.test(norm(texto))) return null
 
-  // Cadastrado em alguma sala? Pula direto pros temas. Senão, pergunta
-  // filial (se houver mais de uma) e depois a sala.
+  // Cadastrado em alguma sala? Pula direto pros temas. Senão, só falta saber
+  // a sala — a filial não é perguntada, usa a única cadastrada no sistema.
   const colab = await descobrirSalaColaborador(remetente)
   if (colab) return await iniciarEscolhaTema(remetente, colab.nome ?? senderName ?? null, colab.filial, colab.sala)
 
-  const { data: filiaisRows } = await supabase.from('filiais').select('nome').order('nome')
-  const nomesFiliais = (filiaisRows ?? []).map((f: any) => f.nome as string)
-  if (nomesFiliais.length <= 1) {
-    return await iniciarEscolhaSala(remetente, senderName || null, nomesFiliais[0] ?? '')
-  }
-  await supabase.from('matinal_duvida_sessoes').insert({
-    colaborador_telefone: remetente, colaborador_nome: senderName || null, estado: 'escolhendo_filial',
-  })
-  await enviarOpcoes(remetente, 'De qual filial você é?', 'Filiais', 'Escolher',
-    nomesFiliais.map((f) => ({ id: `filialmatinal:${f}`, title: f })))
-  return { ok: true, action: 'matinal-tema-pede-filial' }
+  const { data: filiaisRows } = await supabase.from('filiais').select('nome').order('nome').limit(1)
+  const filialPadrao = filiaisRows?.[0]?.nome ?? ''
+  return await iniciarEscolhaSala(remetente, senderName || null, filialPadrao)
 }
 
 // Localiza o colaborador (nome, filial, sala) pelo telefone que mandou a
