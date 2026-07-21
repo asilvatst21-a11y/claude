@@ -2380,9 +2380,16 @@ async function tratarDuvidaMatinal(
 const GATILHO_DUVIDA_TREINAMENTO = /d[uú]vida|treinamento/
 
 async function iniciarEscolhaSala(remetente: string, nome: string | null, filial: string): Promise<{ ok: boolean; action: string }> {
-  await supabase.from('matinal_duvida_sessoes').insert({
+  const { error } = await supabase.from('matinal_duvida_sessoes').insert({
     colaborador_telefone: remetente, colaborador_nome: nome, filial, estado: 'escolhendo_sala',
   })
+  if (error) {
+    // Sem a sessão salva, a resposta do próximo passo (Colorado/Sub-Fúria)
+    // não seria reconhecida — melhor avisar e logar do que ficar em silêncio.
+    console.error('iniciarEscolhaSala insert error:', error.message)
+    await enviar(remetente, '⚠️ Deu um erro técnico aqui. Tenta de novo em instantes ou avisa o suporte.')
+    return { ok: false, action: 'matinal-tema-erro-sessao' }
+  }
   await enviarBotoes(remetente, 'Você é da sala *Colorado* ou *Sub-Fúria*?',
     [{ id: 'salamatinal:COLORADO', label: 'Colorado' }, { id: 'salamatinal:SUB-FURIA', label: 'Sub-Fúria' }])
   return { ok: true, action: 'matinal-tema-pede-sala' }
@@ -2401,9 +2408,14 @@ async function enviarListaTemas(
   treinos: { id: string; titulo: string; data_treinamento: string; salas?: string[] }[],
   tituloLista: string,
 ): Promise<{ ok: boolean; action: string }> {
-  await supabase.from('matinal_duvida_sessoes').insert({
+  const { error } = await supabase.from('matinal_duvida_sessoes').insert({
     colaborador_telefone: remetente, colaborador_nome: nome, filial, sala, estado: 'escolhendo_tema',
   })
+  if (error) {
+    console.error('enviarListaTemas insert error:', error.message)
+    await enviar(remetente, '⚠️ Deu um erro técnico aqui. Tenta de novo em instantes ou avisa o suporte.')
+    return { ok: false, action: 'matinal-tema-erro-sessao' }
+  }
   await enviarOpcoes(remetente, tituloLista, 'Treinamentos', 'Escolher',
     treinos.map((t) => ({
       id: `temamatinal:${t.id}`,
@@ -2518,7 +2530,13 @@ async function tratarPreSelecaoTemaMatinal(
         await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
         return { ok: true, action: 'matinal-tema-invalido' }
       }
-      await supabase.from('matinal_duvida_sessoes').update({ treinamento_id: treinamentoId, estado: 'aguardando_pergunta' }).eq('id', sessao.id)
+      const { error: errUpd } = await supabase.from('matinal_duvida_sessoes')
+        .update({ treinamento_id: treinamentoId, estado: 'aguardando_pergunta' }).eq('id', sessao.id)
+      if (errUpd) {
+        console.error('matinal-tema update error:', errUpd.message)
+        await enviar(remetente, '⚠️ Deu um erro técnico aqui. Tenta de novo em instantes ou avisa o suporte.')
+        return { ok: false, action: 'matinal-tema-erro-sessao' }
+      }
       await enviar(remetente, `Qual sua dúvida sobre *${treino.titulo}*? Pode escrever ou mandar um áudio.`)
       return { ok: true, action: 'matinal-tema-escolhido' }
     }
