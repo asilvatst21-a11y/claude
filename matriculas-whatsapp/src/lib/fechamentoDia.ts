@@ -10,7 +10,7 @@ export const KPIS_FECHAMENTO: { key: KpiFechamento; label: string; unidade: 'per
   { key: 'devolucao_pdv', label: 'Devolução PDV', unidade: 'percentual', automatico: false },
   { key: 'jornada_liquida', label: 'Jornada Líquida', unidade: 'percentual', automatico: false },
   { key: 'aderencia_raio', label: 'Aderência ao Raio', unidade: 'percentual', automatico: true },
-  { key: 'tml', label: 'TML (minutos de atraso)', unidade: 'minutos', automatico: true },
+  { key: 'tml', label: 'TML (pior caso do dia)', unidade: 'minutos', automatico: true },
   { key: 'rating', label: 'Rating', unidade: 'nota', automatico: false },
   { key: 'iv_deslocamento', label: 'IV — Tempo de Deslocamento', unidade: 'minutos', automatico: true },
 ]
@@ -29,6 +29,7 @@ export interface ValorFechamento {
   kpi: KpiFechamento
   valor: number | null
   origem: 'automatico' | 'manual'
+  detalhe?: string | null
 }
 
 // ── Cálculo automático: Aderência ao Raio (jornada.ts já cruza escalas_tml +
@@ -51,23 +52,32 @@ async function calcularAderenciaRaio(filial: string, data: string): Promise<Reco
   }
 }
 
-// ── Cálculo automático: TML (minutos de atraso médio sobre o limite da sala,
-// mesma régua usada em Distribuição › Carta de Controle TML) ───────────────
-async function calcularTml(filial: string, data: string): Promise<Record<SalaTML, number | null>> {
+export interface ResultadoTmlSala { valor: number | null; motorista: string | null }
+
+// ── Cálculo automático: TML — não é a média da sala, e sim o PIOR caso do dia
+// (o motorista que saiu mais tarde), contra a mesma meta de 30min usada na
+// análise de Carta de Controle TML (REGRAS_TML/atrasoMinutos). Quem "bate a
+// meta" na análise 30min é a régua toda da sala — o pior motorista do dia é
+// o que decide se a sala bateu ou não. ──────────────────────────────────────
+async function calcularTml(filial: string, data: string): Promise<Record<SalaTML, ResultadoTmlSala>> {
   const { data: historico } = await supabase
     .from('historico_tml')
-    .select('sala, horario_saida')
+    .select('sala, horario_saida, nome, matricula')
     .eq('filial', filial)
     .eq('data_saida', data)
-  const porSala: Record<SalaTML, number[]> = { COLORADO: [], 'SUB-FURIA': [] }
+  const porSala: Record<SalaTML, { atraso: number; nome: string | null; matricula: number | null }[]> = { COLORADO: [], 'SUB-FURIA': [] }
   for (const h of historico ?? []) {
     if (!h.sala || (h.sala !== 'COLORADO' && h.sala !== 'SUB-FURIA') || !h.horario_saida) continue
     const sala = h.sala as SalaTML
     if (saidaInvalida(sala, h.horario_saida)) continue
-    porSala[sala].push(atrasoMinutos(sala, h.horario_saida))
+    porSala[sala].push({ atraso: atrasoMinutos(sala, h.horario_saida), nome: h.nome ?? null, matricula: h.matricula ?? null })
   }
-  const media = (arr: number[]) => (arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null)
-  return { COLORADO: media(porSala.COLORADO), 'SUB-FURIA': media(porSala['SUB-FURIA']) }
+  const pior = (arr: { atraso: number; nome: string | null; matricula: number | null }[]): ResultadoTmlSala => {
+    if (arr.length === 0) return { valor: null, motorista: null }
+    const max = arr.reduce((a, b) => (b.atraso > a.atraso ? b : a))
+    return { valor: max.atraso, motorista: max.nome ?? (max.matricula != null ? `Matrícula ${max.matricula}` : null) }
+  }
+  return { COLORADO: pior(porSala.COLORADO), 'SUB-FURIA': pior(porSala['SUB-FURIA']) }
 }
 
 // ── Cálculo automático: IV — Tempo de Deslocamento (checklist_tml já traz o
@@ -99,7 +109,7 @@ export async function recalcularAutomaticos(filial: string, data: string): Promi
     calcularDeslocamento(filial, data),
   ])
 
-  const linhas: { filial: string; sala: SalaFechamento; data: string; kpi: KpiFechamento; valor: number | null; origem: 'automatico' }[] = []
+  const linhas: { filial: string; sala: SalaFechamento; data: string; kpi: KpiFechamento; valor: number | null; detalhe?: string | null; origem: 'automatico' }[] = []
   const combinar = (kpi: KpiFechamento, porSala: Record<SalaTML, number | null>) => {
     linhas.push({ filial, sala: 'COLORADO', data, kpi, valor: porSala.COLORADO, origem: 'automatico' })
     linhas.push({ filial, sala: 'SUB-FURIA', data, kpi, valor: porSala['SUB-FURIA'], origem: 'automatico' })
@@ -107,8 +117,22 @@ export async function recalcularAutomaticos(filial: string, data: string): Promi
     linhas.push({ filial, sala: 'CDD', data, kpi, valor: validos.length > 0 ? validos.reduce((a, b) => a + b, 0) / validos.length : null, origem: 'automatico' })
   }
   combinar('aderencia_raio', aderencia)
-  combinar('tml', tml)
   combinar('iv_deslocamento', deslocamento)
+
+  // TML: pior caso por sala (não média) + o nome de quem puxou o atraso. O
+  // CDD do dia é o pior entre as duas salas, não a média dos dois piores.
+  linhas.push({ filial, sala: 'COLORADO', data, kpi: 'tml', valor: tml.COLORADO.valor, detalhe: tml.COLORADO.motorista, origem: 'automatico' })
+  linhas.push({ filial, sala: 'SUB-FURIA', data, kpi: 'tml', valor: tml['SUB-FURIA'].valor, detalhe: tml['SUB-FURIA'].motorista, origem: 'automatico' })
+  const piorCdd = [
+    { ...tml.COLORADO, sala: 'Colorado' },
+    { ...tml['SUB-FURIA'], sala: 'Sub-Fúria' },
+  ].filter((r) => r.valor != null).sort((a, b) => (b.valor as number) - (a.valor as number))[0]
+  linhas.push({
+    filial, sala: 'CDD', data, kpi: 'tml',
+    valor: piorCdd?.valor ?? null,
+    detalhe: piorCdd ? `${piorCdd.motorista ?? '—'} (${piorCdd.sala})` : null,
+    origem: 'automatico',
+  })
 
   await supabase.from('fechamento_dia_valores').upsert(linhas, { onConflict: 'filial,sala,data,kpi' })
 }
@@ -153,7 +177,7 @@ export async function buscarValoresFechamento(
   const inicioMes = `${data.slice(0, 7)}-01`
 
   const [{ data: semanaRows }, { data: mesRows }] = await Promise.all([
-    supabase.from('fechamento_dia_valores').select('sala, data, kpi, valor, origem').eq('filial', filial).gte('data', inicioSemana).lte('data', data),
+    supabase.from('fechamento_dia_valores').select('sala, data, kpi, valor, origem, detalhe').eq('filial', filial).gte('data', inicioSemana).lte('data', data),
     supabase.from('fechamento_dia_valores').select('sala, kpi, valor').eq('filial', filial).gte('data', inicioMes).lte('data', data),
   ])
 
