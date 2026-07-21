@@ -29,7 +29,6 @@ export interface ValorFechamento {
   kpi: KpiFechamento
   valor: number | null
   origem: 'automatico' | 'manual'
-  detalhe?: string | null
 }
 
 // ── Cálculo automático: Aderência ao Raio (jornada.ts já cruza escalas_tml +
@@ -189,14 +188,16 @@ export function diasDaSemanaAte(data: string): string[] {
 // Busca os valores da semana (seg→data) + acumulado do mês, por sala.
 export async function buscarValoresFechamento(
   filial: string, data: string,
-): Promise<{ semana: ValorFechamento[]; acumMes: Record<SalaFechamento, Record<KpiFechamento, number | null>> }> {
+): Promise<{ semana: ValorFechamento[]; acumMes: Record<SalaFechamento, Record<KpiFechamento, number | null>>; erro: string | null }> {
   const inicioSemana = segundaDaSemana(data)
   const inicioMes = `${data.slice(0, 7)}-01`
 
-  const [{ data: semanaRows }, { data: mesRows }] = await Promise.all([
-    supabase.from('fechamento_dia_valores').select('sala, data, kpi, valor, origem, detalhe').eq('filial', filial).gte('data', inicioSemana).lte('data', data),
+  const [{ data: semanaRows, error: erroSemana }, { data: mesRows, error: erroMes }] = await Promise.all([
+    supabase.from('fechamento_dia_valores').select('sala, data, kpi, valor, origem').eq('filial', filial).gte('data', inicioSemana).lte('data', data),
     supabase.from('fechamento_dia_valores').select('sala, kpi, valor').eq('filial', filial).gte('data', inicioMes).lte('data', data),
   ])
+  if (erroSemana) console.error('buscarValoresFechamento (semana) error:', erroSemana.message)
+  if (erroMes) console.error('buscarValoresFechamento (mês) error:', erroMes.message)
 
   const acumMes: Record<string, Record<string, number[]>> = {}
   for (const r of mesRows ?? []) {
@@ -213,7 +214,11 @@ export async function buscarValoresFechamento(
     }
   }
 
-  return { semana: (semanaRows ?? []) as ValorFechamento[], acumMes: acumFinal }
+  return {
+    semana: (semanaRows ?? []) as ValorFechamento[],
+    acumMes: acumFinal,
+    erro: erroSemana?.message ?? erroMes?.message ?? null,
+  }
 }
 
 export async function buscarParametros(filial: string): Promise<ParametroFechamento[]> {

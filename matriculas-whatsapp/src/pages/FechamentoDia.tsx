@@ -73,6 +73,7 @@ export default function FechamentoDia() {
       buscarValoresFechamento(usuario.filial, data),
     ])
     setParametros(params)
+    if (valoresResp.erro) setErro(`Erro ao carregar os valores: ${valoresResp.erro}`)
     const mapa: Record<string, Record<string, number | null>> = {}
     for (const v of valoresResp.semana) {
       const chave = `${v.sala}|${v.data}`
