@@ -2380,51 +2380,118 @@ async function tratarDuvidaMatinal(
 const GATILHO_DUVIDA_TREINAMENTO = /d[uú]vida|treinamento/
 
 async function iniciarEscolhaSala(remetente: string, nome: string | null, filial: string): Promise<{ ok: boolean; action: string }> {
-  await supabase.from('matinal_duvida_sessoes').insert({
+  const { error } = await supabase.from('matinal_duvida_sessoes').insert({
     colaborador_telefone: remetente, colaborador_nome: nome, filial, estado: 'escolhendo_sala',
   })
+  if (error) {
+    // Sem a sessão salva, a resposta do próximo passo (Colorado/Sub-Fúria)
+    // não seria reconhecida — melhor avisar e logar do que ficar em silêncio.
+    console.error('iniciarEscolhaSala insert error:', error.message)
+    await enviar(remetente, '⚠️ Deu um erro técnico aqui. Tenta de novo em instantes ou avisa o suporte.')
+    return { ok: false, action: 'matinal-tema-erro-sessao' }
+  }
   await enviarBotoes(remetente, 'Você é da sala *Colorado* ou *Sub-Fúria*?',
     [{ id: 'salamatinal:COLORADO', label: 'Colorado' }, { id: 'salamatinal:SUB-FURIA', label: 'Sub-Fúria' }])
   return { ok: true, action: 'matinal-tema-pede-sala' }
 }
 
-async function iniciarEscolhaTema(
+// Quantos dias pra trás entram na lista de treinamentos pra escolher — mais
+// que isso vira uma lista extensa demais pra selecionar no WhatsApp.
+const JANELA_DIAS_TEMA_MATINAL = 5
+
+function dataMinimaTemaMatinal(): string {
+  return new Date(Date.now() - (JANELA_DIAS_TEMA_MATINAL - 1) * 24 * 60 * 60_000).toISOString().slice(0, 10)
+}
+
+async function enviarListaTemas(
   remetente: string, nome: string | null, filial: string, sala: string,
+  treinos: { id: string; titulo: string; data_treinamento: string; salas?: string[] }[],
+  tituloLista: string,
 ): Promise<{ ok: boolean; action: string }> {
-  const { data: treinos } = await supabase
-    .from('treinamentos_matinal')
-    .select('id, titulo')
-    .eq('filial', filial)
-    .contains('salas', [sala])
-    .eq('status', 'publicado')
-    .order('data_treinamento', { ascending: false })
-    .limit(8)
-  if (!treinos || treinos.length === 0) {
-    await enviar(remetente, 'Não encontrei nenhum treinamento publicado pra essa sala no momento.')
-    return { ok: true, action: 'matinal-tema-sem-treinamento' }
-  }
-  await supabase.from('matinal_duvida_sessoes').insert({
+  const { error } = await supabase.from('matinal_duvida_sessoes').insert({
     colaborador_telefone: remetente, colaborador_nome: nome, filial, sala, estado: 'escolhendo_tema',
   })
-  await enviarOpcoes(remetente, 'Sobre qual treinamento é sua dúvida?', 'Treinamentos', 'Escolher',
-    treinos.map((t: any) => ({
+  if (error) {
+    console.error('enviarListaTemas insert error:', error.message)
+    await enviar(remetente, '⚠️ Deu um erro técnico aqui. Tenta de novo em instantes ou avisa o suporte.')
+    return { ok: false, action: 'matinal-tema-erro-sessao' }
+  }
+  await enviarOpcoes(remetente, tituloLista, 'Treinamentos', 'Escolher',
+    treinos.map((t) => ({
       id: `temamatinal:${t.id}`,
       title: t.titulo.length > 24 ? `${t.titulo.slice(0, 23)}…` : t.titulo,
-      description: t.titulo.length > 24 ? t.titulo : undefined,
+      description: `${formatarDataBRSimples(t.data_treinamento)}${t.salas ? ` · ${t.salas.join('/')}` : ''}`,
     })))
   return { ok: true, action: 'matinal-tema-menu' }
 }
 
+async function iniciarEscolhaTema(
+  remetente: string, nome: string | null, filial: string, sala: string,
+): Promise<{ ok: boolean; action: string }> {
+  const desde = dataMinimaTemaMatinal()
+  const { data: treinos } = await supabase
+    .from('treinamentos_matinal')
+    .select('id, titulo, data_treinamento')
+    .eq('filial', filial)
+    .contains('salas', [sala])
+    .eq('status', 'publicado')
+    .gte('data_treinamento', desde)
+    .order('data_treinamento', { ascending: false })
+
+  if (treinos && treinos.length > 0) {
+    return await enviarListaTemas(remetente, nome, filial, sala, treinos, 'Sobre qual treinamento é sua dúvida?')
+  }
+
+  // Nada pra essa sala específica nos últimos dias — amplia pra qualquer
+  // sala da filial, avisando que não achou algo certinho antes de mostrar.
+  const { data: qualquerSala } = await supabase
+    .from('treinamentos_matinal')
+    .select('id, titulo, data_treinamento, salas')
+    .eq('filial', filial)
+    .eq('status', 'publicado')
+    .gte('data_treinamento', desde)
+    .order('data_treinamento', { ascending: false })
+
+  if (!qualquerSala || qualquerSala.length === 0) {
+    await enviar(remetente,
+      `Não encontrei nenhum treinamento cadastrado nos últimos ${JANELA_DIAS_TEMA_MATINAL} dias. ` +
+      `Fala direto com quem apresentou o treinamento, por favor.`)
+    return { ok: true, action: 'matinal-tema-sem-treinamento' }
+  }
+
+  await enviar(remetente,
+    `Não encontrei um treinamento certinho pra sua sala nos últimos ${JANELA_DIAS_TEMA_MATINAL} dias. ` +
+    `Escolhe na lista de qual dia e treinamento é sua dúvida:`)
+  return await enviarListaTemas(remetente, nome, filial, sala, qualquerSala, 'Qual desses é o treinamento?')
+}
+
+// Sessão de pré-seleção abandonada (a pessoa nunca respondeu, ou ficou de
+// uma versão antiga do fluxo com um estado que não existe mais) — depois
+// desse tempo, ou se o estado for desconhecido, trata como se não existisse
+// em vez de travar o telefone em silêncio pra sempre.
+const MATINAL_SESSAO_TEMA_TTL_MIN = 30
+const ESTADOS_VALIDOS_SESSAO_TEMA = ['escolhendo_sala', 'escolhendo_tema', 'aguardando_pergunta']
+
 async function tratarPreSelecaoTemaMatinal(
   body: any, remetente: string, senderName: string, texto: string,
 ): Promise<{ ok: boolean; action: string } | null> {
-  const { data: sessao } = await supabase
+  const { data: sessaoRaw } = await supabase
     .from('matinal_duvida_sessoes')
     .select('*')
     .eq('colaborador_telefone', remetente)
     .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
+
+  let sessao = sessaoRaw
+  if (sessao) {
+    const expirada = Date.now() - new Date(sessao.created_at).getTime() > MATINAL_SESSAO_TEMA_TTL_MIN * 60_000
+    const estadoDesconhecido = !ESTADOS_VALIDOS_SESSAO_TEMA.includes(sessao.estado)
+    if (expirada || estadoDesconhecido) {
+      await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
+      sessao = null
+    }
+  }
 
   const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
 
@@ -2463,7 +2530,13 @@ async function tratarPreSelecaoTemaMatinal(
         await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
         return { ok: true, action: 'matinal-tema-invalido' }
       }
-      await supabase.from('matinal_duvida_sessoes').update({ treinamento_id: treinamentoId, estado: 'aguardando_pergunta' }).eq('id', sessao.id)
+      const { error: errUpd } = await supabase.from('matinal_duvida_sessoes')
+        .update({ treinamento_id: treinamentoId, estado: 'aguardando_pergunta' }).eq('id', sessao.id)
+      if (errUpd) {
+        console.error('matinal-tema update error:', errUpd.message)
+        await enviar(remetente, '⚠️ Deu um erro técnico aqui. Tenta de novo em instantes ou avisa o suporte.')
+        return { ok: false, action: 'matinal-tema-erro-sessao' }
+      }
       await enviar(remetente, `Qual sua dúvida sobre *${treino.titulo}*? Pode escrever ou mandar um áudio.`)
       return { ok: true, action: 'matinal-tema-escolhido' }
     }
