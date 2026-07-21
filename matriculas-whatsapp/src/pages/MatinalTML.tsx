@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Play, Square, CheckCircle2, AlertTriangle, ArrowLeft, Loader2, Building2, Clock, GraduationCap } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { enviarMensagemWhatsApp } from '../lib/zapi'
+import { enviarMensagemWhatsApp, enviarMensagemGrupo } from '../lib/zapi'
 import { SALA_TML_LABEL, type SalaTML, type MetaMatinalParam, metaMatinalMinutos } from '../lib/tml'
 
 const SALAS: SalaTML[] = ['COLORADO', 'SUB-FURIA']
@@ -96,7 +96,8 @@ export default function MatinalTML() {
         .from('treinamentos_matinal')
         .select('id, titulo, palestrante_nome')
         .eq('filial', filial)
-        .eq('sala', sala)
+        .contains('salas', [sala])
+        .eq('data_treinamento', hojeISO())
         .eq('status', 'publicado')
         .order('created_at', { ascending: false }),
     ])
@@ -119,16 +120,15 @@ export default function MatinalTML() {
   }
 
   // Manda o aviso individual do treinamento pra cada telefone cadastrado na
-  // sala (motoristas_sala_tml.telefone) — dispara depois da matinal já
-  // finalizada, sem travar a tela de conclusão.
+  // sala (motoristas_sala_tml.telefone), e mais uma mensagem única no grupo
+  // da sala direcionando pra conversa particular com o bot — dispara depois
+  // da matinal já finalizada, sem travar a tela de conclusão.
   async function enviarAvisosTreinamento(matinalId: number, treino: TreinamentoOpcao): Promise<void> {
     setEnviandoAvisos(true)
-    const { data: colaboradores } = await supabase
-      .from('motoristas_sala_tml')
-      .select('nome, telefone')
-      .eq('filial', filial)
-      .eq('sala', sala)
-      .not('telefone', 'is', null)
+    const [{ data: colaboradores }, { data: filialRow }] = await Promise.all([
+      supabase.from('motoristas_sala_tml').select('nome, telefone').eq('filial', filial).eq('sala', sala).not('telefone', 'is', null),
+      supabase.from('filiais').select('grupo_matinal_colorado_whatsapp, grupo_matinal_subfuria_whatsapp').eq('nome', filial).maybeSingle(),
+    ])
     let enviados = 0
     for (const c of colaboradores ?? []) {
       const telefone = (c.telefone ?? '').trim()
@@ -145,6 +145,14 @@ export default function MatinalTML() {
         })
       }
     }
+
+    const grupoSala = sala === 'COLORADO' ? filialRow?.grupo_matinal_colorado_whatsapp : filialRow?.grupo_matinal_subfuria_whatsapp
+    if (grupoSala) {
+      await enviarMensagemGrupo(grupoSala,
+        `📋 Hoje na matinal vimos *${treino.titulo}*.\n` +
+        `Ficou alguma dúvida? Chama o bot na conversa particular (mensagem individual) pra perguntar — pode ser por texto ou áudio.`)
+    }
+
     await supabase.from('matinal_tml').update({ treinamento_avisado_em: new Date().toISOString() }).eq('id', matinalId)
     setAvisosEnviados(enviados)
     setEnviandoAvisos(false)

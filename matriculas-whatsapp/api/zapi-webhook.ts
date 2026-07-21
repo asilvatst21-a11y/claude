@@ -2237,7 +2237,7 @@ async function tratarFrotaLeve(
 const MATINAL_LEMBRETE_PALESTRANTE_MIN = 180  // ~3h sem resposta → lembrete ao palestrante
 const MATINAL_AVISO_ATRASO_MIN = 360          // + ~6h ainda sem resposta → avisa o colaborador
 
-interface AvisoMatinalAtivo { treinamento_id: string; colaborador_nome: string | null }
+interface AvisoMatinalAtivo { treinamento_id: string; filial: string; sala: string; colaborador_nome: string | null }
 
 // Encontra o aviso de treinamento mais recente enviado a este telefone HOJE.
 async function buscarAvisoAtivoMatinal(remetente: string): Promise<AvisoMatinalAtivo | null> {
@@ -2246,14 +2246,14 @@ async function buscarAvisoAtivoMatinal(remetente: string): Promise<AvisoMatinalA
   const desde = new Date(Date.now() - 24 * 60 * 60_000).toISOString()
   const { data } = await supabase
     .from('matinal_treinamento_avisos')
-    .select('treinamento_id, colaborador_telefone, colaborador_nome, enviado_em')
+    .select('treinamento_id, filial, sala, colaborador_telefone, colaborador_nome, enviado_em')
     .gte('enviado_em', desde)
     .order('enviado_em', { ascending: false })
     .limit(300)
   const hoje = new Date().toISOString().slice(0, 10)
   const aviso = (data ?? []).find((a: any) =>
     ultimosDigitos(a.colaborador_telefone) === digitos && String(a.enviado_em).slice(0, 10) === hoje)
-  return aviso ? { treinamento_id: aviso.treinamento_id, colaborador_nome: aviso.colaborador_nome } : null
+  return aviso ? { treinamento_id: aviso.treinamento_id, filial: aviso.filial, sala: aviso.sala, colaborador_nome: aviso.colaborador_nome } : null
 }
 
 // Pergunta pra IA qual item da FAQ (se algum) responde a dúvida do colaborador.
@@ -2292,8 +2292,62 @@ async function casarComFaqIA(pergunta: string, faqList: { pergunta: string; resp
   }
 }
 
+// Núcleo comum: dado um treinamento já identificado (por aviso do dia OU por
+// pré-seleção de tema), tenta responder pela FAQ; senão encaminha ao
+// palestrante. Usado tanto por tratarDuvidaMatinal quanto por
+// tratarPreSelecaoTemaMatinal.
+async function processarDuvidaSobreTreinamento(
+  treinamentoId: string, filial: string, sala: string,
+  remetente: string, nomeColab: string, conteudo: string, porAudio: boolean,
+): Promise<{ ok: boolean; action: string }> {
+  const { data: treino } = await supabase
+    .from('treinamentos_matinal')
+    .select('id, titulo, palestrante_nome, palestrante_telefone')
+    .eq('id', treinamentoId)
+    .maybeSingle()
+  if (!treino) return { ok: true, action: 'matinal-treinamento-nao-encontrado' }
+
+  const { data: faqRows } = await supabase
+    .from('treinamento_faq_matinal')
+    .select('pergunta, resposta')
+    .eq('treinamento_id', treino.id)
+  const faqList = (faqRows ?? []) as { pergunta: string; resposta: string }[]
+
+  const indice = await casarComFaqIA(conteudo, faqList)
+
+  if (indice >= 0) {
+    const resposta = faqList[indice].resposta
+    await supabase.from('duvidas_matinal').insert({
+      treinamento_id: treino.id, filial, sala,
+      colaborador_telefone: remetente, colaborador_nome: nomeColab,
+      pergunta: conteudo, pergunta_por_audio: porAudio,
+      palestrante_telefone: treino.palestrante_telefone,
+      resposta, status: 'respondida_auto', respondida_em: new Date().toISOString(),
+    })
+    await enviar(remetente, `✅ ${resposta}`)
+    return { ok: true, action: 'matinal-respondida-auto' }
+  }
+
+  await supabase.from('duvidas_matinal').insert({
+    treinamento_id: treino.id, filial, sala,
+    colaborador_telefone: remetente, colaborador_nome: nomeColab,
+    pergunta: conteudo, pergunta_por_audio: porAudio,
+    palestrante_telefone: treino.palestrante_telefone,
+    status: 'aguardando_palestrante',
+  })
+
+  await enviar(remetente,
+    `Boa pergunta! Não tenho certeza — vou perguntar pra *${treino.palestrante_nome}* e te aviso assim que ela responder.`)
+  if (treino.palestrante_telefone) {
+    await enviar(normalizarTelefoneBR(treino.palestrante_telefone),
+      `❓ Pergunta sobre *${treino.titulo}*, de ${nomeColab}:\n"${conteudo}"\n\nResponda esta mensagem.`)
+  }
+  return { ok: true, action: 'matinal-encaminhada' }
+}
+
 // Mensagem individual do colaborador — só processa se houver aviso de
-// treinamento ativo hoje pra esse telefone; senão retorna null (não se aplica).
+// treinamento ativo hoje pra esse telefone; senão retorna null (não se aplica,
+// e cai na pré-seleção de tema mais adiante no roteamento do handler).
 async function tratarDuvidaMatinal(
   body: any, remetente: string, senderName: string,
 ): Promise<{ ok: boolean; action: string } | null> {
@@ -2313,50 +2367,105 @@ async function tratarDuvidaMatinal(
   }
   if (!conteudo) return { ok: true, action: 'matinal-sem-conteudo' }
 
-  const { data: treino } = await supabase
-    .from('treinamentos_matinal')
-    .select('id, titulo, filial, sala, palestrante_nome, palestrante_telefone')
-    .eq('id', aviso.treinamento_id)
-    .maybeSingle()
-  if (!treino) return { ok: true, action: 'matinal-treinamento-nao-encontrado' }
-
-  const { data: faqRows } = await supabase
-    .from('treinamento_faq_matinal')
-    .select('pergunta, resposta')
-    .eq('treinamento_id', treino.id)
-  const faqList = (faqRows ?? []) as { pergunta: string; resposta: string }[]
-
   const nomeColab = aviso.colaborador_nome || senderName || 'Motorista'
-  const indice = await casarComFaqIA(conteudo, faqList)
+  return await processarDuvidaSobreTreinamento(aviso.treinamento_id, aviso.filial, aviso.sala, remetente, nomeColab, conteudo, porAudio)
+}
 
-  if (indice >= 0) {
-    const resposta = faqList[indice].resposta
-    await supabase.from('duvidas_matinal').insert({
-      treinamento_id: treino.id, filial: treino.filial, sala: treino.sala,
-      colaborador_telefone: remetente, colaborador_nome: nomeColab,
-      pergunta: conteudo, pergunta_por_audio: porAudio,
-      palestrante_telefone: treino.palestrante_telefone,
-      resposta, status: 'respondida_auto', respondida_em: new Date().toISOString(),
-    })
-    await enviar(remetente, `✅ ${resposta}`)
-    return { ok: true, action: 'matinal-respondida-auto' }
+// Pré-seleção de tema: quando não há aviso do dia (o colaborador quer
+// perguntar sobre um treinamento de outro dia), o bot descobre a sala dele e
+// oferece os treinamentos publicados pra escolher antes de responder. Estado
+// mantido em matinal_duvida_sessoes (escolhendo_tema → aguardando_pergunta).
+async function tratarPreSelecaoTemaMatinal(
+  body: any, remetente: string, senderName: string, texto: string,
+): Promise<{ ok: boolean; action: string } | null> {
+  const { data: sessao } = await supabase
+    .from('matinal_duvida_sessoes')
+    .select('*')
+    .eq('colaborador_telefone', remetente)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
+
+  if (sessao?.estado === 'aguardando_pergunta' && sessao.treinamento_id) {
+    let conteudo = texto
+    let porAudio = false
+    if (!conteudo && temAudioSemTexto(body)) {
+      const transcrito = await transcreverAudio(extrairAudioUrl(body))
+      if (!transcrito) {
+        await enviar(remetente, 'Recebi seu áudio, mas não consegui entender direito. Pode mandar de novo ou escrever em texto?')
+        return { ok: true, action: 'matinal-tema-audio-falhou' }
+      }
+      conteudo = transcrito
+      porAudio = true
+    }
+    if (!conteudo) return { ok: true, action: 'matinal-tema-sem-conteudo' }
+    await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
+    const [{ data: treinoSessao }, colab] = await Promise.all([
+      supabase.from('treinamentos_matinal').select('filial').eq('id', sessao.treinamento_id).maybeSingle(),
+      descobrirSalaColaborador(remetente),
+    ])
+    return await processarDuvidaSobreTreinamento(
+      sessao.treinamento_id, treinoSessao?.filial ?? '', colab?.sala ?? '', remetente,
+      colab?.nome || senderName || 'Motorista', conteudo, porAudio,
+    )
   }
 
-  const { data: duvida } = await supabase.from('duvidas_matinal').insert({
-    treinamento_id: treino.id, filial: treino.filial, sala: treino.sala,
-    colaborador_telefone: remetente, colaborador_nome: nomeColab,
-    pergunta: conteudo, pergunta_por_audio: porAudio,
-    palestrante_telefone: treino.palestrante_telefone,
-    status: 'aguardando_palestrante',
-  }).select('id').single()
-
-  await enviar(remetente,
-    `Boa pergunta! Não tenho certeza — vou perguntar pra *${treino.palestrante_nome}* e te aviso assim que ela responder.`)
-  if (treino.palestrante_telefone) {
-    await enviar(normalizarTelefoneBR(treino.palestrante_telefone),
-      `❓ Pergunta sobre *${treino.titulo}*, de ${nomeColab}:\n"${conteudo}"\n\nResponda esta mensagem.`)
+  if (sessao?.estado === 'escolhendo_tema') {
+    if (btn.startsWith('temamatinal:')) {
+      const treinamentoId = btn.slice('temamatinal:'.length)
+      const { data: treino } = await supabase.from('treinamentos_matinal').select('titulo').eq('id', treinamentoId).maybeSingle()
+      if (!treino) {
+        await enviar(remetente, '⚠️ Não encontrei esse treinamento.')
+        await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
+        return { ok: true, action: 'matinal-tema-invalido' }
+      }
+      await supabase.from('matinal_duvida_sessoes').update({ treinamento_id: treinamentoId, estado: 'aguardando_pergunta' }).eq('id', sessao.id)
+      await enviar(remetente, `Qual sua dúvida sobre *${treino.titulo}*? Pode escrever ou mandar um áudio.`)
+      return { ok: true, action: 'matinal-tema-escolhido' }
+    }
+    return { ok: true, action: 'matinal-tema-aguardando-escolha' }
   }
-  return { ok: true, action: duvida ? 'matinal-encaminhada' : 'matinal-encaminhada-sem-registro' }
+
+  // Nenhuma sessão em andamento: primeiro contato — descobre a sala do
+  // colaborador e oferece os treinamentos publicados dela pra escolher o tema.
+  const colab = await descobrirSalaColaborador(remetente)
+  if (!colab) return null
+
+  const { data: treinos } = await supabase
+    .from('treinamentos_matinal')
+    .select('id, titulo')
+    .eq('filial', colab.filial)
+    .contains('salas', [colab.sala])
+    .eq('status', 'publicado')
+    .order('data_treinamento', { ascending: false })
+    .limit(8)
+  if (!treinos || treinos.length === 0) return null
+
+  await supabase.from('matinal_duvida_sessoes').insert({
+    colaborador_telefone: remetente, colaborador_nome: colab.nome ?? senderName ?? null, estado: 'escolhendo_tema',
+  })
+  await enviarOpcoes(remetente, 'Sobre qual treinamento é sua dúvida?', 'Treinamentos', 'Escolher',
+    treinos.map((t: any) => ({
+      id: `temamatinal:${t.id}`,
+      title: t.titulo.length > 24 ? `${t.titulo.slice(0, 23)}…` : t.titulo,
+      description: t.titulo.length > 24 ? t.titulo : undefined,
+    })))
+  return { ok: true, action: 'matinal-tema-menu' }
+}
+
+// Localiza o colaborador (nome, filial, sala) pelo telefone que mandou a
+// mensagem — usado pra saber quais treinamentos oferecer na pré-seleção.
+async function descobrirSalaColaborador(remetente: string): Promise<{ filial: string; sala: string; nome: string | null } | null> {
+  const digitos = ultimosDigitos(remetente)
+  if (!digitos) return null
+  const { data: colaboradores } = await supabase
+    .from('motoristas_sala_tml')
+    .select('filial, sala, nome, telefone')
+    .not('telefone', 'is', null)
+  const colab = (colaboradores ?? []).find((c: any) => ultimosDigitos(c.telefone) === digitos)
+  return colab ? { filial: colab.filial, sala: colab.sala, nome: colab.nome ?? null } : null
 }
 
 // Resposta do palestrante (mensagem individual dele) a uma dúvida pendente —
@@ -2524,7 +2633,16 @@ export default async function handler(req: any, res: any) {
         return
       }
       const r = await tratarTml(body, grupoId)
-      res.status(200).json(r)
+      const TML_NAO_TRATADO = ['no-command', 'no-pending-alert']
+      if (!TML_NAO_TRATADO.includes(r.action)) {
+        res.status(200).json(r)
+        return
+      }
+      // Nada mais reivindicou a mensagem — tenta a pré-seleção de tema da
+      // Matinal (dúvida sobre um treinamento de outro dia, fora da janela do
+      // aviso). Se também não se aplicar, mantém a resposta original do TML.
+      const rTema = await tratarPreSelecaoTemaMatinal(body, grupoId, senderName, texto)
+      res.status(200).json(rTema ?? r)
       return
     }
 

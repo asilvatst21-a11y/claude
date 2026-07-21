@@ -16,11 +16,16 @@ interface FaqItem { pergunta: string; resposta: string }
 interface Treinamento {
   id: string
   titulo: string
-  sala: SalaTML
+  salas: SalaTML[]
   palestrante_nome: string
   palestrante_telefone: string
+  data_treinamento: string
   status: 'rascunho' | 'publicado'
   created_at: string
+}
+
+function amanhaISO(): string {
+  return new Date(Date.now() + 24 * 60 * 60_000).toISOString().slice(0, 10)
 }
 
 interface Duvida {
@@ -66,7 +71,8 @@ export default function Treinamentos() {
 
   // Formulário de novo treinamento
   const [titulo, setTitulo] = useState('')
-  const [sala, setSala] = useState<SalaTML>('COLORADO')
+  const [salasSelecionadas, setSalasSelecionadas] = useState<SalaTML[]>(['COLORADO'])
+  const [dataTreinamento, setDataTreinamento] = useState(amanhaISO())
   const [palestranteNome, setPalestranteNome] = useState('')
   const [palestranteTelefone, setPalestranteTelefone] = useState('')
   const [arquivo, setArquivo] = useState<File | null>(null)
@@ -82,7 +88,7 @@ export default function Treinamentos() {
     setLoadingLista(true)
     const { data } = await supabase
       .from('treinamentos_matinal')
-      .select('id, titulo, sala, palestrante_nome, palestrante_telefone, status, created_at')
+      .select('id, titulo, salas, palestrante_nome, palestrante_telefone, data_treinamento, status, created_at')
       .eq('filial', usuario.filial)
       .order('created_at', { ascending: false })
     setTreinamentos((data ?? []) as Treinamento[])
@@ -124,8 +130,19 @@ export default function Treinamentos() {
     setFaq((f) => [...f, { pergunta: '', resposta: '' }])
   }
 
+  function alternarSala(s: SalaTML) {
+    setSalasSelecionadas((atual) => {
+      if (atual.includes(s)) {
+        const restante = atual.filter((x) => x !== s)
+        return restante.length > 0 ? restante : atual  // sempre pelo menos 1 sala marcada
+      }
+      return [...atual, s]
+    })
+  }
+
   const podePublicar =
     !!usuario && titulo.trim() && palestranteNome.trim() && palestranteTelefone.trim() &&
+    dataTreinamento && salasSelecionadas.length > 0 &&
     faq.length > 0 && faq.every((f) => f.pergunta.trim() && f.resposta.trim())
 
   async function publicar() {
@@ -136,7 +153,8 @@ export default function Treinamentos() {
       .from('treinamentos_matinal')
       .insert({
         filial: usuario.filial,
-        sala,
+        salas: salasSelecionadas,
+        data_treinamento: dataTreinamento,
         titulo: titulo.trim(),
         palestrante_nome: palestranteNome.trim(),
         palestrante_telefone: palestranteTelefone.trim(),
@@ -159,6 +177,7 @@ export default function Treinamentos() {
 
     setPublicado(true)
     setTitulo(''); setPalestranteNome(''); setPalestranteTelefone(''); setArquivo(null); setFaq([]); setConteudoExtraido('')
+    setSalasSelecionadas(['COLORADO']); setDataTreinamento(amanhaISO())
     await fetchTreinamentos()
     setTimeout(() => setPublicado(false), 3000)
   }
@@ -196,15 +215,25 @@ export default function Treinamentos() {
                   className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-primary" />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground">Sala</label>
+                <label className="text-xs font-semibold text-muted-foreground">Sala(s) — toque para marcar mais de uma</label>
                 <div className="grid grid-cols-2 gap-2">
-                  {SALAS.map((s) => (
-                    <button key={s} type="button" onClick={() => setSala(s)}
-                      className={`py-2 text-sm font-semibold rounded-md border-2 transition-colors ${sala === s ? 'bg-primary text-primary-foreground border-primary' : 'border-gray-200 hover:border-primary/40'}`}>
-                      {SALA_TML_LABEL[s]}
-                    </button>
-                  ))}
+                  {SALAS.map((s) => {
+                    const marcada = salasSelecionadas.includes(s)
+                    return (
+                      <button key={s} type="button" onClick={() => alternarSala(s)}
+                        className={`py-2 text-sm font-semibold rounded-md border-2 transition-colors ${marcada ? 'bg-primary text-primary-foreground border-primary' : 'border-gray-200 hover:border-primary/40'}`}>
+                        {SALA_TML_LABEL[s]}
+                      </button>
+                    )
+                  })}
                 </div>
+                <p className="text-[11px] text-muted-foreground">Se marcar as duas, a FAQ vale pras duas salas.</p>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-muted-foreground">Data do treinamento</label>
+                <input type="date" value={dataTreinamento} onChange={(e) => setDataTreinamento(e.target.value)}
+                  className="w-full px-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-primary" />
+                <p className="text-[11px] text-muted-foreground">Só aparece no Timer da Matinal desse dia.</p>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground">Palestrante</label>
@@ -263,7 +292,7 @@ export default function Treinamentos() {
               <button onClick={publicar} disabled={!podePublicar || publicando}
                 className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
                 {publicando ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                Publicar para a matinal de amanhã
+                Publicar treinamento
               </button>
               {publicado && <span className="text-xs text-green-600 flex items-center gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> Publicado!</span>}
             </div>
@@ -281,17 +310,18 @@ export default function Treinamentos() {
             ) : (
               <table className="w-full text-sm">
                 <thead><tr className="border-b bg-muted/20 text-left text-xs text-muted-foreground">
-                  <th className="px-3 py-2 font-medium">Título</th><th className="px-3 py-2 font-medium">Sala</th>
-                  <th className="px-3 py-2 font-medium">Palestrante</th><th className="px-3 py-2 font-medium">Status</th><th className="px-3 py-2 font-medium">Criado em</th>
+                  <th className="px-3 py-2 font-medium">Título</th><th className="px-3 py-2 font-medium">Sala(s)</th>
+                  <th className="px-3 py-2 font-medium">Data</th>
+                  <th className="px-3 py-2 font-medium">Palestrante</th><th className="px-3 py-2 font-medium">Status</th>
                 </tr></thead>
                 <tbody>
                   {treinamentos.map((t) => (
                     <tr key={t.id} className="border-b last:border-0 hover:bg-muted/10">
                       <td className="px-3 py-2 font-medium">{t.titulo}</td>
-                      <td className="px-3 py-2">{SALA_TML_LABEL[t.sala]}</td>
+                      <td className="px-3 py-2">{(t.salas ?? []).map((s) => SALA_TML_LABEL[s]).join(', ') || '—'}</td>
+                      <td className="px-3 py-2">{formatarDataBR(t.data_treinamento)}</td>
                       <td className="px-3 py-2">{t.palestrante_nome}</td>
                       <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded-full text-xs bg-green-50 text-green-700">Publicado</span></td>
-                      <td className="px-3 py-2 text-muted-foreground">{formatarDataBR(t.created_at)}</td>
                     </tr>
                   ))}
                 </tbody>
