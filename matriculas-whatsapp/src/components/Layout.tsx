@@ -53,6 +53,7 @@ const distribuicaoItems = [
   { permKey: 'distribuicao', to: '/distribuicao/tml/parametros', label: 'Parâmetros TML', icon: SlidersHorizontal },
   { permKey: 'distribuicao', to: '/matinal-tml', label: 'Timer da Matinal', icon: Clock },
   { permKey: 'distribuicao', to: '/distribuicao/treinamentos', label: 'Treinamentos', icon: GraduationCap },
+  { permKey: 'distribuicao', to: '/distribuicao/fechamento-dia', label: 'Fechamento do Dia', icon: BarChart2 },
   { permKey: 'distribuicao', to: '/distribuicao/dto',          label: 'DTO Distribuição',     icon: ShieldCheck },
   { permKey: 'distribuicao', to: '/distribuicao/jornada-rota', label: 'Jornada e Tempo em Rota', icon: Route },
   { permKey: 'distribuicao', to: '/distribuicao/conferencia', label: 'Conferência Digital', icon: ClipboardCheck },
