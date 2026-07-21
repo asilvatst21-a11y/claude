@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 import { buscarJornadaDoDia, SALA_JORNADA_PARA_TML, type SalaJornada } from './jornada'
 import type { SalaTML } from './tml'
-import { atrasoMinutos, saidaInvalida } from './tml'
+import { REGRAS_TML, horarioParaMinutos } from './tml'
 
 export type KpiFechamento = 'devolucao_pdv' | 'jornada_liquida' | 'aderencia_raio' | 'tml' | 'rating' | 'iv_deslocamento'
 export type SalaFechamento = SalaTML | 'CDD'
@@ -10,7 +10,7 @@ export const KPIS_FECHAMENTO: { key: KpiFechamento; label: string; unidade: 'per
   { key: 'devolucao_pdv', label: 'Devolução PDV', unidade: 'percentual', automatico: false },
   { key: 'jornada_liquida', label: 'Jornada Líquida', unidade: 'percentual', automatico: false },
   { key: 'aderencia_raio', label: 'Aderência ao Raio', unidade: 'percentual', automatico: true },
-  { key: 'tml', label: 'TML (pior caso do dia)', unidade: 'minutos', automatico: true },
+  { key: 'tml', label: 'TML (média de saída da sala)', unidade: 'minutos', automatico: true },
   { key: 'rating', label: 'Rating', unidade: 'nota', automatico: false },
   { key: 'iv_deslocamento', label: 'IV — Tempo de Deslocamento', unidade: 'minutos', automatico: true },
 ]
@@ -52,32 +52,26 @@ async function calcularAderenciaRaio(filial: string, data: string): Promise<Reco
   }
 }
 
-export interface ResultadoTmlSala { valor: number | null; motorista: string | null }
-
-// ── Cálculo automático: TML — não é a média da sala, e sim o PIOR caso do dia
-// (o motorista que saiu mais tarde), contra a mesma meta de 30min usada na
-// análise de Carta de Controle TML (REGRAS_TML/atrasoMinutos). Quem "bate a
-// meta" na análise 30min é a régua toda da sala — o pior motorista do dia é
-// o que decide se a sala bateu ou não. ──────────────────────────────────────
-async function calcularTml(filial: string, data: string): Promise<Record<SalaTML, ResultadoTmlSala>> {
+// ── Cálculo automático: TML — média de saída da sala, exatamente como a tela
+// Distribuição › Análise TML calcula (tempoSaidaMinutos = minutos entre o
+// início da matinal da sala e a saída real; exclui resultado='invalido').
+// Meta = tolerância da sala (REGRAS_TML.toleranciaMin, hoje 30min). ─────────
+async function calcularTml(filial: string, data: string): Promise<Record<SalaTML, number | null>> {
   const { data: historico } = await supabase
     .from('historico_tml')
-    .select('sala, horario_saida, nome, matricula')
+    .select('sala, horario_saida, resultado')
     .eq('filial', filial)
     .eq('data_saida', data)
-  const porSala: Record<SalaTML, { atraso: number; nome: string | null; matricula: number | null }[]> = { COLORADO: [], 'SUB-FURIA': [] }
+  const porSala: Record<SalaTML, number[]> = { COLORADO: [], 'SUB-FURIA': [] }
   for (const h of historico ?? []) {
     if (!h.sala || (h.sala !== 'COLORADO' && h.sala !== 'SUB-FURIA') || !h.horario_saida) continue
+    if (h.resultado === 'invalido') continue
     const sala = h.sala as SalaTML
-    if (saidaInvalida(sala, h.horario_saida)) continue
-    porSala[sala].push({ atraso: atrasoMinutos(sala, h.horario_saida), nome: h.nome ?? null, matricula: h.matricula ?? null })
+    const tempoSaida = horarioParaMinutos(h.horario_saida) - horarioParaMinutos(REGRAS_TML[sala].matinal)
+    porSala[sala].push(tempoSaida)
   }
-  const pior = (arr: { atraso: number; nome: string | null; matricula: number | null }[]): ResultadoTmlSala => {
-    if (arr.length === 0) return { valor: null, motorista: null }
-    const max = arr.reduce((a, b) => (b.atraso > a.atraso ? b : a))
-    return { valor: max.atraso, motorista: max.nome ?? (max.matricula != null ? `Matrícula ${max.matricula}` : null) }
-  }
-  return { COLORADO: pior(porSala.COLORADO), 'SUB-FURIA': pior(porSala['SUB-FURIA']) }
+  const media = (arr: number[]) => (arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null)
+  return { COLORADO: media(porSala.COLORADO), 'SUB-FURIA': media(porSala['SUB-FURIA']) }
 }
 
 // ── Cálculo automático: IV — Tempo de Deslocamento (checklist_tml já traz o
@@ -109,7 +103,7 @@ export async function recalcularAutomaticos(filial: string, data: string): Promi
     calcularDeslocamento(filial, data),
   ])
 
-  const linhas: { filial: string; sala: SalaFechamento; data: string; kpi: KpiFechamento; valor: number | null; detalhe?: string | null; origem: 'automatico' }[] = []
+  const linhas: { filial: string; sala: SalaFechamento; data: string; kpi: KpiFechamento; valor: number | null; origem: 'automatico' }[] = []
   const combinar = (kpi: KpiFechamento, porSala: Record<SalaTML, number | null>) => {
     linhas.push({ filial, sala: 'COLORADO', data, kpi, valor: porSala.COLORADO, origem: 'automatico' })
     linhas.push({ filial, sala: 'SUB-FURIA', data, kpi, valor: porSala['SUB-FURIA'], origem: 'automatico' })
@@ -118,21 +112,7 @@ export async function recalcularAutomaticos(filial: string, data: string): Promi
   }
   combinar('aderencia_raio', aderencia)
   combinar('iv_deslocamento', deslocamento)
-
-  // TML: pior caso por sala (não média) + o nome de quem puxou o atraso. O
-  // CDD do dia é o pior entre as duas salas, não a média dos dois piores.
-  linhas.push({ filial, sala: 'COLORADO', data, kpi: 'tml', valor: tml.COLORADO.valor, detalhe: tml.COLORADO.motorista, origem: 'automatico' })
-  linhas.push({ filial, sala: 'SUB-FURIA', data, kpi: 'tml', valor: tml['SUB-FURIA'].valor, detalhe: tml['SUB-FURIA'].motorista, origem: 'automatico' })
-  const piorCdd = [
-    { ...tml.COLORADO, sala: 'Colorado' },
-    { ...tml['SUB-FURIA'], sala: 'Sub-Fúria' },
-  ].filter((r) => r.valor != null).sort((a, b) => (b.valor as number) - (a.valor as number))[0]
-  linhas.push({
-    filial, sala: 'CDD', data, kpi: 'tml',
-    valor: piorCdd?.valor ?? null,
-    detalhe: piorCdd ? `${piorCdd.motorista ?? '—'} (${piorCdd.sala})` : null,
-    origem: 'automatico',
-  })
+  combinar('tml', tml)
 
   await supabase.from('fechamento_dia_valores').upsert(linhas, { onConflict: 'filial,sala,data,kpi' })
 }

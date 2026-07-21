@@ -40,7 +40,6 @@ export default function FechamentoDia() {
 
   const [parametros, setParametros] = useState<ParametroFechamento[]>([])
   const [valores, setValores] = useState<Record<string, Record<string, number | null>>>({}) // `${sala}|${dataDia}` -> {kpi: valor}
-  const [detalhes, setDetalhes] = useState<Record<string, Record<string, string | null>>>({}) // idem, pro motorista do pior TML
   const [acumMes, setAcumMes] = useState<Record<string, Record<string, number | null>>>({})
   const [loading, setLoading] = useState(true)
   const [recalculando, setRecalculando] = useState(false)
@@ -73,16 +72,12 @@ export default function FechamentoDia() {
     ])
     setParametros(params)
     const mapa: Record<string, Record<string, number | null>> = {}
-    const mapaDetalhe: Record<string, Record<string, string | null>> = {}
     for (const v of valoresResp.semana) {
       const chave = `${v.sala}|${v.data}`
       mapa[chave] ??= {}
       mapa[chave][v.kpi] = v.valor
-      mapaDetalhe[chave] ??= {}
-      mapaDetalhe[chave][v.kpi] = v.detalhe ?? null
     }
     setValores(mapa)
-    setDetalhes(mapaDetalhe)
     setAcumMes(valoresResp.acumMes as any)
     setLoading(false)
   }, [usuario, data])
@@ -380,12 +375,12 @@ export default function FechamentoDia() {
             <div className="flex items-center justify-center py-10 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
           ) : (
             <>
-              <CardFechamento sala={salaAtiva} dias={dias} valores={valores} acumMes={acumMes} data={data} detalhes={detalhes} />
+              <CardFechamento sala={salaAtiva} dias={dias} valores={valores} acumMes={acumMes} data={data} />
               {/* Templates ocultos usados pelo html2canvas para gerar as imagens finais */}
               <div className="absolute -left-[9999px] top-0">
-                <div ref={refColorado}><CardFechamento sala="COLORADO" dias={dias} valores={valores} acumMes={acumMes} data={data} detalhes={detalhes} /></div>
-                <div ref={refSubFuria}><CardFechamento sala="SUB-FURIA" dias={dias} valores={valores} acumMes={acumMes} data={data} detalhes={detalhes} /></div>
-                <div ref={refCdd}><CardFechamento sala="CDD" dias={dias} valores={valores} acumMes={acumMes} data={data} detalhes={detalhes} /></div>
+                <div ref={refColorado}><CardFechamento sala="COLORADO" dias={dias} valores={valores} acumMes={acumMes} data={data} /></div>
+                <div ref={refSubFuria}><CardFechamento sala="SUB-FURIA" dias={dias} valores={valores} acumMes={acumMes} data={data} /></div>
+                <div ref={refCdd}><CardFechamento sala="CDD" dias={dias} valores={valores} acumMes={acumMes} data={data} /></div>
               </div>
             </>
           )}
@@ -463,14 +458,13 @@ export default function FechamentoDia() {
 }
 
 function CardFechamento({
-  sala, dias, valores, acumMes, data, detalhes,
+  sala, dias, valores, acumMes, data,
 }: {
   sala: SalaFechamento
   dias: string[]
   valores: Record<string, Record<string, number | null>>
   acumMes: Record<string, Record<string, number | null>>
   data: string
-  detalhes?: Record<string, Record<string, string | null>>
 }) {
   const [parametros, setParametros] = useState<ParametroFechamento[]>([])
   const { usuario } = useAuth()
@@ -521,11 +515,6 @@ function CardFechamento({
           })}
         </tbody>
       </table>
-      {detalhes?.[`${sala}|${data}`]?.tml && (
-        <div style={{ padding: '8px 16px', fontSize: 10.5, color: '#5b6675', borderTop: '1px solid #eef1f4' }}>
-          ⏱️ Maior TML do dia: <strong>{detalhes[`${sala}|${data}`].tml}</strong>
-        </div>
-      )}
     </div>
   )
 }

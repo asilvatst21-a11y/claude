@@ -125,10 +125,9 @@ create policy "Acesso total fechamento-dia" on storage.objects
   for all using (bucket_id = 'fechamento-dia') with check (bucket_id = 'fechamento-dia');
 
 -- ── Semente de parâmetros — valores de referência do Quadro de Resultados,
--- editáveis depois pela tela. Nota: "TML" aqui é medido em MINUTOS DE ATRASO
--- sobre o limite da sala (matinal + tolerância), não a duração absoluta — por
--- isso a meta é 0 (dentro do limite), diferente do "00:30" da planilha
--- original. Ajuste na tela de Parâmetros se preferir outro valor.
+-- editáveis depois pela tela. "TML" aqui é a média de minutos entre o início
+-- da matinal da sala e a saída real (mesmo cálculo da tela Análise TML) —
+-- meta 30min, a mesma tolerância de REGRAS_TML.
 insert into fechamento_dia_parametros (filial, kpi, meta, bench, gatilho, direcao)
 select f.nome, v.kpi, v.meta, v.bench, v.gatilho, v.direcao
 from filiais f
@@ -136,7 +135,7 @@ cross join (values
   ('devolucao_pdv',   0.031, 0.0235, null,  'menor_melhor'),
   ('jornada_liquida', 0.88,  null,   null,  'maior_melhor'),
   ('aderencia_raio',  0.95,  null,   null,  'maior_melhor'),
-  ('tml',             0,     15,     30,    'menor_melhor'),
+  ('tml',             30,    null,   null,  'menor_melhor'),
   ('rating',          4.91,  null,   null,  'maior_melhor'),
   ('iv_deslocamento', 5,     11,     null,  'menor_melhor')
 ) as v(kpi, meta, bench, gatilho, direcao)
