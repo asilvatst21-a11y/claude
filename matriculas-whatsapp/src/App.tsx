@@ -4,6 +4,7 @@ import Layout from './components/Layout'
 import Login from './pages/Login'
 import SolicitarExtra from './pages/SolicitarExtra'
 import MatinalTML from './pages/MatinalTML'
+import Treinamentos from './pages/Treinamentos'
 import Distribuicao from './pages/Distribuicao'
 import DistribuicaoTML from './pages/DistribuicaoTML'
 import DistribuicaoTMLSupervisores from './pages/DistribuicaoTMLSupervisores'
@@ -131,6 +132,7 @@ export default function App() {
             <Route path="/distribuicao/dto" element={<DtoDistribuicao />} />
             <Route path="/distribuicao/jornada-rota" element={<JornadaRota />} />
             <Route path="/distribuicao/conferencia" element={<DistribuicaoConferencia />} />
+            <Route path="/distribuicao/treinamentos" element={<Treinamentos />} />
             <Route path="/frota" element={<Frota />} />
             <Route path="/frota/iv" element={<FrotaIV />} />
             <Route path="/frota/placas" element={<FrotaPlacas />} />

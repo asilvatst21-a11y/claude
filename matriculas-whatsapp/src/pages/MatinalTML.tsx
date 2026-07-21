@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Play, Square, CheckCircle2, AlertTriangle, ArrowLeft, Loader2, Building2, Clock } from 'lucide-react'
+import { Play, Square, CheckCircle2, AlertTriangle, ArrowLeft, Loader2, Building2, Clock, GraduationCap } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import { enviarMensagemWhatsApp } from '../lib/zapi'
 import { SALA_TML_LABEL, type SalaTML, type MetaMatinalParam, metaMatinalMinutos } from '../lib/tml'
 
 const SALAS: SalaTML[] = ['COLORADO', 'SUB-FURIA']
@@ -18,9 +19,12 @@ interface MatinalRow {
   motivo_estouro: string | null
   iniciado_por: string | null
   finalizado_por: string | null
+  treinamento_id: string | null
 }
 
-const CAMPOS_MATINAL = 'id, horario_inicio, horario_final, meta_minutos, duracao_minutos, estouro_duracao, motivo_estouro, iniciado_por, finalizado_por'
+interface TreinamentoOpcao { id: string; titulo: string; palestrante_nome: string }
+
+const CAMPOS_MATINAL = 'id, horario_inicio, horario_final, meta_minutos, duracao_minutos, estouro_duracao, motivo_estouro, iniciado_por, finalizado_por, treinamento_id'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -50,6 +54,10 @@ export default function MatinalTML() {
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
   const [aviso, setAviso] = useState('')
+  const [treinamentosDisponiveis, setTreinamentosDisponiveis] = useState<TreinamentoOpcao[]>([])
+  const [treinamentoId, setTreinamentoId] = useState('')
+  const [enviandoAvisos, setEnviandoAvisos] = useState(false)
+  const [avisosEnviados, setAvisosEnviados] = useState<number | null>(null)
 
   useEffect(() => {
     supabase.from('filiais').select('nome').order('nome').then(({ data }) => {
@@ -72,7 +80,7 @@ export default function MatinalTML() {
     }
     setErro('')
     setSalvando(true)
-    const [{ data: row }, { data: params }] = await Promise.all([
+    const [{ data: row }, { data: params }, { data: treinos }] = await Promise.all([
       supabase
         .from('matinal_tml')
         .select(CAMPOS_MATINAL)
@@ -84,8 +92,16 @@ export default function MatinalTML() {
         .from('tml_meta_matinal')
         .select('dia_semana, meta_minutos, vigente_a_partir')
         .eq('filial', filial),
+      supabase
+        .from('treinamentos_matinal')
+        .select('id, titulo, palestrante_nome')
+        .eq('filial', filial)
+        .eq('sala', sala)
+        .eq('status', 'publicado')
+        .order('created_at', { ascending: false }),
     ])
     setMetaParams(params ?? [])
+    setTreinamentosDisponiveis((treinos ?? []) as TreinamentoOpcao[])
     setSalvando(false)
     setRegistro(row ?? null)
     if (!row) setTela('pronto')
@@ -97,7 +113,41 @@ export default function MatinalTML() {
     setRegistro(null)
     setErro('')
     setAviso('')
+    setTreinamentoId('')
+    setAvisosEnviados(null)
     setTela('selecionar')
+  }
+
+  // Manda o aviso individual do treinamento pra cada telefone cadastrado na
+  // sala (motoristas_sala_tml.telefone) — dispara depois da matinal já
+  // finalizada, sem travar a tela de conclusão.
+  async function enviarAvisosTreinamento(matinalId: number, treino: TreinamentoOpcao): Promise<void> {
+    setEnviandoAvisos(true)
+    const { data: colaboradores } = await supabase
+      .from('motoristas_sala_tml')
+      .select('nome, telefone')
+      .eq('filial', filial)
+      .eq('sala', sala)
+      .not('telefone', 'is', null)
+    let enviados = 0
+    for (const c of colaboradores ?? []) {
+      const telefone = (c.telefone ?? '').trim()
+      if (!telefone) continue
+      const primeiro = (c.nome ?? '').trim().split(/\s+/)[0] ?? ''
+      const mensagem =
+        `Bom dia${primeiro ? `, ${primeiro}` : ''}! Hoje na matinal vimos *${treino.titulo}*. ` +
+        `Ficou alguma dúvida? Pode perguntar por aqui — escrevendo ou mandando um áudio.`
+      const { sucesso } = await enviarMensagemWhatsApp(telefone, mensagem)
+      if (sucesso) {
+        enviados++
+        await supabase.from('matinal_treinamento_avisos').insert({
+          treinamento_id: treino.id, filial, sala, colaborador_telefone: telefone, colaborador_nome: c.nome ?? null,
+        })
+      }
+    }
+    await supabase.from('matinal_tml').update({ treinamento_avisado_em: new Date().toISOString() }).eq('id', matinalId)
+    setAvisosEnviados(enviados)
+    setEnviandoAvisos(false)
   }
 
   // Trava: a matinal só pode ser iniciada uma única vez por dia/sala. Usa
@@ -154,6 +204,7 @@ export default function MatinalTML() {
         estouro_duracao: estourou,
         motivo_estouro: estourou ? motivoEstouro.trim() : null,
         finalizado_por: nome.trim() || null,
+        treinamento_id: treinamentoId || null,
       })
       .eq('id', registro.id)
       .is('horario_final', null)
@@ -169,6 +220,8 @@ export default function MatinalTML() {
     }
     setRegistro(row)
     setTela('concluida')
+    const treino = treinamentosDisponiveis.find((t) => t.id === treinamentoId)
+    if (treino) enviarAvisosTreinamento(row.id, treino)
   }
 
   // ─── Tela: selecionar filial/sala/nome ─────────────────────────────────
@@ -296,6 +349,26 @@ export default function MatinalTML() {
         </main>
 
         <div className="px-5 pb-10 space-y-3">
+          {treinamentosDisponiveis.length > 0 && (
+            <div className="bg-white/10 rounded-2xl p-4 space-y-2">
+              <label className="flex items-center gap-1.5 text-sm font-semibold text-white">
+                <GraduationCap size={16} /> Matinal com treinamento?
+              </label>
+              <select
+                value={treinamentoId}
+                onChange={(e) => setTreinamentoId(e.target.value)}
+                className="w-full px-3 py-2.5 bg-white/10 border border-white/20 rounded-xl text-sm text-white focus:outline-none focus:ring-2 focus:ring-accent-400 [&>option]:text-gray-900"
+              >
+                <option value="">Nenhum</option>
+                {treinamentosDisponiveis.map((t) => (
+                  <option key={t.id} value={t.id}>{t.titulo} · {t.palestrante_nome}</option>
+                ))}
+              </select>
+              {treinamentoId && (
+                <p className="text-white/50 text-xs">Ao finalizar, o bot avisa cada colaborador cadastrado nesta sala pelo WhatsApp.</p>
+              )}
+            </div>
+          )}
           {erro && <p className="text-red-400 text-sm text-center">{erro}</p>}
           <button
             onClick={pedirConfirmacaoFim}
@@ -421,6 +494,15 @@ export default function MatinalTML() {
             <div className="w-full text-left text-amber-300 text-sm bg-amber-500/10 border border-amber-500/30 rounded-xl px-3 py-2 space-y-1">
               <p className="font-semibold">A matinal durou mais que a meta do dia.</p>
               {registro.motivo_estouro && <p className="text-amber-200/90">Motivo: {registro.motivo_estouro}</p>}
+            </div>
+          )}
+          {registro.treinamento_id && (
+            <div className="w-full text-left text-sm bg-white/10 rounded-xl px-3 py-2 flex items-center gap-2">
+              {enviandoAvisos ? (
+                <><Loader2 size={16} className="animate-spin text-white/60" /> <span className="text-white/60">Avisando os colaboradores da sala…</span></>
+              ) : avisosEnviados != null ? (
+                <><GraduationCap size={16} className="text-accent-400" /> <span className="text-white/70">Aviso do treinamento enviado a {avisosEnviados} colaborador{avisosEnviados === 1 ? '' : 'es'}.</span></>
+              ) : null}
             </div>
           )}
           <p className="text-white/40 text-xs">Essa matinal já foi concluída e não pode ser reaberta.</p>

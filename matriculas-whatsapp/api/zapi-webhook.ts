@@ -1116,6 +1116,14 @@ function ultimosDigitos(s: string, n = 8): string {
   return String(s ?? '').replace(/\D/g, '').slice(-n)
 }
 
+// Números digitados manualmente em cadastro (ex.: telefone do palestrante) não
+// vêm com o "55" na frente, ao contrário do telefone que chega no payload do
+// próprio Z-API (já no formato certo). Sem isso o envio falha silenciosamente.
+function normalizarTelefoneBR(numero: string): string {
+  const limpo = String(numero ?? '').replace(/\D/g, '')
+  return limpo.startsWith('55') ? limpo : `55${limpo}`
+}
+
 async function registrarJustificativaTml(alertaId: string, motivo: string, remetente: string): Promise<{ ok: boolean; action: string }> {
   const { data: alerta } = await supabase
     .from('alertas_tml')
@@ -2218,6 +2226,228 @@ async function tratarFrotaLeve(
   return { ok: true, action: 'frl-nao-aplicavel' }
 }
 
+// ── Dúvidas da Matinal (conversa individual disparada após o treinamento) ────
+// Fluxo: ao finalizar a matinal com um treinamento marcado, o bot avisa cada
+// colaborador da sala (ver MatinalTML.tsx, que grava em
+// matinal_treinamento_avisos). A próxima mensagem daquele telefone, no MESMO
+// DIA, é tratada como dúvida sobre o treinamento avisado: bate com a FAQ →
+// responde na hora; não bate → encaminha ao telefone do palestrante, e a
+// resposta dele volta ao colaborador (e vira FAQ pública do treinamento).
+
+const MATINAL_LEMBRETE_PALESTRANTE_MIN = 180  // ~3h sem resposta → lembrete ao palestrante
+const MATINAL_AVISO_ATRASO_MIN = 360          // + ~6h ainda sem resposta → avisa o colaborador
+
+interface AvisoMatinalAtivo { treinamento_id: string; colaborador_nome: string | null }
+
+// Encontra o aviso de treinamento mais recente enviado a este telefone HOJE.
+async function buscarAvisoAtivoMatinal(remetente: string): Promise<AvisoMatinalAtivo | null> {
+  const digitos = ultimosDigitos(remetente)
+  if (!digitos) return null
+  const desde = new Date(Date.now() - 24 * 60 * 60_000).toISOString()
+  const { data } = await supabase
+    .from('matinal_treinamento_avisos')
+    .select('treinamento_id, colaborador_telefone, colaborador_nome, enviado_em')
+    .gte('enviado_em', desde)
+    .order('enviado_em', { ascending: false })
+    .limit(300)
+  const hoje = new Date().toISOString().slice(0, 10)
+  const aviso = (data ?? []).find((a: any) =>
+    ultimosDigitos(a.colaborador_telefone) === digitos && String(a.enviado_em).slice(0, 10) === hoje)
+  return aviso ? { treinamento_id: aviso.treinamento_id, colaborador_nome: aviso.colaborador_nome } : null
+}
+
+// Pergunta pra IA qual item da FAQ (se algum) responde a dúvida do colaborador.
+async function casarComFaqIA(pergunta: string, faqList: { pergunta: string; resposta: string }[]): Promise<number> {
+  if (!ANTHROPIC_API_KEY || faqList.length === 0) return -1
+  try {
+    const lista = faqList.map((f, i) => `${i}. ${f.pergunta}`).join('\n')
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 60,
+        system:
+          'Você recebe uma pergunta de um colaborador e uma lista numerada de perguntas de uma FAQ de treinamento. ' +
+          'Se alguma pergunta da FAQ responde à mesma dúvida (mesmo com palavras diferentes), retorne o número dela. ' +
+          'Se nenhuma responder com segurança, retorne -1. Responda só quando tiver certeza — na dúvida, retorne -1.',
+        messages: [{ role: 'user', content: `Pergunta do colaborador: "${pergunta}"\n\nFAQ:\n${lista}` }],
+        output_config: {
+          format: {
+            type: 'json_schema',
+            schema: { type: 'object', properties: { indice: { type: 'integer' } }, required: ['indice'], additionalProperties: false },
+          },
+        },
+      }),
+    })
+    if (!resp.ok) return -1
+    const data: any = await resp.json()
+    const bloco = (data.content ?? []).find((b: any) => b.type === 'text')
+    if (!bloco?.text) return -1
+    const indice = JSON.parse(bloco.text)?.indice
+    return (typeof indice === 'number' && indice >= 0 && indice < faqList.length) ? indice : -1
+  } catch (e) {
+    console.error('casarComFaqIA exception:', e)
+    return -1
+  }
+}
+
+// Mensagem individual do colaborador — só processa se houver aviso de
+// treinamento ativo hoje pra esse telefone; senão retorna null (não se aplica).
+async function tratarDuvidaMatinal(
+  body: any, remetente: string, senderName: string,
+): Promise<{ ok: boolean; action: string } | null> {
+  const aviso = await buscarAvisoAtivoMatinal(remetente)
+  if (!aviso) return null
+
+  let conteudo = extrairTexto(body).trim()
+  let porAudio = false
+  if (!conteudo && temAudioSemTexto(body)) {
+    const transcrito = await transcreverAudio(extrairAudioUrl(body))
+    if (!transcrito) {
+      await enviar(remetente, 'Recebi seu áudio, mas não consegui entender direito. Pode mandar de novo ou escrever em texto?')
+      return { ok: true, action: 'matinal-audio-falhou' }
+    }
+    conteudo = transcrito
+    porAudio = true
+  }
+  if (!conteudo) return { ok: true, action: 'matinal-sem-conteudo' }
+
+  const { data: treino } = await supabase
+    .from('treinamentos_matinal')
+    .select('id, titulo, filial, sala, palestrante_nome, palestrante_telefone')
+    .eq('id', aviso.treinamento_id)
+    .maybeSingle()
+  if (!treino) return { ok: true, action: 'matinal-treinamento-nao-encontrado' }
+
+  const { data: faqRows } = await supabase
+    .from('treinamento_faq_matinal')
+    .select('pergunta, resposta')
+    .eq('treinamento_id', treino.id)
+  const faqList = (faqRows ?? []) as { pergunta: string; resposta: string }[]
+
+  const nomeColab = aviso.colaborador_nome || senderName || 'Motorista'
+  const indice = await casarComFaqIA(conteudo, faqList)
+
+  if (indice >= 0) {
+    const resposta = faqList[indice].resposta
+    await supabase.from('duvidas_matinal').insert({
+      treinamento_id: treino.id, filial: treino.filial, sala: treino.sala,
+      colaborador_telefone: remetente, colaborador_nome: nomeColab,
+      pergunta: conteudo, pergunta_por_audio: porAudio,
+      palestrante_telefone: treino.palestrante_telefone,
+      resposta, status: 'respondida_auto', respondida_em: new Date().toISOString(),
+    })
+    await enviar(remetente, `✅ ${resposta}`)
+    return { ok: true, action: 'matinal-respondida-auto' }
+  }
+
+  const { data: duvida } = await supabase.from('duvidas_matinal').insert({
+    treinamento_id: treino.id, filial: treino.filial, sala: treino.sala,
+    colaborador_telefone: remetente, colaborador_nome: nomeColab,
+    pergunta: conteudo, pergunta_por_audio: porAudio,
+    palestrante_telefone: treino.palestrante_telefone,
+    status: 'aguardando_palestrante',
+  }).select('id').single()
+
+  await enviar(remetente,
+    `Boa pergunta! Não tenho certeza — vou perguntar pra *${treino.palestrante_nome}* e te aviso assim que ela responder.`)
+  if (treino.palestrante_telefone) {
+    await enviar(normalizarTelefoneBR(treino.palestrante_telefone),
+      `❓ Pergunta sobre *${treino.titulo}*, de ${nomeColab}:\n"${conteudo}"\n\nResponda esta mensagem.`)
+  }
+  return { ok: true, action: duvida ? 'matinal-encaminhada' : 'matinal-encaminhada-sem-registro' }
+}
+
+// Resposta do palestrante (mensagem individual dele) a uma dúvida pendente —
+// localizada pelo telefone de quem respondeu, entre as dúvidas aguardando.
+async function tratarRespostaPalestranteMatinal(
+  body: any, remetente: string,
+): Promise<{ ok: boolean; action: string } | null> {
+  const digitos = ultimosDigitos(remetente)
+  if (!digitos) return null
+
+  const { data: pendentes } = await supabase
+    .from('duvidas_matinal')
+    .select('id, treinamento_id, colaborador_telefone, colaborador_nome, pergunta, palestrante_telefone')
+    .eq('status', 'aguardando_palestrante')
+    .order('created_at', { ascending: false })
+    .limit(50)
+  const pend = (pendentes ?? []).find((p: any) => ultimosDigitos(p.palestrante_telefone) === digitos)
+  if (!pend) return null
+
+  let conteudo = extrairTexto(body).trim()
+  if (!conteudo && temAudioSemTexto(body)) {
+    const transcrito = await transcreverAudio(extrairAudioUrl(body))
+    if (!transcrito) {
+      await enviar(remetente, 'Recebi seu áudio, mas não consegui entender direito. Pode mandar de novo ou escrever em texto?')
+      return { ok: true, action: 'matinal-palestrante-audio-falhou' }
+    }
+    conteudo = transcrito
+  }
+  if (!conteudo) return { ok: true, action: 'matinal-palestrante-sem-conteudo' }
+
+  await supabase.from('duvidas_matinal').update({
+    resposta: conteudo, status: 'respondida_palestrante', respondida_em: new Date().toISOString(),
+  }).eq('id', pend.id)
+
+  const { data: treino } = await supabase
+    .from('treinamentos_matinal').select('titulo, palestrante_nome').eq('id', pend.treinamento_id).maybeSingle()
+
+  // Vira FAQ pública: a próxima pessoa com dúvida parecida já recebe resposta automática.
+  await supabase.from('treinamento_faq_matinal').insert({
+    treinamento_id: pend.treinamento_id, pergunta: pend.pergunta, resposta: conteudo, origem: 'palestrante',
+  })
+
+  await enviar(pend.colaborador_telefone,
+    `${treino?.palestrante_nome ?? 'O palestrante'} respondeu sua dúvida:\n"${conteudo}"`)
+  await enviar(remetente, `✅ Resposta enviada a ${pend.colaborador_nome ?? 'quem perguntou'}.`)
+  return { ok: true, action: 'matinal-respondida-palestrante' }
+}
+
+// Lembretes: cutuca o palestrante depois de ~3h sem resposta; se seguir sem
+// responder, avisa o colaborador que vai verificar pessoalmente (não fica
+// cutucando pra sempre). Roda oportunisticamente a cada mensagem individual
+// recebida, e também pode ser chamada por um cron externo (ver
+// api/matinal-duvidas-check.ts).
+export async function verificarLembretesMatinal(): Promise<number> {
+  let acoes = 0
+  const agora = Date.now()
+
+  const { data: semLembrete } = await supabase
+    .from('duvidas_matinal')
+    .select('id, colaborador_nome, pergunta, palestrante_telefone, created_at')
+    .eq('status', 'aguardando_palestrante')
+    .is('lembrete_enviado_em', null)
+    .lte('created_at', new Date(agora - MATINAL_LEMBRETE_PALESTRANTE_MIN * 60_000).toISOString())
+    .limit(50)
+  for (const d of semLembrete ?? []) {
+    if (d.palestrante_telefone) {
+      await enviar(normalizarTelefoneBR(d.palestrante_telefone),
+        `⏰ Lembrete: ainda aguardando sua resposta sobre a pergunta de ${d.colaborador_nome ?? 'um colaborador'}:\n"${d.pergunta}"`)
+    }
+    await supabase.from('duvidas_matinal').update({ lembrete_enviado_em: new Date().toISOString() }).eq('id', d.id)
+    acoes++
+  }
+
+  const { data: semResposta } = await supabase
+    .from('duvidas_matinal')
+    .select('id, colaborador_telefone')
+    .eq('status', 'aguardando_palestrante')
+    .not('lembrete_enviado_em', 'is', null)
+    .is('aviso_atraso_enviado_em', null)
+    .lte('lembrete_enviado_em', new Date(agora - MATINAL_AVISO_ATRASO_MIN * 60_000).toISOString())
+    .limit(50)
+  for (const d of semResposta ?? []) {
+    await enviar(d.colaborador_telefone,
+      'Ainda não recebi resposta do palestrante sobre sua dúvida. Vou verificar pessoalmente e te retorno assim que souber.')
+    await supabase.from('duvidas_matinal').update({ aviso_atraso_enviado_em: new Date().toISOString() }).eq('id', d.id)
+    acoes++
+  }
+
+  return acoes
+}
+
 // ── Handler ──────────────────────────────────────────────────────────────────────
 
 export default async function handler(req: any, res: any) {
@@ -2275,6 +2505,19 @@ export default async function handler(req: any, res: any) {
     // conversa aberta de motorista (TML perdido); se não tiver, cai no fluxo
     // do supervisor (botão/texto do alerta) em tratarTml.
     if (!isGroup) {
+      await verificarLembretesMatinal().catch((e) => console.error('lembretes matinal:', e))
+
+      const rPalestranteMatinal = await tratarRespostaPalestranteMatinal(body, grupoId)
+      if (rPalestranteMatinal) {
+        res.status(200).json(rPalestranteMatinal)
+        return
+      }
+      const rDuvidaMatinal = await tratarDuvidaMatinal(body, grupoId, senderName)
+      if (rDuvidaMatinal) {
+        res.status(200).json(rDuvidaMatinal)
+        return
+      }
+
       const rConv = await tratarConversaMotorista(body, grupoId)
       if (rConv) {
         res.status(200).json(rConv)
