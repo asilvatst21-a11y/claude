@@ -2292,6 +2292,22 @@ async function casarComFaqIA(pergunta: string, faqList: { pergunta: string; resp
   }
 }
 
+// Respostas tipo "não tenho dúvida" não devem virar pergunta encaminhada ao
+// palestrante — só confirma o entendimento. Compara a mensagem INTEIRA (não
+// um trecho) depois de normalizada, pra não disparar em cima de perguntas
+// reais que começam com "não" (ex.: "não entendi a parte de amarração").
+const FRASES_SEM_DUVIDA = new Set([
+  'never', 'no', 'nao', 'n', 'nenhuma', 'nenhum', 'nada',
+  'nao tenho duvida', 'nao tenho duvidas', 'nao tenho pergunta', 'nao tenho perguntas',
+  'sem duvida', 'sem duvidas', 'sem pergunta', 'sem perguntas',
+  'nenhuma duvida', 'nenhuma duvidas', 'nenhuma pergunta', 'nenhuma perguntas',
+  'tudo certo', 'tudo bem', 'tudo ok', 'ok', 'entendi', 'entendi tudo', 'ja entendi',
+])
+
+function mensagemIndicaSemDuvida(conteudo: string): boolean {
+  return FRASES_SEM_DUVIDA.has(norm(conteudo).replace(/[.!?,;]+$/g, ''))
+}
+
 // Núcleo comum: dado um treinamento já identificado (por aviso do dia OU por
 // pré-seleção de tema), tenta responder pela FAQ; senão encaminha ao
 // palestrante. Usado tanto por tratarDuvidaMatinal quanto por
@@ -2300,6 +2316,11 @@ async function processarDuvidaSobreTreinamento(
   treinamentoId: string, filial: string, sala: string,
   remetente: string, nomeColab: string, conteudo: string, porAudio: boolean,
 ): Promise<{ ok: boolean; action: string }> {
+  if (mensagemIndicaSemDuvida(conteudo)) {
+    await enviar(remetente, 'Que bom que entendeu o treinamento! Caso tenha dúvidas, é só me chamar por aqui. 👍')
+    return { ok: true, action: 'matinal-sem-duvida' }
+  }
+
   const { data: treino } = await supabase
     .from('treinamentos_matinal')
     .select('id, titulo, palestrante_nome, palestrante_telefone')
