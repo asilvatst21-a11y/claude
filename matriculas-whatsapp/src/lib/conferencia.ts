@@ -15,16 +15,23 @@ interface PaleteInfo {
   rotulo: string
 }
 
+// Rótulo de exibição a partir de porta+ordem — usado tanto no import quanto
+// (mais importante) ao LER de volta em buscarBaiasDoMapa, ignorando o texto
+// gravado no banco. O rótulo salvo em conferencia_baias.rotulo é só um
+// resquício de imports antigos; se essa função mudar o texto, baias já
+// importadas antes não ficariam atualizadas sem reimportar o relatório.
+export function rotuloBaia(porta: PortaConf, ordem: number | null): string {
+  const nomePorta = porta === 'M' ? 'Motorista' : porta === 'A' ? 'Ajudante' : 'Avulsos'
+  return porta === 'Z' || ordem == null ? nomePorta : `${nomePorta} · Baia ${String(ordem).padStart(2, '0')}`
+}
+
 export function parsePalete(palete: string): PaleteInfo {
   if (/nao_pallet/i.test(palete)) return { porta: 'Z', ordem: null, rotulo: 'Itens avulsos' }
   const partes = palete.split('_')
   const porta = (partes[1] === 'A' ? 'A' : partes[1] === 'M' ? 'M' : 'Z') as PortaConf
   const ordem = Number(partes[2])
-  const nomePorta = porta === 'M' ? 'Motorista' : porta === 'A' ? 'Ajudante' : 'Avulsos'
-  const rotulo = porta === 'Z' || isNaN(ordem)
-    ? nomePorta
-    : `${nomePorta} · Baia ${String(ordem).padStart(2, '0')}`
-  return { porta, ordem: isNaN(ordem) ? null : ordem, rotulo }
+  const ordemOuNull = isNaN(ordem) ? null : ordem
+  return { porta, ordem: ordemOuNull, rotulo: rotuloBaia(porta, ordemOuNull) }
 }
 
 // Ordena baias: porta Motorista, depois Ajudante, depois Avulsos; dentro de
@@ -162,7 +169,7 @@ export async function buscarBaiasDoMapa(filial: string, mapa: number, data: stri
 
   return baias
     .map((b) => ({
-      id: b.id, palete: b.palete, porta: b.porta as PortaConf, ordem: b.ordem, rotulo: b.rotulo,
+      id: b.id, palete: b.palete, porta: b.porta as PortaConf, ordem: b.ordem, rotulo: rotuloBaia(b.porta as PortaConf, b.ordem),
       totalItens: b.total_itens, totalCaixas: b.total_caixas,
       status: b.status as 'pendente' | 'conferida',
       iniciadaEm: b.iniciada_em, finalizadaEm: b.finalizada_em,
