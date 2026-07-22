@@ -2809,7 +2809,8 @@ const AURORA_TTL_MIN = 30
 interface AuroraSessao { id: string; telefone: string; estado: string; contexto: any; criado_em: string }
 
 async function buscarSessaoAurora(remetente: string): Promise<AuroraSessao | null> {
-  const { data } = await supabase.from('aurora_sessoes').select('*').eq('telefone', remetente).maybeSingle()
+  const { data, error } = await supabase.from('aurora_sessoes').select('*').eq('telefone', remetente).maybeSingle()
+  if (error) console.error('buscarSessaoAurora error:', error.message)
   if (!data) return null
   const expirada = Date.now() - new Date(data.criado_em).getTime() > AURORA_TTL_MIN * 60_000
   if (expirada) {
@@ -2819,15 +2820,23 @@ async function buscarSessaoAurora(remetente: string): Promise<AuroraSessao | nul
   return data as AuroraSessao
 }
 
-async function definirEstadoAurora(remetente: string, estado: string, contexto: any = null): Promise<void> {
-  await supabase.from('aurora_sessoes').upsert(
+// Retorna o erro (se houver) pra quem chama poder avisar o usuário — sem
+// isso, uma falha aqui (ex.: migração da tabela aurora_sessoes não rodada)
+// passava batido: o menu era enviado normalmente, mas a sessão nunca era
+// salva, e a próxima mensagem (o clique na categoria) não encontrava sessão
+// nenhuma pra retomar — silêncio total, sem log nenhum apontando o motivo.
+async function definirEstadoAurora(remetente: string, estado: string, contexto: any = null): Promise<{ error: string | null }> {
+  const { error } = await supabase.from('aurora_sessoes').upsert(
     { telefone: remetente, estado, contexto, criado_em: new Date().toISOString() },
     { onConflict: 'telefone' },
   )
+  if (error) console.error('definirEstadoAurora error:', error.message)
+  return { error: error?.message ?? null }
 }
 
 async function encerrarSessaoAurora(remetente: string): Promise<void> {
-  await supabase.from('aurora_sessoes').delete().eq('telefone', remetente)
+  const { error } = await supabase.from('aurora_sessoes').delete().eq('telefone', remetente)
+  if (error) console.error('encerrarSessaoAurora error:', error.message)
 }
 
 function ehSaudacaoAurora(texto: string): boolean {
@@ -2868,7 +2877,10 @@ const AURORA_SUBMENUS: Record<string, OpcaoZ[]> = {
 }
 
 async function mostrarMenuCategorias(remetente: string, nome: string | null): Promise<void> {
-  await definirEstadoAurora(remetente, 'menu')
+  const { error } = await definirEstadoAurora(remetente, 'menu')
+  if (error) {
+    await enviar(remetente, '⚠️ Tive um problema técnico aqui e posso esquecer sua escolha no próximo passo. Se isso acontecer, é só mandar "oi" de novo — e avisa o suporte.')
+  }
   await enviarOpcoes(
     remetente,
     `Oi${nome ? `, ${nome}` : ''}! Eu sou a *Aurora* 👋. Sobre qual assunto você quer falar?`,
@@ -2879,7 +2891,10 @@ async function mostrarMenuCategorias(remetente: string, nome: string | null): Pr
 async function mostrarSubmenuAurora(remetente: string, categoria: string): Promise<void> {
   const itens = AURORA_SUBMENUS[categoria]
   if (!itens) { await mostrarMenuCategorias(remetente, null); return }
-  await definirEstadoAurora(remetente, `submenu:${categoria}`)
+  const { error } = await definirEstadoAurora(remetente, `submenu:${categoria}`)
+  if (error) {
+    await enviar(remetente, '⚠️ Tive um problema técnico aqui e posso esquecer sua escolha no próximo passo. Se isso acontecer, é só mandar "oi" de novo — e avisa o suporte.')
+  }
   await enviarOpcoes(remetente, 'O que você precisa?', 'Opções', 'Escolher', itens)
 }
 
