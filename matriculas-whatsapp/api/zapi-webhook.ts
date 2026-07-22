@@ -1453,7 +1453,13 @@ async function tratarConversaMotorista(body: any, remetente: string): Promise<{ 
     texto = transcrito
     porAudio = true
   }
-  if (!texto) return { ok: true, action: 'motorista-sem-conteudo' }
+  if (!texto) {
+    // Clique de botão/lista de outro fluxo (ex.: menu da Aurora) não é
+    // resposta a essa conversa — devolve null em vez de reivindicar a
+    // mensagem e deixá-la sem resposta nenhuma.
+    if (extrairBotaoResposta(body)) return null
+    return { ok: true, action: 'motorista-sem-conteudo' }
+  }
 
   const primeiro = String(conversa.nome ?? '').trim().split(/\s+/)[0] ?? ''
   const nomeCap = primeiro ? primeiro.charAt(0).toUpperCase() + primeiro.slice(1).toLowerCase() : ''
@@ -2463,7 +2469,13 @@ async function tratarDuvidaMatinal(
     conteudo = transcrito
     porAudio = true
   }
-  if (!conteudo) return { ok: true, action: 'matinal-sem-conteudo' }
+  if (!conteudo) {
+    // Clique de botão/lista (ex.: menu da Aurora) não é resposta a "tirou
+    // dúvida do treinamento?" — devolve null pra outro fluxo tratar, em vez
+    // de reivindicar a mensagem e deixá-la sem resposta nenhuma.
+    if (extrairBotaoResposta(body)) return null
+    return { ok: true, action: 'matinal-sem-conteudo' }
+  }
 
   const nomeColab = aviso.colaborador_nome || senderName || 'Motorista'
   return await processarDuvidaSobreTreinamento(aviso.treinamento_id, aviso.filial, aviso.sala, remetente, nomeColab, conteudo, porAudio)
@@ -2704,7 +2716,13 @@ async function tratarRespostaPalestranteMatinal(
     }
     conteudo = transcrito
   }
-  if (!conteudo) return { ok: true, action: 'matinal-palestrante-sem-conteudo' }
+  if (!conteudo) {
+    // Clique de botão/lista de outro fluxo (ex.: menu da Aurora) não é
+    // resposta a essa pergunta pendente — devolve null em vez de
+    // reivindicar a mensagem e deixá-la sem resposta nenhuma.
+    if (extrairBotaoResposta(body)) return null
+    return { ok: true, action: 'matinal-palestrante-sem-conteudo' }
+  }
 
   await supabase.from('duvidas_matinal').update({
     resposta: conteudo, status: 'respondida_palestrante', respondida_em: new Date().toISOString(),
