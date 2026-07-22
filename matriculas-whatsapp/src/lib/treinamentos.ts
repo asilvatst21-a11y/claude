@@ -7,24 +7,39 @@ export interface TreinamentoParaAviso {
   titulo: string
 }
 
-// Manda o aviso individual do treinamento pra cada telefone cadastrado na
-// sala (motoristas_sala_tml.telefone), e mais uma mensagem única no grupo
-// da sala direcionando pra conversa particular com o bot. Reaproveitado
-// tanto pelo disparo automático (Timer da Matinal, ao finalizar) quanto pelo
-// botão de forçar disparo manual (tela Treinamentos), pros casos em que
-// ninguém finalizou a matinal pelo botão (ex.: auto-finalização por
-// reimport do checklist) e o aviso automático nunca saiu.
+// Mesma normalização usada em jornada.ts/Disparos.tsx pra casar matrícula
+// (número) entre cadastros que guardam ela como string (zeros à esquerda variam).
+function normalizarMatricula(s: string): string {
+  return s.trim().replace(/^0+/, '') || '0'
+}
+
+// Manda o aviso individual do treinamento pra cada motorista da sala, e mais
+// uma mensagem única no grupo da sala direcionando pra conversa particular
+// com o bot. Reaproveitado tanto pelo disparo automático (Timer da Matinal,
+// ao finalizar) quanto pelo botão de forçar disparo manual (tela
+// Treinamentos), pros casos em que ninguém finalizou a matinal pelo botão
+// (ex.: auto-finalização por reimport do checklist) e o aviso automático
+// nunca saiu.
+//
+// Telefone: prioriza motoristas_sala_tml.telefone, mas cai pro cadastro
+// central de Matrículas (Segurança) quando esse campo estiver vazio — a
+// maioria dos motoristas só tem o número lá, sem duplicar cadastro só pra
+// sala de Distribuição (mesmo fallback já usado em jornada.ts). Sem isso,
+// só quem tivesse telefone preenchido nas duas tabelas recebia o aviso.
 export async function enviarAvisosTreinamento(
   filial: string, sala: SalaTML, treino: TreinamentoParaAviso, matinalId?: number,
 ): Promise<{ enviados: number }> {
-  const [{ data: colaboradores }, { data: filialRow }] = await Promise.all([
-    supabase.from('motoristas_sala_tml').select('nome, telefone').eq('filial', filial).eq('sala', sala).not('telefone', 'is', null),
+  const [{ data: colaboradores }, { data: cadastroMatriculas }, { data: filialRow }] = await Promise.all([
+    supabase.from('motoristas_sala_tml').select('matricula, nome, telefone').eq('filial', filial).eq('sala', sala),
+    supabase.from('matriculas').select('numero, whatsapp').eq('filial', filial).eq('ativo', true),
     supabase.from('filiais').select('grupo_matinal_colorado_whatsapp, grupo_matinal_subfuria_whatsapp').eq('nome', filial).maybeSingle(),
   ])
+  const telefonePorNumeroCadastro = new Map((cadastroMatriculas ?? []).map((m) => [normalizarMatricula(m.numero), m.whatsapp]))
 
   let enviados = 0
   for (const c of colaboradores ?? []) {
-    const telefone = (c.telefone ?? '').trim()
+    const telefoneCadastro = c.matricula != null ? telefonePorNumeroCadastro.get(normalizarMatricula(String(c.matricula))) : null
+    const telefone = (c.telefone ?? telefoneCadastro ?? '').trim()
     if (!telefone) continue
     const primeiro = (c.nome ?? '').trim().split(/\s+/)[0] ?? ''
     const mensagem =
