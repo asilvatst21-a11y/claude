@@ -22,6 +22,10 @@ const GROQ_TRANSCRIBE_MODEL = process.env.GROQ_TRANSCRIBE_MODEL ?? 'whisper-larg
 
 const ZAPI_BASE = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}`
 
+// URL pública do app — usada pra montar os links de autoatendimento (ex.:
+// Consulta de Pendências, Variável do Armazém) mandados pela Aurora.
+const APP_BASE_URL = (process.env.APP_BASE_URL ?? process.env.VITE_APP_URL ?? '').replace(/\/$/, '')
+
 const CONFIRM_TTL_MIN = 60
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
@@ -2794,6 +2798,15 @@ function ehSaudacaoAurora(texto: string): boolean {
   return n === 'aurora' || n === 'menu' || /^(oi+|ola+|eae|e ai)(\s*,?\s*aurora)?[!.]*$/.test(n)
 }
 
+// Comandos globais — funcionam em qualquer passo da conversa com a Aurora,
+// não só no menu inicial.
+function ehTrocarAssuntoAurora(texto: string): boolean {
+  return /outro assunto|trocar( de)? assunto|voltar ao menu|mudar de assunto/.test(norm(texto))
+}
+function ehEncerrarAurora(texto: string): boolean {
+  return /^(encerrar|sair|finalizar|tchau)\b/.test(norm(texto))
+}
+
 const AURORA_CATEGORIAS: OpcaoZ[] = [
   { id: 'aurora_cat:entrega', title: '📦 Entrega' },
   { id: 'aurora_cat:seguranca', title: '🦺 Segurança' },
@@ -2838,11 +2851,30 @@ function extrairMapa(texto: string): number | null {
   return m ? Number(m[0]) : null
 }
 
-// "Ontem" no fuso de São Paulo, não do servidor (que roda em UTC).
+// "Hoje"/"ontem" no fuso de São Paulo, não do servidor (que roda em UTC).
+function hojeSPISO(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+}
 function ontemISO(): string {
-  const spISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
-  const [y, m, d] = spISO.split('-').map(Number)
+  const [y, m, d] = hojeSPISO().split('-').map(Number)
   return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
+}
+
+// Extrai uma data dd/mm[/aa[aa]] da mensagem, ou "hoje"/"ontem" por extenso.
+// Sem nenhuma data mencionada, quem chama decide o padrão (ontem, na consulta
+// de mapa). Ano de 2 dígitos assume 20xx.
+function extrairDataMencionada(texto: string): string | null {
+  const n = norm(texto)
+  if (/\bontem\b/.test(n)) return ontemISO()
+  if (/\bhoje\b/.test(n)) return hojeSPISO()
+  const m = texto.match(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/)
+  if (!m) return null
+  const dia = Number(m[1])
+  const mes = Number(m[2])
+  if (dia < 1 || dia > 31 || mes < 1 || mes > 12) return null
+  let ano = m[3] ? Number(m[3]) : Number(hojeSPISO().slice(0, 4))
+  if (ano < 100) ano += 2000
+  return `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`
 }
 
 // Mesmos KPIs já calculados no Fechamento do Dia (TML, IV-Deslocamento,
@@ -2864,6 +2896,10 @@ async function resultadosDoMapa(filial: string, mapa: number, data: string): Pro
     supabase.from('fechamento_dia_mapas_dia').select('bateu_jornada, entregas').eq('filial', filial).eq('mapa', mapa).eq('data', data).maybeSingle(),
   ])
 
+  if (!historico && !checklist && !bees && !escala && !devolucoes && !mapaDia) {
+    return `🔍 Não encontrei nenhum resultado pro mapa *${mapa}* em ${diaBR(data)}. Confira o número do mapa e a data.`
+  }
+
   const TML_LABEL: Record<string, string> = { no_prazo: '✅ No prazo', atrasado: '⚠️ Perdeu o TML', indefinido: '— Indefinido', invalido: '— Inválido' }
   const tml = historico
     ? `${TML_LABEL[historico.resultado] ?? '—'}${historico.horario_saida ? ` (saída ${historico.horario_saida})` : ''}`
@@ -2883,7 +2919,7 @@ async function resultadosDoMapa(filial: string, mapa: number, data: string): Pro
   const jornada = mapaDia?.bateu_jornada == null ? '— Sem dado' : mapaDia.bateu_jornada ? '✅ Bateu jornada' : '⚠️ Não bateu jornada'
 
   return [
-    `📋 *Resultados do mapa ${mapa} — ${data.split('-').reverse().join('/')}*`,
+    `📋 *Resultados do mapa ${mapa} — ${diaBR(data)}*`,
     `⏱️ TML: ${tml}`,
     `🚶 IV-Deslocamento: ${iv}`,
     `🎯 Aderência ao Raio: ${aderencia}`,
@@ -2901,7 +2937,7 @@ async function filialDoTelefoneOuPadrao(remetente: string): Promise<string> {
 
 async function iniciarFluxoResultadosMapa(remetente: string): Promise<void> {
   await definirEstadoAurora(remetente, 'aguardando_mapa')
-  await enviar(remetente, '🔢 Qual o *número do mapa*? (pode escrever ou mandar um áudio)')
+  await enviar(remetente, '🔢 Qual o *número do mapa*? Se quiser o resultado de um dia específico, inclua a data (ex.: *279088 20/07* — sem data, mostro o de ontem).')
 }
 
 // Data "yyyy-mm-dd" → "dd/mm/aa" (sem passar por Date, que erra o dia perto
@@ -2912,135 +2948,11 @@ function diaBR(iso: string | null): string {
   return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : iso
 }
 
-// ── Financeiro → Pendências (CPF-gated, mesma lógica de
-// src/lib/consultaPendencias.ts, duplicada aqui pq o webhook roda em Node
-// enquanto aquele lib é só de browser). Liga por matrícula Promax:
-// colaboradores.matricula_promax === ajudantes.codigo. ─────────────────────
-async function consultaPendenciasAtiva(): Promise<boolean> {
-  const { data } = await supabase.from('configuracoes').select('valor').eq('chave', 'consulta_pendencias_ativa').maybeSingle()
-  return data?.valor === 'true'
-}
-
-interface CandidatoPendenciaBot { colaboradorId: string; nome: string; matriculaPromax: string; filial: string | null }
-
-async function buscarCandidatosPendenciaPorCpf(digitos: string): Promise<CandidatoPendenciaBot[]> {
-  const { data } = await supabase
-    .from('colaboradores')
-    .select('id, nome, cpf, matricula_promax, funcao, status, filial')
-    .like('cpf', `${digitos}%`)
-  return (data ?? [])
-    .filter((c: any) => c.matricula_promax && /AJUDANTE|MOTORISTA/i.test(c.funcao ?? '') && (c.status ?? '').toUpperCase() !== 'DESLIGADO')
-    .map((c: any) => ({ colaboradorId: c.id, nome: c.nome, matriculaPromax: c.matricula_promax, filial: c.filial }))
-}
-
-const DIAS_JANELA_REPOSICAO_BOT = 60
-
-async function buscarPendenciasDoColaborador(candidato: CandidatoPendenciaBot): Promise<string> {
-  const codigo = Number(candidato.matriculaPromax)
-  const linhasItens: string[] = []
-  if (!Number.isNaN(codigo)) {
-    const { data } = await supabase
-      .from('ajudantes')
-      .select('codigo, vale_ajudantes ( vales ( numero_vale, data_rota, mapa, status_vale, vale_itens ( item, unidade, qtde_diferenca ) ) )')
-      .eq('codigo', codigo)
-    for (const aj of (data ?? []) as any[]) {
-      for (const va of aj.vale_ajudantes ?? []) {
-        const v = va.vales
-        if (!v) continue
-        for (const it of v.vale_itens ?? []) {
-          if (!it.qtde_diferenca) continue
-          linhasItens.push(`• ${it.item ?? '—'}: ${it.qtde_diferenca} ${it.unidade ?? ''} (${v.status_vale ?? 'aguardando'}${v.mapa ? `, mapa ${v.mapa}` : ''}, ${diaBR(v.data_rota)})`)
-        }
-      }
-    }
-  }
-
-  const linhasReposicoes: string[] = []
-  if (candidato.filial && !Number.isNaN(codigo)) {
-    const desde = new Date(Date.now() - DIAS_JANELA_REPOSICAO_BOT * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
-    const [{ data: reps }, { data: equipes }] = await Promise.all([
-      supabase.from('reposicoes').select('numero, mapa, tipo_reposicao, status, created_at').eq('filial', candidato.filial).in('status', ['pendente', 'validado', 'negado']).gte('created_at', desde),
-      supabase.from('mapa_equipe').select('data, mapa, ajudante1_matricula, ajudante2_matricula').eq('filial', candidato.filial).gte('data', desde),
-    ])
-    const equipePorChave = new Map<string, { m1: number | null; m2: number | null }>()
-    for (const e of equipes ?? []) {
-      equipePorChave.set(`${e.data}|${e.mapa}`, {
-        m1: e.ajudante1_matricula ? Number(e.ajudante1_matricula) : null,
-        m2: e.ajudante2_matricula ? Number(e.ajudante2_matricula) : null,
-      })
-    }
-    for (const r of reps ?? []) {
-      if (!r.mapa) continue
-      const dia = String(r.created_at).slice(0, 10)
-      const equipe = equipePorChave.get(`${dia}|${r.mapa}`)
-      if (!equipe || (equipe.m1 !== codigo && equipe.m2 !== codigo)) continue
-      linhasReposicoes.push(`• Nº ${r.numero} — ${r.tipo_reposicao ?? '—'} — *${r.status}* (mapa ${r.mapa}, ${diaBR(dia)})`)
-    }
-  }
-
-  if (linhasItens.length === 0 && linhasReposicoes.length === 0) {
-    return `✅ ${candidato.nome}, você não tem nenhuma pendência no momento.`
-  }
-  const partes = [`📋 *Pendências de ${candidato.nome}*`]
-  if (linhasItens.length > 0) partes.push('', '*Diferenças de vale:*', ...linhasItens.slice(0, 15))
-  if (linhasReposicoes.length > 0) partes.push('', '*Reposições:*', ...linhasReposicoes.slice(0, 15))
-  return partes.join('\n')
-}
-
-// ── Armazém → Variável/Pontuação (CPF-gated, mesma lógica de
-// src/lib/variavelArmazem.ts — competência 21→20, não mês calendário).
-// Aqui a busca não fixa a filial (o telefone de quem trabalha no armazém não
-// tem um cadastro próprio com telefone pra resolver a filial automaticamente,
-// diferente de motoristas_sala_tml) — filtra só pelo prefixo de CPF dentro
-// da tabela de pontuação inteira. ──────────────────────────────────────────
-function competenciaAtualBot(): { ini: string; fim: string; rotulo: string } {
-  const spISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
-  let [ano, mes, dia] = spISO.split('-').map(Number)
-  if (dia >= 21) { mes += 1; if (mes > 12) { mes = 1; ano += 1 } }
-  const anoIni = mes <= 1 ? ano - 1 : ano
-  const mesIni = mes <= 1 ? 12 : mes - 1
-  return {
-    ini: `${anoIni}-${String(mesIni).padStart(2, '0')}-21`,
-    fim: `${ano}-${String(mes).padStart(2, '0')}-20`,
-    rotulo: `${String(mes).padStart(2, '0')}/${ano}`,
-  }
-}
-
-interface CandidatoVariavelBot { cpf: string; nome: string }
-
-async function buscarCandidatosVariavelPorCpf(digitos: string, ini: string, fim: string): Promise<CandidatoVariavelBot[]> {
-  const { data } = await supabase
-    .from('variavel_pontuacao')
-    .select('nome_relatorio, cpf')
-    .like('cpf', `${digitos}%`)
-    .gte('data', ini).lte('data', fim)
-  const porCpf = new Map<string, string>()
-  for (const r of data ?? []) {
-    if (!r.cpf) continue
-    porCpf.set(r.cpf, r.nome_relatorio)
-  }
-  return [...porCpf.entries()].map(([cpf, nome]) => ({ cpf, nome }))
-}
-
-async function buscarResumoVariavelDoCpf(cpf: string, nome: string, ini: string, fim: string, rotulo: string): Promise<string> {
-  const { data } = await supabase
-    .from('variavel_pontuacao')
-    .select('data, total, valor_calculado')
-    .eq('cpf', cpf).gte('data', ini).lte('data', fim)
-    .order('data')
-  const dias = (data ?? []) as { data: string; total: number; valor_calculado: number }[]
-  if (dias.length === 0) return `Não encontrei lançamentos de *${nome}* na competência ${rotulo}.`
-  const pontuacaoTotal = dias.reduce((s, d) => s + Number(d.total), 0)
-  const valorTotal = dias.reduce((s, d) => s + Number(d.valor_calculado), 0)
-  const ultimo = dias[dias.length - 1]
-  const formatarBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-  return [
-    `💰 *Variável de ${nome} — competência ${rotulo}*`,
-    `📅 Dias lançados: ${dias.length}`,
-    `⭐ Pontuação total: ${pontuacaoTotal.toLocaleString('pt-BR')}`,
-    `💵 Valor acumulado: *${formatarBRL(valorTotal)}*`,
-    `🕐 Último lançamento: ${diaBR(ultimo.data)} (${Number(ultimo.total).toLocaleString('pt-BR')} pts, ${formatarBRL(Number(ultimo.valor_calculado))})`,
-  ].join('\n')
+// Financeiro (Pendências) e Armazém (Variável) não respondem valor nenhum
+// pelo bot — só mandam o link da tela já existente, que faz a identificação
+// por CPF e mostra os dados por lá.
+function linkAutoatendimento(caminho: string): string {
+  return APP_BASE_URL ? `${APP_BASE_URL}${caminho}` : caminho
 }
 
 async function tratarItemAurora(remetente: string, senderName: string, itemId: string): Promise<{ ok: boolean; action: string }> {
@@ -3054,19 +2966,14 @@ async function tratarItemAurora(remetente: string, senderName: string, itemId: s
     return r ?? { ok: true, action: 'aurora-duvida-erro' }
   }
   if (itemId === 'aurora_item:pendencias') {
-    if (!(await consultaPendenciasAtiva())) {
-      await encerrarSessaoAurora(remetente)
-      await enviar(remetente, 'A consulta de pendências ainda não está disponível por aqui. Fale com o financeiro.')
-      return { ok: true, action: 'aurora-pendencias-inativa' }
-    }
-    await definirEstadoAurora(remetente, 'aguardando_cpf_pendencias')
-    await enviar(remetente, '🔢 Pra consultar suas pendências, envie os *6 primeiros números do seu CPF*.')
-    return { ok: true, action: 'aurora-pede-cpf-pendencias' }
+    await encerrarSessaoAurora(remetente)
+    await enviar(remetente, `📋 Pra consultar suas pendências (identificação pelo CPF), acesse:\n${linkAutoatendimento('/consulta-pendencias')}`)
+    return { ok: true, action: 'aurora-link-pendencias' }
   }
   if (itemId === 'aurora_item:variavel') {
-    await definirEstadoAurora(remetente, 'aguardando_cpf_variavel')
-    await enviar(remetente, '🔢 Pra consultar seu variável/pontuação, envie os *3 primeiros números do seu CPF*.')
-    return { ok: true, action: 'aurora-pede-cpf-variavel' }
+    await encerrarSessaoAurora(remetente)
+    await enviar(remetente, `💰 Pra consultar seu variável/pontuação (identificação pelo CPF), acesse:\n${linkAutoatendimento('/variavel-armazem')}`)
+    return { ok: true, action: 'aurora-link-variavel' }
   }
   await encerrarSessaoAurora(remetente)
   await enviar(remetente, '🔧 Essa opção ainda está em construção — em breve você poderá usar por aqui. Por enquanto, fale com o seu supervisor.')
@@ -3080,6 +2987,15 @@ async function tratarAurora(
   const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
 
   if (sessao) {
+    if (ehEncerrarAurora(texto)) {
+      await encerrarSessaoAurora(remetente)
+      await enviar(remetente, '👋 Conversa encerrada. Quando precisar, é só mandar um oi.')
+      return { ok: true, action: 'aurora-encerrada' }
+    }
+    if (ehTrocarAssuntoAurora(texto)) {
+      await mostrarMenuCategorias(remetente, senderName || null)
+      return { ok: true, action: 'aurora-troca-assunto' }
+    }
     if (btn.startsWith('aurora_cat:')) {
       await mostrarSubmenuAurora(remetente, btn.slice('aurora_cat:'.length))
       return { ok: true, action: 'aurora-submenu' }
@@ -3097,88 +3013,18 @@ async function tratarAurora(
         }
         conteudo = transcrito
       }
-      const mapa = extrairMapa(conteudo)
+      const textoSemData = conteudo.replace(/(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/, '')
+      const mapa = extrairMapa(textoSemData) ?? extrairMapa(conteudo)
       if (mapa == null) {
-        await enviar(remetente, '🔢 Não entendi. Envie só o *número do mapa* (ex: 279088).')
+        await enviar(remetente, '🔢 Não entendi. Envie só o *número do mapa* (ex: 279088), com a data se quiser (ex: 279088 20/07).')
         return { ok: true, action: 'aurora-mapa-repete' }
       }
+      const dataEscolhida = extrairDataMencionada(conteudo) ?? ontemISO()
       const filial = await filialDoTelefoneOuPadrao(remetente)
-      const resposta = await resultadosDoMapa(filial, mapa, ontemISO())
+      const resposta = await resultadosDoMapa(filial, mapa, dataEscolhida)
       await enviar(remetente, resposta)
       await encerrarSessaoAurora(remetente)
       return { ok: true, action: 'aurora-mapa-respondido' }
-    }
-    if (sessao.estado === 'aguardando_cpf_pendencias') {
-      const digitos = texto.replace(/\D/g, '')
-      if (digitos.length !== 6) {
-        await enviar(remetente, '🔢 Envie exatamente os *6 primeiros números* do seu CPF.')
-        return { ok: true, action: 'aurora-cpf-pendencias-repete' }
-      }
-      const candidatos = await buscarCandidatosPendenciaPorCpf(digitos)
-      if (candidatos.length === 0) {
-        await enviar(remetente, 'Não encontrei ninguém com esses números. Confira os dígitos ou fale com o financeiro.')
-        await encerrarSessaoAurora(remetente)
-        return { ok: true, action: 'aurora-cpf-pendencias-nao-encontrado' }
-      }
-      if (candidatos.length === 1) {
-        await enviar(remetente, await buscarPendenciasDoColaborador(candidatos[0]))
-        await encerrarSessaoAurora(remetente)
-        return { ok: true, action: 'aurora-pendencias-respondido' }
-      }
-      await definirEstadoAurora(remetente, 'escolhendo_pendencia', candidatos)
-      await enviarOpcoes(remetente, 'Encontrei mais de uma pessoa com esses números. Qual é você?', 'Quem é você?', 'Escolher',
-        candidatos.slice(0, 10).map((c, i) => ({ id: `aurora_cand:pendencias:${i}`, title: c.nome })))
-      return { ok: true, action: 'aurora-pendencias-desambiguar' }
-    }
-    if (sessao.estado === 'escolhendo_pendencia' && btn.startsWith('aurora_cand:pendencias:')) {
-      const candidato = (sessao.contexto ?? [])[Number(btn.split(':')[2])]
-      if (!candidato) {
-        await definirEstadoAurora(remetente, 'aguardando_cpf_pendencias')
-        await enviar(remetente, 'Não achei essa opção. Vamos tentar de novo — envie os 6 primeiros números do seu CPF.')
-        return { ok: true, action: 'aurora-pendencias-cand-invalido' }
-      }
-      await enviar(remetente, await buscarPendenciasDoColaborador(candidato))
-      await encerrarSessaoAurora(remetente)
-      return { ok: true, action: 'aurora-pendencias-respondido' }
-    }
-    if (sessao.estado === 'aguardando_cpf_variavel') {
-      const digitos = texto.replace(/\D/g, '')
-      if (digitos.length !== 3) {
-        await enviar(remetente, '🔢 Envie exatamente os *3 primeiros números* do seu CPF.')
-        return { ok: true, action: 'aurora-cpf-variavel-repete' }
-      }
-      const { ini, fim, rotulo } = competenciaAtualBot()
-      const candidatos = await buscarCandidatosVariavelPorCpf(digitos, ini, fim)
-      if (candidatos.length === 0) {
-        await enviar(remetente, `Não encontrei sua variável na competência ${rotulo}. Confira os dígitos ou fale com o supervisor.`)
-        await encerrarSessaoAurora(remetente)
-        return { ok: true, action: 'aurora-cpf-variavel-nao-encontrado' }
-      }
-      if (candidatos.length === 1) {
-        await enviar(remetente, await buscarResumoVariavelDoCpf(candidatos[0].cpf, candidatos[0].nome, ini, fim, rotulo))
-        await encerrarSessaoAurora(remetente)
-        return { ok: true, action: 'aurora-variavel-respondido' }
-      }
-      await definirEstadoAurora(remetente, 'escolhendo_variavel', candidatos)
-      await enviarOpcoes(remetente, 'Encontrei mais de uma pessoa com esses números. Qual é você?', 'Quem é você?', 'Escolher',
-        candidatos.slice(0, 10).map((c, i) => ({ id: `aurora_cand:variavel:${i}`, title: c.nome })))
-      return { ok: true, action: 'aurora-variavel-desambiguar' }
-    }
-    if (sessao.estado === 'escolhendo_variavel' && btn.startsWith('aurora_cand:variavel:')) {
-      const candidato = (sessao.contexto ?? [])[Number(btn.split(':')[2])]
-      if (!candidato) {
-        await definirEstadoAurora(remetente, 'aguardando_cpf_variavel')
-        await enviar(remetente, 'Não achei essa opção. Vamos tentar de novo — envie os 3 primeiros números do seu CPF.')
-        return { ok: true, action: 'aurora-variavel-cand-invalido' }
-      }
-      const { ini, fim, rotulo } = competenciaAtualBot()
-      await enviar(remetente, await buscarResumoVariavelDoCpf(candidato.cpf, candidato.nome, ini, fim, rotulo))
-      await encerrarSessaoAurora(remetente)
-      return { ok: true, action: 'aurora-variavel-respondido' }
-    }
-    if (sessao.estado === 'escolhendo_pendencia' || sessao.estado === 'escolhendo_variavel') {
-      await enviar(remetente, 'Toque numa das opções da lista que mandei, por favor.')
-      return { ok: true, action: 'aurora-desambiguar-repete' }
     }
     // Sessão existe mas a resposta não bateu com nada esperado (ex.: digitou
     // texto livre em vez de tocar numa opção) — repete o passo atual em vez
@@ -3203,7 +3049,8 @@ async function tratarAurora(
       const mapaFalado = extrairMapa(transcrito)
       if (mapaFalado != null && /mapa/.test(n)) {
         const filial = await filialDoTelefoneOuPadrao(remetente)
-        const resposta = await resultadosDoMapa(filial, mapaFalado, ontemISO())
+        const dataFalada = extrairDataMencionada(transcrito) ?? ontemISO()
+        const resposta = await resultadosDoMapa(filial, mapaFalado, dataFalada)
         await enviar(remetente, resposta)
         return { ok: true, action: 'aurora-audio-mapa-direto' }
       }
