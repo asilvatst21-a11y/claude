@@ -250,7 +250,7 @@ export default function FechamentoDia() {
       farolLinhas.map((l) => ({
         filial: usuario.filial, data, matricula: l.matricula, nome: l.nome, sala: l.sala,
         aderencia_ok: l.aderenciaOk, devolucao_fora_raio_ok: l.devolucaoForaRaioOk, tml_ok: l.tmlOk, devolucao_ok: l.devolucaoOk,
-        resultado: l.resultado,
+        iv_deslocamento_ok: l.ivDeslocamentoOk, resultado: l.resultado,
       })),
     )
     setSalvandoFarol(false)
@@ -548,9 +548,9 @@ export default function FechamentoDia() {
         <div className="rounded-lg border p-4 space-y-4">
           <h2 className="font-semibold text-sm">Farol Motoristas do dia</h2>
           <p className="text-sm text-muted-foreground">
-            Gerado automaticamente a partir do que o próprio sistema já apurou pro dia — Aderência ao Raio e TML (Jornada/Análise TML),
-            Devolução (upload de Devolução PDV) e Devolução Fora do Raio (Jornada). Motorista e ajudante de cada mapa vêm do cadastro de equipe
-            (mesmo import da aba "Base" usado em Reposições).
+            Gerado automaticamente, sem subir nenhum relatório — a partir do que o próprio sistema já apurou pro dia: Aderência ao Raio e
+            Devolução Fora do Raio (BEES/Jornada), TML (Análise TML), Devolução (03.11.49.02 + upload de Devolução PDV) e IV-Deslocamento
+            (checklist_tml). Motorista e ajudante de cada mapa vêm do cadastro de equipe (mesmo import da aba "Base" usado em Reposições).
           </p>
           <button onClick={gerarFarolDoDia} disabled={processandoFarol} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-md border hover:bg-accent disabled:opacity-50 w-fit">
             {processandoFarol ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Gerar Farol do dia
@@ -562,7 +562,7 @@ export default function FechamentoDia() {
                 <table className="w-full text-sm">
                   <thead><tr className="border-b bg-muted/20 text-left text-xs text-muted-foreground">
                     <th className="px-3 py-2">Mapa</th><th className="px-3 py-2">Motorista</th><th className="px-3 py-2">Ajudante(s)</th><th className="px-3 py-2">Sala</th>
-                    <th className="px-3 py-2">Aderência</th><th className="px-3 py-2">Dev. Fora Raio</th><th className="px-3 py-2">TML</th><th className="px-3 py-2">Devolução</th><th className="px-3 py-2">Resultado</th>
+                    <th className="px-3 py-2">Aderência</th><th className="px-3 py-2">Dev. Fora Raio</th><th className="px-3 py-2">TML</th><th className="px-3 py-2">Devolução</th><th className="px-3 py-2">IV-Deslocamento</th><th className="px-3 py-2">Resultado</th>
                   </tr></thead>
                   <tbody>
                     {farolLinhas.map((l) => (
@@ -575,6 +575,7 @@ export default function FechamentoDia() {
                         <td className="px-3 py-2">{l.devolucaoForaRaioOk == null ? '—' : l.devolucaoForaRaioOk ? '✅' : '❌'}</td>
                         <td className="px-3 py-2">{l.tmlOk == null ? '—' : l.tmlOk ? '✅' : '❌'}</td>
                         <td className="px-3 py-2">{l.devolucaoOk == null ? '—' : l.devolucaoOk ? '✅' : '❌'}</td>
+                        <td className="px-3 py-2">{l.ivDeslocamentoOk == null ? '—' : l.ivDeslocamentoOk ? '✅' : '❌'}</td>
                         <td className="px-3 py-2">
                           <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${l.resultado === 'destaque' ? 'bg-green-50 text-green-700' : l.resultado === 'bate_papo' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
                             {l.resultado === 'destaque' ? 'Destaque' : l.resultado === 'bate_papo' ? 'Bate-papo' : 'Neutro'}

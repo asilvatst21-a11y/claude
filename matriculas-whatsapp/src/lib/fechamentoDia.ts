@@ -497,11 +497,13 @@ export function farolDoValor(valor: number | null, p: ParametroFechamento | unde
   return dentroDoBench ? 'a' : 'r'
 }
 
-// ── Farol Motoristas: por mapa, os mesmos 4 critérios da planilha de
-// referência (Aderência ao Raio, Devolução Fora do Raio, TML, Devolução),
-// só que apurados automaticamente a partir do que o próprio sistema já
-// calculou pro dia — nada de subir relatório à parte. Motorista e ajudantes
-// vêm de mapa_equipe (import diário da aba "Base", já usado em Reposições).
+// ── Farol Motoristas: por mapa, os mesmos critérios da planilha de
+// referência (Aderência ao Raio, Devolução Fora do Raio, TML, Devolução) +
+// IV-Deslocamento, apurados automaticamente a partir do que o próprio
+// sistema já calculou pro dia (BEES/Jornada, 03.11.49.02 pra Devolução e
+// Jornada, checklist_tml pra IV-Deslocamento) — nada de subir relatório à
+// parte. Motorista e ajudantes vêm de mapa_equipe (import diário da aba
+// "Base", já usado em Reposições).
 export interface LinhaFarolMotorista {
   mapa: number
   matricula: number | null
@@ -512,6 +514,7 @@ export interface LinhaFarolMotorista {
   devolucaoForaRaioOk: boolean | null
   tmlOk: boolean | null
   devolucaoOk: boolean | null
+  ivDeslocamentoOk: boolean | null
 }
 
 export async function gerarFarolAutomatico(
@@ -519,23 +522,31 @@ export async function gerarFarolAutomatico(
 ): Promise<LinhaFarolMotorista[]> {
   const metaAderencia = parametros.find((p) => p.kpi === 'aderencia_raio')?.meta ?? 0.95
   const metaDevolucao = parametros.find((p) => p.kpi === 'devolucao_pdv')?.meta ?? 0.031
+  const metaIvDeslocamento = parametros.find((p) => p.kpi === 'iv_deslocamento')?.meta ?? 5
 
-  const [linhasJornada, { data: historico, error: erroHist }, { data: devolucoes, error: erroDevol }, { data: equipe, error: erroEquipe }, { data: mapasDia, error: erroMapas }] = await Promise.all([
+  const [linhasJornada, { data: historico, error: erroHist }, { data: devolucoes, error: erroDevol }, { data: equipe, error: erroEquipe }, { data: mapasDia, error: erroMapas }, { data: checklist, error: erroChecklist }] = await Promise.all([
     buscarJornadaDoDia(filial, data),
     supabase.from('historico_tml').select('mapa, resultado').eq('filial', filial).eq('data_saida', data),
     supabase.from('fechamento_dia_devolucoes_pdv').select('mapa, devolucoes').eq('filial', filial).eq('data', data),
     supabase.from('mapa_equipe').select('mapa, motorista_nome, ajudante1_nome, ajudante2_nome').eq('filial', filial).eq('data', data),
     supabase.from('fechamento_dia_mapas_dia').select('mapa, entregas').eq('filial', filial).eq('data', data),
+    supabase.from('checklist_tml').select('mapa, sala, horario_inicio, tempo_deslocamento_minutos').eq('filial', filial).eq('data', data),
   ])
   if (erroHist) console.error(`gerarFarolAutomatico (${data}) historico error:`, erroHist.message)
   if (erroDevol) console.error(`gerarFarolAutomatico (${data}) devolucoes error:`, erroDevol.message)
   if (erroEquipe) console.error(`gerarFarolAutomatico (${data}) equipe error:`, erroEquipe.message)
   if (erroMapas) console.error(`gerarFarolAutomatico (${data}) mapas error:`, erroMapas.message)
+  if (erroChecklist) console.error(`gerarFarolAutomatico (${data}) checklist error:`, erroChecklist.message)
 
   const resultadoTmlPorMapa = new Map((historico ?? []).map((h) => [h.mapa as number, h.resultado as string]))
   const devolucoesPorMapa = new Map((devolucoes ?? []).map((d) => [d.mapa as number, d.devolucoes as number]))
   const equipePorMapa = new Map((equipe ?? []).map((e) => [String(e.mapa), e]))
   const entregasPorMapa = new Map((mapasDia ?? []).map((m) => [m.mapa as number, m.entregas as number | null]))
+  const deslocamentoPorMapa = new Map(
+    (checklist ?? [])
+      .filter((c): c is typeof c & { sala: SalaTML } => c.sala === 'COLORADO' || c.sala === 'SUB-FURIA')
+      .map((c) => [c.mapa as number, c.tempo_deslocamento_minutos ?? (c.horario_inicio ? tempoDeslocamentoMinutos(c.sala, c.horario_inicio) : null)]),
+  )
 
   const resultado: LinhaFarolMotorista[] = []
   for (const l of linhasJornada) {
@@ -552,6 +563,9 @@ export async function gerarFarolAutomatico(
     const devolucoesMapa = devolucoesPorMapa.get(l.mapa)
     const devolucaoOk = devolucoesMapa != null && entregas ? devolucoesMapa / entregas <= metaDevolucao : null
 
+    const tempoDeslocamento = deslocamentoPorMapa.get(l.mapa)
+    const ivDeslocamentoOk = tempoDeslocamento != null ? tempoDeslocamento <= metaIvDeslocamento : null
+
     const eq = equipePorMapa.get(String(l.mapa))
     const ajudantes = [eq?.ajudante1_nome, eq?.ajudante2_nome].filter((n): n is string => !!n)
 
@@ -565,13 +579,14 @@ export async function gerarFarolAutomatico(
       devolucaoForaRaioOk,
       tmlOk,
       devolucaoOk,
+      ivDeslocamentoOk,
     })
   }
   return resultado
 }
 
-export function classificarResultado(l: { aderenciaOk: boolean | null; devolucaoForaRaioOk: boolean | null; tmlOk: boolean | null; devolucaoOk: boolean | null }): 'destaque' | 'bate_papo' | 'neutro' {
-  const criterios = [l.aderenciaOk, l.devolucaoForaRaioOk, l.tmlOk, l.devolucaoOk].filter((v): v is boolean => v != null)
+export function classificarResultado(l: { aderenciaOk: boolean | null; devolucaoForaRaioOk: boolean | null; tmlOk: boolean | null; devolucaoOk: boolean | null; ivDeslocamentoOk: boolean | null }): 'destaque' | 'bate_papo' | 'neutro' {
+  const criterios = [l.aderenciaOk, l.devolucaoForaRaioOk, l.tmlOk, l.devolucaoOk, l.ivDeslocamentoOk].filter((v): v is boolean => v != null)
   if (criterios.length === 0) return 'neutro'
   const okCount = criterios.filter(Boolean).length
   if (okCount === criterios.length) return 'destaque'
