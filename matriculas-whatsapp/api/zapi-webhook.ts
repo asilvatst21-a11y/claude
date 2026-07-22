@@ -2856,11 +2856,11 @@ function ehEncerrarAurora(texto: string): boolean {
   return /^(encerrar|sair|finalizar|tchau)\b/.test(norm(texto))
 }
 
+// Só entram aqui categorias/itens que já funcionam de ponta a ponta — nada
+// de "em construção" na lista. Conforme cada assunto novo for implementado,
+// é só adicionar a categoria (ou o item, dentro do submenu já existente).
 const AURORA_CATEGORIAS: OpcaoZ[] = [
   { id: 'aurora_cat:entrega', title: '📦 Entrega' },
-  { id: 'aurora_cat:seguranca', title: '🦺 Segurança' },
-  { id: 'aurora_cat:gente', title: '🧑‍🤝‍🧑 Gente' },
-  { id: 'aurora_cat:frota', title: '🚚 Frota' },
   { id: 'aurora_cat:treinamentos', title: '🎓 Treinamentos' },
   { id: 'aurora_cat:financeiro', title: '💰 Financeiro' },
   { id: 'aurora_cat:armazem', title: '📦 Armazém' },
@@ -2869,11 +2869,7 @@ const AURORA_CATEGORIAS: OpcaoZ[] = [
 const AURORA_SUBMENUS: Record<string, OpcaoZ[]> = {
   entrega: [
     { id: 'aurora_item:resultados_mapa', title: 'Resultados do mapa (dia anterior)' },
-    { id: 'aurora_item:em_breve', title: 'Pedir reposição/falta/avaria' },
   ],
-  seguranca: [{ id: 'aurora_item:em_breve', title: 'Fazer um relato de segurança' }],
-  gente: [{ id: 'aurora_item:em_breve', title: 'Solicitar diária extra' }],
-  frota: [{ id: 'aurora_item:em_breve', title: 'Registrar saída/retorno de veículo' }],
   treinamentos: [{ id: 'aurora_item:duvida_treinamento', title: 'Tirar dúvida sobre um treinamento' }],
   financeiro: [{ id: 'aurora_item:pendencias', title: 'Consultar minhas pendências' }],
   armazem: [{ id: 'aurora_item:variavel', title: 'Consultar meu variável/pontuação' }],
