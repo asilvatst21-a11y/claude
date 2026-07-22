@@ -2753,6 +2753,250 @@ export async function verificarLembretesMatinal(): Promise<number> {
   return acoes
 }
 
+// ── Aurora — autoatendimento geral ────────────────────────────────────────────
+// Saudação livre ("oi", "oi aurora", "menu") fora de qualquer fluxo dedicado
+// mostra um menu de categorias (Entrega, Segurança, Gente, Frota,
+// Treinamentos, Financeiro, Armazém); cada categoria abre um submenu.
+// Sessão em aurora_sessoes (1 linha por telefone, sempre a mais recente).
+// Um ÁUDIO que já diga o que a pessoa quer (ex.: "resultado do mapa 279088")
+// pula direto pro passo certo, sem precisar navegar o menu — só cobre hoje as
+// opções já implementadas (Resultados do Mapa e Dúvida de treinamento); as
+// demais categorias respondem "em construção" até ganharem fluxo próprio.
+
+const AURORA_TTL_MIN = 30
+
+interface AuroraSessao { id: string; telefone: string; estado: string; criado_em: string }
+
+async function buscarSessaoAurora(remetente: string): Promise<AuroraSessao | null> {
+  const { data } = await supabase.from('aurora_sessoes').select('*').eq('telefone', remetente).maybeSingle()
+  if (!data) return null
+  const expirada = Date.now() - new Date(data.criado_em).getTime() > AURORA_TTL_MIN * 60_000
+  if (expirada) {
+    await supabase.from('aurora_sessoes').delete().eq('id', data.id)
+    return null
+  }
+  return data as AuroraSessao
+}
+
+async function definirEstadoAurora(remetente: string, estado: string): Promise<void> {
+  await supabase.from('aurora_sessoes').upsert(
+    { telefone: remetente, estado, criado_em: new Date().toISOString() },
+    { onConflict: 'telefone' },
+  )
+}
+
+async function encerrarSessaoAurora(remetente: string): Promise<void> {
+  await supabase.from('aurora_sessoes').delete().eq('telefone', remetente)
+}
+
+function ehSaudacaoAurora(texto: string): boolean {
+  const n = norm(texto)
+  return n === 'aurora' || n === 'menu' || /^(oi+|ola+|eae|e ai)(\s*,?\s*aurora)?[!.]*$/.test(n)
+}
+
+const AURORA_CATEGORIAS: OpcaoZ[] = [
+  { id: 'aurora_cat:entrega', title: '📦 Entrega' },
+  { id: 'aurora_cat:seguranca', title: '🦺 Segurança' },
+  { id: 'aurora_cat:gente', title: '🧑‍🤝‍🧑 Gente' },
+  { id: 'aurora_cat:frota', title: '🚚 Frota' },
+  { id: 'aurora_cat:treinamentos', title: '🎓 Treinamentos' },
+  { id: 'aurora_cat:financeiro', title: '💰 Financeiro' },
+  { id: 'aurora_cat:armazem', title: '📦 Armazém' },
+]
+
+const AURORA_SUBMENUS: Record<string, OpcaoZ[]> = {
+  entrega: [
+    { id: 'aurora_item:resultados_mapa', title: 'Resultados do mapa (dia anterior)' },
+    { id: 'aurora_item:em_breve', title: 'Pedir reposição/falta/avaria' },
+  ],
+  seguranca: [{ id: 'aurora_item:em_breve', title: 'Fazer um relato de segurança' }],
+  gente: [{ id: 'aurora_item:em_breve', title: 'Solicitar diária extra' }],
+  frota: [{ id: 'aurora_item:em_breve', title: 'Registrar saída/retorno de veículo' }],
+  treinamentos: [{ id: 'aurora_item:duvida_treinamento', title: 'Tirar dúvida sobre um treinamento' }],
+  financeiro: [{ id: 'aurora_item:em_breve', title: 'Consultar minhas pendências' }],
+  armazem: [{ id: 'aurora_item:em_breve', title: 'Consultar meu variável/pontuação' }],
+}
+
+async function mostrarMenuCategorias(remetente: string, nome: string | null): Promise<void> {
+  await definirEstadoAurora(remetente, 'menu')
+  await enviarOpcoes(
+    remetente,
+    `Oi${nome ? `, ${nome}` : ''}! Eu sou a *Aurora* 👋. Sobre qual assunto você quer falar?`,
+    'Assuntos', 'Escolher assunto', AURORA_CATEGORIAS,
+  )
+}
+
+async function mostrarSubmenuAurora(remetente: string, categoria: string): Promise<void> {
+  const itens = AURORA_SUBMENUS[categoria]
+  if (!itens) { await mostrarMenuCategorias(remetente, null); return }
+  await definirEstadoAurora(remetente, `submenu:${categoria}`)
+  await enviarOpcoes(remetente, 'O que você precisa?', 'Opções', 'Escolher', itens)
+}
+
+function extrairMapa(texto: string): number | null {
+  const m = String(texto ?? '').match(/\d{4,7}/)
+  return m ? Number(m[0]) : null
+}
+
+// "Ontem" no fuso de São Paulo, não do servidor (que roda em UTC).
+function ontemISO(): string {
+  const spISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  const [y, m, d] = spISO.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
+}
+
+// Mesmos KPIs já calculados no Fechamento do Dia (TML, IV-Deslocamento,
+// Aderência ao Raio, Devolução PDV, Jornada Líquida), aqui recortados por
+// mapa em vez de por sala — fontes: historico_tml, checklist_tml,
+// jornada_bees + escalas_tml, fechamento_dia_devolucoes_pdv,
+// fechamento_dia_mapas_dia (as duas últimas dependem de upload prévio no
+// Fechamento do Dia; sem upload, aparece "sem dado").
+async function resultadosDoMapa(filial: string, mapa: number, data: string): Promise<string> {
+  const [
+    { data: historico }, { data: checklist }, { data: bees }, { data: escala },
+    { data: devolucoes }, { data: mapaDia },
+  ] = await Promise.all([
+    supabase.from('historico_tml').select('resultado, horario_saida').eq('filial', filial).eq('mapa', mapa).eq('data_saida', data).maybeSingle(),
+    supabase.from('checklist_tml').select('tempo_deslocamento_minutos').eq('filial', filial).eq('mapa', mapa).eq('data', data).maybeSingle(),
+    supabase.from('jornada_bees').select('entrega_fora_raio, dev_fora_raio').eq('filial', filial).eq('mapa', mapa).eq('data', data).maybeSingle(),
+    supabase.from('escalas_tml').select('entregas_previstas').eq('filial', filial).eq('mapa', mapa).eq('data_entrega', data).maybeSingle(),
+    supabase.from('fechamento_dia_devolucoes_pdv').select('devolucoes').eq('filial', filial).eq('mapa', mapa).eq('data', data).maybeSingle(),
+    supabase.from('fechamento_dia_mapas_dia').select('bateu_jornada, entregas').eq('filial', filial).eq('mapa', mapa).eq('data', data).maybeSingle(),
+  ])
+
+  const TML_LABEL: Record<string, string> = { no_prazo: '✅ No prazo', atrasado: '⚠️ Perdeu o TML', indefinido: '— Indefinido', invalido: '— Inválido' }
+  const tml = historico
+    ? `${TML_LABEL[historico.resultado] ?? '—'}${historico.horario_saida ? ` (saída ${historico.horario_saida})` : ''}`
+    : '— Sem registro'
+
+  const iv = checklist?.tempo_deslocamento_minutos != null ? `${checklist.tempo_deslocamento_minutos} min` : '— Sem leitura ainda'
+
+  const entregasPrevistas = escala?.entregas_previstas ?? mapaDia?.entregas ?? null
+  const foraRaio = (bees?.entrega_fora_raio ?? 0) + (bees?.dev_fora_raio ?? 0)
+  const aderencia = entregasPrevistas ? `${(100 * (1 - foraRaio / entregasPrevistas)).toFixed(1)}%` : '— Sem dado'
+
+  const devolucoesMapa = devolucoes?.devolucoes ?? 0
+  const devolucaoPct = entregasPrevistas
+    ? `${((devolucoesMapa / entregasPrevistas) * 100).toFixed(2)}% (${devolucoesMapa} devolução(ões))`
+    : `${devolucoesMapa} devolução(ões)`
+
+  const jornada = mapaDia?.bateu_jornada == null ? '— Sem dado' : mapaDia.bateu_jornada ? '✅ Bateu jornada' : '⚠️ Não bateu jornada'
+
+  return [
+    `📋 *Resultados do mapa ${mapa} — ${data.split('-').reverse().join('/')}*`,
+    `⏱️ TML: ${tml}`,
+    `🚶 IV-Deslocamento: ${iv}`,
+    `🎯 Aderência ao Raio: ${aderencia}`,
+    `📦 Devolução PDV: ${devolucaoPct}`,
+    `🕐 Jornada Líquida: ${jornada}`,
+  ].join('\n')
+}
+
+async function filialDoTelefoneOuPadrao(remetente: string): Promise<string> {
+  const colab = await descobrirSalaColaborador(remetente)
+  if (colab?.filial) return colab.filial
+  const { data } = await supabase.from('filiais').select('nome').order('nome').limit(1)
+  return data?.[0]?.nome ?? ''
+}
+
+async function iniciarFluxoResultadosMapa(remetente: string): Promise<void> {
+  await definirEstadoAurora(remetente, 'aguardando_mapa')
+  await enviar(remetente, '🔢 Qual o *número do mapa*? (pode escrever ou mandar um áudio)')
+}
+
+async function tratarItemAurora(remetente: string, senderName: string, itemId: string): Promise<{ ok: boolean; action: string }> {
+  if (itemId === 'aurora_item:resultados_mapa') {
+    await iniciarFluxoResultadosMapa(remetente)
+    return { ok: true, action: 'aurora-pede-mapa' }
+  }
+  if (itemId === 'aurora_item:duvida_treinamento') {
+    await encerrarSessaoAurora(remetente)
+    const r = await tratarPreSelecaoTemaMatinal({}, remetente, senderName, 'dúvida')
+    return r ?? { ok: true, action: 'aurora-duvida-erro' }
+  }
+  await encerrarSessaoAurora(remetente)
+  await enviar(remetente, '🔧 Essa opção ainda está em construção — em breve você poderá usar por aqui. Por enquanto, fale com o seu supervisor.')
+  return { ok: true, action: 'aurora-em-breve' }
+}
+
+async function tratarAurora(
+  body: any, remetente: string, senderName: string, texto: string,
+): Promise<{ ok: boolean; action: string } | null> {
+  const sessao = await buscarSessaoAurora(remetente)
+  const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
+
+  if (sessao) {
+    if (btn.startsWith('aurora_cat:')) {
+      await mostrarSubmenuAurora(remetente, btn.slice('aurora_cat:'.length))
+      return { ok: true, action: 'aurora-submenu' }
+    }
+    if (btn.startsWith('aurora_item:')) {
+      return await tratarItemAurora(remetente, senderName, btn)
+    }
+    if (sessao.estado === 'aguardando_mapa') {
+      let conteudo = texto.trim()
+      if (!conteudo && temAudioSemTexto(body)) {
+        const transcrito = await transcreverAudio(extrairAudioUrl(body))
+        if (!transcrito) {
+          await enviar(remetente, 'Não consegui entender o áudio. Pode escrever o número do mapa?')
+          return { ok: true, action: 'aurora-mapa-audio-falhou' }
+        }
+        conteudo = transcrito
+      }
+      const mapa = extrairMapa(conteudo)
+      if (mapa == null) {
+        await enviar(remetente, '🔢 Não entendi. Envie só o *número do mapa* (ex: 279088).')
+        return { ok: true, action: 'aurora-mapa-repete' }
+      }
+      const filial = await filialDoTelefoneOuPadrao(remetente)
+      const resposta = await resultadosDoMapa(filial, mapa, ontemISO())
+      await enviar(remetente, resposta)
+      await encerrarSessaoAurora(remetente)
+      return { ok: true, action: 'aurora-mapa-respondido' }
+    }
+    // Sessão existe mas a resposta não bateu com nada esperado (ex.: digitou
+    // texto livre em vez de tocar numa opção) — repete o passo atual em vez
+    // de deixar a mensagem cair sem resposta nenhuma.
+    if (sessao.estado === 'menu') {
+      await mostrarMenuCategorias(remetente, senderName || null)
+      return { ok: true, action: 'aurora-menu-repete' }
+    }
+    if (sessao.estado.startsWith('submenu:')) {
+      await mostrarSubmenuAurora(remetente, sessao.estado.slice('submenu:'.length))
+      return { ok: true, action: 'aurora-submenu-repete' }
+    }
+  }
+
+  // Sem sessão ativa: só entra com saudação/gatilho, ou um ÁUDIO que já diga
+  // o que a pessoa quer — nesse caso pula direto pro passo certo, sem
+  // mostrar o menu.
+  if (temAudioSemTexto(body) && !texto.trim()) {
+    const transcrito = await transcreverAudio(extrairAudioUrl(body))
+    if (transcrito) {
+      const n = norm(transcrito)
+      const mapaFalado = extrairMapa(transcrito)
+      if (mapaFalado != null && /mapa/.test(n)) {
+        const filial = await filialDoTelefoneOuPadrao(remetente)
+        const resposta = await resultadosDoMapa(filial, mapaFalado, ontemISO())
+        await enviar(remetente, resposta)
+        return { ok: true, action: 'aurora-audio-mapa-direto' }
+      }
+      if (/duvida|treinamento/.test(n)) {
+        const r = await tratarPreSelecaoTemaMatinal({}, remetente, senderName, 'dúvida')
+        if (r) return r
+      }
+      // Áudio sem correspondência clara com nenhum fluxo pronto: mostra o
+      // menu mesmo assim, em vez de ignorar a mensagem.
+      await mostrarMenuCategorias(remetente, senderName || null)
+      return { ok: true, action: 'aurora-audio-menu' }
+    }
+  }
+
+  if (!ehSaudacaoAurora(texto)) return null
+  await mostrarMenuCategorias(remetente, senderName || null)
+  return { ok: true, action: 'aurora-menu-inicial' }
+}
+
 // ── Handler ──────────────────────────────────────────────────────────────────────
 
 export default async function handler(req: any, res: any) {
@@ -2838,7 +3082,9 @@ export default async function handler(req: any, res: any) {
       // Matinal (dúvida sobre um treinamento de outro dia, fora da janela do
       // aviso). Se também não se aplicar, mantém a resposta original do TML.
       const rTema = await tratarPreSelecaoTemaMatinal(body, grupoId, senderName, texto)
-      res.status(200).json(rTema ?? r)
+      if (rTema) { res.status(200).json(rTema); return }
+      const rAurora = await tratarAurora(body, grupoId, senderName, texto)
+      res.status(200).json(rAurora ?? r)
       return
     }
 
