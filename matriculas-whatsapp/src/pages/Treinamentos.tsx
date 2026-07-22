@@ -2,12 +2,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ArrowLeft, GraduationCap, Loader2, Upload, Plus, Trash2, CheckCircle2,
-  AlertTriangle, RefreshCw, Search, MessageCircle,
+  AlertTriangle, RefreshCw, Search, MessageCircle, Send,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
+import { listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { enviarAvisosTreinamento } from '../lib/treinamentos'
 import { SALA_TML_LABEL, type SalaTML } from '../lib/tml'
 import { formatarDataBR } from '../lib/utils'
+import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 
 const SALAS: SalaTML[] = ['COLORADO', 'SUB-FURIA']
 
@@ -83,6 +86,9 @@ export default function Treinamentos() {
   const [publicando, setPublicando] = useState(false)
   const [publicado, setPublicado] = useState(false)
 
+  const [forcando, setForcando] = useState<string | null>(null)
+  const [msgForcado, setMsgForcado] = useState<string | null>(null)
+
   const fetchTreinamentos = useCallback(async () => {
     if (!usuario) return
     setLoadingLista(true)
@@ -128,6 +134,24 @@ export default function Treinamentos() {
   }
   function adicionarFaqManual() {
     setFaq((f) => [...f, { pergunta: '', resposta: '' }])
+  }
+
+  // Botão de emergência: manda os avisos do treinamento mesmo se ninguém
+  // finalizou a matinal pelo botão (Timer da Matinal) — por exemplo quando a
+  // matinal foi auto-finalizada pelo reimport do checklist e o disparo
+  // automático nunca rodou.
+  async function forcarDisparo(t: Treinamento) {
+    if (!usuario) return
+    setForcando(t.id)
+    setMsgForcado(null)
+    let total = 0
+    for (const sala of t.salas) {
+      const { enviados } = await enviarAvisosTreinamento(usuario.filial, sala, { id: t.id, titulo: t.titulo })
+      total += enviados
+    }
+    setForcando(null)
+    setMsgForcado(`${total} aviso(s) enviado(s) pra "${t.titulo}".`)
+    setTimeout(() => setMsgForcado(null), 5000)
   }
 
   function alternarSala(s: SalaTML) {
@@ -205,6 +229,8 @@ export default function Treinamentos() {
 
       {aba === 'criar' && (
         <>
+          {usuario && <GruposMatinalConfig filial={usuario.filial} />}
+
           <div className="rounded-lg border p-4 sm:p-5 space-y-5">
             <h2 className="font-semibold">Novo treinamento</h2>
 
@@ -299,9 +325,12 @@ export default function Treinamentos() {
           </div>
 
           <div className="rounded-lg border overflow-hidden">
-            <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between">
+            <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between flex-wrap gap-2">
               <h2 className="font-semibold text-sm">Treinamentos publicados</h2>
-              <button onClick={fetchTreinamentos} className="flex items-center gap-1 text-xs px-2 py-1 rounded border hover:bg-accent"><RefreshCw className="h-3.5 w-3.5" /> Atualizar</button>
+              <div className="flex items-center gap-2">
+                {msgForcado && <span className="text-xs text-green-600">{msgForcado}</span>}
+                <button onClick={fetchTreinamentos} className="flex items-center gap-1 text-xs px-2 py-1 rounded border hover:bg-accent"><RefreshCw className="h-3.5 w-3.5" /> Atualizar</button>
+              </div>
             </div>
             {loadingLista ? (
               <div className="flex items-center justify-center py-10 text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" /></div>
@@ -313,6 +342,7 @@ export default function Treinamentos() {
                   <th className="px-3 py-2 font-medium">Título</th><th className="px-3 py-2 font-medium">Sala(s)</th>
                   <th className="px-3 py-2 font-medium">Data</th>
                   <th className="px-3 py-2 font-medium">Palestrante</th><th className="px-3 py-2 font-medium">Status</th>
+                  <th className="px-3 py-2 font-medium">Aviso</th>
                 </tr></thead>
                 <tbody>
                   {treinamentos.map((t) => (
@@ -322,6 +352,17 @@ export default function Treinamentos() {
                       <td className="px-3 py-2">{formatarDataBR(t.data_treinamento)}</td>
                       <td className="px-3 py-2">{t.palestrante_nome}</td>
                       <td className="px-3 py-2"><span className="inline-block px-2 py-0.5 rounded-full text-xs bg-green-50 text-green-700">Publicado</span></td>
+                      <td className="px-3 py-2">
+                        <button
+                          onClick={() => forcarDisparo(t)}
+                          disabled={forcando === t.id}
+                          title='Manda os avisos agora mesmo se ninguém finalizou a matinal pelo botão (ex.: quando a matinal foi auto-finalizada sem passar pelo "Timer da Matinal")'
+                          className="flex items-center gap-1.5 text-xs px-2 py-1.5 rounded border hover:bg-accent disabled:opacity-50 whitespace-nowrap"
+                        >
+                          {forcando === t.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                          Forçar disparo
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -425,6 +466,130 @@ function CentralDuvidas({ treinamentos }: { treinamentos: Treinamento[] }) {
           </table>
         )}
       </div>
+    </div>
+  )
+}
+
+// Grupos de WhatsApp usados no aviso de treinamento da matinal (1 por sala) —
+// mesmas colunas já lidas em MatinalTML.tsx; sem essa tela não havia como
+// configurá-los.
+function GruposMatinalConfig({ filial }: { filial: string }) {
+  const [grupos, setGrupos] = useState<GrupoZApi[]>([])
+  const [buscando, setBuscando] = useState(false)
+  const [erroBusca, setErroBusca] = useState<string | null>(null)
+
+  const [colorado, setColorado] = useState('')
+  const [subFuria, setSubFuria] = useState('')
+  const [original, setOriginal] = useState({ colorado: '', subFuria: '' })
+
+  const [carregando, setCarregando] = useState(true)
+  const [salvando, setSalvando] = useState(false)
+  const [salvo, setSalvo] = useState(false)
+  const [copiado, setCopiado] = useState<string | null>(null)
+  const [aberto, setAberto] = useState(false)
+
+  const carregar = useCallback(async () => {
+    if (!filial) { setCarregando(false); return }
+    setCarregando(true)
+    const { data } = await supabase
+      .from('filiais')
+      .select('grupo_matinal_colorado_whatsapp, grupo_matinal_subfuria_whatsapp')
+      .eq('nome', filial)
+      .maybeSingle()
+    const v = {
+      colorado: data?.grupo_matinal_colorado_whatsapp ?? '',
+      subFuria: data?.grupo_matinal_subfuria_whatsapp ?? '',
+    }
+    setColorado(v.colorado); setSubFuria(v.subFuria)
+    setOriginal(v)
+    setCarregando(false)
+  }, [filial])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  async function buscarGrupos() {
+    setBuscando(true)
+    setErroBusca(null)
+    const { grupos: gs, erro } = await listarGrupos()
+    setBuscando(false)
+    if (erro) { setErroBusca(erro); return }
+    if (gs.length === 0) { setErroBusca('Nenhum grupo encontrado nesta instância Z-API.'); return }
+    setGrupos(gs.sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  async function salvar() {
+    if (!filial) return
+    setSalvando(true)
+    setSalvo(false)
+    await supabase
+      .from('filiais')
+      .update({
+        grupo_matinal_colorado_whatsapp: colorado.trim() || null,
+        grupo_matinal_subfuria_whatsapp: subFuria.trim() || null,
+      })
+      .eq('nome', filial)
+    setOriginal({ colorado: colorado.trim(), subFuria: subFuria.trim() })
+    setSalvando(false)
+    setSalvo(true)
+    setTimeout(() => setSalvo(false), 2500)
+  }
+
+  async function copiar(id: string) {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopiado(id)
+      setTimeout(() => setCopiado((c) => (c === id ? null : c)), 1500)
+    } catch {
+      /* clipboard indisponível */
+    }
+  }
+
+  const alterado = colorado.trim() !== original.colorado || subFuria.trim() !== original.subFuria
+
+  return (
+    <div className="rounded-lg border p-4 space-y-3">
+      <button onClick={() => setAberto((a) => !a)} className="flex items-center justify-between w-full text-left">
+        <span className="font-semibold text-sm">Grupos de WhatsApp da Matinal</span>
+        <span className="text-xs text-muted-foreground">{aberto ? 'Recolher' : 'Configurar'}</span>
+      </button>
+      <p className="text-xs text-muted-foreground">
+        Recebem o aviso de "hoje tivemos o treinamento X" logo depois da matinal, direcionando os colaboradores a chamar o bot no privado.
+      </p>
+
+      {aberto && (
+        <>
+          <div className="flex items-center justify-end">
+            <button onClick={buscarGrupos} disabled={buscando} className="flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors disabled:opacity-50">
+              {buscando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+              {buscando ? 'Buscando…' : grupos.length > 0 ? 'Atualizar grupos' : 'Buscar grupos (Z-API)'}
+            </button>
+          </div>
+
+          {erroBusca && <p className="flex items-center gap-1.5 text-xs text-red-600 border border-red-200 bg-red-50 rounded-md p-2"><AlertTriangle className="h-3.5 w-3.5" /> {erroBusca}</p>}
+
+          {carregando ? (
+            <p className="text-sm text-muted-foreground">Carregando…</p>
+          ) : (
+            <div className="space-y-4">
+              <GroupPicker
+                label="Sala Colorado"
+                value={colorado} onChange={setColorado} grupos={grupos} onCopy={copiar} copiado={copiado}
+              />
+              <GroupPicker
+                label="Sala Sub-Fúria"
+                value={subFuria} onChange={setSubFuria} grupos={grupos} onCopy={copiar} copiado={copiado}
+              />
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-3 border-t pt-3">
+            {salvo && <span className="text-sm text-green-600 flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Salvo!</span>}
+            <button onClick={salvar} disabled={salvando || !alterado || !filial} className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md font-medium hover:opacity-90 disabled:opacity-50 transition-opacity">
+              {salvando ? 'Salvando…' : 'Salvar configuração'}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

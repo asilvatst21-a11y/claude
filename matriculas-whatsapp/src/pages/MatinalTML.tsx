@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Play, Square, CheckCircle2, AlertTriangle, ArrowLeft, Loader2, Building2, Clock, GraduationCap } from 'lucide-react'
 import { supabase } from '../lib/supabase'
-import { enviarMensagemWhatsApp, enviarMensagemGrupo } from '../lib/zapi'
+import { enviarAvisosTreinamento as enviarAvisosTreinamentoLib } from '../lib/treinamentos'
 import { SALA_TML_LABEL, type SalaTML, type MetaMatinalParam, metaMatinalMinutos } from '../lib/tml'
 
 const SALAS: SalaTML[] = ['COLORADO', 'SUB-FURIA']
@@ -119,41 +119,15 @@ export default function MatinalTML() {
     setTela('selecionar')
   }
 
-  // Manda o aviso individual do treinamento pra cada telefone cadastrado na
-  // sala (motoristas_sala_tml.telefone), e mais uma mensagem única no grupo
-  // da sala direcionando pra conversa particular com o bot — dispara depois
-  // da matinal já finalizada, sem travar a tela de conclusão.
+  // Dispara depois da matinal já finalizada, sem travar a tela de conclusão.
+  // Lógica de envio (individual + grupo da sala) mora em lib/treinamentos.ts,
+  // reaproveitada também pelo botão de forçar disparo manual na tela
+  // Treinamentos — pros casos em que a matinal foi finalizada sem passar por
+  // esse fluxo (ex.: auto-finalização por reimport do checklist).
   async function enviarAvisosTreinamento(matinalId: number, treino: TreinamentoOpcao): Promise<void> {
+    if (!sala) return
     setEnviandoAvisos(true)
-    const [{ data: colaboradores }, { data: filialRow }] = await Promise.all([
-      supabase.from('motoristas_sala_tml').select('nome, telefone').eq('filial', filial).eq('sala', sala).not('telefone', 'is', null),
-      supabase.from('filiais').select('grupo_matinal_colorado_whatsapp, grupo_matinal_subfuria_whatsapp').eq('nome', filial).maybeSingle(),
-    ])
-    let enviados = 0
-    for (const c of colaboradores ?? []) {
-      const telefone = (c.telefone ?? '').trim()
-      if (!telefone) continue
-      const primeiro = (c.nome ?? '').trim().split(/\s+/)[0] ?? ''
-      const mensagem =
-        `Bom dia${primeiro ? `, ${primeiro}` : ''}! Hoje na matinal vimos *${treino.titulo}*. ` +
-        `Ficou alguma dúvida? Pode perguntar por aqui — escrevendo ou mandando um áudio.`
-      const { sucesso } = await enviarMensagemWhatsApp(telefone, mensagem)
-      if (sucesso) {
-        enviados++
-        await supabase.from('matinal_treinamento_avisos').insert({
-          treinamento_id: treino.id, filial, sala, colaborador_telefone: telefone, colaborador_nome: c.nome ?? null,
-        })
-      }
-    }
-
-    const grupoSala = sala === 'COLORADO' ? filialRow?.grupo_matinal_colorado_whatsapp : filialRow?.grupo_matinal_subfuria_whatsapp
-    if (grupoSala) {
-      await enviarMensagemGrupo(grupoSala,
-        `📋 Hoje na matinal tivemos o treinamento *${treino.titulo}*.\n` +
-        `Quem ficou com alguma dúvida, me chama aqui no privado dizendo algo como *"fiquei com dúvida no treinamento"* — eu já te ajudo a tirar.`)
-    }
-
-    await supabase.from('matinal_tml').update({ treinamento_avisado_em: new Date().toISOString() }).eq('id', matinalId)
+    const { enviados } = await enviarAvisosTreinamentoLib(filial, sala, treino, matinalId)
     setAvisosEnviados(enviados)
     setEnviandoAvisos(false)
   }
