@@ -7,7 +7,7 @@ export type KpiFechamento = 'devolucao_pdv' | 'jornada_liquida' | 'aderencia_rai
 export type SalaFechamento = SalaTML | 'CDD'
 
 export const KPIS_FECHAMENTO: { key: KpiFechamento; label: string; unidade: 'percentual' | 'minutos' | 'nota'; automatico: boolean }[] = [
-  { key: 'devolucao_pdv', label: 'Devolução PDV', unidade: 'percentual', automatico: false },
+  { key: 'devolucao_pdv', label: 'Devolução PDV', unidade: 'percentual', automatico: true },
   { key: 'jornada_liquida', label: 'Jornada Líquida', unidade: 'percentual', automatico: false },
   { key: 'aderencia_raio', label: 'Aderência ao Raio', unidade: 'percentual', automatico: true },
   { key: 'tml', label: 'TML (média de saída da sala)', unidade: 'minutos', automatico: true },
@@ -29,6 +29,98 @@ export interface ValorFechamento {
   kpi: KpiFechamento
   valor: number | null
   origem: 'automatico' | 'manual'
+}
+
+// ── Devolução PDV — upload do relatório de devolução (1 linha por nota
+// devolvida, Mapa na coluna A e Data na coluna B — mesmo formato da planilha
+// de referência do cliente). Salva a CONTAGEM por mapa+dia em
+// fechamento_dia_devolucoes_pdv; o cálculo do % em si cruza essa contagem
+// com escalas_tml (entregas previstas do dia). ─────────────────────────────
+export interface LinhaDevolucaoPdv {
+  mapa: number
+  data: string
+}
+
+function excelSerialParaISO(valor: unknown): string | null {
+  if (valor instanceof Date) return valor.toISOString().slice(0, 10)
+  if (typeof valor === 'number' && Number.isFinite(valor)) {
+    const ms = Math.round((valor - 25569) * 86400 * 1000)
+    return new Date(ms).toISOString().slice(0, 10)
+  }
+  if (typeof valor === 'string') {
+    const m = valor.match(/(\d{4})-(\d{2})-(\d{2})/)
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`
+  }
+  return null
+}
+
+export function parseDevolucaoPdv(linhas: unknown[][]): LinhaDevolucaoPdv[] {
+  const resultado: LinhaDevolucaoPdv[] = []
+  for (let i = 1; i < linhas.length; i++) {
+    const l = linhas[i]
+    if (!l || l[0] == null) continue
+    const mapa = Number(l[0])
+    const data = excelSerialParaISO(l[1])
+    if (!Number.isFinite(mapa) || !data) continue
+    resultado.push({ mapa, data })
+  }
+  return resultado
+}
+
+export async function salvarDevolucoesPdv(filial: string, linhas: LinhaDevolucaoPdv[]): Promise<{ error: string | null }> {
+  const contagem = new Map<string, { mapa: number; data: string; devolucoes: number }>()
+  for (const l of linhas) {
+    const chave = `${l.mapa}|${l.data}`
+    const atual = contagem.get(chave) ?? { mapa: l.mapa, data: l.data, devolucoes: 0 }
+    atual.devolucoes++
+    contagem.set(chave, atual)
+  }
+  const registros = [...contagem.values()].map((c) => ({ filial, mapa: c.mapa, data: c.data, devolucoes: c.devolucoes }))
+  if (registros.length === 0) return { error: null }
+  const { error } = await supabase.from('fechamento_dia_devolucoes_pdv').upsert(registros, { onConflict: 'filial,mapa,data' })
+  return { error: error?.message ?? null }
+}
+
+// ── Cálculo automático: Devolução PDV — total de devoluções do dia (upload
+// acima) / entregas previstas do dia (escalas_tml, a mesma base 03.11.49.02
+// da Carta de Controle TML), cruzando mapa→matrícula→sala igual
+// buscarJornadaDoDia. Freteiro (placa CRW) não entra — não tem sala
+// Colorado/Sub-Fúria. ───────────────────────────────────────────────────────
+async function calcularDevolucaoPdv(filial: string, data: string): Promise<Record<SalaTML, number | null>> {
+  const [{ data: devolucoes, error: erroDevol }, { data: escalas, error: erroEscalas }] = await Promise.all([
+    supabase.from('fechamento_dia_devolucoes_pdv').select('mapa, devolucoes').eq('filial', filial).eq('data', data),
+    supabase.from('escalas_tml').select('mapa, placa, matricula, entregas_previstas').eq('filial', filial).eq('data_entrega', data),
+  ])
+  if (erroDevol) console.error(`calcularDevolucaoPdv (${data}) devolucoes error:`, erroDevol.message)
+  if (erroEscalas) console.error(`calcularDevolucaoPdv (${data}) escalas error:`, erroEscalas.message)
+
+  const devolucoesPorMapa = new Map((devolucoes ?? []).map((d) => [d.mapa, d.devolucoes as number]))
+  const matriculas = [...new Set((escalas ?? []).map((e) => e.matricula).filter((m): m is number => m != null))]
+  const { data: roster, error: erroRoster } = await supabase
+    .from('motoristas_sala_tml')
+    .select('matricula, sala')
+    .eq('filial', filial)
+    .in('matricula', matriculas.length > 0 ? matriculas : [-1])
+  if (erroRoster) console.error(`calcularDevolucaoPdv (${data}) roster error:`, erroRoster.message)
+  const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
+
+  const porSala: Record<SalaTML, { devolucoes: number; entregas: number }> = {
+    COLORADO: { devolucoes: 0, entregas: 0 },
+    'SUB-FURIA': { devolucoes: 0, entregas: 0 },
+  }
+  for (const e of escalas ?? []) {
+    if (e.placa?.toUpperCase().startsWith('CRW')) continue
+    const salaBruta = e.matricula != null ? salaPorMatricula.get(e.matricula) : undefined
+    if (salaBruta !== 'COLORADO' && salaBruta !== 'SUB-FURIA') continue
+    const sala = salaBruta as SalaTML
+    porSala[sala].entregas += e.entregas_previstas ?? 0
+    porSala[sala].devolucoes += devolucoesPorMapa.get(e.mapa) ?? 0
+  }
+
+  return {
+    COLORADO: porSala.COLORADO.entregas > 0 ? porSala.COLORADO.devolucoes / porSala.COLORADO.entregas : null,
+    'SUB-FURIA': porSala['SUB-FURIA'].entregas > 0 ? porSala['SUB-FURIA'].devolucoes / porSala['SUB-FURIA'].entregas : null,
+  }
 }
 
 // ── Cálculo automático: Aderência ao Raio (jornada.ts já cruza escalas_tml +
@@ -98,16 +190,19 @@ async function calcularDeslocamento(filial: string, data: string): Promise<Recor
   return { COLORADO: media(porSala.COLORADO), 'SUB-FURIA': media(porSala['SUB-FURIA']) }
 }
 
-// Recalcula os 3 KPIs automáticos (Aderência, TML, IV-Deslocamento) para as
-// duas salas + CDD (média simples das salas, já que não há contagem bruta
-// combinável de forma ponderada de forma simples aqui) e grava em
-// fechamento_dia_valores. Os outros 3 KPIs (Devolução PDV, Jornada Líquida,
-// Rating) não são tocados por essa função — são sempre manuais.
+// Recalcula os 4 KPIs automáticos (Aderência, TML, IV-Deslocamento,
+// Devolução PDV) para as duas salas + CDD (média simples das salas, já que
+// não há contagem bruta combinável de forma ponderada de forma simples
+// aqui) e grava em fechamento_dia_valores. Devolução PDV depende do upload
+// prévio em fechamento_dia_devolucoes_pdv — sem upload pro dia, o cálculo
+// simplesmente não encontra devoluções e o % fica 0. Os outros 2 KPIs
+// (Jornada Líquida, Rating) não são tocados por essa função — são manuais.
 export async function recalcularAutomaticos(filial: string, data: string): Promise<{ error: string | null }> {
-  const [aderencia, tml, deslocamento] = await Promise.all([
+  const [aderencia, tml, deslocamento, devolucaoPdv] = await Promise.all([
     calcularAderenciaRaio(filial, data),
     calcularTml(filial, data),
     calcularDeslocamento(filial, data),
+    calcularDevolucaoPdv(filial, data),
   ])
 
   const linhas: { filial: string; sala: SalaFechamento; data: string; kpi: KpiFechamento; valor: number | null; origem: 'automatico' }[] = []
@@ -120,6 +215,7 @@ export async function recalcularAutomaticos(filial: string, data: string): Promi
   combinar('aderencia_raio', aderencia)
   combinar('iv_deslocamento', deslocamento)
   combinar('tml', tml)
+  combinar('devolucao_pdv', devolucaoPdv)
 
   const { error } = await supabase.from('fechamento_dia_valores').upsert(linhas, { onConflict: 'filial,sala,data,kpi' })
   if (error) console.error(`recalcularAutomaticos (${data}) upsert error:`, error.message)
