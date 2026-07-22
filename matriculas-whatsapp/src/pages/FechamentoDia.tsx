@@ -13,6 +13,7 @@ import {
   KPIS_FECHAMENTO, type KpiFechamento, type SalaFechamento, type ParametroFechamento,
   recalcularAutomaticos, recalcularAutomaticosPeriodo, primeiroDiaDoMes, salvarValorManual, diasDaSemanaAte, buscarValoresFechamento, buscarParametros,
   farolDoValor, parseFarolMotoristas, classificarResultado, montarTextosOrientacao, type LinhaFarolMotorista,
+  diagnosticarDeslocamento, type DiagnosticoDeslocamentoDia,
 } from '../lib/fechamentoDia'
 
 const SALAS: SalaFechamento[] = ['COLORADO', 'SUB-FURIA', 'CDD']
@@ -58,6 +59,9 @@ export default function FechamentoDia() {
   const [erro, setErro] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [envioOk, setEnvioOk] = useState(false)
+
+  const [diagnostico, setDiagnostico] = useState<DiagnosticoDeslocamentoDia[] | null>(null)
+  const [diagnosticando, setDiagnosticando] = useState(false)
 
   const refColorado = useRef<HTMLDivElement>(null)
   const refSubFuria = useRef<HTMLDivElement>(null)
@@ -111,6 +115,15 @@ export default function FechamentoDia() {
     await fetchTudo()
     setProgressoMes(null)
     setRecalculandoMes(false)
+  }
+
+  async function rodarDiagnosticoDeslocamento() {
+    if (!usuario) return
+    setDiagnosticando(true)
+    const { dias: diagDias, erro: erroDiag } = await diagnosticarDeslocamento(usuario.filial, dias[0], data)
+    if (erroDiag) setErro(`Erro no diagnóstico: ${erroDiag}`)
+    setDiagnostico(diagDias)
+    setDiagnosticando(false)
   }
 
   async function salvarManual(sala: SalaFechamento, kpi: KpiFechamento) {
@@ -303,8 +316,37 @@ export default function FechamentoDia() {
                 <button onClick={recalcular} disabled={recalculando || recalculandoMes} className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded border hover:bg-accent disabled:opacity-50">
                   {recalculando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Recalcular só hoje
                 </button>
+                <button onClick={rodarDiagnosticoDeslocamento} disabled={diagnosticando} title="Mostra quantas linhas de checklist_tml existem por dia/sala e quantas têm tempo_deslocamento_minutos preenchido" className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded border hover:bg-accent disabled:opacity-50">
+                  {diagnosticando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Diagnóstico IV (semana)
+                </button>
               </div>
             </div>
+
+            {diagnostico && (
+              <div className="border rounded-lg p-3 overflow-x-auto">
+                <p className="text-xs font-medium mb-2">Checklist TML — linhas por dia/sala ({formatarDataBR(dias[0])} a {formatarDataBR(data)})</p>
+                <table className="text-xs w-full">
+                  <thead>
+                    <tr className="text-left text-muted-foreground">
+                      <th className="pr-3 py-1">Dia</th>
+                      <th className="pr-3 py-1">Colorado (total / c/ coluna / s/ coluna)</th>
+                      <th className="pr-3 py-1">Sub-Fúria (total / c/ coluna / s/ coluna)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {diagnostico.length === 0 ? (
+                      <tr><td colSpan={3} className="py-1 text-muted-foreground">Nenhuma linha encontrada em checklist_tml nesse período.</td></tr>
+                    ) : diagnostico.map((d) => (
+                      <tr key={d.data} className="border-t">
+                        <td className="pr-3 py-1">{formatarDataBR(d.data)}</td>
+                        <td className="pr-3 py-1">{d.porSala.COLORADO.total} / {d.porSala.COLORADO.comColuna} / {d.porSala.COLORADO.semColuna}</td>
+                        <td className="pr-3 py-1">{d.porSala['SUB-FURIA'].total} / {d.porSala['SUB-FURIA'].comColuna} / {d.porSala['SUB-FURIA'].semColuna}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
 
             <div className="grid sm:grid-cols-2 gap-2">
               {KPIS_FECHAMENTO.filter((k) => k.automatico).map((k) => (

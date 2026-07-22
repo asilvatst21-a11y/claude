@@ -229,6 +229,44 @@ export async function buscarValoresFechamento(
   }
 }
 
+// ── Diagnóstico: mostra o que a query de IV-Deslocamento realmente encontra
+// em checklist_tml por dia/sala, pra comparar contra a tela Tempo de
+// Deslocamento sem precisar adivinhar onde a busca diverge. ────────────────
+export interface DiagnosticoDeslocamentoDia {
+  data: string
+  porSala: Record<SalaTML, { total: number; comColuna: number; semColuna: number }>
+}
+
+export async function diagnosticarDeslocamento(filial: string, dataInicio: string, dataFim: string): Promise<{ dias: DiagnosticoDeslocamentoDia[]; erro: string | null }> {
+  const { data: checklist, error } = await supabase
+    .from('checklist_tml')
+    .select('sala, data, horario_inicio, tempo_deslocamento_minutos')
+    .eq('filial', filial)
+    .gte('data', dataInicio)
+    .lte('data', dataFim)
+  if (error) console.error('diagnosticarDeslocamento select error:', error.message)
+
+  const porDia = new Map<string, DiagnosticoDeslocamentoDia>()
+  for (const c of checklist ?? []) {
+    const dia = c.data as string
+    if (!porDia.has(dia)) {
+      porDia.set(dia, {
+        data: dia,
+        porSala: {
+          COLORADO: { total: 0, comColuna: 0, semColuna: 0 },
+          'SUB-FURIA': { total: 0, comColuna: 0, semColuna: 0 },
+        },
+      })
+    }
+    if (c.sala !== 'COLORADO' && c.sala !== 'SUB-FURIA') continue
+    const s = porDia.get(dia)!.porSala[c.sala as SalaTML]
+    s.total++
+    if (c.tempo_deslocamento_minutos != null) s.comColuna++
+    else s.semColuna++
+  }
+  return { dias: [...porDia.values()].sort((a, b) => a.data.localeCompare(b.data)), erro: error?.message ?? null }
+}
+
 export async function buscarParametros(filial: string): Promise<ParametroFechamento[]> {
   const { data } = await supabase.from('fechamento_dia_parametros').select('kpi, meta, bench, gatilho, direcao').eq('filial', filial)
   return (data ?? []) as ParametroFechamento[]
