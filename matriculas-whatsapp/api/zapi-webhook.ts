@@ -99,13 +99,23 @@ function norm(s: string): string {
   return s.normalize('NFD').replace(/\p{Mn}/gu, '').toLowerCase().trim()
 }
 
-// Extrai a resposta do usuário: texto livre OU clique em botão
-function extrairResposta(body: any): 'sim' | 'nao' | null {
-  const buttonId: string = norm(
+// Clique em botão OU numa lista de opções — o Z-API manda o id escolhido em
+// campos diferentes dependendo do tipo de mensagem interativa
+// (buttonsResponseMessage.buttonId, listResponseMessage.selectedRowId ou,
+// em algumas versões, aninhado em listResponse.singleSelectReply.selectedRowId).
+// Checa todos pra não depender de qual formato a instância está mandando.
+function extrairBotaoResposta(body: any): string {
+  return String(
     body?.buttonsResponseMessage?.buttonId ??
+    body?.listResponseMessage?.selectedRowId ??
     body?.listResponse?.singleSelectReply?.selectedRowId ??
     ''
   )
+}
+
+// Extrai a resposta do usuário: texto livre OU clique em botão
+function extrairResposta(body: any): 'sim' | 'nao' | null {
+  const buttonId: string = norm(extrairBotaoResposta(body))
   if (buttonId === 'sim') return 'sim'
   if (buttonId === 'nao') return 'nao'
 
@@ -1482,7 +1492,7 @@ async function tratarConversaMotorista(body: any, remetente: string): Promise<{ 
 }
 
 async function tratarTml(body: any, remetente: string): Promise<{ ok: boolean; action: string }> {
-  const rawBtn = String(body?.listResponseMessage?.selectedRowId ?? body?.buttonsResponseMessage?.buttonId ?? '')
+  const rawBtn = extrairBotaoResposta(body)
   // ── Modo teste (botão "Enviar teste" do painel): não mexe em alertas reais ──
   if (rawBtn.startsWith('tmltestemotivo:')) {
     const motivo = rawBtn.slice('tmltestemotivo:'.length).trim()
@@ -1938,7 +1948,7 @@ async function avancarSessaoFrotaLeve(
   sess: any, body: any, grupoId: string, filial: string, texto: string, nome: string,
 ): Promise<{ ok: boolean; action: string }> {
   nome = sess.condutor_nome || sess.motorista_nome || nome
-  const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
+  const btn = extrairBotaoResposta(body)
   // Cancelamento em qualquer etapa: "CANCELAR" (também aceita "cancela",
   // "desistir", mesmo com texto em volta, ex.: "quero cancelar").
   if (/\b(cancelar|cancela|cancele|desistir|desisto)\b/.test(norm(texto))) {
@@ -2230,7 +2240,7 @@ async function tratarFrotaLeve(
   await verificarLembretesFrotaLeve(grupoId).catch((e) => console.error('lembrete frota leve:', e))
 
   const nome = senderName || 'Motorista'
-  const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
+  const btn = extrairBotaoResposta(body)
 
   // Iniciar RETORNO de uma viagem específica (botão do lembrete ou do seletor)
   if (btn.startsWith('frl_ret_pick:')) {
@@ -2581,7 +2591,7 @@ async function tratarPreSelecaoTemaMatinal(
     }
   }
 
-  const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
+  const btn = extrairBotaoResposta(body)
 
   if (sessao && /^\s*(cancelar|cancela)\s*$/i.test(texto)) {
     await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
@@ -2984,7 +2994,7 @@ async function tratarAurora(
   body: any, remetente: string, senderName: string, texto: string,
 ): Promise<{ ok: boolean; action: string } | null> {
   const sessao = await buscarSessaoAurora(remetente)
-  const btn = String(body?.buttonsResponseMessage?.buttonId ?? body?.listResponseMessage?.selectedRowId ?? '')
+  const btn = extrairBotaoResposta(body)
 
   if (sessao) {
     if (ehEncerrarAurora(texto)) {
@@ -3114,7 +3124,7 @@ export default async function handler(req: any, res: any) {
       body.isGroup === true || body.isGroup === 'true' ||
       grupoId.endsWith('-group') || grupoId.endsWith('@g.us')
     const texto = extrairTexto(body)
-    const temConteudo = texto || body?.buttonsResponseMessage || body?.listResponseMessage || temAudioSemTexto(body) || temImagem(body)
+    const temConteudo = texto || body?.buttonsResponseMessage || body?.listResponseMessage || body?.listResponse?.singleSelectReply || temAudioSemTexto(body) || temImagem(body)
     const senderName: string = String(body.senderName ?? body.chatName ?? body.pushName ?? '')
     const participante: string = String(body.participantPhone ?? body.participant ?? '')
 
@@ -3156,7 +3166,14 @@ export default async function handler(req: any, res: any) {
       // aviso). Se também não se aplicar, mantém a resposta original do TML.
       const rTema = await tratarPreSelecaoTemaMatinal(body, grupoId, senderName, texto)
       if (rTema) { res.status(200).json(rTema); return }
-      const rAurora = await tratarAurora(body, grupoId, senderName, texto)
+      let rAurora: { ok: boolean; action: string } | null = null
+      try {
+        rAurora = await tratarAurora(body, grupoId, senderName, texto)
+      } catch (e) {
+        console.error('tratarAurora exception:', e)
+        await enviar(grupoId, 'Ops, tive um problema aqui. Pode mandar de novo?')
+        rAurora = { ok: false, action: 'aurora-erro' }
+      }
       res.status(200).json(rAurora ?? r)
       return
     }
