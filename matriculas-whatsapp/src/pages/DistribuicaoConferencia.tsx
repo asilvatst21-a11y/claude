@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ClipboardCheck, Upload, Loader2, RefreshCw, AlertTriangle, CheckCircle2,
-  Clock, Search, Link2, Settings2, ExternalLink, ChevronDown, ChevronRight,
+  Clock, Search, Link2, Settings2, ExternalLink, ChevronDown, ChevronRight, Send,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { listarGrupos, enviarMensagemWhatsApp, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import { importarSeparacao, buscarResumoDia, type ResumoDiaConf } from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
@@ -34,6 +34,8 @@ export default function DistribuicaoConferencia() {
   const [buscandoGrupos, setBuscandoGrupos] = useState(false)
   const [erroGrupos, setErroGrupos] = useState<string | null>(null)
   const [copiado, setCopiado] = useState<string | null>(null)
+  const [enviandoLink, setEnviandoLink] = useState(false)
+  const [resultadoEnvioLink, setResultadoEnvioLink] = useState<string | null>(null)
 
   const linkPublico = `${window.location.origin}/conferencia`
 
@@ -87,6 +89,38 @@ export default function DistribuicaoConferencia() {
     try { await navigator.clipboard.writeText(id); setCopiado(id); setTimeout(() => setCopiado((c) => (c === id ? null : c)), 1500) } catch { /* */ }
   }
 
+  // Manda o link do ajudante pra todo mundo (motorista/ajudante) com
+  // telefone cadastrado em Gente › Colaboradores — mesmo cadastro/filtro já
+  // usado na Consulta de Pendências.
+  async function enviarLinkParaTime() {
+    if (!usuario) return
+    const { data } = await supabase
+      .from('colaboradores')
+      .select('nome, telefone, funcao, status')
+      .eq('filial', usuario.filial)
+      .not('telefone', 'is', null)
+    const destinatarios = (data ?? []).filter((c) =>
+      /AJUDANTE|MOTORISTA/i.test(c.funcao ?? '') && (c.status ?? '').toUpperCase() !== 'DESLIGADO' && (c.telefone ?? '').trim()
+    )
+    if (destinatarios.length === 0) {
+      alert('Nenhum motorista/ajudante com telefone cadastrado em Gente › Colaboradores.')
+      return
+    }
+    if (!window.confirm(`Enviar o link da Conferência Digital por WhatsApp pra ${destinatarios.length} pessoa(s) (motoristas e ajudantes com telefone cadastrado)?`)) return
+
+    setEnviandoLink(true)
+    setResultadoEnvioLink(null)
+    let enviados = 0
+    for (const c of destinatarios) {
+      const primeiro = (c.nome ?? '').trim().split(/\s+/)[0] ?? ''
+      const mensagem = `Oi${primeiro ? `, ${primeiro}` : ''}! Segue o link da Conferência Digital pra registrar a conferência do seu mapa pelo celular:\n${linkPublico}`
+      const { sucesso } = await enviarMensagemWhatsApp(c.telefone!.trim(), mensagem)
+      if (sucesso) enviados++
+    }
+    setResultadoEnvioLink(`${enviados} de ${destinatarios.length} mensagem(ns) enviada(s).`)
+    setEnviandoLink(false)
+  }
+
   async function salvarGrupo() {
     if (!usuario) return
     const v = grupo.trim()
@@ -122,7 +156,13 @@ export default function DistribuicaoConferencia() {
         <Link2 className="h-4 w-4 text-accent-600 shrink-0" />
         <span className="text-sm text-accent-900">Link do ajudante (celular, sem login):</span>
         <a href="/conferencia" target="_blank" rel="noreferrer" className="text-sm font-semibold text-accent-700 underline flex items-center gap-1">{linkPublico} <ExternalLink className="h-3.5 w-3.5" /></a>
-        <button onClick={() => copiarId(linkPublico)} className="ml-auto text-xs px-2 py-1 rounded border border-accent-300 text-accent-700 hover:bg-accent-100">{copiado === linkPublico ? 'Copiado' : 'Copiar link'}</button>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={() => copiarId(linkPublico)} className="text-xs px-2 py-1 rounded border border-accent-300 text-accent-700 hover:bg-accent-100">{copiado === linkPublico ? 'Copiado' : 'Copiar link'}</button>
+          <button onClick={enviarLinkParaTime} disabled={enviandoLink} className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-accent-300 text-accent-700 hover:bg-accent-100 disabled:opacity-50">
+            {enviandoLink ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Enviar link ao time
+          </button>
+        </div>
+        {resultadoEnvioLink && <p className="w-full text-xs text-accent-800">{resultadoEnvioLink}</p>}
       </div>
 
       {/* Config WhatsApp */}
