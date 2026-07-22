@@ -2868,7 +2868,8 @@ const AURORA_CATEGORIAS: OpcaoZ[] = [
 
 const AURORA_SUBMENUS: Record<string, OpcaoZ[]> = {
   entrega: [
-    { id: 'aurora_item:resultados_mapa', title: 'Resultados do mapa (dia anterior)' },
+    { id: 'aurora_item:resultados_mapa', title: 'Resultados de um mapa' },
+    { id: 'aurora_item:historico_matricula', title: 'Meu histórico (por matrícula)' },
   ],
   treinamentos: [{ id: 'aurora_item:duvida_treinamento', title: 'Tirar dúvida sobre um treinamento' }],
   financeiro: [{ id: 'aurora_item:pendencias', title: 'Consultar minhas pendências' }],
@@ -2986,9 +2987,127 @@ async function filialDoTelefoneOuPadrao(remetente: string): Promise<string> {
   return data?.[0]?.nome ?? ''
 }
 
+const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+
+// Mês calendário atual (dia 1 até hoje) — reinicia todo dia 1º.
+function mesAtualRange(): { inicio: string; fim: string; rotulo: string } {
+  const fim = hojeSPISO()
+  const [ano, mes] = fim.split('-').map(Number)
+  return { inicio: `${ano}-${String(mes).padStart(2, '0')}-01`, fim, rotulo: `${MESES_PT[mes - 1]}/${String(ano).slice(2)}` }
+}
+
+// Histórico por matrícula: soma os mapas em que a pessoa aparece como
+// MOTORISTA (escalas_tml — mesma base 03.11.49.02) OU como AJUDANTE
+// (mapa_equipe — import "Base" de Financeiro › Catálogo/Vendas, o mesmo
+// cadastro já usado em Reposições), no mês calendário atual, e agrega os
+// mesmos KPIs de resultadosDoMapa (TML, IV-Deslocamento, Aderência,
+// Devolução PDV, Jornada Líquida) sobre esse conjunto de mapas.
+async function historicoPorMatricula(filial: string, matricula: string): Promise<string> {
+  const { inicio, fim, rotulo } = mesAtualRange()
+  const matriculaNum = Number(matricula)
+
+  const [{ data: comoMotorista }, { data: comoAjudante }, { data: cadastro }] = await Promise.all([
+    supabase.from('escalas_tml').select('mapa').eq('filial', filial).eq('matricula', matriculaNum).gte('data_entrega', inicio).lte('data_entrega', fim),
+    supabase.from('mapa_equipe').select('mapa').eq('filial', filial).gte('data', inicio).lte('data', fim)
+      .or(`ajudante1_matricula.eq.${matricula},ajudante2_matricula.eq.${matricula}`),
+    supabase.from('motoristas_sala_tml').select('nome').eq('filial', filial).eq('matricula', matriculaNum).maybeSingle(),
+  ])
+
+  const mapasSet = new Set<number>()
+  for (const e of comoMotorista ?? []) mapasSet.add(e.mapa)
+  for (const e of comoAjudante ?? []) { const n = Number(e.mapa); if (Number.isFinite(n)) mapasSet.add(n) }
+  const mapas = [...mapasSet]
+  const nome = cadastro?.nome ?? `Matrícula ${matricula}`
+
+  if (mapas.length === 0) {
+    return `🔍 Não encontrei nenhum mapa (como motorista ou ajudante) pra matrícula *${matricula}* em ${rotulo}.`
+  }
+
+  const [{ data: historico }, { data: checklist }, { data: bees }, { data: escalasEntregas }, { data: devolucoes }, { data: mapasDia }] = await Promise.all([
+    supabase.from('historico_tml').select('mapa, resultado').eq('filial', filial).in('mapa', mapas),
+    supabase.from('checklist_tml').select('mapa, tempo_deslocamento_minutos').eq('filial', filial).in('mapa', mapas),
+    supabase.from('jornada_bees').select('mapa, entrega_fora_raio, dev_fora_raio').eq('filial', filial).in('mapa', mapas),
+    supabase.from('escalas_tml').select('mapa, entregas_previstas').eq('filial', filial).in('mapa', mapas),
+    supabase.from('fechamento_dia_devolucoes_pdv').select('mapa, devolucoes').eq('filial', filial).in('mapa', mapas),
+    supabase.from('fechamento_dia_mapas_dia').select('mapa, bateu_jornada, entregas').eq('filial', filial).in('mapa', mapas),
+  ])
+
+  let noPrazo = 0
+  let atrasado = 0
+  for (const h of historico ?? []) {
+    if (h.resultado === 'no_prazo') noPrazo++
+    else if (h.resultado === 'atrasado') atrasado++
+  }
+  const totalTml = noPrazo + atrasado
+  const tmlTxt = totalTml > 0 ? `${noPrazo} no prazo / ${atrasado} atrasados (${((noPrazo / totalTml) * 100).toFixed(1)}%)` : '— Sem dado'
+
+  const ivValores = (checklist ?? []).map((c) => c.tempo_deslocamento_minutos).filter((v): v is number => v != null)
+  const ivTxt = ivValores.length > 0 ? `${Math.round(ivValores.reduce((a, b) => a + b, 0) / ivValores.length)} min (média)` : '— Sem dado'
+
+  const entregasPorMapa = new Map<number, number>()
+  for (const e of escalasEntregas ?? []) entregasPorMapa.set(e.mapa, e.entregas_previstas ?? 0)
+  for (const m of mapasDia ?? []) if (!entregasPorMapa.has(m.mapa)) entregasPorMapa.set(m.mapa, m.entregas ?? 0)
+
+  const foraRaioPorMapa = new Map<number, number>()
+  for (const b of bees ?? []) foraRaioPorMapa.set(b.mapa, (b.entrega_fora_raio ?? 0) + (b.dev_fora_raio ?? 0))
+
+  let somaAderencia = 0
+  let countAderencia = 0
+  for (const mapa of mapas) {
+    const entregas = entregasPorMapa.get(mapa)
+    if (entregas) { somaAderencia += 1 - (foraRaioPorMapa.get(mapa) ?? 0) / entregas; countAderencia++ }
+  }
+  const aderenciaTxt = countAderencia > 0 ? `${((somaAderencia / countAderencia) * 100).toFixed(1)}% (média)` : '— Sem dado'
+
+  const devolucoesPorMapa = new Map<number, number>()
+  for (const d of devolucoes ?? []) devolucoesPorMapa.set(d.mapa, d.devolucoes ?? 0)
+  const totalDevolucoes = [...devolucoesPorMapa.values()].reduce((a, b) => a + b, 0)
+  const somaEntregas = mapas.reduce((s, mapa) => s + (entregasPorMapa.get(mapa) ?? 0), 0)
+  const devolucaoTxt = somaEntregas > 0
+    ? `${totalDevolucoes} devolução(ões) (${((totalDevolucoes / somaEntregas) * 100).toFixed(2)}% média)`
+    : `${totalDevolucoes} devolução(ões)`
+
+  let bateram = 0
+  let naoBateram = 0
+  for (const m of mapasDia ?? []) {
+    if (m.bateu_jornada === true) bateram++
+    else if (m.bateu_jornada === false) naoBateram++
+  }
+  const totalJornada = bateram + naoBateram
+  const jornadaTxt = totalJornada > 0 ? `${bateram} bateram / ${naoBateram} não bateram (${((bateram / totalJornada) * 100).toFixed(1)}%)` : '— Sem dado'
+
+  return [
+    `👤 *Histórico de ${nome} — ${rotulo}*`,
+    `🗺️ Mapas no mês: ${mapas.length}`,
+    ``,
+    `⏱️ TML: ${tmlTxt}`,
+    `🚶 IV-Deslocamento: ${ivTxt}`,
+    `🎯 Aderência ao Raio: ${aderenciaTxt}`,
+    `📦 Devolução PDV: ${devolucaoTxt}`,
+    `🕐 Jornada Líquida: ${jornadaTxt}`,
+  ].join('\n')
+}
+
+// Os números de mapa não se repetem entre dias (cada import diário já vem
+// com números maiores que o anterior), então dá pra achar sozinho em qual
+// dia um mapa rodou, sem precisar perguntar a data. Olha nas mesmas fontes
+// de resultadosDoMapa e fica com a mais recente encontrada (cobre o caso
+// raro de aparecer em mais de uma data).
+async function encontrarDataDoMapa(filial: string, mapa: number): Promise<string | null> {
+  const [h, c, e, m] = await Promise.all([
+    supabase.from('historico_tml').select('data_saida').eq('filial', filial).eq('mapa', mapa).order('data_saida', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('checklist_tml').select('data').eq('filial', filial).eq('mapa', mapa).order('data', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('escalas_tml').select('data_entrega').eq('filial', filial).eq('mapa', mapa).order('data_entrega', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('fechamento_dia_mapas_dia').select('data').eq('filial', filial).eq('mapa', mapa).order('data', { ascending: false }).limit(1).maybeSingle(),
+  ])
+  const datas = [h.data?.data_saida, c.data?.data, e.data?.data_entrega, m.data?.data].filter((d): d is string => !!d)
+  if (datas.length === 0) return null
+  return datas.sort().at(-1)!
+}
+
 async function iniciarFluxoResultadosMapa(remetente: string): Promise<void> {
   await definirEstadoAurora(remetente, 'aguardando_mapa')
-  await enviar(remetente, '🔢 Qual o *número do mapa*? Se quiser o resultado de um dia específico, inclua a data (ex.: *279088 20/07* — sem data, mostro o de ontem).')
+  await enviar(remetente, '🔢 Qual o *número do mapa*? (acho sozinho em qual dia ele rodou — se quiser um dia específico, inclua a data: ex. *279088 20/07*)')
 }
 
 // Data "yyyy-mm-dd" → "dd/mm/aa" (sem passar por Date, que erra o dia perto
@@ -3022,6 +3141,11 @@ async function tratarItemAurora(remetente: string, senderName: string, itemId: s
   if (itemId === 'aurora_item:resultados_mapa') {
     await iniciarFluxoResultadosMapa(remetente)
     return { ok: true, action: 'aurora-pede-mapa' }
+  }
+  if (itemId === 'aurora_item:historico_matricula') {
+    await definirEstadoAurora(remetente, 'aguardando_matricula_historico')
+    await enviar(remetente, '🔢 Qual a sua *matrícula*? Conto os mapas do mês atual em que você aparece como motorista ou ajudante.')
+    return { ok: true, action: 'aurora-pede-matricula' }
   }
   if (itemId === 'aurora_item:duvida_treinamento') {
     await encerrarSessaoAurora(remetente)
@@ -3082,12 +3206,38 @@ async function tratarAurora(
         await enviar(remetente, '🔢 Não entendi. Envie só o *número do mapa* (ex: 279088), com a data se quiser (ex: 279088 20/07).')
         return { ok: true, action: 'aurora-mapa-repete' }
       }
-      const dataEscolhida = extrairDataMencionada(conteudo) ?? ontemISO()
       const filial = await filialDoTelefoneOuPadrao(remetente)
+      const dataEscolhida = extrairDataMencionada(conteudo) ?? await encontrarDataDoMapa(filial, mapa)
+      if (!dataEscolhida) {
+        await enviar(remetente, `🔍 Não encontrei nenhum resultado pro mapa *${mapa}* em nenhuma data. Confira o número.`)
+        await perguntarProximoPasso(remetente)
+        return { ok: true, action: 'aurora-mapa-nao-encontrado' }
+      }
       const resposta = await resultadosDoMapa(filial, mapa, dataEscolhida)
       await enviar(remetente, resposta)
       await perguntarProximoPasso(remetente)
       return { ok: true, action: 'aurora-mapa-respondido' }
+    }
+    if (sessao.estado === 'aguardando_matricula_historico') {
+      let conteudo = texto.trim()
+      if (!conteudo && temAudioSemTexto(body)) {
+        const transcrito = await transcreverAudio(extrairAudioUrl(body))
+        if (!transcrito) {
+          await enviar(remetente, 'Não consegui entender o áudio. Pode escrever sua matrícula?')
+          return { ok: true, action: 'aurora-matricula-audio-falhou' }
+        }
+        conteudo = transcrito
+      }
+      const matriculaMatch = conteudo.match(/\d{1,7}/)
+      if (!matriculaMatch) {
+        await enviar(remetente, '🔢 Não entendi. Envie só o número da sua matrícula.')
+        return { ok: true, action: 'aurora-matricula-repete' }
+      }
+      const filial = await filialDoTelefoneOuPadrao(remetente)
+      const resposta = await historicoPorMatricula(filial, matriculaMatch[0])
+      await enviar(remetente, resposta)
+      await perguntarProximoPasso(remetente)
+      return { ok: true, action: 'aurora-matricula-respondido' }
     }
     if (sessao.estado === 'pos_resposta') {
       if (btn === 'aurora_pos:nova' || ehTrocarAssuntoAurora(texto) || /^\s*nova\b/i.test(texto)) {
@@ -3125,7 +3275,12 @@ async function tratarAurora(
       const mapaFalado = extrairMapa(transcrito)
       if (mapaFalado != null && /mapa/.test(n)) {
         const filial = await filialDoTelefoneOuPadrao(remetente)
-        const dataFalada = extrairDataMencionada(transcrito) ?? ontemISO()
+        const dataFalada = extrairDataMencionada(transcrito) ?? await encontrarDataDoMapa(filial, mapaFalado)
+        if (!dataFalada) {
+          await enviar(remetente, `🔍 Não encontrei nenhum resultado pro mapa *${mapaFalado}* em nenhuma data. Confira o número.`)
+          await perguntarProximoPasso(remetente)
+          return { ok: true, action: 'aurora-audio-mapa-nao-encontrado' }
+        }
         const resposta = await resultadosDoMapa(filial, mapaFalado, dataFalada)
         await enviar(remetente, resposta)
         await perguntarProximoPasso(remetente)
