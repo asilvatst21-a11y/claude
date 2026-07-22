@@ -2623,7 +2623,12 @@ async function tratarPreSelecaoTemaMatinal(
       conteudo = transcrito
       porAudio = true
     }
-    if (!conteudo) return { ok: true, action: 'matinal-tema-sem-conteudo' }
+    if (!conteudo) {
+      // Clique de botão/lista de outro fluxo (ex.: menu da Aurora) não é
+      // resposta a essa pergunta — devolve null em vez de reivindicar.
+      if (btn) return null
+      return { ok: true, action: 'matinal-tema-sem-conteudo' }
+    }
     await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
     return await processarDuvidaSobreTreinamento(
       sessao.treinamento_id, sessao.filial ?? '', sessao.sala ?? '', remetente,
@@ -2650,6 +2655,8 @@ async function tratarPreSelecaoTemaMatinal(
       await enviar(remetente, `Qual sua dúvida sobre *${treino.titulo}*? Pode escrever ou mandar um áudio.`)
       return { ok: true, action: 'matinal-tema-escolhido' }
     }
+    // Clique de outro fluxo (ex.: menu da Aurora) — não reivindica.
+    if (btn) return null
     return { ok: true, action: 'matinal-tema-aguardando-escolha' }
   }
 
@@ -2660,6 +2667,8 @@ async function tratarPreSelecaoTemaMatinal(
       await supabase.from('matinal_duvida_sessoes').delete().eq('id', sessao.id)
       return await iniciarEscolhaTema(remetente, sessao.colaborador_nome ?? senderName ?? null, filial, sala)
     }
+    // Clique de outro fluxo (ex.: menu da Aurora) — não reivindica.
+    if (btn) return null
     return { ok: true, action: 'matinal-tema-aguardando-sala' }
   }
 
