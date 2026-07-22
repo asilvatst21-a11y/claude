@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { buscarJornadaDoDia, SALA_JORNADA_PARA_TML, type SalaJornada } from './jornada'
+import { buscarJornadaDoDia, SALA_JORNADA_PARA_TML, JORNADA_LIMITE_MIN, type SalaJornada } from './jornada'
 import type { SalaTML } from './tml'
 import { REGRAS_TML, horarioParaMinutos, tempoDeslocamentoMinutos } from './tml'
 
@@ -8,7 +8,7 @@ export type SalaFechamento = SalaTML | 'CDD'
 
 export const KPIS_FECHAMENTO: { key: KpiFechamento; label: string; unidade: 'percentual' | 'minutos' | 'nota'; automatico: boolean }[] = [
   { key: 'devolucao_pdv', label: 'Devolução PDV', unidade: 'percentual', automatico: true },
-  { key: 'jornada_liquida', label: 'Jornada Líquida', unidade: 'percentual', automatico: false },
+  { key: 'jornada_liquida', label: 'Jornada Líquida (bateu = MPD "PC financeira" até o limite)', unidade: 'percentual', automatico: true },
   { key: 'aderencia_raio', label: 'Aderência ao Raio', unidade: 'percentual', automatico: true },
   { key: 'tml', label: 'TML (média de saída da sala)', unidade: 'minutos', automatico: true },
   { key: 'rating', label: 'Rating', unidade: 'nota', automatico: false },
@@ -35,7 +35,8 @@ export interface ValorFechamento {
 // devolvida, Mapa na coluna A e Data na coluna B — mesmo formato da planilha
 // de referência do cliente). Salva a CONTAGEM por mapa+dia em
 // fechamento_dia_devolucoes_pdv; o cálculo do % em si cruza essa contagem
-// com escalas_tml (entregas previstas do dia). ─────────────────────────────
+// com as entregas do dia (fechamento_dia_mapas_dia — upload do 03.11.49.02,
+// ver abaixo). ──────────────────────────────────────────────────────────────
 export interface LinhaDevolucaoPdv {
   mapa: number
   data: string
@@ -50,6 +51,27 @@ function excelSerialParaISO(valor: unknown): string | null {
   if (typeof valor === 'string') {
     const m = valor.match(/(\d{4})-(\d{2})-(\d{2})/)
     if (m) return `${m[1]}-${m[2]}-${m[3]}`
+  }
+  return null
+}
+
+// Excel guarda hora como fração do dia (0.5 = meio-dia) — converte pra
+// "HH:MM". Aceita também Date (caso o parser já tenha convertido) ou string
+// "HH:MM" already pronta.
+function excelHoraParaHHMM(valor: unknown): string | null {
+  if (valor instanceof Date) {
+    return `${String(valor.getHours()).padStart(2, '0')}:${String(valor.getMinutes()).padStart(2, '0')}`
+  }
+  if (typeof valor === 'number' && Number.isFinite(valor)) {
+    const fracaoDoDia = valor % 1
+    const minutosTotais = Math.round(fracaoDoDia * 24 * 60)
+    const h = Math.floor(minutosTotais / 60) % 24
+    const m = minutosTotais % 60
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`
+  }
+  if (typeof valor === 'string') {
+    const m = valor.match(/^(\d{1,2}):(\d{2})/)
+    if (m) return `${m[1].padStart(2, '0')}:${m[2]}`
   }
   return null
 }
@@ -81,40 +103,135 @@ export async function salvarDevolucoesPdv(filial: string, linhas: LinhaDevolucao
   return { error: error?.message ?? null }
 }
 
-// ── Cálculo automático: Devolução PDV — total de devoluções do dia (upload
-// acima) / entregas previstas do dia (escalas_tml, a mesma base 03.11.49.02
-// da Carta de Controle TML), cruzando mapa→matrícula→sala igual
-// buscarJornadaDoDia. Freteiro (placa CRW) não entra — não tem sala
-// Colorado/Sub-Fúria. ───────────────────────────────────────────────────────
-async function calcularDevolucaoPdv(filial: string, data: string): Promise<Record<SalaTML, number | null>> {
-  const [{ data: devolucoes, error: erroDevol }, { data: escalas, error: erroEscalas }] = await Promise.all([
-    supabase.from('fechamento_dia_devolucoes_pdv').select('mapa, devolucoes').eq('filial', filial).eq('data', data),
-    supabase.from('escalas_tml').select('mapa, placa, matricula, entregas_previstas').eq('filial', filial).eq('data_entrega', data),
-  ])
-  if (erroDevol) console.error(`calcularDevolucaoPdv (${data}) devolucoes error:`, erroDevol.message)
-  if (erroEscalas) console.error(`calcularDevolucaoPdv (${data}) escalas error:`, erroEscalas.message)
+// ── 03.11.49.02 — upload do mesmo relatório da Carta de Controle TML
+// (Data Entrega, Nro do Mapa, Placa, Motorista, MPD, Hora MPD, Entregas).
+// Alimenta 2 KPIs de uma vez: Jornada Líquida (bateu = MPD "PC financeira" e
+// Hora MPD dentro do limite) e o denominador (entregas) da Devolução PDV.
+export interface LinhaMapaDia {
+  mapa: number
+  data: string
+  placa: string | null
+  matricula: number | null
+  mpd: string | null
+  horaMpd: string | null
+  entregas: number | null
+}
 
-  const devolucoesPorMapa = new Map((devolucoes ?? []).map((d) => [d.mapa, d.devolucoes as number]))
-  const matriculas = [...new Set((escalas ?? []).map((e) => e.matricula).filter((m): m is number => m != null))]
+// Colunas do 03.11.49.02: E=Data Entrega, G=Nro do Mapa, M=Placa,
+// O=Motorista (matrícula), Q=MPD, R=Hora MPD, V=Entregas. Cabeçalho na
+// linha 1, dados a partir da linha 2.
+export function parseMapasDia(linhas: unknown[][]): LinhaMapaDia[] {
+  const resultado: LinhaMapaDia[] = []
+  for (let i = 1; i < linhas.length; i++) {
+    const l = linhas[i]
+    if (!l || l[6] == null) continue
+    const mapaBruto = Number(l[6])
+    const data = excelSerialParaISO(l[4])
+    if (!Number.isFinite(mapaBruto) || !data) continue
+    const matricula = Number(l[14])
+    const entregas = Number(l[21])
+    resultado.push({
+      mapa: Math.round(mapaBruto),
+      data,
+      placa: typeof l[12] === 'string' ? l[12].trim() : null,
+      matricula: Number.isFinite(matricula) ? matricula : null,
+      mpd: typeof l[16] === 'string' ? l[16] : null,
+      horaMpd: excelHoraParaHHMM(l[17]),
+      entregas: Number.isFinite(entregas) ? entregas : null,
+    })
+  }
+  return resultado
+}
+
+// "Bateu jornada" = rota finalizada (MPD = "PC financeira", tolerando acento
+// e pontuação, igual jornada.ts) e a Hora MPD dentro do limite de 10h20
+// (JORNADA_LIMITE_MIN) a partir do início da matinal da sala — mesma régua
+// pedida pelo cliente (Colorado 07:00+10h20=17:20, Sub-Fúria 08:00+10h20=18:20).
+function bateuJornada(sala: SalaTML, mpd: string | null, horaMpd: string | null): boolean {
+  if (!mpd || !horaMpd) return false
+  const normalizado = mpd.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
+  if (!normalizado.includes('pc financ')) return false
+  const limiteMin = horarioParaMinutos(REGRAS_TML[sala].matinal) + JORNADA_LIMITE_MIN
+  return horarioParaMinutos(horaMpd) <= limiteMin
+}
+
+// Resolve a sala de cada mapa (placa CRW = freteiro/Externos, sem sala;
+// senão cruza a matrícula com motoristas_sala_tml, igual buscarJornadaDoDia)
+// e já grava o resultado de "bateu jornada" pronto, pra não recalcular a
+// cada leitura.
+export async function salvarMapasDia(filial: string, linhas: LinhaMapaDia[]): Promise<{ error: string | null }> {
+  if (linhas.length === 0) return { error: null }
+  const matriculas = [...new Set(linhas.map((l) => l.matricula).filter((m): m is number => m != null))]
   const { data: roster, error: erroRoster } = await supabase
     .from('motoristas_sala_tml')
     .select('matricula, sala')
     .eq('filial', filial)
     .in('matricula', matriculas.length > 0 ? matriculas : [-1])
-  if (erroRoster) console.error(`calcularDevolucaoPdv (${data}) roster error:`, erroRoster.message)
+  if (erroRoster) return { error: erroRoster.message }
   const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
 
+  const registros = linhas.map((l) => {
+    const salaBruta = l.placa?.toUpperCase().startsWith('CRW')
+      ? null
+      : l.matricula != null ? salaPorMatricula.get(l.matricula) ?? null : null
+    const sala = salaBruta === 'COLORADO' || salaBruta === 'SUB-FURIA' ? salaBruta : null
+    return {
+      filial, mapa: l.mapa, data: l.data, placa: l.placa, matricula: l.matricula,
+      sala, mpd: l.mpd, hora_mpd: l.horaMpd, entregas: l.entregas,
+      bateu_jornada: sala ? bateuJornada(sala, l.mpd, l.horaMpd) : null,
+    }
+  })
+  const { error } = await supabase.from('fechamento_dia_mapas_dia').upsert(registros, { onConflict: 'filial,mapa,data' })
+  return { error: error?.message ?? null }
+}
+
+// ── Cálculo automático: Jornada Líquida — % de mapas que bateram jornada
+// (bateu_jornada, já resolvido no upload) sobre o total de mapas da sala
+// no dia. ────────────────────────────────────────────────────────────────
+async function calcularJornadaLiquida(filial: string, data: string): Promise<Record<SalaTML, number | null>> {
+  const { data: mapas, error } = await supabase
+    .from('fechamento_dia_mapas_dia')
+    .select('sala, bateu_jornada')
+    .eq('filial', filial)
+    .eq('data', data)
+  if (error) console.error(`calcularJornadaLiquida (${data}) select error:`, error.message)
+  const porSala: Record<SalaTML, { total: number; bateu: number }> = {
+    COLORADO: { total: 0, bateu: 0 },
+    'SUB-FURIA': { total: 0, bateu: 0 },
+  }
+  for (const m of mapas ?? []) {
+    if (m.sala !== 'COLORADO' && m.sala !== 'SUB-FURIA') continue
+    const sala = m.sala as SalaTML
+    porSala[sala].total++
+    if (m.bateu_jornada) porSala[sala].bateu++
+  }
+  return {
+    COLORADO: porSala.COLORADO.total > 0 ? porSala.COLORADO.bateu / porSala.COLORADO.total : null,
+    'SUB-FURIA': porSala['SUB-FURIA'].total > 0 ? porSala['SUB-FURIA'].bateu / porSala['SUB-FURIA'].total : null,
+  }
+}
+
+// ── Cálculo automático: Devolução PDV — total de devoluções do dia
+// (fechamento_dia_devolucoes_pdv) / entregas do dia (fechamento_dia_mapas_dia,
+// upload do 03.11.49.02 — já tem a sala de cada mapa resolvida). ──────────
+async function calcularDevolucaoPdv(filial: string, data: string): Promise<Record<SalaTML, number | null>> {
+  const [{ data: devolucoes, error: erroDevol }, { data: mapas, error: erroMapas }] = await Promise.all([
+    supabase.from('fechamento_dia_devolucoes_pdv').select('mapa, devolucoes').eq('filial', filial).eq('data', data),
+    supabase.from('fechamento_dia_mapas_dia').select('mapa, sala, entregas').eq('filial', filial).eq('data', data),
+  ])
+  if (erroDevol) console.error(`calcularDevolucaoPdv (${data}) devolucoes error:`, erroDevol.message)
+  if (erroMapas) console.error(`calcularDevolucaoPdv (${data}) mapas error:`, erroMapas.message)
+
+  const devolucoesPorMapa = new Map((devolucoes ?? []).map((d) => [d.mapa, d.devolucoes as number]))
   const porSala: Record<SalaTML, { devolucoes: number; entregas: number }> = {
     COLORADO: { devolucoes: 0, entregas: 0 },
     'SUB-FURIA': { devolucoes: 0, entregas: 0 },
   }
-  for (const e of escalas ?? []) {
-    if (e.placa?.toUpperCase().startsWith('CRW')) continue
-    const salaBruta = e.matricula != null ? salaPorMatricula.get(e.matricula) : undefined
-    if (salaBruta !== 'COLORADO' && salaBruta !== 'SUB-FURIA') continue
-    const sala = salaBruta as SalaTML
-    porSala[sala].entregas += e.entregas_previstas ?? 0
-    porSala[sala].devolucoes += devolucoesPorMapa.get(e.mapa) ?? 0
+  for (const m of mapas ?? []) {
+    if (m.sala !== 'COLORADO' && m.sala !== 'SUB-FURIA') continue
+    const sala = m.sala as SalaTML
+    porSala[sala].entregas += m.entregas ?? 0
+    porSala[sala].devolucoes += devolucoesPorMapa.get(m.mapa) ?? 0
   }
 
   return {
@@ -190,19 +307,20 @@ async function calcularDeslocamento(filial: string, data: string): Promise<Recor
   return { COLORADO: media(porSala.COLORADO), 'SUB-FURIA': media(porSala['SUB-FURIA']) }
 }
 
-// Recalcula os 4 KPIs automáticos (Aderência, TML, IV-Deslocamento,
-// Devolução PDV) para as duas salas + CDD (média simples das salas, já que
-// não há contagem bruta combinável de forma ponderada de forma simples
-// aqui) e grava em fechamento_dia_valores. Devolução PDV depende do upload
-// prévio em fechamento_dia_devolucoes_pdv — sem upload pro dia, o cálculo
-// simplesmente não encontra devoluções e o % fica 0. Os outros 2 KPIs
-// (Jornada Líquida, Rating) não são tocados por essa função — são manuais.
+// Recalcula os 5 KPIs automáticos (Aderência, TML, IV-Deslocamento,
+// Devolução PDV, Jornada Líquida) para as duas salas + CDD (média simples
+// das salas, já que não há contagem bruta combinável de forma ponderada de
+// forma simples aqui) e grava em fechamento_dia_valores. Devolução PDV e
+// Jornada Líquida dependem do upload prévio do 03.11.49.02/devolução — sem
+// upload pro dia, o cálculo simplesmente não encontra mapas e o valor fica
+// nulo. Só o Rating não é tocado por essa função — continua manual.
 export async function recalcularAutomaticos(filial: string, data: string): Promise<{ error: string | null }> {
-  const [aderencia, tml, deslocamento, devolucaoPdv] = await Promise.all([
+  const [aderencia, tml, deslocamento, devolucaoPdv, jornadaLiquida] = await Promise.all([
     calcularAderenciaRaio(filial, data),
     calcularTml(filial, data),
     calcularDeslocamento(filial, data),
     calcularDevolucaoPdv(filial, data),
+    calcularJornadaLiquida(filial, data),
   ])
 
   const linhas: { filial: string; sala: SalaFechamento; data: string; kpi: KpiFechamento; valor: number | null; origem: 'automatico' }[] = []
@@ -216,6 +334,7 @@ export async function recalcularAutomaticos(filial: string, data: string): Promi
   combinar('iv_deslocamento', deslocamento)
   combinar('tml', tml)
   combinar('devolucao_pdv', devolucaoPdv)
+  combinar('jornada_liquida', jornadaLiquida)
 
   const { error } = await supabase.from('fechamento_dia_valores').upsert(linhas, { onConflict: 'filial,sala,data,kpi' })
   if (error) console.error(`recalcularAutomaticos (${data}) upsert error:`, error.message)

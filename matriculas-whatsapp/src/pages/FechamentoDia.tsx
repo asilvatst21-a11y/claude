@@ -14,7 +14,7 @@ import {
   recalcularAutomaticos, recalcularAutomaticosPeriodo, primeiroDiaDoMes, salvarValorManual, diasDaSemanaAte, buscarValoresFechamento, buscarParametros,
   farolDoValor, parseFarolMotoristas, classificarResultado, montarTextosOrientacao, type LinhaFarolMotorista,
   diagnosticarDeslocamento, type DiagnosticoDeslocamentoDia,
-  parseDevolucaoPdv, salvarDevolucoesPdv,
+  parseDevolucaoPdv, salvarDevolucoesPdv, parseMapasDia, salvarMapasDia,
 } from '../lib/fechamentoDia'
 
 const SALAS: SalaFechamento[] = ['COLORADO', 'SUB-FURIA', 'CDD']
@@ -66,6 +66,9 @@ export default function FechamentoDia() {
 
   const [enviandoDevolucao, setEnviandoDevolucao] = useState(false)
   const [devolucaoMsg, setDevolucaoMsg] = useState<string | null>(null)
+
+  const [enviandoMapas, setEnviandoMapas] = useState(false)
+  const [mapasMsg, setMapasMsg] = useState<string | null>(null)
 
   const refColorado = useRef<HTMLDivElement>(null)
   const refSubFuria = useRef<HTMLDivElement>(null)
@@ -158,6 +161,37 @@ export default function FechamentoDia() {
       await fetchTudo()
     } finally {
       setEnviandoDevolucao(false)
+    }
+  }
+
+  async function processarArquivoMapasDia(file: File) {
+    if (!usuario) return
+    setEnviandoMapas(true)
+    setMapasMsg(null)
+    setErro('')
+    try {
+      const buf = await file.arrayBuffer()
+      const wb = XLSX.read(buf, { type: 'array' })
+      const ws = wb.Sheets[wb.SheetNames[0]]
+      const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as unknown[][]
+      const parsed = parseMapasDia(linhas)
+      if (parsed.length === 0) {
+        setErro('Não encontrei linhas válidas (Mapa/Data Entrega) nesse arquivo 03.11.49.02.')
+        return
+      }
+      const { error: erroSalvar } = await salvarMapasDia(usuario.filial, parsed)
+      if (erroSalvar) {
+        setErro(`Erro ao salvar os mapas do dia: ${erroSalvar}`)
+        return
+      }
+      const { erros } = await recalcularAutomaticosPeriodo(usuario.filial, primeiroDiaDoMes(data), data)
+      if (erros.length > 0) {
+        setErro(`${erros.length} dia(s) falharam ao recalcular Jornada Líquida/Devolução PDV: ${erros.map((e) => formatarDataBR(e.dia)).join(', ')}`)
+      }
+      setMapasMsg(`${parsed.length} mapas processados — recalculado até ${formatarDataBR(data)}.`)
+      await fetchTudo()
+    } finally {
+      setEnviandoMapas(false)
     }
   }
 
@@ -394,12 +428,36 @@ export default function FechamentoDia() {
 
             <div className="border rounded-lg p-3 space-y-2">
               <div className="flex items-center justify-between flex-wrap gap-2">
+                <span className="text-sm font-medium">Jornada Líquida</span>
+                <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-green-50 text-green-700">● Automático (via upload 03.11.49.02)</span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Suba o relatório 03.11.49.02 (Mapa, Data Entrega, Placa, Motorista, MPD, Hora MPD, Entregas) — o mesmo da Carta de Controle TML.
+                O sistema considera "bateu jornada" quando o MPD é "PC financeira" e a Hora MPD está dentro de 10h20 desde o início da matinal da sala
+                (Colorado até 17:20, Sub-Fúria até 18:20). Esse upload também alimenta as entregas do dia usadas na Devolução PDV abaixo.
+              </p>
+              <label className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border cursor-pointer hover:bg-accent w-fit">
+                {enviandoMapas ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                {enviandoMapas ? 'Processando…' : 'Anexar relatório 03.11.49.02'}
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  disabled={enviandoMapas}
+                  onChange={(e) => { const f = e.target.files?.[0]; if (f) processarArquivoMapasDia(f); e.target.value = '' }}
+                />
+              </label>
+              {mapasMsg && <p className="text-xs text-green-600">{mapasMsg}</p>}
+            </div>
+
+            <div className="border rounded-lg p-3 space-y-2">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <span className="text-sm font-medium">Devolução PDV</span>
                 <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-green-50 text-green-700">● Automático (via upload)</span>
               </div>
               <p className="text-xs text-muted-foreground">
                 Suba o relatório de devolução (mesmo formato da planilha do cliente — 1 linha por nota devolvida, Mapa e Data).
-                O sistema soma as devoluções por mapa/dia e cruza com as entregas previstas do dia (escalas_tml) pra calcular o % por sala automaticamente.
+                O sistema soma as devoluções por mapa/dia e cruza com as entregas do dia (relatório 03.11.49.02 acima) pra calcular o % por sala automaticamente.
               </p>
               <label className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border cursor-pointer hover:bg-accent w-fit">
                 {enviandoDevolucao ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
@@ -457,35 +515,6 @@ export default function FechamentoDia() {
                   </div>
                 </div>
               ))}
-
-              <div className="border rounded-lg p-3 space-y-2">
-                <div className="flex items-center justify-between flex-wrap gap-2">
-                  <span className="text-sm font-medium">Jornada Líquida</span>
-                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">⚠ Manual (sem fonte automática ainda)</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2">
-                  {SALAS.map((sala) => {
-                    const chave = `${sala}|jornada_liquida`
-                    const atual = valores[`${sala}|${data}`]?.['jornada_liquida']
-                    return (
-                      <div key={sala} className="space-y-1">
-                        <label className="text-[10px] text-muted-foreground">{SALA_LABEL[sala]}</label>
-                        <div className="flex items-center gap-1">
-                          <input
-                            value={manuais[chave] ?? (atual != null ? (atual * 100).toFixed(1) : '')}
-                            onChange={(e) => setManuais((m) => ({ ...m, [chave]: e.target.value }))}
-                            placeholder="%"
-                            className="w-full px-2 py-1 text-xs border rounded"
-                          />
-                          <button onClick={() => salvarManual(sala, 'jornada_liquida')} disabled={salvandoManual === chave} className="text-[10px] px-1.5 py-1 rounded bg-primary text-primary-foreground disabled:opacity-50">
-                            {salvandoManual === chave ? '…' : 'OK'}
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
             </div>
           </div>
 
