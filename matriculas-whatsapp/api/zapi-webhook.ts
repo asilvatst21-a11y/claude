@@ -2765,7 +2765,7 @@ export async function verificarLembretesMatinal(): Promise<number> {
 
 const AURORA_TTL_MIN = 30
 
-interface AuroraSessao { id: string; telefone: string; estado: string; criado_em: string }
+interface AuroraSessao { id: string; telefone: string; estado: string; contexto: any; criado_em: string }
 
 async function buscarSessaoAurora(remetente: string): Promise<AuroraSessao | null> {
   const { data } = await supabase.from('aurora_sessoes').select('*').eq('telefone', remetente).maybeSingle()
@@ -2778,9 +2778,9 @@ async function buscarSessaoAurora(remetente: string): Promise<AuroraSessao | nul
   return data as AuroraSessao
 }
 
-async function definirEstadoAurora(remetente: string, estado: string): Promise<void> {
+async function definirEstadoAurora(remetente: string, estado: string, contexto: any = null): Promise<void> {
   await supabase.from('aurora_sessoes').upsert(
-    { telefone: remetente, estado, criado_em: new Date().toISOString() },
+    { telefone: remetente, estado, contexto, criado_em: new Date().toISOString() },
     { onConflict: 'telefone' },
   )
 }
@@ -2813,8 +2813,8 @@ const AURORA_SUBMENUS: Record<string, OpcaoZ[]> = {
   gente: [{ id: 'aurora_item:em_breve', title: 'Solicitar diária extra' }],
   frota: [{ id: 'aurora_item:em_breve', title: 'Registrar saída/retorno de veículo' }],
   treinamentos: [{ id: 'aurora_item:duvida_treinamento', title: 'Tirar dúvida sobre um treinamento' }],
-  financeiro: [{ id: 'aurora_item:em_breve', title: 'Consultar minhas pendências' }],
-  armazem: [{ id: 'aurora_item:em_breve', title: 'Consultar meu variável/pontuação' }],
+  financeiro: [{ id: 'aurora_item:pendencias', title: 'Consultar minhas pendências' }],
+  armazem: [{ id: 'aurora_item:variavel', title: 'Consultar meu variável/pontuação' }],
 }
 
 async function mostrarMenuCategorias(remetente: string, nome: string | null): Promise<void> {
@@ -2904,6 +2904,145 @@ async function iniciarFluxoResultadosMapa(remetente: string): Promise<void> {
   await enviar(remetente, '🔢 Qual o *número do mapa*? (pode escrever ou mandar um áudio)')
 }
 
+// Data "yyyy-mm-dd" → "dd/mm/aa" (sem passar por Date, que erra o dia perto
+// da meia-noite em fusos negativos como o Brasil).
+function diaBR(iso: string | null): string {
+  if (!iso) return '—'
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/)
+  return m ? `${m[3]}/${m[2]}/${m[1].slice(2)}` : iso
+}
+
+// ── Financeiro → Pendências (CPF-gated, mesma lógica de
+// src/lib/consultaPendencias.ts, duplicada aqui pq o webhook roda em Node
+// enquanto aquele lib é só de browser). Liga por matrícula Promax:
+// colaboradores.matricula_promax === ajudantes.codigo. ─────────────────────
+async function consultaPendenciasAtiva(): Promise<boolean> {
+  const { data } = await supabase.from('configuracoes').select('valor').eq('chave', 'consulta_pendencias_ativa').maybeSingle()
+  return data?.valor === 'true'
+}
+
+interface CandidatoPendenciaBot { colaboradorId: string; nome: string; matriculaPromax: string; filial: string | null }
+
+async function buscarCandidatosPendenciaPorCpf(digitos: string): Promise<CandidatoPendenciaBot[]> {
+  const { data } = await supabase
+    .from('colaboradores')
+    .select('id, nome, cpf, matricula_promax, funcao, status, filial')
+    .like('cpf', `${digitos}%`)
+  return (data ?? [])
+    .filter((c: any) => c.matricula_promax && /AJUDANTE|MOTORISTA/i.test(c.funcao ?? '') && (c.status ?? '').toUpperCase() !== 'DESLIGADO')
+    .map((c: any) => ({ colaboradorId: c.id, nome: c.nome, matriculaPromax: c.matricula_promax, filial: c.filial }))
+}
+
+const DIAS_JANELA_REPOSICAO_BOT = 60
+
+async function buscarPendenciasDoColaborador(candidato: CandidatoPendenciaBot): Promise<string> {
+  const codigo = Number(candidato.matriculaPromax)
+  const linhasItens: string[] = []
+  if (!Number.isNaN(codigo)) {
+    const { data } = await supabase
+      .from('ajudantes')
+      .select('codigo, vale_ajudantes ( vales ( numero_vale, data_rota, mapa, status_vale, vale_itens ( item, unidade, qtde_diferenca ) ) )')
+      .eq('codigo', codigo)
+    for (const aj of (data ?? []) as any[]) {
+      for (const va of aj.vale_ajudantes ?? []) {
+        const v = va.vales
+        if (!v) continue
+        for (const it of v.vale_itens ?? []) {
+          if (!it.qtde_diferenca) continue
+          linhasItens.push(`• ${it.item ?? '—'}: ${it.qtde_diferenca} ${it.unidade ?? ''} (${v.status_vale ?? 'aguardando'}${v.mapa ? `, mapa ${v.mapa}` : ''}, ${diaBR(v.data_rota)})`)
+        }
+      }
+    }
+  }
+
+  const linhasReposicoes: string[] = []
+  if (candidato.filial && !Number.isNaN(codigo)) {
+    const desde = new Date(Date.now() - DIAS_JANELA_REPOSICAO_BOT * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const [{ data: reps }, { data: equipes }] = await Promise.all([
+      supabase.from('reposicoes').select('numero, mapa, tipo_reposicao, status, created_at').eq('filial', candidato.filial).in('status', ['pendente', 'validado', 'negado']).gte('created_at', desde),
+      supabase.from('mapa_equipe').select('data, mapa, ajudante1_matricula, ajudante2_matricula').eq('filial', candidato.filial).gte('data', desde),
+    ])
+    const equipePorChave = new Map<string, { m1: number | null; m2: number | null }>()
+    for (const e of equipes ?? []) {
+      equipePorChave.set(`${e.data}|${e.mapa}`, {
+        m1: e.ajudante1_matricula ? Number(e.ajudante1_matricula) : null,
+        m2: e.ajudante2_matricula ? Number(e.ajudante2_matricula) : null,
+      })
+    }
+    for (const r of reps ?? []) {
+      if (!r.mapa) continue
+      const dia = String(r.created_at).slice(0, 10)
+      const equipe = equipePorChave.get(`${dia}|${r.mapa}`)
+      if (!equipe || (equipe.m1 !== codigo && equipe.m2 !== codigo)) continue
+      linhasReposicoes.push(`• Nº ${r.numero} — ${r.tipo_reposicao ?? '—'} — *${r.status}* (mapa ${r.mapa}, ${diaBR(dia)})`)
+    }
+  }
+
+  if (linhasItens.length === 0 && linhasReposicoes.length === 0) {
+    return `✅ ${candidato.nome}, você não tem nenhuma pendência no momento.`
+  }
+  const partes = [`📋 *Pendências de ${candidato.nome}*`]
+  if (linhasItens.length > 0) partes.push('', '*Diferenças de vale:*', ...linhasItens.slice(0, 15))
+  if (linhasReposicoes.length > 0) partes.push('', '*Reposições:*', ...linhasReposicoes.slice(0, 15))
+  return partes.join('\n')
+}
+
+// ── Armazém → Variável/Pontuação (CPF-gated, mesma lógica de
+// src/lib/variavelArmazem.ts — competência 21→20, não mês calendário).
+// Aqui a busca não fixa a filial (o telefone de quem trabalha no armazém não
+// tem um cadastro próprio com telefone pra resolver a filial automaticamente,
+// diferente de motoristas_sala_tml) — filtra só pelo prefixo de CPF dentro
+// da tabela de pontuação inteira. ──────────────────────────────────────────
+function competenciaAtualBot(): { ini: string; fim: string; rotulo: string } {
+  const spISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  let [ano, mes, dia] = spISO.split('-').map(Number)
+  if (dia >= 21) { mes += 1; if (mes > 12) { mes = 1; ano += 1 } }
+  const anoIni = mes <= 1 ? ano - 1 : ano
+  const mesIni = mes <= 1 ? 12 : mes - 1
+  return {
+    ini: `${anoIni}-${String(mesIni).padStart(2, '0')}-21`,
+    fim: `${ano}-${String(mes).padStart(2, '0')}-20`,
+    rotulo: `${String(mes).padStart(2, '0')}/${ano}`,
+  }
+}
+
+interface CandidatoVariavelBot { cpf: string; nome: string }
+
+async function buscarCandidatosVariavelPorCpf(digitos: string, ini: string, fim: string): Promise<CandidatoVariavelBot[]> {
+  const { data } = await supabase
+    .from('variavel_pontuacao')
+    .select('nome_relatorio, cpf')
+    .like('cpf', `${digitos}%`)
+    .gte('data', ini).lte('data', fim)
+  const porCpf = new Map<string, string>()
+  for (const r of data ?? []) {
+    if (!r.cpf) continue
+    porCpf.set(r.cpf, r.nome_relatorio)
+  }
+  return [...porCpf.entries()].map(([cpf, nome]) => ({ cpf, nome }))
+}
+
+async function buscarResumoVariavelDoCpf(cpf: string, nome: string, ini: string, fim: string, rotulo: string): Promise<string> {
+  const { data } = await supabase
+    .from('variavel_pontuacao')
+    .select('data, total, valor_calculado')
+    .eq('cpf', cpf).gte('data', ini).lte('data', fim)
+    .order('data')
+  const dias = (data ?? []) as { data: string; total: number; valor_calculado: number }[]
+  if (dias.length === 0) return `Não encontrei lançamentos de *${nome}* na competência ${rotulo}.`
+  const pontuacaoTotal = dias.reduce((s, d) => s + Number(d.total), 0)
+  const valorTotal = dias.reduce((s, d) => s + Number(d.valor_calculado), 0)
+  const ultimo = dias[dias.length - 1]
+  const formatarBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  return [
+    `💰 *Variável de ${nome} — competência ${rotulo}*`,
+    `📅 Dias lançados: ${dias.length}`,
+    `⭐ Pontuação total: ${pontuacaoTotal.toLocaleString('pt-BR')}`,
+    `💵 Valor acumulado: *${formatarBRL(valorTotal)}*`,
+    `🕐 Último lançamento: ${diaBR(ultimo.data)} (${Number(ultimo.total).toLocaleString('pt-BR')} pts, ${formatarBRL(Number(ultimo.valor_calculado))})`,
+  ].join('\n')
+}
+
 async function tratarItemAurora(remetente: string, senderName: string, itemId: string): Promise<{ ok: boolean; action: string }> {
   if (itemId === 'aurora_item:resultados_mapa') {
     await iniciarFluxoResultadosMapa(remetente)
@@ -2913,6 +3052,21 @@ async function tratarItemAurora(remetente: string, senderName: string, itemId: s
     await encerrarSessaoAurora(remetente)
     const r = await tratarPreSelecaoTemaMatinal({}, remetente, senderName, 'dúvida')
     return r ?? { ok: true, action: 'aurora-duvida-erro' }
+  }
+  if (itemId === 'aurora_item:pendencias') {
+    if (!(await consultaPendenciasAtiva())) {
+      await encerrarSessaoAurora(remetente)
+      await enviar(remetente, 'A consulta de pendências ainda não está disponível por aqui. Fale com o financeiro.')
+      return { ok: true, action: 'aurora-pendencias-inativa' }
+    }
+    await definirEstadoAurora(remetente, 'aguardando_cpf_pendencias')
+    await enviar(remetente, '🔢 Pra consultar suas pendências, envie os *6 primeiros números do seu CPF*.')
+    return { ok: true, action: 'aurora-pede-cpf-pendencias' }
+  }
+  if (itemId === 'aurora_item:variavel') {
+    await definirEstadoAurora(remetente, 'aguardando_cpf_variavel')
+    await enviar(remetente, '🔢 Pra consultar seu variável/pontuação, envie os *3 primeiros números do seu CPF*.')
+    return { ok: true, action: 'aurora-pede-cpf-variavel' }
   }
   await encerrarSessaoAurora(remetente)
   await enviar(remetente, '🔧 Essa opção ainda está em construção — em breve você poderá usar por aqui. Por enquanto, fale com o seu supervisor.')
@@ -2953,6 +3107,78 @@ async function tratarAurora(
       await enviar(remetente, resposta)
       await encerrarSessaoAurora(remetente)
       return { ok: true, action: 'aurora-mapa-respondido' }
+    }
+    if (sessao.estado === 'aguardando_cpf_pendencias') {
+      const digitos = texto.replace(/\D/g, '')
+      if (digitos.length !== 6) {
+        await enviar(remetente, '🔢 Envie exatamente os *6 primeiros números* do seu CPF.')
+        return { ok: true, action: 'aurora-cpf-pendencias-repete' }
+      }
+      const candidatos = await buscarCandidatosPendenciaPorCpf(digitos)
+      if (candidatos.length === 0) {
+        await enviar(remetente, 'Não encontrei ninguém com esses números. Confira os dígitos ou fale com o financeiro.')
+        await encerrarSessaoAurora(remetente)
+        return { ok: true, action: 'aurora-cpf-pendencias-nao-encontrado' }
+      }
+      if (candidatos.length === 1) {
+        await enviar(remetente, await buscarPendenciasDoColaborador(candidatos[0]))
+        await encerrarSessaoAurora(remetente)
+        return { ok: true, action: 'aurora-pendencias-respondido' }
+      }
+      await definirEstadoAurora(remetente, 'escolhendo_pendencia', candidatos)
+      await enviarOpcoes(remetente, 'Encontrei mais de uma pessoa com esses números. Qual é você?', 'Quem é você?', 'Escolher',
+        candidatos.slice(0, 10).map((c, i) => ({ id: `aurora_cand:pendencias:${i}`, title: c.nome })))
+      return { ok: true, action: 'aurora-pendencias-desambiguar' }
+    }
+    if (sessao.estado === 'escolhendo_pendencia' && btn.startsWith('aurora_cand:pendencias:')) {
+      const candidato = (sessao.contexto ?? [])[Number(btn.split(':')[2])]
+      if (!candidato) {
+        await definirEstadoAurora(remetente, 'aguardando_cpf_pendencias')
+        await enviar(remetente, 'Não achei essa opção. Vamos tentar de novo — envie os 6 primeiros números do seu CPF.')
+        return { ok: true, action: 'aurora-pendencias-cand-invalido' }
+      }
+      await enviar(remetente, await buscarPendenciasDoColaborador(candidato))
+      await encerrarSessaoAurora(remetente)
+      return { ok: true, action: 'aurora-pendencias-respondido' }
+    }
+    if (sessao.estado === 'aguardando_cpf_variavel') {
+      const digitos = texto.replace(/\D/g, '')
+      if (digitos.length !== 3) {
+        await enviar(remetente, '🔢 Envie exatamente os *3 primeiros números* do seu CPF.')
+        return { ok: true, action: 'aurora-cpf-variavel-repete' }
+      }
+      const { ini, fim, rotulo } = competenciaAtualBot()
+      const candidatos = await buscarCandidatosVariavelPorCpf(digitos, ini, fim)
+      if (candidatos.length === 0) {
+        await enviar(remetente, `Não encontrei sua variável na competência ${rotulo}. Confira os dígitos ou fale com o supervisor.`)
+        await encerrarSessaoAurora(remetente)
+        return { ok: true, action: 'aurora-cpf-variavel-nao-encontrado' }
+      }
+      if (candidatos.length === 1) {
+        await enviar(remetente, await buscarResumoVariavelDoCpf(candidatos[0].cpf, candidatos[0].nome, ini, fim, rotulo))
+        await encerrarSessaoAurora(remetente)
+        return { ok: true, action: 'aurora-variavel-respondido' }
+      }
+      await definirEstadoAurora(remetente, 'escolhendo_variavel', candidatos)
+      await enviarOpcoes(remetente, 'Encontrei mais de uma pessoa com esses números. Qual é você?', 'Quem é você?', 'Escolher',
+        candidatos.slice(0, 10).map((c, i) => ({ id: `aurora_cand:variavel:${i}`, title: c.nome })))
+      return { ok: true, action: 'aurora-variavel-desambiguar' }
+    }
+    if (sessao.estado === 'escolhendo_variavel' && btn.startsWith('aurora_cand:variavel:')) {
+      const candidato = (sessao.contexto ?? [])[Number(btn.split(':')[2])]
+      if (!candidato) {
+        await definirEstadoAurora(remetente, 'aguardando_cpf_variavel')
+        await enviar(remetente, 'Não achei essa opção. Vamos tentar de novo — envie os 3 primeiros números do seu CPF.')
+        return { ok: true, action: 'aurora-variavel-cand-invalido' }
+      }
+      const { ini, fim, rotulo } = competenciaAtualBot()
+      await enviar(remetente, await buscarResumoVariavelDoCpf(candidato.cpf, candidato.nome, ini, fim, rotulo))
+      await encerrarSessaoAurora(remetente)
+      return { ok: true, action: 'aurora-variavel-respondido' }
+    }
+    if (sessao.estado === 'escolhendo_pendencia' || sessao.estado === 'escolhendo_variavel') {
+      await enviar(remetente, 'Toque numa das opções da lista que mandei, por favor.')
+      return { ok: true, action: 'aurora-desambiguar-repete' }
     }
     // Sessão existe mas a resposta não bateu com nada esperado (ex.: digitou
     // texto livre em vez de tocar numa opção) — repete o passo atual em vez
