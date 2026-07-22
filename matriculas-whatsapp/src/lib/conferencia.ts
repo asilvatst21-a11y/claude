@@ -23,7 +23,7 @@ export function parsePalete(palete: string): PaleteInfo {
   const nomePorta = porta === 'M' ? 'Motorista' : porta === 'A' ? 'Ajudante' : 'Avulsos'
   const rotulo = porta === 'Z' || isNaN(ordem)
     ? nomePorta
-    : `${nomePorta} · Ordem ${String(ordem).padStart(2, '0')}`
+    : `${nomePorta} · Baia ${String(ordem).padStart(2, '0')}`
   return { porta, ordem: isNaN(ordem) ? null : ordem, rotulo }
 }
 

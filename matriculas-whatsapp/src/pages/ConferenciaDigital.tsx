@@ -40,6 +40,9 @@ export default function ConferenciaDigital() {
   const [divItem, setDivItem] = useState<ItemConf | null>(null)
   const [pessoas, setPessoas] = useState<PessoaConferencia[]>([])
   const [sugestoesAbertas, setSugestoesAbertas] = useState(false)
+  const [buscaProduto, setBuscaProduto] = useState('')
+  const [buscaProdutoAberta, setBuscaProdutoAberta] = useState(false)
+  const [produtoSelecionado, setProdutoSelecionado] = useState<(ItemConf & { baiaRotulo: string }) | null>(null)
 
   useEffect(() => {
     supabase.from('filiais').select('nome').order('nome').then(({ data }) => {
@@ -178,6 +181,19 @@ export default function ConferenciaDigital() {
     return (['M', 'A', 'Z'] as PortaConf[]).map((p) => [p, g.get(p) ?? []] as const).filter(([, arr]) => arr.length > 0)
   }, [baias])
 
+  // Busca de produto: acha em qual baia um item está e a quantidade prevista
+  // sem precisar abrir baia por baia — os itens já estão todos carregados
+  // (vieram junto com buscarBaiasDoMapa), então filtra local, sem nova consulta.
+  const todosItens = useMemo(
+    () => baias.flatMap((b) => b.itens.map((it) => ({ ...it, baiaRotulo: b.rotulo }))),
+    [baias],
+  )
+  const resultadosBuscaProduto = useMemo(() => {
+    const termo = normalizarBusca(buscaProduto)
+    if (!termo) return []
+    return todosItens.filter((it) => normalizarBusca(it.descricao ?? it.codigo ?? '').includes(termo)).slice(0, 15)
+  }, [todosItens, buscaProduto])
+
   // ── Tela 1: início ──────────────────────────────────────────────────────
   if (tela === 'inicio') {
     return (
@@ -251,6 +267,57 @@ export default function ConferenciaDigital() {
         </div>
         <div className="p-4 space-y-3">
           {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 flex items-start gap-2"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{erro}</div>}
+
+          <div className="bg-white border rounded-xl px-4 py-3 relative">
+            <label className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-1.5 flex items-center gap-1.5"><Search className="h-3.5 w-3.5" /> Buscar produto</label>
+            <input
+              value={buscaProduto}
+              onChange={(e) => { setBuscaProduto(e.target.value); setProdutoSelecionado(null); setBuscaProdutoAberta(true) }}
+              onFocus={() => setBuscaProdutoAberta(true)}
+              onBlur={() => setTimeout(() => setBuscaProdutoAberta(false), 150)}
+              placeholder="Digite as iniciais do produto…"
+              autoComplete="off"
+              className="w-full px-3 py-2.5 border-2 border-gray-200 rounded-lg text-sm"
+            />
+            {buscaProdutoAberta && resultadosBuscaProduto.length > 0 && (
+              <div className="absolute z-20 left-4 right-4 top-full mt-1 bg-white border-2 border-gray-200 rounded-xl shadow-lg max-h-64 overflow-y-auto">
+                {resultadosBuscaProduto.map((it) => (
+                  <button
+                    key={it.id}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { setProdutoSelecionado(it); setBuscaProdutoAberta(false) }}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2.5 text-left hover:bg-gray-50 text-sm border-b last:border-b-0 border-gray-100"
+                  >
+                    <span className="min-w-0">
+                      <span className="block font-semibold truncate">{it.descricao ?? it.codigo ?? 'Item'}</span>
+                      <span className="block text-[11px] text-gray-400">{it.baiaRotulo}</span>
+                    </span>
+                    <span className="text-sm font-bold tabular-nums shrink-0">{it.quantidade ?? '—'} {it.unidade ?? ''}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {buscaProdutoAberta && buscaProduto.trim() && resultadosBuscaProduto.length === 0 && (
+              <div className="absolute z-20 left-4 right-4 top-full mt-1 bg-white border-2 border-gray-200 rounded-xl shadow-lg px-3 py-2.5 text-sm text-gray-500">
+                Nenhum produto encontrado com esse nome.
+              </div>
+            )}
+            {produtoSelecionado && (
+              <div className="mt-3 bg-accent-50 border border-accent-200 rounded-lg px-3 py-2.5 flex items-center gap-3">
+                <Package className="h-5 w-5 text-accent-600 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-bold truncate">{produtoSelecionado.descricao ?? produtoSelecionado.codigo}</div>
+                  <div className="text-xs text-accent-800">Baia: <b>{produtoSelecionado.baiaRotulo}</b></div>
+                </div>
+                <div className="text-right shrink-0">
+                  <div className="text-xl font-extrabold tabular-nums">{produtoSelecionado.quantidade ?? '—'}</div>
+                  <div className="text-[10px] text-gray-400 uppercase font-bold">{produtoSelecionado.unidade ?? ''}</div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="bg-white border rounded-xl px-4 py-3">
             <div className="flex items-baseline justify-between mb-2">
               <b className="text-sm">{conferidas} de {baias.length} baias conferidas</b>
