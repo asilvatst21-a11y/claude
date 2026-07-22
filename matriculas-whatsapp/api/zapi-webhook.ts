@@ -23,8 +23,11 @@ const GROQ_TRANSCRIBE_MODEL = process.env.GROQ_TRANSCRIBE_MODEL ?? 'whisper-larg
 const ZAPI_BASE = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}`
 
 // URL pública do app — usada pra montar os links de autoatendimento (ex.:
-// Consulta de Pendências, Variável do Armazém) mandados pela Aurora.
-const APP_BASE_URL = (process.env.APP_BASE_URL ?? process.env.VITE_APP_URL ?? '').replace(/\/$/, '')
+// Consulta de Pendências, Variável do Armazém) mandados pela Aurora. Sem
+// APP_BASE_URL configurada no Vercel, cai pro domínio de produção conhecido
+// — sem isso, o link saía como caminho relativo ("/consulta-pendencias"),
+// que não abre nada quando clicado direto do WhatsApp.
+const APP_BASE_URL = (process.env.APP_BASE_URL ?? process.env.VITE_APP_URL ?? 'https://painelanalitico.vercel.app').replace(/\/$/, '')
 
 const CONFIRM_TTL_MIN = 60
 
