@@ -7,12 +7,13 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { enviarImagemGrupo, enviarMensagemGrupo, enviarMensagemWhatsApp } from '../lib/zapi'
+import { enviarImagemGrupo, enviarMensagemGrupo, enviarMensagemWhatsApp, listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import { formatarDataBR } from '../lib/utils'
 import {
   KPIS_FECHAMENTO, type KpiFechamento, type SalaFechamento, type ParametroFechamento,
   recalcularAutomaticos, recalcularAutomaticosPeriodo, primeiroDiaDoMes, salvarValorManual, diasDaSemanaAte, buscarValoresFechamento, buscarParametros,
-  farolDoValor, parseFarolMotoristas, classificarResultado, montarTextosOrientacao, type LinhaFarolMotorista,
+  farolDoValor, gerarFarolAutomatico, classificarResultado, montarTextosOrientacao, type LinhaFarolMotorista,
   diagnosticarDeslocamento, type DiagnosticoDeslocamentoDia,
   parseDevolucaoPdv, salvarDevolucoesPdv, parseMapasDia, salvarMapasDia,
 } from '../lib/fechamentoDia'
@@ -27,7 +28,7 @@ function hojeISO(): string {
 function formatarValor(valor: number | null, kpi: KpiFechamento): string {
   if (valor == null) return '—'
   const def = KPIS_FECHAMENTO.find((k) => k.key === kpi)!
-  if (def.unidade === 'percentual') return `${(valor * 100).toFixed(1)}%`
+  if (def.unidade === 'percentual') return `${(valor * 100).toFixed(kpi === 'devolucao_pdv' ? 2 : 1)}%`
   if (def.unidade === 'minutos') return `${valor >= 0 ? '' : '-'}${Math.abs(Math.round(valor))} min`
   return valor.toFixed(2)
 }
@@ -54,7 +55,7 @@ export default function FechamentoDia() {
   const [uploads, setUploads] = useState<{ devolucao_pdv?: File; rating?: File }>({})
   const [enviandoUpload, setEnviandoUpload] = useState<string | null>(null)
 
-  const [farolLinhas, setFarolLinhas] = useState<(LinhaFarolMotorista & { sala: 'COLORADO' | 'SUB-FURIA'; resultado: string })[]>([])
+  const [farolLinhas, setFarolLinhas] = useState<(LinhaFarolMotorista & { resultado: string })[]>([])
   const [processandoFarol, setProcessandoFarol] = useState(false)
   const [salvandoFarol, setSalvandoFarol] = useState(false)
   const [erro, setErro] = useState('')
@@ -227,32 +228,15 @@ export default function FechamentoDia() {
     setEnviandoUpload(null)
   }
 
-  async function processarArquivoFarol(file: File) {
+  async function gerarFarolDoDia() {
     if (!usuario) return
     setProcessandoFarol(true)
     setErro('')
     try {
-      const buf = await file.arrayBuffer()
-      const wb = XLSX.read(buf, { type: 'array', cellDates: true })
-      const nomeAba = wb.SheetNames.find((n) => n.toLowerCase().includes('farol')) ?? wb.SheetNames[0]
-      const ws = wb.Sheets[nomeAba]
-      const linhasBrutas: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true })
-      const parsed = parseFarolMotoristas(linhasBrutas, parametros)
-
-      // Sala do motorista vem do roster já existente (motoristas_sala_tml) — o
-      // arquivo do Farol Motoristas não traz a sala.
-      const matriculas = parsed.map((p) => p.matricula).filter((m): m is number => m != null)
-      const { data: roster } = await supabase.from('motoristas_sala_tml').select('matricula, sala').eq('filial', usuario.filial).in('matricula', matriculas.length ? matriculas : [-1])
-      const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
-
-      const comSala = parsed
-        .map((p) => ({ ...p, sala: (p.matricula != null ? salaPorMatricula.get(p.matricula) : null) as 'COLORADO' | 'SUB-FURIA' | undefined }))
-        .filter((p): p is LinhaFarolMotorista & { sala: 'COLORADO' | 'SUB-FURIA' } => !!p.sala)
-        .map((p) => ({ ...p, resultado: classificarResultado(p) }))
-
-      setFarolLinhas(comSala)
+      const linhas = await gerarFarolAutomatico(usuario.filial, data, parametros)
+      setFarolLinhas(linhas.map((l) => ({ ...l, resultado: classificarResultado(l) })))
     } catch (e) {
-      setErro(`Erro ao ler o arquivo: ${e instanceof Error ? e.message : String(e)}`)
+      setErro(`Erro ao gerar o Farol: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setProcessandoFarol(false)
     }
@@ -544,11 +528,15 @@ export default function FechamentoDia() {
           <div className="rounded-lg border p-4 space-y-3">
             <h2 className="font-semibold text-sm">Texto de orientação (gerado a partir do Farol Motoristas)</h2>
             {farolLinhas.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Suba o relatório na aba "Farol Motoristas" pra gerar os destaques e o bate-papo.</p>
+              <p className="text-sm text-muted-foreground">Gere o Farol na aba "Farol Motoristas" pra montar os destaques e o bate-papo.</p>
             ) : (
-              <div className="grid sm:grid-cols-2 gap-3 text-sm">
-                <div className="whitespace-pre-wrap border rounded-lg p-3 bg-green-50/50">{textosPorSala.COLORADO?.destaques || 'Sem destaques hoje.'}</div>
-                <div className="whitespace-pre-wrap border rounded-lg p-3 bg-amber-50/50">{textosPorSala.COLORADO?.batePapo || 'Ninguém precisa de bate-papo hoje.'}</div>
+              <div className="space-y-3 text-sm">
+                {(['COLORADO', 'SUB-FURIA'] as const).map((sala) => (
+                  <div key={sala} className="grid sm:grid-cols-2 gap-3">
+                    <div className="whitespace-pre-wrap border rounded-lg p-3 bg-green-50/50">{textosPorSala[sala]?.destaques || `Sem destaques hoje (${SALA_LABEL[sala]}).`}</div>
+                    <div className="whitespace-pre-wrap border rounded-lg p-3 bg-amber-50/50">{textosPorSala[sala]?.batePapo || `Ninguém precisa de bate-papo hoje (${SALA_LABEL[sala]}).`}</div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -564,28 +552,31 @@ export default function FechamentoDia() {
 
       {aba === 'farol' && (
         <div className="rounded-lg border p-4 space-y-4">
-          <h2 className="font-semibold text-sm">Upload do Farol Motoristas do dia</h2>
-          <label className="flex flex-col items-center gap-2 border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-primary/40 transition-colors">
-            <Upload className="h-6 w-6 text-muted-foreground" />
-            <span className="text-sm text-muted-foreground">Toque para escolher a planilha (Farol Motoristas)</span>
-            <input type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) processarArquivoFarol(f) }} />
-          </label>
-          {processandoFarol && <p className="text-sm text-muted-foreground flex items-center gap-1.5"><Loader2 className="h-4 w-4 animate-spin" /> Lendo o arquivo…</p>}
+          <h2 className="font-semibold text-sm">Farol Motoristas do dia</h2>
+          <p className="text-sm text-muted-foreground">
+            Gerado automaticamente a partir do que o próprio sistema já apurou pro dia — Aderência ao Raio e TML (Jornada/Análise TML),
+            Devolução (upload de Devolução PDV) e Devolução Fora do Raio (Jornada). Motorista e ajudante de cada mapa vêm do cadastro de equipe
+            (mesmo import da aba "Base" usado em Reposições).
+          </p>
+          <button onClick={gerarFarolDoDia} disabled={processandoFarol} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-md border hover:bg-accent disabled:opacity-50 w-fit">
+            {processandoFarol ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Gerar Farol do dia
+          </button>
 
           {farolLinhas.length > 0 && (
             <>
               <div className="overflow-x-auto border rounded-lg">
                 <table className="w-full text-sm">
                   <thead><tr className="border-b bg-muted/20 text-left text-xs text-muted-foreground">
-                    <th className="px-3 py-2">Matrícula</th><th className="px-3 py-2">Nome</th><th className="px-3 py-2">Sala</th>
+                    <th className="px-3 py-2">Mapa</th><th className="px-3 py-2">Motorista</th><th className="px-3 py-2">Ajudante(s)</th><th className="px-3 py-2">Sala</th>
                     <th className="px-3 py-2">Aderência</th><th className="px-3 py-2">Dev. Fora Raio</th><th className="px-3 py-2">TML</th><th className="px-3 py-2">Devolução</th><th className="px-3 py-2">Resultado</th>
                   </tr></thead>
                   <tbody>
-                    {farolLinhas.map((l, i) => (
-                      <tr key={i} className="border-b last:border-0">
-                        <td className="px-3 py-2">{l.matricula}</td>
+                    {farolLinhas.map((l) => (
+                      <tr key={l.mapa} className="border-b last:border-0">
+                        <td className="px-3 py-2 font-mono text-xs">{l.mapa}</td>
                         <td className="px-3 py-2">{l.nome}</td>
-                        <td className="px-3 py-2">{l.sala}</td>
+                        <td className="px-3 py-2">{l.ajudantes.join(', ') || '—'}</td>
+                        <td className="px-3 py-2">{SALA_LABEL[l.sala]}</td>
                         <td className="px-3 py-2">{l.aderenciaOk == null ? '—' : l.aderenciaOk ? '✅' : '❌'}</td>
                         <td className="px-3 py-2">{l.devolucaoForaRaioOk == null ? '—' : l.devolucaoForaRaioOk ? '✅' : '❌'}</td>
                         <td className="px-3 py-2">{l.tmlOk == null ? '—' : l.tmlOk ? '✅' : '❌'}</td>
@@ -608,7 +599,12 @@ export default function FechamentoDia() {
         </div>
       )}
 
-      {aba === 'parametros' && <ParametrosTab filial={usuario.filial} parametros={parametros} onSalvo={fetchTudo} />}
+      {aba === 'parametros' && (
+        <div className="space-y-6">
+          <ParametrosTab filial={usuario.filial} parametros={parametros} onSalvo={fetchTudo} />
+          <GruposFechamentoTab filial={usuario.filial} />
+        </div>
+      )}
     </div>
   )
 }
@@ -720,6 +716,125 @@ function ParametrosTab({ filial, parametros, onSalvo }: { filial: string; parame
             </div>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+function GruposFechamentoTab({ filial }: { filial: string }) {
+  const [grupos, setGrupos] = useState<GrupoZApi[]>([])
+  const [buscando, setBuscando] = useState(false)
+  const [erroBusca, setErroBusca] = useState<string | null>(null)
+
+  const [colorado, setColorado] = useState('')
+  const [subFuria, setSubFuria] = useState('')
+  const [cdd, setCdd] = useState('')
+  const [original, setOriginal] = useState({ colorado: '', subFuria: '', cdd: '' })
+
+  const [carregando, setCarregando] = useState(true)
+  const [salvando, setSalvando] = useState(false)
+  const [salvo, setSalvo] = useState(false)
+  const [copiado, setCopiado] = useState<string | null>(null)
+
+  const carregar = useCallback(async () => {
+    if (!filial) { setCarregando(false); return }
+    setCarregando(true)
+    const { data } = await supabase
+      .from('filiais')
+      .select('grupo_matinal_colorado_whatsapp, grupo_matinal_subfuria_whatsapp, grupo_fechamento_cdd_whatsapp')
+      .eq('nome', filial)
+      .maybeSingle()
+    const v = {
+      colorado: data?.grupo_matinal_colorado_whatsapp ?? '',
+      subFuria: data?.grupo_matinal_subfuria_whatsapp ?? '',
+      cdd: data?.grupo_fechamento_cdd_whatsapp ?? '',
+    }
+    setColorado(v.colorado); setSubFuria(v.subFuria); setCdd(v.cdd)
+    setOriginal(v)
+    setCarregando(false)
+  }, [filial])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  async function buscarGrupos() {
+    setBuscando(true)
+    setErroBusca(null)
+    const { grupos: gs, erro } = await listarGrupos()
+    setBuscando(false)
+    if (erro) { setErroBusca(erro); return }
+    if (gs.length === 0) { setErroBusca('Nenhum grupo encontrado nesta instância Z-API.'); return }
+    setGrupos(gs.sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  async function salvar() {
+    if (!filial) return
+    setSalvando(true)
+    setSalvo(false)
+    await supabase
+      .from('filiais')
+      .update({
+        grupo_matinal_colorado_whatsapp: colorado.trim() || null,
+        grupo_matinal_subfuria_whatsapp: subFuria.trim() || null,
+        grupo_fechamento_cdd_whatsapp: cdd.trim() || null,
+      })
+      .eq('nome', filial)
+    setOriginal({ colorado: colorado.trim(), subFuria: subFuria.trim(), cdd: cdd.trim() })
+    setSalvando(false)
+    setSalvo(true)
+    setTimeout(() => setSalvo(false), 2500)
+  }
+
+  async function copiar(id: string) {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopiado(id)
+      setTimeout(() => setCopiado((c) => (c === id ? null : c)), 1500)
+    } catch {
+      /* clipboard indisponível */
+    }
+  }
+
+  const alterado = colorado.trim() !== original.colorado || subFuria.trim() !== original.subFuria || cdd.trim() !== original.cdd
+
+  return (
+    <div className="rounded-lg border p-4 space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="font-semibold text-sm flex items-center gap-1.5"><Send className="h-4 w-4" /> Grupos de WhatsApp do Fechamento</h2>
+        <button onClick={buscarGrupos} disabled={buscando} className="flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors disabled:opacity-50">
+          {buscando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : grupos.length > 0 ? <RefreshCw className="h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
+          {buscando ? 'Buscando…' : grupos.length > 0 ? 'Atualizar grupos' : 'Buscar grupos (Z-API)'}
+        </button>
+      </div>
+
+      {erroBusca && <p className="flex items-center gap-1.5 text-xs text-red-600 border border-red-200 bg-red-50 rounded-md p-2"><AlertTriangle className="h-3.5 w-3.5" /> {erroBusca}</p>}
+
+      {carregando ? (
+        <p className="text-sm text-muted-foreground">Carregando…</p>
+      ) : (
+        <div className="space-y-4">
+          <GroupPicker
+            label="Sala Colorado"
+            hint="Recebe a imagem do fechamento e o texto de destaques da sala."
+            value={colorado} onChange={setColorado} grupos={grupos} onCopy={copiar} copiado={copiado}
+          />
+          <GroupPicker
+            label="Sala Sub-Fúria"
+            hint="Recebe a imagem do fechamento e o texto de destaques da sala."
+            value={subFuria} onChange={setSubFuria} grupos={grupos} onCopy={copiar} copiado={copiado}
+          />
+          <GroupPicker
+            label="CDD Petrópolis (consolidado)"
+            hint="Recebe a imagem consolidada do fechamento do CDD."
+            value={cdd} onChange={setCdd} grupos={grupos} onCopy={copiar} copiado={copiado}
+          />
+        </div>
+      )}
+
+      <div className="flex items-center justify-end gap-3 border-t pt-3">
+        {salvo && <span className="text-sm text-green-600 flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Salvo!</span>}
+        <button onClick={salvar} disabled={salvando || !alterado || !filial} className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md font-medium hover:opacity-90 disabled:opacity-50 transition-opacity">
+          {salvando ? 'Salvando…' : 'Salvar configuração'}
+        </button>
       </div>
     </div>
   )

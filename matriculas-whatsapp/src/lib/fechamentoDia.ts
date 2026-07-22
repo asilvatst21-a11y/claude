@@ -497,62 +497,80 @@ export function farolDoValor(valor: number | null, p: ParametroFechamento | unde
   return dentroDoBench ? 'a' : 'r'
 }
 
-// ── Farol Motoristas: layout posicional do relatório (mesmo formato da
-// planilha de referência do cliente) — 4 blocos lado a lado:
-//   B/C/D/E/F  = Matrícula/Nome/Fora/Entregas/Resultado        (Aderência ao Raio)
-//   H/I/J/K    = Matrícula/Nome/Dev.Fora do Raio/Fazer Relato? (Devolução Fora do Raio)
-//   M/N/O      = Matrícula/Nome/TML                            (TML)
-//   Q/R/S/T/U  = Matrícula/Nome/Entregas/Devolvidas/Resultados (Devolução)
-// Cabeçalho na linha 3 (índice 2), dados a partir da linha 4 (índice 3).
+// ── Farol Motoristas: por mapa, os mesmos 4 critérios da planilha de
+// referência (Aderência ao Raio, Devolução Fora do Raio, TML, Devolução),
+// só que apurados automaticamente a partir do que o próprio sistema já
+// calculou pro dia — nada de subir relatório à parte. Motorista e ajudantes
+// vêm de mapa_equipe (import diário da aba "Base", já usado em Reposições).
 export interface LinhaFarolMotorista {
+  mapa: number
   matricula: number | null
   nome: string | null
+  ajudantes: string[]
+  sala: SalaTML
   aderenciaOk: boolean | null
   devolucaoForaRaioOk: boolean | null
   tmlOk: boolean | null
   devolucaoOk: boolean | null
 }
 
-function paraNumero(v: any): number | null {
-  if (v == null || v === '') return null
-  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',', '.'))
-  return Number.isFinite(n) ? n : null
-}
-
-export function parseFarolMotoristas(linhasBrutas: any[][], parametros: ParametroFechamento[]): LinhaFarolMotorista[] {
+export async function gerarFarolAutomatico(
+  filial: string, data: string, parametros: ParametroFechamento[],
+): Promise<LinhaFarolMotorista[]> {
   const metaAderencia = parametros.find((p) => p.kpi === 'aderencia_raio')?.meta ?? 0.95
-  const metaTml = parametros.find((p) => p.kpi === 'tml')?.meta ?? 0
   const metaDevolucao = parametros.find((p) => p.kpi === 'devolucao_pdv')?.meta ?? 0.031
 
+  const [linhasJornada, { data: historico, error: erroHist }, { data: devolucoes, error: erroDevol }, { data: equipe, error: erroEquipe }, { data: mapasDia, error: erroMapas }] = await Promise.all([
+    buscarJornadaDoDia(filial, data),
+    supabase.from('historico_tml').select('mapa, resultado').eq('filial', filial).eq('data_saida', data),
+    supabase.from('fechamento_dia_devolucoes_pdv').select('mapa, devolucoes').eq('filial', filial).eq('data', data),
+    supabase.from('mapa_equipe').select('mapa, motorista_nome, ajudante1_nome, ajudante2_nome').eq('filial', filial).eq('data', data),
+    supabase.from('fechamento_dia_mapas_dia').select('mapa, entregas').eq('filial', filial).eq('data', data),
+  ])
+  if (erroHist) console.error(`gerarFarolAutomatico (${data}) historico error:`, erroHist.message)
+  if (erroDevol) console.error(`gerarFarolAutomatico (${data}) devolucoes error:`, erroDevol.message)
+  if (erroEquipe) console.error(`gerarFarolAutomatico (${data}) equipe error:`, erroEquipe.message)
+  if (erroMapas) console.error(`gerarFarolAutomatico (${data}) mapas error:`, erroMapas.message)
+
+  const resultadoTmlPorMapa = new Map((historico ?? []).map((h) => [h.mapa as number, h.resultado as string]))
+  const devolucoesPorMapa = new Map((devolucoes ?? []).map((d) => [d.mapa as number, d.devolucoes as number]))
+  const equipePorMapa = new Map((equipe ?? []).map((e) => [String(e.mapa), e]))
+  const entregasPorMapa = new Map((mapasDia ?? []).map((m) => [m.mapa as number, m.entregas as number | null]))
+
   const resultado: LinhaFarolMotorista[] = []
-  for (let i = 3; i < linhasBrutas.length; i++) {
-    const l = linhasBrutas[i]
-    if (!l || l.length === 0) continue
-    const matricula = paraNumero(l[1])
-    const nome = l[2] != null ? String(l[2]).trim() : null
-    if (!matricula && !nome) continue
+  for (const l of linhasJornada) {
+    const sala = SALA_JORNADA_PARA_TML[l.sala as SalaJornada]
+    if (!sala) continue // Externos/freteiro não entra no Farol (só Colorado/Sub-Fúria)
 
-    const resultadoAderencia = paraNumero(l[5])
-    const aderenciaOk = resultadoAderencia != null ? resultadoAderencia / 100 >= metaAderencia : null
+    const aderenciaOk = l.aderencia != null ? l.aderencia >= metaAderencia : null
+    const devolucaoForaRaioOk = l.entregasPrevistas ? l.devForaRaio === 0 : null
 
-    const fazerRelato = l[10] != null ? String(l[10]).trim().toLowerCase() : null
-    const devolucaoForaRaioOk = fazerRelato != null ? fazerRelato === 'ok' : null
+    const resultadoTml = resultadoTmlPorMapa.get(l.mapa)
+    const tmlOk = resultadoTml === 'no_prazo' ? true : resultadoTml === 'atrasado' ? false : null
 
-    const tmlBruto = l[14]
-    let tmlMinutos: number | null = null
-    if (tmlBruto instanceof Date) tmlMinutos = tmlBruto.getHours() * 60 + tmlBruto.getMinutes()
-    else if (typeof tmlBruto === 'number') tmlMinutos = Math.round(tmlBruto * 24 * 60) // fração de dia (serial do Excel)
-    const tmlOk = tmlMinutos != null ? tmlMinutos <= metaTml + 30 : null // já soma a tolerância padrão da matinal
+    const entregas = entregasPorMapa.get(l.mapa) ?? l.entregasPrevistas
+    const devolucoesMapa = devolucoesPorMapa.get(l.mapa)
+    const devolucaoOk = devolucoesMapa != null && entregas ? devolucoesMapa / entregas <= metaDevolucao : null
 
-    const resultadoDevolucao = paraNumero(l[20])
-    const devolucaoOk = resultadoDevolucao != null ? resultadoDevolucao / 100 <= metaDevolucao : null
+    const eq = equipePorMapa.get(String(l.mapa))
+    const ajudantes = [eq?.ajudante1_nome, eq?.ajudante2_nome].filter((n): n is string => !!n)
 
-    resultado.push({ matricula, nome, aderenciaOk, devolucaoForaRaioOk, tmlOk, devolucaoOk })
+    resultado.push({
+      mapa: l.mapa,
+      matricula: l.matricula,
+      nome: eq?.motorista_nome ?? l.nome,
+      ajudantes,
+      sala,
+      aderenciaOk,
+      devolucaoForaRaioOk,
+      tmlOk,
+      devolucaoOk,
+    })
   }
   return resultado
 }
 
-export function classificarResultado(l: LinhaFarolMotorista): 'destaque' | 'bate_papo' | 'neutro' {
+export function classificarResultado(l: { aderenciaOk: boolean | null; devolucaoForaRaioOk: boolean | null; tmlOk: boolean | null; devolucaoOk: boolean | null }): 'destaque' | 'bate_papo' | 'neutro' {
   const criterios = [l.aderenciaOk, l.devolucaoForaRaioOk, l.tmlOk, l.devolucaoOk].filter((v): v is boolean => v != null)
   if (criterios.length === 0) return 'neutro'
   const okCount = criterios.filter(Boolean).length
@@ -561,19 +579,25 @@ export function classificarResultado(l: LinhaFarolMotorista): 'destaque' | 'bate
   return 'neutro'
 }
 
+function formatarNomeComAjudantes(l: { nome: string | null; ajudantes: string[] }): string {
+  const partes = [l.nome ?? '—']
+  if (l.ajudantes.length > 0) partes.push(`Ajudante${l.ajudantes.length > 1 ? 's' : ''}: ${l.ajudantes.join(', ')}`)
+  return partes.join(' — ')
+}
+
 // Texto de orientação pro grupo (destaques) e pro supervisor (bate-papo).
 export function montarTextosOrientacao(
-  linhas: { nome: string | null; sala: SalaFechamento; resultado: string | null }[],
+  linhas: { nome: string | null; ajudantes: string[]; sala: SalaFechamento; resultado: string | null }[],
   salaLabel: string, dataBR: string,
 ): { destaques: string; batePapo: string } {
   const destaques = linhas.filter((l) => l.resultado === 'destaque')
   const bate = linhas.filter((l) => l.resultado === 'bate_papo')
 
   const txtDestaques = destaques.length > 0
-    ? `🏆 *Destaques — ${salaLabel} (${dataBR})*\nBateram todos os indicadores do dia:\n${destaques.map((d) => `• ${d.nome ?? '—'}`).join('\n')}`
+    ? `🏆 *Destaques — ${salaLabel} (${dataBR})*\nBateram todos os indicadores do dia:\n${destaques.map((d) => `• ${formatarNomeComAjudantes(d)}`).join('\n')}`
     : ''
   const txtBatePapo = bate.length > 0
-    ? `🎯 *Precisa de um bate-papo — ${salaLabel} (${dataBR})*\nPerderam a maioria (ou todos) os indicadores do dia:\n${bate.map((d) => `• ${d.nome ?? '—'}`).join('\n')}`
+    ? `🎯 *Precisa de um bate-papo — ${salaLabel} (${dataBR})*\nPerderam a maioria (ou todos) os indicadores do dia:\n${bate.map((d) => `• ${formatarNomeComAjudantes(d)}`).join('\n')}`
     : ''
   return { destaques: txtDestaques, batePapo: txtBatePapo }
 }
