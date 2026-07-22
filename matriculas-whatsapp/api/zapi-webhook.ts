@@ -3007,6 +3007,18 @@ function linkAutoatendimento(caminho: string): string {
   return APP_BASE_URL ? `${APP_BASE_URL}${caminho}` : caminho
 }
 
+// Depois de entregar uma resposta (não de encaminhar pra outro fluxo, como a
+// Dúvida de Treinamento), pergunta se a pessoa quer fazer outra pergunta
+// (volta pro menu de categorias) ou encerrar — em vez de simplesmente
+// fechar a sessão sem avisar.
+async function perguntarProximoPasso(remetente: string): Promise<void> {
+  await definirEstadoAurora(remetente, 'pos_resposta')
+  await enviarBotoes(remetente, 'Posso ajudar com mais alguma coisa?', [
+    { id: 'aurora_pos:nova', label: 'Nova pergunta' },
+    { id: 'aurora_pos:encerrar', label: 'Encerrar' },
+  ])
+}
+
 async function tratarItemAurora(remetente: string, senderName: string, itemId: string): Promise<{ ok: boolean; action: string }> {
   if (itemId === 'aurora_item:resultados_mapa') {
     await iniciarFluxoResultadosMapa(remetente)
@@ -3018,17 +3030,17 @@ async function tratarItemAurora(remetente: string, senderName: string, itemId: s
     return r ?? { ok: true, action: 'aurora-duvida-erro' }
   }
   if (itemId === 'aurora_item:pendencias') {
-    await encerrarSessaoAurora(remetente)
     await enviar(remetente, `📋 Pra consultar suas pendências (identificação pelo CPF), acesse:\n${linkAutoatendimento('/consulta-pendencias')}`)
+    await perguntarProximoPasso(remetente)
     return { ok: true, action: 'aurora-link-pendencias' }
   }
   if (itemId === 'aurora_item:variavel') {
-    await encerrarSessaoAurora(remetente)
     await enviar(remetente, `💰 Pra consultar seu variável/pontuação (identificação pelo CPF), acesse:\n${linkAutoatendimento('/variavel-armazem')}`)
+    await perguntarProximoPasso(remetente)
     return { ok: true, action: 'aurora-link-variavel' }
   }
-  await encerrarSessaoAurora(remetente)
   await enviar(remetente, '🔧 Essa opção ainda está em construção — em breve você poderá usar por aqui. Por enquanto, fale com o seu supervisor.')
+  await perguntarProximoPasso(remetente)
   return { ok: true, action: 'aurora-em-breve' }
 }
 
@@ -3075,8 +3087,21 @@ async function tratarAurora(
       const filial = await filialDoTelefoneOuPadrao(remetente)
       const resposta = await resultadosDoMapa(filial, mapa, dataEscolhida)
       await enviar(remetente, resposta)
-      await encerrarSessaoAurora(remetente)
+      await perguntarProximoPasso(remetente)
       return { ok: true, action: 'aurora-mapa-respondido' }
+    }
+    if (sessao.estado === 'pos_resposta') {
+      if (btn === 'aurora_pos:nova' || ehTrocarAssuntoAurora(texto) || /^\s*nova\b/i.test(texto)) {
+        await mostrarMenuCategorias(remetente, senderName || null)
+        return { ok: true, action: 'aurora-pos-nova' }
+      }
+      if (btn === 'aurora_pos:encerrar' || /^\s*encerrar\b/i.test(texto)) {
+        await encerrarSessaoAurora(remetente)
+        await enviar(remetente, '👋 Foi um prazer ajudar! Quando precisar, é só mandar um oi.')
+        return { ok: true, action: 'aurora-pos-encerrar' }
+      }
+      await enviar(remetente, 'Não entendi. Quer fazer uma *nova pergunta* ou *encerrar*?')
+      return { ok: true, action: 'aurora-pos-repete' }
     }
     // Sessão existe mas a resposta não bateu com nada esperado (ex.: digitou
     // texto livre em vez de tocar numa opção) — repete o passo atual em vez
@@ -3104,6 +3129,7 @@ async function tratarAurora(
         const dataFalada = extrairDataMencionada(transcrito) ?? ontemISO()
         const resposta = await resultadosDoMapa(filial, mapaFalado, dataFalada)
         await enviar(remetente, resposta)
+        await perguntarProximoPasso(remetente)
         return { ok: true, action: 'aurora-audio-mapa-direto' }
       }
       if (/duvida|treinamento/.test(n)) {
