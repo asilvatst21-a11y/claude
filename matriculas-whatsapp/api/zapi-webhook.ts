@@ -3135,6 +3135,11 @@ export default async function handler(req: any, res: any) {
 
   const body = typeof req.body === 'string' ? safeJson(req.body) : (req.body ?? {})
   console.log('WEBHOOK type:', body.type, '| fromMe:', body.fromMe, '| isGroup:', body.isGroup, '| phone:', body.phone)
+  // Log temporário pra depurar o menu da Aurora: mensagens individuais (não
+  // de grupo) imprimem o corpo inteiro, pra ver exatamente que campo o
+  // Z-API usa numa resposta de lista/botão nesta instância. Remover depois
+  // de confirmado o formato real (ver AURORA-DEBUG nos logs do Vercel).
+  if (!body.isGroup) console.log('AURORA-DEBUG body completo:', JSON.stringify(body))
 
   try {
     const fromMe: boolean = body.fromMe === true
