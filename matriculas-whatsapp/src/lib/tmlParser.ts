@@ -8,6 +8,23 @@ function normalize(value: unknown): string {
     .toLowerCase();
 }
 
+// Acha a coluna testando os termos em ordem de preferência — primeiro por
+// igualdade exata (evita, por ex., "item" casar com "código do item"), só
+// depois por substring. Existe porque o relatório de separação já apareceu
+// com nomes de coluna diferentes entre exportações (ex.: "Quantidade" vs
+// "Qtd", "Descrição do item" vs "Item", "Mapa" vs "Mapas").
+function acharColuna(header: string[], ...termos: string[]): number {
+  for (const termo of termos) {
+    const idx = header.indexOf(termo);
+    if (idx !== -1) return idx;
+  }
+  for (const termo of termos) {
+    const idx = header.findIndex((c) => c.includes(termo));
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
 function excelDateToISO(value: unknown): string | null {
   if (value instanceof Date) {
     const y = value.getUTCFullYear();
@@ -669,14 +686,14 @@ export function parseSeparacaoBuffer(buffer: ArrayBuffer): SeparacaoItem[] {
   if (rows.length === 0) return [];
 
   const header = rows[0].map(normalize);
-  const mapaIdx = header.indexOf("mapa");
-  const paleteIdx = header.indexOf("palete");
-  const dataIdx = header.findIndex((c) => c.includes("data de entrega"));
-  const codigoIdx = header.findIndex((c) => c.includes("codigo do item"));
-  const descIdx = header.findIndex((c) => c.includes("descricao do item"));
-  const tipoIdx = header.indexOf("tipo");
-  const qtdIdx = header.indexOf("quantidade");
-  const unidadeIdx = header.findIndex((c) => c.includes("unidade de medida"));
+  const mapaIdx = acharColuna(header, "mapa", "mapas");
+  const paleteIdx = acharColuna(header, "palete");
+  const dataIdx = acharColuna(header, "data de entrega");
+  const codigoIdx = acharColuna(header, "codigo do item");
+  const descIdx = acharColuna(header, "descricao do item", "item");
+  const tipoIdx = acharColuna(header, "tipo", "categoria");
+  const qtdIdx = acharColuna(header, "quantidade", "qtd");
+  const unidadeIdx = acharColuna(header, "unidade de medida", "unidade");
   if (mapaIdx === -1 || paleteIdx === -1) return [];
 
   // A coluna "Sequência" da planilha NÃO é única dentro da baia — itens em
