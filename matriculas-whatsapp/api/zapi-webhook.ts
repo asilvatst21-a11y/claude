@@ -2458,10 +2458,17 @@ async function processarDuvidaSobreTreinamento(
 async function tratarDuvidaMatinal(
   body: any, remetente: string, senderName: string,
 ): Promise<{ ok: boolean; action: string } | null> {
+  // Uma saudação/comando da Aurora tem prioridade sobre "a próxima mensagem
+  // é resposta ao treinamento" — sem isso, quem recebeu aviso de treinamento
+  // hoje ficava travado nesse fluxo até mandar alguma coisa, sem conseguir
+  // abrir o menu da Aurora no mesmo dia.
+  const textoBruto = extrairTexto(body).trim()
+  if (ehSaudacaoAurora(textoBruto) || ehTrocarAssuntoAurora(textoBruto) || ehEncerrarAurora(textoBruto)) return null
+
   const aviso = await buscarAvisoAtivoMatinal(remetente)
   if (!aviso) return null
 
-  let conteudo = extrairTexto(body).trim()
+  let conteudo = textoBruto
   let porAudio = false
   if (!conteudo && temAudioSemTexto(body)) {
     const transcrito = await transcreverAudio(extrairAudioUrl(body))
@@ -2588,6 +2595,12 @@ const ESTADOS_VALIDOS_SESSAO_TEMA = ['escolhendo_sala', 'escolhendo_tema', 'agua
 async function tratarPreSelecaoTemaMatinal(
   body: any, remetente: string, senderName: string, texto: string,
 ): Promise<{ ok: boolean; action: string } | null> {
+  // Saudação/comando da Aurora tem prioridade sobre qualquer sessão de
+  // pré-seleção de tema em aberto — sem isso, uma sessão travada (ex.:
+  // "escolhendo_tema" nunca finalizada) prendia a pessoa nesse fluxo,
+  // impedindo o menu da Aurora de responder no mesmo dia.
+  if (ehSaudacaoAurora(texto) || ehTrocarAssuntoAurora(texto) || ehEncerrarAurora(texto)) return null
+
   const { data: sessaoRaw } = await supabase
     .from('matinal_duvida_sessoes')
     .select('*')

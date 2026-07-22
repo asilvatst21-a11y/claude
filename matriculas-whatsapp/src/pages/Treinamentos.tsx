@@ -382,6 +382,7 @@ function CentralDuvidas({ treinamentos }: { treinamentos: Treinamento[] }) {
   const [duvidas, setDuvidas] = useState<Duvida[]>([])
   const [loading, setLoading] = useState(true)
   const [busca, setBusca] = useState('')
+  const [encerrando, setEncerrando] = useState(false)
 
   const fetchDuvidas = useCallback(async () => {
     if (!usuario) return
@@ -397,6 +398,27 @@ function CentralDuvidas({ treinamentos }: { treinamentos: Treinamento[] }) {
   }, [usuario])
 
   useEffect(() => { fetchDuvidas() }, [fetchDuvidas])
+
+  // Fecha as dúvidas ainda sem resposta do palestrante e limpa os avisos de
+  // treinamento do dia — enquanto um telefone tem um aviso "de hoje" em
+  // aberto, o bot trata a próxima mensagem dele como resposta ao
+  // treinamento, o que trava o acesso ao menu da Aurora. Botão de emergência
+  // pra liberar todo mundo de uma vez (ex.: depois de adicionar um assunto
+  // novo na Aurora e perceber gente presa no fluxo antigo).
+  async function encerrarPendentesELiberar() {
+    if (!usuario) return
+    if (!window.confirm('Isso encerra todas as dúvidas de treinamento sem resposta do palestrante e libera os colaboradores travados nesse fluxo (podendo usar o menu da Aurora normalmente de novo). Continuar?')) return
+    setEncerrando(true)
+    await supabase.from('duvidas_matinal').update({
+      status: 'respondida_palestrante',
+      resposta: 'Encerrada automaticamente — sem resposta do palestrante.',
+      respondida_em: new Date().toISOString(),
+    }).eq('filial', usuario.filial).eq('status', 'aguardando_palestrante')
+    await supabase.from('matinal_treinamento_avisos').delete().eq('filial', usuario.filial)
+    await fetchDuvidas()
+    setEncerrando(false)
+    alert('Pendências encerradas e conversas liberadas.')
+  }
 
   const tituloPorId = useMemo(() => new Map(treinamentos.map((t) => [t.id, t.titulo])), [treinamentos])
 
@@ -434,6 +456,14 @@ function CentralDuvidas({ treinamentos }: { treinamentos: Treinamento[] }) {
             className="w-full pl-9 pr-3 py-2 text-sm border rounded-md focus:outline-none focus:ring-1 focus:ring-primary" />
         </div>
         <button onClick={fetchDuvidas} className="flex items-center gap-1.5 text-sm px-2.5 py-2 rounded border hover:bg-accent"><RefreshCw className="h-4 w-4" /> Atualizar</button>
+        <button
+          onClick={encerrarPendentesELiberar}
+          disabled={encerrando}
+          title="Encerra as dúvidas sem resposta do palestrante e libera quem ficou travado nesse fluxo, sem conseguir usar o menu da Aurora"
+          className="flex items-center gap-1.5 text-sm px-2.5 py-2 rounded border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+        >
+          {encerrando ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertTriangle className="h-4 w-4" />} Encerrar pendentes e liberar conversas
+        </button>
       </div>
 
       <div className="rounded-lg border overflow-x-auto">
