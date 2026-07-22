@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { enviarImagemGrupo, enviarMensagemGrupo, enviarMensagemWhatsApp, listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { enviarImagemGrupo, enviarMensagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import { formatarDataBR } from '../lib/utils'
 import {
@@ -272,44 +272,38 @@ export default function FechamentoDia() {
     try {
       const { data: filialRow } = await supabase
         .from('filiais')
-        .select('grupo_matinal_colorado_whatsapp, grupo_matinal_subfuria_whatsapp, grupo_fechamento_cdd_whatsapp')
+        .select('grupo_fechamento_whatsapp')
         .eq('nome', usuario.filial)
         .maybeSingle()
+      const grupo = filialRow?.grupo_fechamento_whatsapp
 
-      const alvos: { ref: React.RefObject<HTMLDivElement | null>; grupo: string | null | undefined; legenda: string; sala: SalaFechamento }[] = [
-        { ref: refColorado, grupo: filialRow?.grupo_matinal_colorado_whatsapp, legenda: `📊 Fechamento do Dia — Sala Colorado — ${formatarDataBR(data)}`, sala: 'COLORADO' },
-        { ref: refSubFuria, grupo: filialRow?.grupo_matinal_subfuria_whatsapp, legenda: `📊 Fechamento do Dia — Sala Sub-Fúria — ${formatarDataBR(data)}`, sala: 'SUB-FURIA' },
-        { ref: refCdd, grupo: filialRow?.grupo_fechamento_cdd_whatsapp, legenda: `📊 Fechamento do Dia — CDD Petrópolis — ${formatarDataBR(data)}`, sala: 'CDD' },
+      if (!grupo) {
+        setErro('Configure o grupo de WhatsApp do Fechamento na aba Parâmetros antes de enviar.')
+        return
+      }
+
+      const alvos: { ref: React.RefObject<HTMLDivElement | null>; legenda: string }[] = [
+        { ref: refColorado, legenda: `📊 Fechamento do Dia — Sala Colorado — ${formatarDataBR(data)}` },
+        { ref: refSubFuria, legenda: `📊 Fechamento do Dia — Sala Sub-Fúria — ${formatarDataBR(data)}` },
+        { ref: refCdd, legenda: `📊 Fechamento do Dia — CDD Petrópolis — ${formatarDataBR(data)}` },
       ]
 
       for (const alvo of alvos) {
-        if (!alvo.grupo || !alvo.ref.current) continue
+        if (!alvo.ref.current) continue
         const canvas = await html2canvas(alvo.ref.current, { scale: 1.5, backgroundColor: '#ffffff', useCORS: true, logging: false })
         const img = canvas.toDataURL('image/png')
-        const { sucesso, erro: erroEnvio } = await enviarImagemGrupo(alvo.grupo, img, alvo.legenda)
-        await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: alvo.grupo, mensagem: alvo.legenda, status: sucesso ? 'enviado' : 'erro', erro: erroEnvio ?? null })
+        const { sucesso, erro: erroEnvio } = await enviarImagemGrupo(grupo, img, alvo.legenda)
+        await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem: alvo.legenda, status: sucesso ? 'enviado' : 'erro', erro: erroEnvio ?? null })
       }
 
-      // Destaques: no grupo da própria sala (reconhecimento público).
-      for (const sala of ['COLORADO', 'SUB-FURIA'] as const) {
-        const grupo = sala === 'COLORADO' ? filialRow?.grupo_matinal_colorado_whatsapp : filialRow?.grupo_matinal_subfuria_whatsapp
-        const texto = textosPorSala[sala]?.destaques
-        if (grupo && texto) {
-          const { sucesso, erro: erroEnvio } = await enviarMensagemGrupo(grupo, texto)
-          await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem: texto, status: sucesso ? 'enviado' : 'erro', erro: erroEnvio ?? null })
-        }
-      }
-
-      // Bate-papo: só pro supervisor da sala, no privado (não expõe no grupo).
-      for (const sala of ['COLORADO', 'SUB-FURIA'] as const) {
-        const texto = textosPorSala[sala]?.batePapo
-        if (!texto) continue
-        const { data: supervisores } = await supabase.from('supervisores_tml').select('telefone').eq('filial', usuario.filial).eq('sala', sala)
-        for (const s of supervisores ?? []) {
-          if (!s.telefone) continue
-          const { sucesso, erro: erroEnvio } = await enviarMensagemWhatsApp(s.telefone, texto)
-          await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: s.telefone, mensagem: texto, status: sucesso ? 'enviado' : 'erro', erro: erroEnvio ?? null })
-        }
+      // Texto de orientação (destaques + bate-papo das duas salas), no mesmo grupo único.
+      const textoOrientacao = [
+        textosPorSala.COLORADO?.destaques, textosPorSala.COLORADO?.batePapo,
+        textosPorSala['SUB-FURIA']?.destaques, textosPorSala['SUB-FURIA']?.batePapo,
+      ].filter(Boolean).join('\n\n')
+      if (textoOrientacao) {
+        const { sucesso, erro: erroEnvio } = await enviarMensagemGrupo(grupo, textoOrientacao)
+        await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem: textoOrientacao, status: sucesso ? 'enviado' : 'erro', erro: erroEnvio ?? null })
       }
 
       await supabase.from('fechamento_dia_envios').upsert({
@@ -726,10 +720,8 @@ function GruposFechamentoTab({ filial }: { filial: string }) {
   const [buscando, setBuscando] = useState(false)
   const [erroBusca, setErroBusca] = useState<string | null>(null)
 
-  const [colorado, setColorado] = useState('')
-  const [subFuria, setSubFuria] = useState('')
-  const [cdd, setCdd] = useState('')
-  const [original, setOriginal] = useState({ colorado: '', subFuria: '', cdd: '' })
+  const [grupo, setGrupo] = useState('')
+  const [original, setOriginal] = useState('')
 
   const [carregando, setCarregando] = useState(true)
   const [salvando, setSalvando] = useState(false)
@@ -741,15 +733,11 @@ function GruposFechamentoTab({ filial }: { filial: string }) {
     setCarregando(true)
     const { data } = await supabase
       .from('filiais')
-      .select('grupo_matinal_colorado_whatsapp, grupo_matinal_subfuria_whatsapp, grupo_fechamento_cdd_whatsapp')
+      .select('grupo_fechamento_whatsapp')
       .eq('nome', filial)
       .maybeSingle()
-    const v = {
-      colorado: data?.grupo_matinal_colorado_whatsapp ?? '',
-      subFuria: data?.grupo_matinal_subfuria_whatsapp ?? '',
-      cdd: data?.grupo_fechamento_cdd_whatsapp ?? '',
-    }
-    setColorado(v.colorado); setSubFuria(v.subFuria); setCdd(v.cdd)
+    const v = data?.grupo_fechamento_whatsapp ?? ''
+    setGrupo(v)
     setOriginal(v)
     setCarregando(false)
   }, [filial])
@@ -772,13 +760,9 @@ function GruposFechamentoTab({ filial }: { filial: string }) {
     setSalvo(false)
     await supabase
       .from('filiais')
-      .update({
-        grupo_matinal_colorado_whatsapp: colorado.trim() || null,
-        grupo_matinal_subfuria_whatsapp: subFuria.trim() || null,
-        grupo_fechamento_cdd_whatsapp: cdd.trim() || null,
-      })
+      .update({ grupo_fechamento_whatsapp: grupo.trim() || null })
       .eq('nome', filial)
-    setOriginal({ colorado: colorado.trim(), subFuria: subFuria.trim(), cdd: cdd.trim() })
+    setOriginal(grupo.trim())
     setSalvando(false)
     setSalvo(true)
     setTimeout(() => setSalvo(false), 2500)
@@ -794,12 +778,12 @@ function GruposFechamentoTab({ filial }: { filial: string }) {
     }
   }
 
-  const alterado = colorado.trim() !== original.colorado || subFuria.trim() !== original.subFuria || cdd.trim() !== original.cdd
+  const alterado = grupo.trim() !== original
 
   return (
     <div className="rounded-lg border p-4 space-y-3">
       <div className="flex items-center justify-between flex-wrap gap-2">
-        <h2 className="font-semibold text-sm flex items-center gap-1.5"><Send className="h-4 w-4" /> Grupos de WhatsApp do Fechamento</h2>
+        <h2 className="font-semibold text-sm flex items-center gap-1.5"><Send className="h-4 w-4" /> Grupo de WhatsApp do Fechamento</h2>
         <button onClick={buscarGrupos} disabled={buscando} className="flex items-center gap-2 px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors disabled:opacity-50">
           {buscando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : grupos.length > 0 ? <RefreshCw className="h-3.5 w-3.5" /> : <Upload className="h-3.5 w-3.5" />}
           {buscando ? 'Buscando…' : grupos.length > 0 ? 'Atualizar grupos' : 'Buscar grupos (Z-API)'}
@@ -811,23 +795,11 @@ function GruposFechamentoTab({ filial }: { filial: string }) {
       {carregando ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
       ) : (
-        <div className="space-y-4">
-          <GroupPicker
-            label="Sala Colorado"
-            hint="Recebe a imagem do fechamento e o texto de destaques da sala."
-            value={colorado} onChange={setColorado} grupos={grupos} onCopy={copiar} copiado={copiado}
-          />
-          <GroupPicker
-            label="Sala Sub-Fúria"
-            hint="Recebe a imagem do fechamento e o texto de destaques da sala."
-            value={subFuria} onChange={setSubFuria} grupos={grupos} onCopy={copiar} copiado={copiado}
-          />
-          <GroupPicker
-            label="CDD Petrópolis (consolidado)"
-            hint="Recebe a imagem consolidada do fechamento do CDD."
-            value={cdd} onChange={setCdd} grupos={grupos} onCopy={copiar} copiado={copiado}
-          />
-        </div>
+        <GroupPicker
+          label="Grupo único do Fechamento"
+          hint="Recebe as 3 imagens (Colorado, Sub-Fúria, CDD) e o texto de orientação (destaques + bate-papo)."
+          value={grupo} onChange={setGrupo} grupos={grupos} onCopy={copiar} copiado={copiado}
+        />
       )}
 
       <div className="flex items-center justify-end gap-3 border-t pt-3">

@@ -8,9 +8,9 @@ export type SalaFechamento = SalaTML | 'CDD'
 
 export const KPIS_FECHAMENTO: { key: KpiFechamento; label: string; unidade: 'percentual' | 'minutos' | 'nota'; automatico: boolean }[] = [
   { key: 'devolucao_pdv', label: 'Devolução PDV', unidade: 'percentual', automatico: true },
-  { key: 'jornada_liquida', label: 'Jornada Líquida (bateu = MPD "PC financeira" até o limite)', unidade: 'percentual', automatico: true },
+  { key: 'jornada_liquida', label: 'Jornada Líquida', unidade: 'percentual', automatico: true },
   { key: 'aderencia_raio', label: 'Aderência ao Raio', unidade: 'percentual', automatico: true },
-  { key: 'tml', label: 'TML (média de saída da sala)', unidade: 'minutos', automatico: true },
+  { key: 'tml', label: 'TML', unidade: 'minutos', automatico: true },
   { key: 'rating', label: 'Rating', unidade: 'nota', automatico: false },
   { key: 'iv_deslocamento', label: 'IV — Tempo de Deslocamento', unidade: 'minutos', automatico: true },
 ]
