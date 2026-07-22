@@ -1775,6 +1775,67 @@ function resumoSaidaConfirmada(s: any): string {
   ].join('\n')
 }
 
+// Grava a saída como "em_rota" — chamado tanto quando a foto bate com o KM
+// digitado quanto quando a leitura falhou e o motorista confirmou o valor
+// (ou corrigiu) na pergunta de confirmação.
+async function finalizarSaidaFrotaLeve(
+  sess: any, grupoId: string, fotoUrl: string | null, kmFoto: number | null,
+): Promise<{ ok: boolean; action: string }> {
+  const agora = new Date()
+  const previsao = new Date(agora.getTime() + (sess.previsao_min ?? 0) * 60_000)
+  const { data: reg } = await supabase.from('frota_leve_saidas').update({
+    status: 'em_rota',
+    hora_saida: sess.hora_saida || horaAgoraBR(),
+    km_saida: sess.km_saida,
+    foto_saida_url: fotoUrl,
+    km_saida_foto: kmFoto,
+    previsao_retorno: previsao.toISOString(),
+    saida_registrada_em: agora.toISOString(),
+    passo: null,
+  }).eq('id', sess.id).select('*').single()
+  const nota = kmFoto == null
+    ? `\n_(não consegui ler o KM pela foto; o KM ${sess.km_saida?.toLocaleString('pt-BR')} foi confirmado por você)_`
+    : `\n✅ KM conferido pela foto.`
+  await enviar(grupoId, resumoSaidaConfirmada(reg ?? sess) + nota)
+  return { ok: true, action: 'frl-saida-confirmada' }
+}
+
+// Grava o retorno como "finalizado" — mesma ideia do helper de saída acima.
+async function finalizarRetornoFrotaLeve(
+  sess: any, grupoId: string, fotoUrl: string | null, kmFoto: number | null,
+): Promise<{ ok: boolean; action: string }> {
+  const agora = new Date()
+  const { data: reg } = await supabase.from('frota_leve_saidas').update({
+    status: 'finalizado',
+    hora_retorno: sess.hora_retorno || horaAgoraBR(),
+    km_retorno: sess.km_retorno,
+    foto_retorno_url: fotoUrl,
+    km_retorno_foto: kmFoto,
+    finalizado_em: agora.toISOString(),
+    passo: null,
+  }).eq('id', sess.id).select('*').single()
+  const r = reg ?? sess
+  const rodados = (r.km_retorno != null && r.km_saida != null) ? r.km_retorno - r.km_saida : null
+  let tempo = ''
+  if (r.saida_registrada_em) {
+    const min = Math.max(0, Math.round((agora.getTime() - new Date(r.saida_registrada_em).getTime()) / 60_000))
+    tempo = `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, '0')}min`
+  }
+  const linhas = [
+    `🏁 *Viagem finalizada!*`,
+    `🚗 Placa: ${r.placa}`,
+    `📍 Destino: ${r.destino ?? '—'}`,
+    `⏱️ Saída: ${r.km_saida?.toLocaleString('pt-BR')} (${r.hora_saida ?? '—'})`,
+    `⏱️ Retorno: ${r.km_retorno?.toLocaleString('pt-BR')} (${r.hora_retorno ?? '—'})`,
+  ]
+  if (rodados != null) linhas.push(`🛣️ KM rodados: *${rodados.toLocaleString('pt-BR')} km*`)
+  if (tempo) linhas.push(`⌛ Tempo em rota: *${tempo}*`)
+  if (r.observacoes) linhas.push(`📝 Obs: ${r.observacoes}`)
+  if (kmFoto == null) linhas.push(`_(não consegui ler o KM pela foto; o KM ${sess.km_retorno?.toLocaleString('pt-BR')} foi confirmado por você)_`)
+  await enviar(grupoId, linhas.join('\n'))
+  return { ok: true, action: 'frl-finalizada' }
+}
+
 // Statuses de uma viagem "aberta" (fora / sem retorno finalizado) — usados na trava.
 const FRL_ABERTO_TRAVA = ['aguardando_foto_saida', 'em_rota', 'coletando_retorno', 'aguardando_foto_retorno']
 
@@ -2005,6 +2066,17 @@ async function avancarSessaoFrotaLeve(
 
   // ── Aguardando a FOTO da saída ──
   if (sess.status === 'aguardando_foto_saida') {
+    // Já recebemos a foto, mas não deu pra ler o KM com segurança —
+    // aguardando o motorista confirmar (ou corrigir) o valor que ele mesmo
+    // digitou antes. A palavra final é sempre do motorista, não da leitura.
+    if (sess.passo === 'confirmar_km_saida_sem_leitura') {
+      const kmCorr = kmDeNumeroSolto(texto)
+      if (kmCorr != null) return await finalizarSaidaFrotaLeve({ ...sess, km_saida: kmCorr }, grupoId, sess.foto_saida_url, null)
+      if (extrairResposta(body) === 'sim') return await finalizarSaidaFrotaLeve(sess, grupoId, sess.foto_saida_url, null)
+      await enviar(grupoId, `Não entendi. O KM *${sess.km_saida?.toLocaleString('pt-BR')}* está correto? Responda *sim* pra confirmar, ou envie o número certo.`)
+      return { ok: true, action: 'frl-saida-confirma-km-repete' }
+    }
+
     const kmCorr = kmDeNumeroSolto(texto)
     if (kmCorr != null) {  // motorista digitou um novo KM (correção)
       await supabase.from('frota_leve_saidas').update({ km_saida: kmCorr }).eq('id', sess.id)
@@ -2024,19 +2096,14 @@ async function avancarSessaoFrotaLeve(
         `Se o certo é o da foto, responda com o número *${kmFoto.toLocaleString('pt-BR')}*. Se preferir, reenvie uma foto mais nítida.`)
       return { ok: true, action: 'frl-saida-km-divergente' }
     }
-    const agora = new Date()
-    const previsao = new Date(agora.getTime() + (sess.previsao_min ?? 0) * 60_000)
-    const { data: reg } = await supabase.from('frota_leve_saidas').update({
-      status: 'em_rota',
-      hora_saida: sess.hora_saida || horaAgoraBR(),
-      foto_saida_url: url,
-      km_saida_foto: kmFoto,
-      previsao_retorno: previsao.toISOString(),
-      saida_registrada_em: agora.toISOString(),
-    }).eq('id', sess.id).select('*').single()
-    const nota = kmFoto == null ? `\n_(não consegui ler o KM da foto; registrei o valor que você informou)_` : `\n✅ KM conferido pela foto.`
-    await enviar(grupoId, resumoSaidaConfirmada(reg ?? sess) + nota)
-    return { ok: true, action: 'frl-saida-confirmada' }
+    if (kmFoto == null) {
+      await supabase.from('frota_leve_saidas').update({ foto_saida_url: url, passo: 'confirmar_km_saida_sem_leitura' }).eq('id', sess.id)
+      await enviar(grupoId,
+        `📸 Recebi a foto, mas não consegui ler o KM do painel com clareza.\n` +
+        `Você informou *${sess.km_saida?.toLocaleString('pt-BR')}* — está correto? Responda *sim* pra confirmar, ou envie o número certo.`)
+      return { ok: true, action: 'frl-saida-confirma-km-pede' }
+    }
+    return await finalizarSaidaFrotaLeve(sess, grupoId, url, kmFoto)
   }
 
   // ── RETORNO: pergunta-a-pergunta ──
@@ -2077,6 +2144,22 @@ async function avancarSessaoFrotaLeve(
 
   // ── Aguardando a FOTO do retorno → finaliza ──
   if (sess.status === 'aguardando_foto_retorno') {
+    // Mesma confirmação da saída: foto já recebida, mas leitura sem
+    // segurança — a palavra final fica com o motorista.
+    if (sess.passo === 'confirmar_km_retorno_sem_leitura') {
+      const kmCorr = kmDeNumeroSolto(texto)
+      if (kmCorr != null) {
+        if (sess.km_saida != null && kmCorr < sess.km_saida) {
+          await enviar(grupoId, `⚠️ Esse KM (${kmCorr.toLocaleString('pt-BR')}) está menor que o de saída. Confira e envie de novo.`)
+          return { ok: true, action: 'frl-retorno-km-menor' }
+        }
+        return await finalizarRetornoFrotaLeve({ ...sess, km_retorno: kmCorr }, grupoId, sess.foto_retorno_url, null)
+      }
+      if (extrairResposta(body) === 'sim') return await finalizarRetornoFrotaLeve(sess, grupoId, sess.foto_retorno_url, null)
+      await enviar(grupoId, `Não entendi. O KM *${sess.km_retorno?.toLocaleString('pt-BR')}* está correto? Responda *sim* pra confirmar, ou envie o número certo.`)
+      return { ok: true, action: 'frl-retorno-confirma-km-repete' }
+    }
+
     const kmCorr = kmDeNumeroSolto(texto)
     if (kmCorr != null) {
       if (sess.km_saida != null && kmCorr < sess.km_saida) {
@@ -2100,34 +2183,14 @@ async function avancarSessaoFrotaLeve(
         `Se o certo é o da foto, responda com o número *${kmFoto.toLocaleString('pt-BR')}*. Ou reenvie uma foto mais nítida.`)
       return { ok: true, action: 'frl-retorno-km-divergente' }
     }
-    const agora = new Date()
-    const { data: reg } = await supabase.from('frota_leve_saidas').update({
-      status: 'finalizado',
-      hora_retorno: sess.hora_retorno || horaAgoraBR(),
-      foto_retorno_url: url,
-      km_retorno_foto: kmFoto,
-      finalizado_em: agora.toISOString(),
-    }).eq('id', sess.id).select('*').single()
-    const r = reg ?? sess
-    const rodados = (r.km_retorno != null && r.km_saida != null) ? r.km_retorno - r.km_saida : null
-    let tempo = ''
-    if (r.saida_registrada_em) {
-      const min = Math.max(0, Math.round((agora.getTime() - new Date(r.saida_registrada_em).getTime()) / 60_000))
-      tempo = `${Math.floor(min / 60)}h ${String(min % 60).padStart(2, '0')}min`
+    if (kmFoto == null) {
+      await supabase.from('frota_leve_saidas').update({ foto_retorno_url: url, passo: 'confirmar_km_retorno_sem_leitura' }).eq('id', sess.id)
+      await enviar(grupoId,
+        `📸 Recebi a foto, mas não consegui ler o KM do painel com clareza.\n` +
+        `Você informou *${sess.km_retorno?.toLocaleString('pt-BR')}* — está correto? Responda *sim* pra confirmar, ou envie o número certo.`)
+      return { ok: true, action: 'frl-retorno-confirma-km-pede' }
     }
-    const linhas = [
-      `🏁 *Viagem finalizada!*`,
-      `🚗 Placa: ${r.placa}`,
-      `📍 Destino: ${r.destino ?? '—'}`,
-      `⏱️ Saída: ${r.km_saida?.toLocaleString('pt-BR')} (${r.hora_saida ?? '—'})`,
-      `⏱️ Retorno: ${r.km_retorno?.toLocaleString('pt-BR')} (${r.hora_retorno ?? '—'})`,
-    ]
-    if (rodados != null) linhas.push(`🛣️ KM rodados: *${rodados.toLocaleString('pt-BR')} km*`)
-    if (tempo) linhas.push(`⌛ Tempo em rota: *${tempo}*`)
-    if (r.observacoes) linhas.push(`📝 Obs: ${r.observacoes}`)
-    if (kmFoto == null) linhas.push(`_(não consegui ler o KM da foto; registrei o valor informado)_`)
-    await enviar(grupoId, linhas.join('\n'))
-    return { ok: true, action: 'frl-finalizada' }
+    return await finalizarRetornoFrotaLeve(sess, grupoId, url, kmFoto)
   }
 
   return { ok: true, action: 'frl-estado-desconhecido' }
