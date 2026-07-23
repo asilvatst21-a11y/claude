@@ -52,6 +52,7 @@ interface LinhaHistorico {
 
 interface LinhaChecklistPasso {
   mapa: number | null
+  placa: string | null
   data: string | null
   sala: SalaTML | null
   horario_inicio: string | null
@@ -157,7 +158,7 @@ export default function DistribuicaoTMLAnalise() {
         .eq('filial', usuario.filial),
       supabase
         .from('checklist_tml')
-        .select('mapa, data, sala, horario_inicio, horario_final')
+        .select('mapa, placa, data, sala, horario_inicio, horario_final')
         .eq('filial', usuario.filial)
         .gte('data', de)
         .lte('data', ate)
@@ -213,6 +214,15 @@ export default function DistribuicaoTMLAnalise() {
     return m
   }, [checklistPasso])
 
+  // Linhas de checklist sem mapa (o relatório de origem não preencheu o
+  // número da rota — ver src/lib/tmlParser.ts) não têm como casar por mapa,
+  // então casam por placa+data como alternativa.
+  const checklistPorPlacaData = useMemo(() => {
+    const m = new Map<string, LinhaChecklistPasso>()
+    for (const c of checklistPasso) if (c.mapa == null && c.placa && c.data) m.set(`${c.placa}|${c.data}`, c)
+    return m
+  }, [checklistPasso])
+
   const matinalPorSalaData = useMemo(() => {
     const m = new Map<string, LinhaMatinalPasso>()
     for (const mt of matinaisPasso) if (mt.sala && mt.data) m.set(`${mt.sala}|${mt.data}`, mt)
@@ -250,7 +260,8 @@ export default function DistribuicaoTMLAnalise() {
     const linha = analisePasso.find((a) => a.chave === detalheAberto)
     if (!linha) return null
 
-    const checklist = linha.mapa != null ? checklistPorMapaData.get(`${linha.mapa}|${linha.data}`) : undefined
+    const checklist = (linha.mapa != null ? checklistPorMapaData.get(`${linha.mapa}|${linha.data}`) : undefined)
+      ?? (linha.placa ? checklistPorPlacaData.get(`${linha.placa}|${linha.data}`) : undefined)
     const matinal = matinalPorSalaData.get(`${linha.sala}|${linha.data}`)
     const conferencia = conferenciaPorMapa.get(`${linha.mapa}|${linha.data}`)
 
@@ -293,7 +304,7 @@ export default function DistribuicaoTMLAnalise() {
       confInicio, confFim, confMin, confEstourou, confEmAndamento: conferencia != null && !conferencia.concluido,
       deslocamentoMin, ateConferenciaMin, ateSaidaMin,
     }
-  }, [detalheAberto, analisePasso, checklistPorMapaData, matinalPorSalaData, conferenciaPorMapa, etapaParams])
+  }, [detalheAberto, analisePasso, checklistPorMapaData, checklistPorPlacaData, matinalPorSalaData, conferenciaPorMapa, etapaParams])
 
   // ── Cards de resumo ──────────────────────────────────────────────────────
   const totalSaidas = historicoValido.length
