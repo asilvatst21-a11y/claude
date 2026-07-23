@@ -418,16 +418,31 @@ export function parseChecklistBuffer(buffer: ArrayBuffer): ChecklistTML[] {
   const motoristaIdx = header.indexOf("motorista");
   const equipeIdx = header.indexOf("equipe");
   const dataIdx = header.indexOf("data");
+  const subtipoIdx = header.indexOf("subtipo");
   const hrInicioIdx = header.findIndex((c) => c.includes("hr inicio") || c.includes("hora inicio"));
   const hrFinalIdx = header.findIndex((c) => c.includes("hr final") || c.includes("hora final"));
+
+  // Só o horário de início até as 10h conta pra deslocamento — checklist
+  // feito depois disso não reflete mais o deslocamento normal da matinal.
+  const LIMITE_HR_INICIO_MIN = 10 * 60;
+  function minutosDoHorario(hhmm: string): number {
+    const [h, m] = hhmm.split(":").map(Number);
+    return h * 60 + m;
+  }
 
   const out: ChecklistTML[] = [];
   for (let i = headerRow + 1; i < rows.length; i++) {
     const row = rows[i];
+
+    // Só considera linhas de SAÍDA — outros subtipos (ex.: ENTRADA) não
+    // representam o início do deslocamento do dia. Sem a coluna, não filtra.
+    if (subtipoIdx !== -1 && normalize(row[subtipoIdx]) !== "saida") continue;
+
     const mapaNum = Number(row[mapaIdx]);
     const mapa = !isNaN(mapaNum) && mapaNum > 0 ? mapaNum : null;
     const sala = equipeIdx !== -1 ? normalizaSala(row[equipeIdx]) : null;
     const horarioInicio = hrInicioIdx !== -1 ? extraiHorario(row[hrInicioIdx]) : null;
+    if (horarioInicio && minutosDoHorario(horarioInicio) > LIMITE_HR_INICIO_MIN) continue;
     // Sem mapa, só aproveita a linha como fallback (via EQUIPE direto da
     // planilha) quando dá pra identificar a sala e o horário de início —
     // senão é ruído (checklist de equipamento, ou rota sem sala atribuída
