@@ -9,7 +9,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import {
   SALA_TML_LABEL, type SalaTML, type GatilhoEstouroParam, type MetaMatinalParam,
-  gatilhoEstouroMinutos, isSalaTML, metaMatinalMinutos,
+  gatilhoEstouroMinutos, isSalaTML, metaMatinalMinutos, diaDaSemana,
   horarioInicioMatinalPadrao, horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal,
 } from '../lib/tml'
 import { formatarDataBR } from '../lib/utils'
@@ -188,10 +188,12 @@ export default function DistribuicaoTMLDeslocamento() {
 
   useEffect(() => { carregar() }, [carregar])
 
-  const checklistFiltrado = useMemo(
-    () => (sala === 'TODAS' ? checklist : checklist.filter((c) => c.sala === sala)),
-    [checklist, sala]
-  )
+  const checklistFiltrado = useMemo(() => {
+    // Checklist de domingo não deve aparecer nem entrar em nenhuma conta —
+    // não é dia de operação normal da matinal/deslocamento.
+    const semDomingo = checklist.filter((c) => !c.data || diaDaSemana(c.data) !== 0)
+    return sala === 'TODAS' ? semDomingo : semDomingo.filter((c) => c.sala === sala)
+  }, [checklist, sala])
 
   const comDeslocamento = checklistFiltrado.filter((c) => c.tempo_deslocamento_minutos != null)
   const tempoDeslocamentoMedioGeral = comDeslocamento.length > 0

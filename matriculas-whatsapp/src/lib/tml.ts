@@ -64,7 +64,7 @@ export const DESLOCAMENTO_ESTOURO_MIN = 7;
 // (auto-finalizada) pra não inflar o cálculo indefinidamente.
 export const MATINAL_AUTO_FINALIZA_MIN = 60;
 
-function diaDaSemana(data: string): number {
+export function diaDaSemana(data: string): number {
   // 0=domingo .. 6=sábado
   return new Date(`${data}T00:00:00`).getDay();
 }
