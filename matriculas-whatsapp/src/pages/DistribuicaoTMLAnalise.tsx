@@ -119,6 +119,8 @@ export default function DistribuicaoTMLAnalise() {
   const [de, setDe] = useState(primeiroDiaDoMesISO())
   const [ate, setAte] = useState(hojeISO())
   const [sala, setSala] = useState<SalaTML | 'TODAS'>('TODAS')
+  const [aba, setAba] = useState<'geral' | 'motivos'>('geral')
+  const [ugcFiltro, setUgcFiltro] = useState<string>('TODAS')
 
   const [historico, setHistorico] = useState<LinhaHistorico[]>([])
   const [alertas, setAlertas] = useState<LinhaAlerta[]>([])
@@ -373,16 +375,27 @@ export default function DistribuicaoTMLAnalise() {
   }, [historicoValido])
 
   // ── Ranking de motivos ───────────────────────────────────────────────────
+  // Num período maior, dezenas de motivos de todas as áreas viram fatias
+  // finas demais pra ler — por isso dá pra filtrar por área (UGC) antes, e
+  // mesmo assim só as MOTIVO_TOP_N mais frequentes aparecem sozinhas; o
+  // resto agrupa em "Outros" em vez de poluir o gráfico.
+  const MOTIVO_TOP_N = 8
   const porMotivo = useMemo(() => {
     const mapa = new Map<string, number>()
     for (const a of alertasFiltrados) {
       if (!a.justificativa) continue
+      const ugc = motivoUgc.get(a.justificativa) ?? 'GERAL'
+      if (ugcFiltro !== 'TODAS' && ugc !== ugcFiltro) continue
       mapa.set(a.justificativa, (mapa.get(a.justificativa) ?? 0) + 1)
     }
-    return [...mapa.entries()]
+    const ordenado = [...mapa.entries()]
       .map(([motivo, total]) => ({ motivo, total }))
       .sort((a, b) => b.total - a.total)
-  }, [alertasFiltrados])
+    if (ordenado.length <= MOTIVO_TOP_N) return ordenado
+    const top = ordenado.slice(0, MOTIVO_TOP_N)
+    const outros = ordenado.slice(MOTIVO_TOP_N).reduce((soma, m) => soma + m.total, 0)
+    return [...top, { motivo: 'Outros', total: outros }]
+  }, [alertasFiltrados, motivoUgc, ugcFiltro])
 
   // ── Ranking por área responsável (UGC) ────────────────────────────────────
   // A justificativa guarda o texto do motivo; cruzamos com o catálogo para
@@ -462,9 +475,26 @@ export default function DistribuicaoTMLAnalise() {
         )}
       </div>
 
+      <div className="flex gap-1 border-b">
+        {([
+          { valor: 'geral', label: 'Visão geral' },
+          { valor: 'motivos', label: 'Motivos & Áreas' },
+        ] as const).map((t) => (
+          <button
+            key={t.valor}
+            onClick={() => setAba(t.valor)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              aba === t.valor ? 'border-accent-500 text-accent-700' : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       {loading ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
-      ) : (
+      ) : aba === 'geral' ? (
         <>
           <SectionTitle title="TML — saída na portaria" />
 
@@ -561,41 +591,6 @@ export default function DistribuicaoTMLAnalise() {
                   </Line>
                 </ComposedChart>
               </ResponsiveContainer>
-            </ChartCard>
-
-            <ChartCard title="Distribuição por motivo">
-              {porMotivo.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhuma justificativa registrada no período.</p>
-              ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <PieChart>
-                    <Pie data={porMotivo} dataKey="total" nameKey="motivo" cx="50%" cy="50%" innerRadius={45} outerRadius={85} paddingAngle={2} label={(p) => `${p.total}`}>
-                      {porMotivo.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} stroke="#fff" strokeWidth={2} />)}
-                    </Pie>
-                    <Tooltip contentStyle={TOOLTIP_STYLE} />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
-                  </PieChart>
-                </ResponsiveContainer>
-              )}
-            </ChartCard>
-
-            <ChartCard title="Atrasos por área responsável (UGC)">
-              {porUgc.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Nenhuma justificativa registrada no período.</p>
-              ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={porUgc} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
-                    <XAxis type="number" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
-                    <YAxis type="category" dataKey="ugc" width={96} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
-                    <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
-                    <Bar dataKey="total" name="Atrasos" radius={[0, 6, 6, 0]} barSize={20}>
-                      {porUgc.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} />)}
-                      <LabelList dataKey="total" position="right" style={{ fontSize: 11, fontWeight: 600 }} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
             </ChartCard>
           </div>
 
@@ -725,6 +720,70 @@ export default function DistribuicaoTMLAnalise() {
                 </tbody>
               </table>
             ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <SectionTitle
+            title="Motivos e áreas responsáveis"
+            subtitle="Filtre por área pra ver só os motivos daquela área — evita misturar todo mundo numa pizza só."
+          />
+
+          <div className="flex flex-wrap items-end gap-3 border rounded-lg bg-white p-3">
+            <div>
+              <label className="block text-xs text-muted-foreground mb-1">Área (UGC)</label>
+              <select value={ugcFiltro} onChange={(e) => setUgcFiltro(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm min-w-[160px]">
+                <option value="TODAS">Todas as áreas</option>
+                {porUgc.map((u) => (
+                  <option key={u.ugc} value={u.ugc}>{u.ugc}</option>
+                ))}
+              </select>
+            </div>
+            {ugcFiltro !== 'TODAS' && (
+              <span className="text-xs text-muted-foreground">
+                Mostrando só motivos da área <strong>{ugcFiltro}</strong>
+              </span>
+            )}
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <ChartCard
+              title="Distribuição por motivo"
+              subtitle={`Top ${MOTIVO_TOP_N} motivos${ugcFiltro !== 'TODAS' ? ` — área ${ugcFiltro}` : ' — todas as áreas'}; o restante agrupado em "Outros"`}
+            >
+              {porMotivo.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhuma justificativa registrada no período{ugcFiltro !== 'TODAS' ? ' para essa área' : ''}.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={280}>
+                  <PieChart>
+                    <Pie data={porMotivo} dataKey="total" nameKey="motivo" cx="50%" cy="50%" innerRadius={45} outerRadius={95} paddingAngle={2} label={(p) => `${p.total}`}>
+                      {porMotivo.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} stroke="#fff" strokeWidth={2} />)}
+                    </Pie>
+                    <Tooltip contentStyle={TOOLTIP_STYLE} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                  </PieChart>
+                </ResponsiveContainer>
+              )}
+            </ChartCard>
+
+            <ChartCard title="Atrasos por área responsável (UGC)" subtitle="Clique numa área no seletor acima pra abrir os motivos dela">
+              {porUgc.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhuma justificativa registrada no período.</p>
+              ) : (
+                <ResponsiveContainer width="100%" height={280}>
+                  <BarChart data={porUgc} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                    <XAxis type="number" tick={{ fontSize: 12 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                    <YAxis type="category" dataKey="ugc" width={96} tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                    <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
+                    <Bar dataKey="total" name="Atrasos" radius={[0, 6, 6, 0]} barSize={20} onClick={(d: any) => setUgcFiltro(d.ugc)} cursor="pointer">
+                      {porUgc.map((_, i) => <Cell key={i} fill={CORES[i % CORES.length]} />)}
+                      <LabelList dataKey="total" position="right" style={{ fontSize: 11, fontWeight: 600 }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </ChartCard>
           </div>
         </>
       )}
