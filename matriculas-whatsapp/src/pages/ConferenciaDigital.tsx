@@ -11,6 +11,7 @@ import {
   montarMensagemDivergencia, buscarPessoasConferencia, PORTA_LABEL,
   type BaiaConf, type ItemConf, type PortaConf, type PessoaConferencia,
 } from '../lib/conferencia'
+import { ENVIOS_EM_MASSA_PAUSADOS } from '../lib/whatsappStatus'
 
 function normalizarBusca(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
@@ -134,6 +135,7 @@ export default function ConferenciaDigital() {
       // Falha no envio da mensagem não deve travar a marcação da divergência,
       // que já foi salva no banco — por isso é um try/catch à parte.
       try {
+        if (ENVIOS_EM_MASSA_PAUSADOS) throw new Error('envio pausado')
         const { data: filialRow } = await supabase.from('filiais').select('grupo_conferencia_whatsapp').eq('nome', filial).maybeSingle()
         if (filialRow?.grupo_conferencia_whatsapp && baia) {
           await enviarMensagemGrupo(filialRow.grupo_conferencia_whatsapp, montarMensagemDivergencia({

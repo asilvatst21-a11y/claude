@@ -310,6 +310,58 @@ export function montarMensagemDivergencia(p: {
   return texto
 }
 
+// ── Painel do supervisor: divergências item a item de um mapa ───────────
+// Usado pelo botão "Copiar msg" — monta o mesmo texto que seria mandado
+// automaticamente ao grupo pra cada item com divergência, pra copiar e
+// colar manualmente enquanto o envio automático está pausado.
+export interface DivergenciaMapa {
+  baiaRotulo: string
+  conferente: string | null
+  item: ItemConf
+}
+
+export async function buscarDivergenciasDoMapa(filial: string, mapa: number, data: string): Promise<DivergenciaMapa[]> {
+  const { data: baias, error: eBaias } = await supabase
+    .from('conferencia_baias')
+    .select('id, porta, ordem, conferido_por')
+    .eq('filial', filial).eq('mapa', mapa).eq('data', data)
+  if (eBaias) throw new Error(eBaias.message)
+  const baiaInfo = new Map((baias ?? []).map((b) => [
+    b.id, { rotulo: rotuloBaia(b.porta as PortaConf, b.ordem), conferente: b.conferido_por as string | null },
+  ]))
+
+  const { data: itens, error: eItens } = await supabase
+    .from('conferencia_itens')
+    .select('id, baia_id, sequencia, codigo, descricao, tipo, quantidade, unidade, conferido, divergencia, tipo_divergencia, qtd_real, obs')
+    .eq('filial', filial).eq('mapa', mapa).eq('data', data)
+    .eq('divergencia', true)
+  if (eItens) throw new Error(eItens.message)
+
+  return (itens ?? [])
+    .map((it) => {
+      const b = baiaInfo.get(it.baia_id)
+      return {
+        baiaRotulo: b?.rotulo ?? '—',
+        conferente: b?.conferente ?? null,
+        item: {
+          id: it.id, sequencia: it.sequencia, codigo: it.codigo, descricao: it.descricao,
+          tipo: it.tipo, quantidade: it.quantidade, unidade: it.unidade,
+          conferido: it.conferido, divergencia: it.divergencia,
+          tipoDivergencia: it.tipo_divergencia, qtdReal: it.qtd_real, obs: it.obs,
+        },
+      }
+    })
+    .sort((x, y) => x.baiaRotulo.localeCompare(y.baiaRotulo) || x.item.sequencia - y.item.sequencia)
+}
+
+// Concatena uma mensagem por divergência (mesmo formato do envio automático),
+// separadas por uma linha, pronta pra copiar de uma vez só.
+export function montarMensagensDivergenciaMapa(mapa: number, data: string, divergencias: DivergenciaMapa[]): string {
+  return divergencias
+    .map((d) => montarMensagemDivergencia({ mapa, baiaRotulo: d.baiaRotulo, item: d.item, conferente: d.conferente ?? '—', data }))
+    .join('\n\n─────────────\n\n')
+}
+
 // ── Autocomplete de "quem está conferindo" ───────────────────────────────
 // Junta motoristas (motoristas_sala_tml, cadastro da própria filial) e
 // ajudantes (tabela "ajudantes" do módulo de Vales, cadastro único da

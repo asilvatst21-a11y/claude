@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ClipboardCheck, Upload, Loader2, RefreshCw, AlertTriangle, CheckCircle2,
-  Clock, Search, Link2, Settings2, ExternalLink, ChevronDown, ChevronRight, Send,
+  Clock, Search, Link2, Settings2, ExternalLink, ChevronDown, ChevronRight, Send, Copy,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { listarGrupos, enviarMensagemWhatsApp, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
-import { importarSeparacao, buscarResumoDia, type ResumoDiaConf } from '../lib/conferencia'
+import { importarSeparacao, buscarResumoDia, buscarDivergenciasDoMapa, montarMensagensDivergenciaMapa, type ResumoDiaConf } from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_EM_MASSA_PAUSADOS } from '../lib/whatsappStatus'
 
@@ -37,6 +37,8 @@ export default function DistribuicaoConferencia() {
   const [copiado, setCopiado] = useState<string | null>(null)
   const [enviandoLink, setEnviandoLink] = useState(false)
   const [resultadoEnvioLink, setResultadoEnvioLink] = useState<string | null>(null)
+  const [copiandoDivergenciaMapa, setCopiandoDivergenciaMapa] = useState<number | null>(null)
+  const [divergenciaCopiada, setDivergenciaCopiada] = useState<number | null>(null)
 
   const linkPublico = `${window.location.origin}/conferencia`
 
@@ -88,6 +90,29 @@ export default function DistribuicaoConferencia() {
 
   async function copiarId(id: string) {
     try { await navigator.clipboard.writeText(id); setCopiado(id); setTimeout(() => setCopiado((c) => (c === id ? null : c)), 1500) } catch { /* */ }
+  }
+
+  // Monta a(s) mensagem(ns) de divergência do mapa (mesmo texto do envio
+  // automático) e copia pro clipboard — pra colar manualmente no grupo
+  // enquanto o envio automático está pausado (ver whatsappStatus.ts).
+  async function copiarDivergenciasMapa(mapa: number) {
+    if (!usuario) return
+    setCopiandoDivergenciaMapa(mapa)
+    try {
+      const divergencias = await buscarDivergenciasDoMapa(usuario.filial, mapa, dataOperacao)
+      if (divergencias.length === 0) {
+        alert('Nenhuma divergência encontrada pra esse mapa.')
+        return
+      }
+      const texto = montarMensagensDivergenciaMapa(mapa, dataOperacao, divergencias)
+      await navigator.clipboard.writeText(texto)
+      setDivergenciaCopiada(mapa)
+      setTimeout(() => setDivergenciaCopiada((m) => (m === mapa ? null : m)), 2500)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao copiar mensagem de divergência')
+    } finally {
+      setCopiandoDivergenciaMapa(null)
+    }
   }
 
   // Manda o link do ajudante pra todo mundo (motorista/ajudante) com
@@ -243,6 +268,7 @@ export default function DistribuicaoConferencia() {
                   <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Divergências</th>
                   <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Tempo</th>
                   <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Ajudante</th>
+                  <th className="text-left px-3 py-2.5 font-medium text-muted-foreground"></th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -261,6 +287,21 @@ export default function DistribuicaoConferencia() {
                     <td className={`px-3 py-2 text-right tabular-nums ${m.divergencias > 0 ? 'text-red-600 font-semibold' : ''}`}>{m.divergencias}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{m.tempoMin != null ? `${m.tempoMin} min` : '—'}</td>
                     <td className="px-3 py-2">{m.conferidoPor ?? '—'}</td>
+                    <td className="px-3 py-2">
+                      {m.divergencias > 0 && (
+                        <button
+                          onClick={() => copiarDivergenciasMapa(m.mapa)}
+                          disabled={copiandoDivergenciaMapa === m.mapa}
+                          title="Copiar mensagem de divergência pra colar no grupo"
+                          className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-red-200 text-red-700 hover:bg-red-50 disabled:opacity-50 whitespace-nowrap"
+                        >
+                          {copiandoDivergenciaMapa === m.mapa
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : <Copy className="h-3.5 w-3.5" />}
+                          {divergenciaCopiada === m.mapa ? 'Copiado!' : 'Copiar msg'}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
