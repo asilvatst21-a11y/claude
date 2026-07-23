@@ -9,6 +9,7 @@ import { listarGrupos, enviarMensagemWhatsApp, type GrupoZApi } from '../lib/zap
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import { importarSeparacao, buscarResumoDia, type ResumoDiaConf } from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
+import { ENVIOS_EM_MASSA_PAUSADOS } from '../lib/whatsappStatus'
 
 // Data local (não UTC) — consistente com a página do ajudante (ConferenciaDigital).
 function hojeISO(): string {
@@ -94,6 +95,10 @@ export default function DistribuicaoConferencia() {
   // usado na Consulta de Pendências.
   async function enviarLinkParaTime() {
     if (!usuario) return
+    if (ENVIOS_EM_MASSA_PAUSADOS) {
+      alert('Envio em massa pausado: o WhatsApp ficou 24h em análise por disparo em massa. Tente novamente mais tarde.')
+      return
+    }
     const { data } = await supabase
       .from('colaboradores')
       .select('nome, telefone, funcao, status')
@@ -158,10 +163,18 @@ export default function DistribuicaoConferencia() {
         <a href="/conferencia" target="_blank" rel="noreferrer" className="text-sm font-semibold text-accent-700 underline flex items-center gap-1">{linkPublico} <ExternalLink className="h-3.5 w-3.5" /></a>
         <div className="ml-auto flex items-center gap-2">
           <button onClick={() => copiarId(linkPublico)} className="text-xs px-2 py-1 rounded border border-accent-300 text-accent-700 hover:bg-accent-100">{copiado === linkPublico ? 'Copiado' : 'Copiar link'}</button>
-          <button onClick={enviarLinkParaTime} disabled={enviandoLink} className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-accent-300 text-accent-700 hover:bg-accent-100 disabled:opacity-50">
+          <button
+            onClick={enviarLinkParaTime}
+            disabled={enviandoLink || ENVIOS_EM_MASSA_PAUSADOS}
+            title={ENVIOS_EM_MASSA_PAUSADOS ? 'Envio em massa pausado (WhatsApp em análise 24h) — use "Copiar link" e envie manualmente no grupo' : undefined}
+            className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-accent-300 text-accent-700 hover:bg-accent-100 disabled:opacity-50"
+          >
             {enviandoLink ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Enviar link ao time
           </button>
         </div>
+        {ENVIOS_EM_MASSA_PAUSADOS && (
+          <p className="w-full text-xs text-amber-700">⚠️ Envio em massa pausado — use "Copiar link" e mande manualmente no grupo até o WhatsApp voltar.</p>
+        )}
         {resultadoEnvioLink && <p className="w-full text-xs text-accent-800">{resultadoEnvioLink}</p>}
       </div>
 

@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import html2canvas from 'html2canvas'
 import {
   Upload, Loader2, RefreshCw, Link2, CheckCircle, AlertTriangle, Clock,
-  Route, Send, Calendar, Settings2, Search, ChevronDown, ChevronRight,
+  Route, Send, Calendar, Settings2, Search, ChevronDown, ChevronRight, Image as ImageIcon, Copy, X,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -19,6 +19,7 @@ import {
   type LinhaJornada, type SalaJornada, type SituacaoJornada, type KpisJornada, type StatusPrevisao,
 } from '../lib/jornada'
 import { formatarDataBR } from '../lib/utils'
+import { ENVIOS_EM_MASSA_PAUSADOS } from '../lib/whatsappStatus'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -512,6 +513,11 @@ export default function JornadaRota() {
   const [imagemAtual, setImagemAtual] = useState<{ titulo: string; kpis: KpisJornada; linhas: LinhaJornada[] } | null>(null)
   const chartRef = useRef<HTMLDivElement>(null)
   const [chartLinhas, setChartLinhas] = useState<LinhaJornada[]>([])
+  const [gerandoCopiar, setGerandoCopiar] = useState(false)
+  const [copiarAberto, setCopiarAberto] = useState(false)
+  const [copiarTexto, setCopiarTexto] = useState('')
+  const [copiarImagens, setCopiarImagens] = useState<{ titulo: string; img: string }[]>([])
+  const [copiarFeedback, setCopiarFeedback] = useState<string | null>(null)
 
   const fetchJornada = useCallback(async () => {
     if (!usuario) return
@@ -673,6 +679,7 @@ export default function JornadaRota() {
   // chamado tanto pelo botão manual quanto automaticamente após o import.
   async function enviarMensagensAutomatico(): Promise<string[]> {
     if (!usuario) return []
+    if (ENVIOS_EM_MASSA_PAUSADOS) return []
     const erros: string[] = []
     const lista = await buscarJornadaDoDia(usuario.filial, dataOperacao)
     const porSala = agruparPorSala(lista)
@@ -763,6 +770,10 @@ export default function JornadaRota() {
   }
 
   async function handleEnviarManual() {
+    if (ENVIOS_EM_MASSA_PAUSADOS) {
+      alert('Envio em massa pausado: o WhatsApp ficou 24h em análise por disparo em massa. Use "Gerar imagem e texto p/ copiar".')
+      return
+    }
     setEnviando(true)
     setErro('')
     try {
@@ -777,6 +788,88 @@ export default function JornadaRota() {
     } finally {
       setEnviando(false)
     }
+  }
+
+  // Monta os mesmos textos/imagens do disparo automático, mas sem chamar a
+  // Z-API — pra copiar e mandar manualmente nos grupos/supervisores enquanto
+  // o envio em massa está pausado (ver whatsappStatus.ts).
+  async function handleGerarParaCopiar() {
+    if (!usuario) return
+    setGerandoCopiar(true)
+    setErro('')
+    try {
+      const lista = await buscarJornadaDoDia(usuario.filial, dataOperacao)
+      const porSala = agruparPorSala(lista)
+
+      let texto = ''
+      for (const sala of SALAS_JORNADA) {
+        const linhasSala = porSala.get(sala) ?? []
+        if (linhasSala.length === 0) continue
+        const msgJornada = montarMensagemJornadaSala(sala, linhasSala, dataOperacao)
+        const msgIv = montarMensagemIvSala(sala, linhasSala, dataOperacao)
+        const msgAderencia = montarMensagemAderenciaSala(sala, linhasSala, dataOperacao)
+        texto += `\n\n━━━━━━━━━━━━━━━━━━━\n${SALA_JORNADA_LABEL[sala]}\n━━━━━━━━━━━━━━━━━━━\n`
+        if (msgJornada) texto += `\n${msgJornada}\n`
+        texto += `\n${msgIv}\n\n${msgAderencia}`
+      }
+      setCopiarTexto(texto.trim())
+
+      const imagensCalc: { titulo: string; kpis: KpisJornada; linhas: LinhaJornada[] }[] = [
+        { titulo: 'Geral', kpis: calcularKpis(lista), linhas: lista },
+      ]
+      for (const sala of SALAS_JORNADA) {
+        if (!SALA_JORNADA_PARA_TML[sala]) continue
+        const linhasSala = porSala.get(sala) ?? []
+        if (linhasSala.length === 0) continue
+        imagensCalc.push({ titulo: SALA_JORNADA_LABEL[sala], kpis: calcularKpis(linhasSala), linhas: linhasSala })
+      }
+
+      const imagens: { titulo: string; img: string }[] = []
+      for (const item of imagensCalc) {
+        flushSync(() => setImagemAtual(item))
+        if (!exportRef.current) continue
+        const canvas = await html2canvas(exportRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+        imagens.push({ titulo: `Jornada — ${item.titulo}`, img: canvas.toDataURL('image/png') })
+      }
+      setImagemAtual(null)
+
+      flushSync(() => setChartLinhas(lista))
+      if (chartRef.current) {
+        const canvasChart = await html2canvas(chartRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+        imagens.push({ titulo: 'Carta de Controle da Jornada', img: canvasChart.toDataURL('image/png') })
+      }
+      setChartLinhas([])
+
+      setCopiarImagens(imagens)
+      setCopiarFeedback(null)
+      setCopiarAberto(true)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao gerar mensagens e imagens')
+    } finally {
+      setGerandoCopiar(false)
+    }
+  }
+
+  async function handleCopiarTextoJornada() {
+    try {
+      await navigator.clipboard.writeText(copiarTexto)
+      setCopiarFeedback('Texto copiado!')
+    } catch {
+      setCopiarFeedback('Não foi possível copiar — selecione o texto manualmente.')
+    }
+    setTimeout(() => setCopiarFeedback(null), 2500)
+  }
+
+  async function handleCopiarImagemJornada(img: string) {
+    try {
+      const resp = await fetch(img)
+      const blob = await resp.blob()
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+      setCopiarFeedback('Imagem copiada!')
+    } catch {
+      setCopiarFeedback('Não foi possível copiar a imagem — use "Baixar imagem".')
+    }
+    setTimeout(() => setCopiarFeedback(null), 2500)
   }
 
   async function handleSalvarGrupo() {
@@ -827,17 +920,35 @@ export default function JornadaRota() {
           </button>
           <button
             onClick={handleEnviarManual}
-            disabled={enviando || linhas.length === 0}
+            disabled={enviando || linhas.length === 0 || ENVIOS_EM_MASSA_PAUSADOS}
+            title={ENVIOS_EM_MASSA_PAUSADOS ? 'Envio em massa pausado (WhatsApp em análise 24h)' : undefined}
             className="flex items-center gap-2 px-3 py-2 rounded-md bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white text-sm transition-colors"
           >
             {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             Enviar por sala + CDD
           </button>
+          {ENVIOS_EM_MASSA_PAUSADOS && (
+            <button
+              onClick={handleGerarParaCopiar}
+              disabled={gerandoCopiar || linhas.length === 0}
+              className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-sm hover:bg-amber-100 transition-colors disabled:opacity-50"
+            >
+              {gerandoCopiar ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+              Gerar imagem e texto p/ copiar
+            </button>
+          )}
           <button onClick={fetchJornada} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
           </button>
         </div>
       </div>
+
+      {ENVIOS_EM_MASSA_PAUSADOS && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm px-4 py-3">
+          ⚠️ Envio pelo WhatsApp está pausado (conta em análise 24h por disparo em massa).
+          Use "Gerar imagem e texto p/ copiar" pra mandar manualmente nos grupos/supervisores.
+        </div>
+      )}
 
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
 
@@ -1120,6 +1231,52 @@ export default function JornadaRota() {
         linhas={imagemAtual?.linhas ?? []}
       />
       <CartaControleExportTemplate ref={chartRef} filial={usuario?.filial ?? ''} data={dataOperacao} linhas={chartLinhas} />
+
+      {copiarAberto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h2 className="font-semibold">Jornada e Tempo em Rota — copiar e enviar manualmente</h2>
+              <button onClick={() => setCopiarAberto(false)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-sm font-medium text-gray-700">Texto (por sala — Jornada, IV e Aderência)</label>
+                  <button onClick={handleCopiarTextoJornada} className="flex items-center gap-1 text-xs px-2 py-1 rounded border hover:bg-accent">
+                    <Copy className="h-3.5 w-3.5" /> Copiar texto
+                  </button>
+                </div>
+                <textarea readOnly value={copiarTexto} rows={12} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono" />
+              </div>
+              {copiarImagens.length === 0 ? (
+                <p className="text-xs text-muted-foreground">Sem imagens geradas.</p>
+              ) : (
+                copiarImagens.map((item) => (
+                  <div key={item.titulo}>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-sm font-medium text-gray-700">{item.titulo}</label>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => handleCopiarImagemJornada(item.img)} className="flex items-center gap-1 text-xs px-2 py-1 rounded border hover:bg-accent">
+                          <Copy className="h-3.5 w-3.5" /> Copiar imagem
+                        </button>
+                        <a href={item.img} download={`${item.titulo.toLowerCase().replace(/\s+/g, '-')}-${dataOperacao}.png`} className="flex items-center gap-1 text-xs px-2 py-1 rounded border hover:bg-accent">
+                          Baixar imagem
+                        </a>
+                      </div>
+                    </div>
+                    <img src={item.img} alt={item.titulo} className="w-full border rounded-lg" />
+                  </div>
+                ))
+              )}
+              {copiarFeedback && <p className="text-xs text-green-600">{copiarFeedback}</p>}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t">
+              <button onClick={() => setCopiarAberto(false)} className="px-4 py-2 rounded-lg text-sm border hover:bg-accent transition-colors">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

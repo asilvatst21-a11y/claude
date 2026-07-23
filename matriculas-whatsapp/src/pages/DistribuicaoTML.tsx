@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal, Calendar, ChevronDown, MessageCircle, Mic,
+  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal, Calendar, ChevronDown, MessageCircle, Mic, Image as ImageIcon, Copy,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -16,6 +16,7 @@ import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, mapasPende
 import { iniciarConversaMotorista, buscarConversasPorAlertas } from '../lib/tmlConversaMotorista'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML, ConversaMotoristaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
+import { ENVIOS_EM_MASSA_PAUSADOS } from '../lib/whatsappStatus'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
@@ -134,6 +135,7 @@ function hojeISO(): string {
 // /distribuicao/tml/whatsapp toda vez que a planilha de saída é importada.
 // Se nenhum grupo estiver configurado, não falha — apenas não envia.
 async function enviarResumoDiario(filial: string, data: string): Promise<void> {
+  if (ENVIOS_EM_MASSA_PAUSADOS) return
   const { data: filialRow } = await supabase
     .from('filiais')
     .select('grupo_tml_diario_whatsapp')
@@ -233,6 +235,11 @@ export default function DistribuicaoTML() {
   const [enviandoAlertaId, setEnviandoAlertaId] = useState<string | null>(null)
   const [enviandoResumoGerencial, setEnviandoResumoGerencial] = useState(false)
   const [enviandoResumoDiario, setEnviandoResumoDiario] = useState(false)
+  const [gerandoCopiar, setGerandoCopiar] = useState(false)
+  const [copiarAberto, setCopiarAberto] = useState(false)
+  const [copiarTexto, setCopiarTexto] = useState('')
+  const [copiarImagem, setCopiarImagem] = useState<string | null>(null)
+  const [copiarFeedback, setCopiarFeedback] = useState<string | null>(null)
   const [testeAberto, setTesteAberto] = useState(false)
   const [telefoneTeste, setTelefoneTeste] = useState('')
   const [enviandoTeste, setEnviandoTeste] = useState(false)
@@ -939,6 +946,51 @@ export default function DistribuicaoTML() {
     }
   }
 
+  // Gera o resumo diário (texto) + carta de controle (imagem) sem chamar a
+  // Z-API — pra copiar e mandar manualmente no grupo enquanto o envio em
+  // massa está pausado (ver whatsappStatus.ts).
+  async function handleGerarParaCopiar() {
+    if (!usuario) return
+    setGerandoCopiar(true)
+    setErro('')
+    try {
+      const data = hojeISO()
+      const resumo = await gerarResumoDiario(usuario.filial, data)
+      setCopiarTexto(resumo)
+      const serie = await serieCartaControleCDD(usuario.filial, data)
+      setCopiarImagem(serie.valores.some((v) => v !== null) ? renderCartaControlePNG(serie) : null)
+      setCopiarFeedback(null)
+      setCopiarAberto(true)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao gerar resumo e imagem')
+    } finally {
+      setGerandoCopiar(false)
+    }
+  }
+
+  async function handleCopiarTextoResumo() {
+    try {
+      await navigator.clipboard.writeText(copiarTexto)
+      setCopiarFeedback('Texto copiado!')
+    } catch {
+      setCopiarFeedback('Não foi possível copiar — selecione o texto manualmente.')
+    }
+    setTimeout(() => setCopiarFeedback(null), 2500)
+  }
+
+  async function handleCopiarImagemResumo() {
+    if (!copiarImagem) return
+    try {
+      const resp = await fetch(copiarImagem)
+      const blob = await resp.blob()
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+      setCopiarFeedback('Imagem copiada!')
+    } catch {
+      setCopiarFeedback('Não foi possível copiar a imagem — use "Baixar imagem".')
+    }
+    setTimeout(() => setCopiarFeedback(null), 2500)
+  }
+
   async function handleEnviarAlerta(alerta: AlertaTML) {
     if (!usuario) return
     setEnviandoAlertaId(alerta.id)
@@ -1141,7 +1193,8 @@ export default function DistribuicaoTML() {
           </button>
           <button
             onClick={handleEnviarResumoDiario}
-            disabled={enviandoResumoDiario}
+            disabled={enviandoResumoDiario || ENVIOS_EM_MASSA_PAUSADOS}
+            title={ENVIOS_EM_MASSA_PAUSADOS ? 'Envio em massa pausado (WhatsApp em análise 24h)' : undefined}
             className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50"
           >
             {enviandoResumoDiario ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -1149,12 +1202,23 @@ export default function DistribuicaoTML() {
           </button>
           <button
             onClick={handleEnviarResumoGerencial}
-            disabled={enviandoResumoGerencial}
+            disabled={enviandoResumoGerencial || ENVIOS_EM_MASSA_PAUSADOS}
+            title={ENVIOS_EM_MASSA_PAUSADOS ? 'Envio em massa pausado (WhatsApp em análise 24h)' : undefined}
             className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50"
           >
             {enviandoResumoGerencial ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             Enviar resumo gerencial
           </button>
+          {ENVIOS_EM_MASSA_PAUSADOS && (
+            <button
+              onClick={handleGerarParaCopiar}
+              disabled={gerandoCopiar}
+              className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-sm hover:bg-amber-100 transition-colors disabled:opacity-50"
+            >
+              {gerandoCopiar ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+              Gerar imagem e texto p/ copiar
+            </button>
+          )}
           <button
             onClick={() => { setTesteAberto(true); setErro('') }}
             className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors"
@@ -1163,6 +1227,13 @@ export default function DistribuicaoTML() {
           </button>
         </div>
       </div>
+
+      {ENVIOS_EM_MASSA_PAUSADOS && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm px-4 py-3">
+          ⚠️ Envio automático e manual pelo WhatsApp está pausado (conta em análise 24h por disparo em massa).
+          Use "Gerar imagem e texto p/ copiar" pra mandar manualmente no grupo.
+        </div>
+      )}
 
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
 
@@ -1727,6 +1798,50 @@ export default function DistribuicaoTML() {
                 {enviandoTeste ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 {enviandoTeste ? 'Enviando...' : 'Enviar teste'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {copiarAberto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h2 className="font-semibold">Resumo TML — copiar e enviar manualmente</h2>
+              <button onClick={() => setCopiarAberto(false)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-sm font-medium text-gray-700">Texto</label>
+                  <button onClick={handleCopiarTextoResumo} className="flex items-center gap-1 text-xs px-2 py-1 rounded border hover:bg-accent">
+                    <Copy className="h-3.5 w-3.5" /> Copiar texto
+                  </button>
+                </div>
+                <textarea readOnly value={copiarTexto} rows={12} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono" />
+              </div>
+              {copiarImagem ? (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-sm font-medium text-gray-700">Carta de Controle (imagem)</label>
+                    <div className="flex items-center gap-2">
+                      <button onClick={handleCopiarImagemResumo} className="flex items-center gap-1 text-xs px-2 py-1 rounded border hover:bg-accent">
+                        <Copy className="h-3.5 w-3.5" /> Copiar imagem
+                      </button>
+                      <a href={copiarImagem} download={`carta-controle-tml-${hojeISO()}.png`} className="flex items-center gap-1 text-xs px-2 py-1 rounded border hover:bg-accent">
+                        Baixar imagem
+                      </a>
+                    </div>
+                  </div>
+                  <img src={copiarImagem} alt="Carta de Controle TML" className="w-full border rounded-lg" />
+                </div>
+              ) : (
+                <p className="text-xs text-muted-foreground">Ainda sem pontos suficientes pra gerar a imagem da carta de controle.</p>
+              )}
+              {copiarFeedback && <p className="text-xs text-green-600">{copiarFeedback}</p>}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t">
+              <button onClick={() => setCopiarAberto(false)} className="px-4 py-2 rounded-lg text-sm border hover:bg-accent transition-colors">Fechar</button>
             </div>
           </div>
         </div>
