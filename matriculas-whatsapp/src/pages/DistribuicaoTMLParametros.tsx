@@ -5,9 +5,9 @@ import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { formatarDataBR } from '../lib/utils'
 import {
-  DESLOCAMENTO_IDEAL_MIN, DESLOCAMENTO_ESTOURO_MIN,
-  gatilhoEstouroMinutos,
-  type MetaMatinalParam, type GatilhoEstouroParam,
+  DESLOCAMENTO_IDEAL_MIN, DESLOCAMENTO_ESTOURO_MIN, CHECKLIST_IDEAL_MIN, CONFERENCIA_IDEAL_MIN,
+  gatilhoEstouroMinutos, etapaIdealMinutos,
+  type MetaMatinalParam, type GatilhoEstouroParam, type EtapaIdealParam,
 } from '../lib/tml'
 
 const DIAS_SEMANA = [
@@ -49,10 +49,17 @@ export default function DistribuicaoTMLParametros() {
   const [idealMin, setIdealMin] = useState(DESLOCAMENTO_IDEAL_MIN)
   const [estouroMin, setEstouroMin] = useState(DESLOCAMENTO_ESTOURO_MIN)
 
+  const [etapaParams, setEtapaParams] = useState<EtapaIdealParam[]>([])
+  const [salvandoEtapa, setSalvandoEtapa] = useState(false)
+  const [historicoEtapaAberto, setHistoricoEtapaAberto] = useState(true)
+  const [vigenciaEtapa, setVigenciaEtapa] = useState(hojeISO())
+  const [checklistIdealMin, setChecklistIdealMin] = useState(CHECKLIST_IDEAL_MIN)
+  const [conferenciaIdealMin, setConferenciaIdealMin] = useState(CONFERENCIA_IDEAL_MIN)
+
   const carregar = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
-    const [{ data: meta }, { data: gat }] = await Promise.all([
+    const [{ data: meta }, { data: gat }, { data: etp }] = await Promise.all([
       supabase
         .from('tml_meta_matinal')
         .select('dia_semana, meta_minutos, vigente_a_partir')
@@ -63,11 +70,18 @@ export default function DistribuicaoTMLParametros() {
         .select('deslocamento_ideal_minutos, deslocamento_estouro_minutos, vigente_a_partir')
         .eq('filial', usuario.filial)
         .order('vigente_a_partir', { ascending: false }),
+      supabase
+        .from('tml_etapa_ideal')
+        .select('etapa, ideal_minutos, vigente_a_partir')
+        .eq('filial', usuario.filial)
+        .order('vigente_a_partir', { ascending: false }),
     ])
     const metaRows = meta ?? []
     const gatRows = gat ?? []
+    const etpRows = etp ?? []
     setMetaParams(metaRows)
     setGatilhoParams(gatRows)
+    setEtapaParams(etpRows)
 
     const hoje = hojeISO()
     const metasIniciais: Record<number, number> = {}
@@ -81,6 +95,9 @@ export default function DistribuicaoTMLParametros() {
     const gatilhoAtual = gatilhoEstouroMinutos(hoje, gatRows)
     setIdealMin(gatilhoAtual.ideal)
     setEstouroMin(gatilhoAtual.estouro)
+
+    setChecklistIdealMin(etapaIdealMinutos('checklist', hoje, etpRows))
+    setConferenciaIdealMin(etapaIdealMinutos('conferencia', hoje, etpRows))
 
     setLoading(false)
   }, [usuario])
@@ -136,6 +153,29 @@ export default function DistribuicaoTMLParametros() {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar gatilho de estouro')
     } finally {
       setSalvandoGatilho(false)
+    }
+  }
+
+  async function salvarEtapa() {
+    if (!usuario) return
+    setSalvandoEtapa(true)
+    setErro('')
+    setAviso('')
+    try {
+      const linhas = [
+        { filial: usuario.filial, etapa: 'checklist', ideal_minutos: checklistIdealMin, vigente_a_partir: vigenciaEtapa },
+        { filial: usuario.filial, etapa: 'conferencia', ideal_minutos: conferenciaIdealMin, vigente_a_partir: vigenciaEtapa },
+      ]
+      const { error } = await supabase
+        .from('tml_etapa_ideal')
+        .upsert(linhas, { onConflict: 'filial,etapa,vigente_a_partir' })
+      if (error) throw new Error(error.message)
+      setAviso(`Tempo ideal de checklist/conferência atualizado — vale a partir de ${formatarDataBR(vigenciaEtapa)}. Dados já registrados antes dessa data não são afetados.`)
+      await carregar()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao salvar tempo ideal de checklist/conferência')
+    } finally {
+      setSalvandoEtapa(false)
     }
   }
 
@@ -288,6 +328,69 @@ export default function DistribuicaoTMLParametros() {
                             <td className="px-4 py-2 whitespace-nowrap">{formatarDataBR(g.vigente_a_partir)}</td>
                             <td className="px-4 py-2 text-right">{g.deslocamento_ideal_minutos}</td>
                             <td className="px-4 py-2 text-right">{g.deslocamento_estouro_minutos}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="border rounded-lg bg-white">
+            <div className="px-4 py-3 border-b">
+              <h2 className="font-semibold text-sm">Tempo ideal de checklist e de conferência</h2>
+              <p className="text-xs text-muted-foreground">
+                Usado na Análise do TML (passo a passo por mapa) pra marcar se o checklist e a
+                conferência de cada placa estouraram o tempo ou não.
+              </p>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Checklist ideal (min)</label>
+                  <input type="number" min={0} value={checklistIdealMin} onChange={(e) => setChecklistIdealMin(Number(e.target.value))} className="w-full border rounded-md px-2 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Conferência ideal (min)</label>
+                  <input type="number" min={0} value={conferenciaIdealMin} onChange={(e) => setConferenciaIdealMin(Number(e.target.value))} className="w-full border rounded-md px-2 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Vigente a partir de</label>
+                  <input type="date" value={vigenciaEtapa} onChange={(e) => setVigenciaEtapa(e.target.value)} className="w-full border rounded-md px-2 py-1.5 text-sm" />
+                </div>
+              </div>
+              <button
+                onClick={salvarEtapa}
+                disabled={salvandoEtapa}
+                className="flex items-center gap-2 px-3 py-2 rounded-md bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white text-sm transition-colors"
+              >
+                {salvandoEtapa ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Salvar tempo ideal
+              </button>
+            </div>
+            {etapaParams.length > 0 && (
+              <div className="border-t">
+                <button onClick={() => setHistoricoEtapaAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                  {historicoEtapaAberto ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                  Histórico ({etapaParams.length})
+                </button>
+                {historicoEtapaAberto && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Vigente a partir de</th>
+                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Etapa</th>
+                          <th className="text-right px-4 py-2 font-medium text-muted-foreground">Ideal (min)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {etapaParams.map((e, i) => (
+                          <tr key={`${e.etapa}-${e.vigente_a_partir}-${i}`}>
+                            <td className="px-4 py-2 whitespace-nowrap">{formatarDataBR(e.vigente_a_partir)}</td>
+                            <td className="px-4 py-2 capitalize">{e.etapa}</td>
+                            <td className="px-4 py-2 text-right">{e.ideal_minutos}</td>
                           </tr>
                         ))}
                       </tbody>

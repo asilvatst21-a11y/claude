@@ -144,3 +144,29 @@ export function gatilhoEstouroMinutos(
 export function tempoDeslocamentoComMatinalReal(horarioFinalMatinal: string, horarioInicioChecklist: string): number {
   return horarioParaMinutos(horarioInicioChecklist) - horarioParaMinutos(horarioFinalMatinal);
 }
+
+// Tempo ideal de cada etapa do passo a passo (Análise do TML): quanto tempo
+// o checklist e a conferência devem durar. Usado só pra marcar estourou/não
+// estourou cada etapa — não bloqueia nem soma em nenhuma outra conta.
+export const CHECKLIST_IDEAL_MIN = 4;
+export const CONFERENCIA_IDEAL_MIN = 10;
+
+export type EtapaTML = "checklist" | "conferencia";
+
+// Linha de parâmetro de tempo ideal de etapa vinda da tabela
+// tml_etapa_ideal (editável na aba Parâmetros), versionada por data de
+// vigência — mesmo padrão do gatilho de estouro do deslocamento.
+export interface EtapaIdealParam {
+  etapa: EtapaTML;
+  ideal_minutos: number;
+  vigente_a_partir: string;
+}
+
+export function etapaIdealMinutos(etapa: EtapaTML, data: string, params?: EtapaIdealParam[]): number {
+  const padrao = etapa === "checklist" ? CHECKLIST_IDEAL_MIN : CONFERENCIA_IDEAL_MIN;
+  if (params?.length) {
+    const vigente = paramVigenteNaData(params.filter((p) => p.etapa === etapa), data);
+    if (vigente) return vigente.ideal_minutos;
+  }
+  return padrao;
+}

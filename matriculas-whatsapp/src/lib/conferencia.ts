@@ -291,6 +291,51 @@ export async function buscarResumoDia(filial: string, data: string): Promise<Res
   }
 }
 
+// ── Análise do TML: início/fim da conferência por mapa num período ──────
+export interface ConferenciaPassoMapa {
+  inicio: string | null // ISO — menor iniciada_em entre as baias do mapa
+  fim: string | null    // ISO — maior finalizada_em, só quando concluído
+  concluido: boolean
+}
+
+// Usado no passo a passo da Análise do TML (Início/Término da conferência).
+// Início = menor "iniciada_em" das baias do mapa; fim = maior
+// "finalizada_em", só quando TODAS as baias já foram conferidas — senão a
+// conferência ainda está em andamento e não tem "término" pra mostrar.
+export async function buscarConferenciaPorMapaPeriodo(
+  filial: string, de: string, ate: string
+): Promise<Map<string, ConferenciaPassoMapa>> {
+  const { data, error } = await supabase
+    .from('conferencia_baias')
+    .select('mapa, data, status, iniciada_em, finalizada_em')
+    .eq('filial', filial)
+    .gte('data', de)
+    .lte('data', ate)
+  if (error) throw new Error(error.message)
+
+  const porMapa = new Map<string, { inicios: string[]; fins: string[]; totalBaias: number; conferidas: number }>()
+  for (const b of data ?? []) {
+    const chave = `${b.mapa}|${b.data}`
+    const r = porMapa.get(chave) ?? { inicios: [], fins: [], totalBaias: 0, conferidas: 0 }
+    r.totalBaias += 1
+    if (b.status === 'conferida') r.conferidas += 1
+    if (b.iniciada_em) r.inicios.push(b.iniciada_em)
+    if (b.finalizada_em) r.fins.push(b.finalizada_em)
+    porMapa.set(chave, r)
+  }
+
+  const resultado = new Map<string, ConferenciaPassoMapa>()
+  for (const [chave, r] of porMapa) {
+    const concluido = r.totalBaias > 0 && r.conferidas === r.totalBaias
+    resultado.set(chave, {
+      inicio: r.inicios.length > 0 ? [...r.inicios].sort()[0] : null,
+      fim: concluido && r.fins.length > 0 ? [...r.fins].sort().slice(-1)[0] : null,
+      concluido,
+    })
+  }
+  return resultado
+}
+
 // ── Mensagem de divergência pro grupo ────────────────────────────────────
 export function montarMensagemDivergencia(p: {
   mapa: number; baiaRotulo: string; item: ItemConf; conferente: string; data: string
