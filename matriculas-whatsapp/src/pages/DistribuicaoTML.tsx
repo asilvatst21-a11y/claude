@@ -7,7 +7,7 @@ import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { enviarListaOpcoesWhatsApp, enviarMensagemWhatsApp, enviarMensagemGrupo, enviarImagemGrupo } from '../lib/zapi'
 import { serieCartaControleCDD, renderCartaControlePNG } from '../lib/tmlCartaControle'
-import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer } from '../lib/tmlParser'
+import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer, type ChecklistTML } from '../lib/tmlParser'
 import {
   isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, SALA_TML_LABEL, type SalaTML,
   horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal, metaMatinalMinutos, MATINAL_AUTO_FINALIZA_MIN,
@@ -747,12 +747,20 @@ export default function DistribuicaoTML() {
         return
       }
 
-      const mapas = checklist.map((c) => c.mapa)
+      // Linhas sem número de mapa (o relatório de origem às vezes exporta a
+      // rota antes de atribuir o mapa do dia) caem no fallback: usam a sala
+      // já vinda da coluna EQUIPE da própria planilha, em vez do vínculo
+      // mapa → escala → cadastro de motorista. O parser só deixa passar essas
+      // linhas quando já vêm com sala e horário de início válidos.
+      const comMapa = checklist.filter((c): c is ChecklistTML & { mapa: number } => c.mapa != null)
+      const semMapa = checklist.filter((c) => c.mapa == null)
+
+      const mapas = comMapa.map((c) => c.mapa)
       const { data: escalas } = await supabase
         .from('escalas_tml')
         .select('mapa, matricula')
         .eq('filial', usuario.filial)
-        .in('mapa', mapas)
+        .in('mapa', mapas.length > 0 ? mapas : [-1])
       const matriculaPorMapa = new Map((escalas ?? []).map((e) => [e.mapa, e.matricula]))
 
       const { data: metaParamsRaw } = await supabase
@@ -762,26 +770,26 @@ export default function DistribuicaoTML() {
       const metaParams = metaParamsRaw ?? []
 
       // Sala vem do cadastro de motoristas (mesma base usada na carta de
-      // controle), não da coluna EQUIPE da planilha de checklist.
+      // controle), não da coluna EQUIPE da planilha de checklist — exceto nas
+      // linhas sem mapa (fallback), que não têm como fazer esse vínculo.
       const matriculas = [...new Set([...matriculaPorMapa.values()].filter((m): m is number => m != null))]
       const { data: roster } = await supabase
         .from('motoristas_sala_tml')
         .select('matricula, sala')
         .eq('filial', usuario.filial)
-        .in('matricula', matriculas)
+        .in('matricula', matriculas.length > 0 ? matriculas : [-1])
       const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
 
       // Busca o horário REAL de fim da matinal (registrado no timer) pra cada
-      // combinação sala+data presente no checklist importado.
-      const datasComSala = [...new Set(
-        checklist
-          .map((c) => {
-            const matricula = matriculaPorMapa.get(c.mapa) ?? null
-            const sala = matricula != null ? salaPorMatricula.get(matricula) ?? null : null
-            return isSalaTML(sala) && c.data ? `${sala}|${c.data}` : null
-          })
-          .filter((x): x is string => x != null)
-      )]
+      // combinação sala+data presente no checklist importado (com ou sem mapa).
+      const datasComSala = [...new Set([
+        ...comMapa.map((c) => {
+          const matricula = matriculaPorMapa.get(c.mapa) ?? null
+          const sala = matricula != null ? salaPorMatricula.get(matricula) ?? null : null
+          return isSalaTML(sala) && c.data ? `${sala}|${c.data}` : null
+        }),
+        ...semMapa.map((c) => (isSalaTML(c.sala) && c.data ? `${c.sala}|${c.data}` : null)),
+      ].filter((x): x is string => x != null))]
       const salasNecessarias = [...new Set(datasComSala.map((k) => k.split('|')[0]))]
       const datasNecessarias = [...new Set(datasComSala.map((k) => k.split('|')[1]))]
 
@@ -825,7 +833,7 @@ export default function DistribuicaoTML() {
 
       let semHorario = 0
       let semSala = 0
-      const linhas = checklist.map((c) => {
+      const linhas = comMapa.map((c) => {
         const matricula = matriculaPorMapa.get(c.mapa) ?? null
         const sala = matricula != null ? salaPorMatricula.get(matricula) ?? null : null
         if (!isSalaTML(sala)) semSala++
@@ -858,8 +866,45 @@ export default function DistribuicaoTML() {
       for (const linha of linhas) linhasPorMapa.set(`${linha.mapa}|${linha.data}`, linha)
       const linhasUnicas = [...linhasPorMapa.values()]
 
-      const { error } = await supabase.from('checklist_tml').upsert(linhasUnicas, { onConflict: 'filial,mapa,data' })
-      if (error) throw new Error(error.message)
+      if (linhasUnicas.length > 0) {
+        const { error } = await supabase.from('checklist_tml').upsert(linhasUnicas, { onConflict: 'filial,mapa,data' })
+        if (error) throw new Error(error.message)
+      }
+
+      // Linhas sem mapa não têm chave natural confiável pra upsert (o
+      // relatório não trouxe o número da rota) — cada import substitui por
+      // completo as linhas sem mapa do(s) dia(s) presentes neste arquivo,
+      // pra não duplicar a cada reimportação.
+      const linhasSemMapa = semMapa.map((c) => {
+        const sala = c.sala as SalaTML
+        const horarioFinalMatinal = horarioFinalEfetivoPorChave.get(`${sala}|${c.data}`) ?? horarioFinalMatinalPadrao(sala, c.data as string, metaParams)
+        const tempoDeslocamento = tempoDeslocamentoComMatinalReal(horarioFinalMatinal, c.horarioInicio as string)
+        return {
+          filial: usuario.filial,
+          mapa: null,
+          placa: c.placa,
+          matricula: null,
+          nome: c.nome,
+          sala,
+          data: c.data,
+          horario_inicio: c.horarioInicio,
+          horario_final: c.horarioFinal,
+          horario_final_matinal: horarioFinalMatinal,
+          tempo_deslocamento_minutos: tempoDeslocamento,
+        }
+      })
+      const datasSemMapa = [...new Set(linhasSemMapa.map((l) => l.data).filter((d): d is string => !!d))]
+      if (datasSemMapa.length > 0) {
+        const { error: errDelSemMapa } = await supabase
+          .from('checklist_tml')
+          .delete()
+          .eq('filial', usuario.filial)
+          .is('mapa', null)
+          .in('data', datasSemMapa)
+        if (errDelSemMapa) throw new Error(errDelSemMapa.message)
+        const { error: errInsSemMapa } = await supabase.from('checklist_tml').insert(linhasSemMapa)
+        if (errInsSemMapa) throw new Error(errInsSemMapa.message)
+      }
 
       const avisoMatinal = matinaisAutoFinalizadas.length > 0
         ? `\n\n⚠️ ${matinaisAutoFinalizadas.length} matinal(is) não foram finalizadas no timer e tiveram a duração limitada a ${MATINAL_AUTO_FINALIZA_MIN} min automaticamente:\n` +
@@ -867,11 +912,15 @@ export default function DistribuicaoTML() {
           `\nConfira em "Timer da Matinal" se o horário está correto.`
         : ''
 
+      const avisoSemMapa = semMapa.length > 0
+        ? `\n\n⚠️ ${semMapa.length} registro(s) vieram sem número de mapa no relatório — usada a sala informada direto na planilha (EQUIPE) como alternativa.`
+        : ''
+
       alert(
         `${checklist.length} registro(s) de checklist importado(s).\n\n` +
         `• ${semSala} sem sala identificada\n` +
         `• ${semHorario} sem horário de início do checklist` +
-        avisoMatinal
+        avisoMatinal + avisoSemMapa
       )
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar checklist')

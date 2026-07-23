@@ -351,7 +351,7 @@ export function parseMotoristaSalaBuffer(buffer: ArrayBuffer): MotoristaSalaTML[
 }
 
 export interface ChecklistTML {
-  mapa: number;
+  mapa: number | null;
   placa: string | null;
   nome: string | null;
   sala: string | null;
@@ -424,16 +424,23 @@ export function parseChecklistBuffer(buffer: ArrayBuffer): ChecklistTML[] {
   const out: ChecklistTML[] = [];
   for (let i = headerRow + 1; i < rows.length; i++) {
     const row = rows[i];
-    const mapa = Number(row[mapaIdx]);
-    if (!mapa || isNaN(mapa)) continue;
+    const mapaNum = Number(row[mapaIdx]);
+    const mapa = !isNaN(mapaNum) && mapaNum > 0 ? mapaNum : null;
+    const sala = equipeIdx !== -1 ? normalizaSala(row[equipeIdx]) : null;
+    const horarioInicio = hrInicioIdx !== -1 ? extraiHorario(row[hrInicioIdx]) : null;
+    // Sem mapa, só aproveita a linha como fallback (via EQUIPE direto da
+    // planilha) quando dá pra identificar a sala e o horário de início —
+    // senão é ruído (checklist de equipamento, ou rota sem sala atribuída
+    // ainda) e seria igual a antes: descartada.
+    if (mapa == null && (sala == null || !horarioInicio)) continue;
 
     out.push({
       mapa,
       placa: placaIdx !== -1 ? String(row[placaIdx] ?? "").trim() || null : null,
       nome: motoristaIdx !== -1 ? String(row[motoristaIdx] ?? "").trim() || null : null,
-      sala: equipeIdx !== -1 ? normalizaSala(row[equipeIdx]) : null,
+      sala,
       data: dataIdx !== -1 ? extraiData(row[dataIdx]) : null,
-      horarioInicio: hrInicioIdx !== -1 ? extraiHorario(row[hrInicioIdx]) : null,
+      horarioInicio,
       horarioFinal: hrFinalIdx !== -1 ? extraiHorario(row[hrFinalIdx]) : null,
     });
   }

@@ -491,7 +491,7 @@ export interface MotivoJustificativaTML {
 export interface ChecklistTML {
   id: string
   filial: string
-  mapa: number
+  mapa: number | null
   placa: string | null
   matricula: number | null
   nome: string | null
