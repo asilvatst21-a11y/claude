@@ -1,9 +1,11 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
-import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart, Upload, Loader2, X, Trash2 } from "lucide-react";
+import { CheckCircle, XCircle, AlertTriangle, Clock, Package, RefreshCw, FileSpreadsheet, Send, ClipboardCheck, ChevronDown, ChevronUp, ShoppingCart, Upload, Loader2, X, Trash2, PenLine } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatCurrency, formatDateBR } from "@/lib/valesUtils";
 import { valesSupabase } from "@/lib/valesSupabase";
 import { enviarBotoesGrupo } from "@/lib/zapi";
+import { useAuth } from "@/lib/auth";
+import { ENVIOS_EM_MASSA_PAUSADOS } from "@/lib/whatsappStatus";
 
 type Status = "pendente" | "validado" | "negado" | "quebra" | "registrado";
 
@@ -458,7 +460,19 @@ function SeletorProduto({
   );
 }
 
+// Campos de uma reposição interpretados pela IA (mesma extração do bot),
+// editáveis pelo operador antes de confirmar.
+interface ManualCampos {
+  codigoPdv: string;
+  mapa: string;
+  produto: string;
+  quantidade: string;
+  tipoReposicao: string;
+  embalagem: string;
+}
+
 export default function ReposicoesPage() {
+  const { usuario } = useAuth();
   const [reposicoes, setReposicoes] = useState<Reposicao[]>([]);
   const [tab, setTab] = useState<"todos" | Status>("todos");
   const [loading, setLoading] = useState(true);
@@ -473,6 +487,22 @@ export default function ReposicoesPage() {
   const [coraResumo, setCoraResumo] = useState<ImportCoraResumo | null>(null);
   const [coraErro, setCoraErro] = useState<string | null>(null);
   const coraFileInputRef = useRef<HTMLInputElement>(null);
+
+  // Lançamento manual: cola o texto que seria mandado no grupo, a IA
+  // interpreta (mesma extração do bot) e o operador confere/edita antes de
+  // registrar. Usado enquanto o WhatsApp está fora do ar (ver whatsappStatus.ts).
+  const [manualAberto, setManualAberto] = useState(false);
+  const [manualEtapa, setManualEtapa] = useState<"colar" | "conferir">("colar");
+  const [manualTexto, setManualTexto] = useState("");
+  const [manualFilial, setManualFilial] = useState("");
+  const [manualMotoristaNome, setManualMotoristaNome] = useState("");
+  const [manualMotoristaTelefone, setManualMotoristaTelefone] = useState("");
+  const [manualAnalisando, setManualAnalisando] = useState(false);
+  const [manualErro, setManualErro] = useState<string | null>(null);
+  const [manualAvisos, setManualAvisos] = useState<string[]>([]);
+  const [manualCampos, setManualCampos] = useState<ManualCampos | null>(null);
+  const [manualNaoEhReposicao, setManualNaoEhReposicao] = useState(false);
+  const [manualConfirmando, setManualConfirmando] = useState(false);
 
   // Conferência antes do envio para o grupo de validação: o revisor confirma/
   // ajusta quantidade, embalagem e, em caso de inversão, qual produto entrou
@@ -518,6 +548,83 @@ export default function ReposicoesPage() {
   function fecharConferencia() {
     setConferindo(null);
     setConfErro(null);
+  }
+
+  function abrirManual() {
+    setManualAberto(true);
+    setManualEtapa("colar");
+    setManualTexto("");
+    setManualFilial(usuario?.filial ?? "");
+    setManualMotoristaNome("");
+    setManualMotoristaTelefone("");
+    setManualErro(null);
+    setManualAvisos([]);
+    setManualCampos(null);
+    setManualNaoEhReposicao(false);
+  }
+
+  function fecharManual() {
+    setManualAberto(false);
+  }
+
+  async function analisarTextoManual() {
+    if (!manualTexto.trim() || !manualFilial.trim()) {
+      setManualErro("Cole o texto da mensagem e informe a filial.");
+      return;
+    }
+    setManualAnalisando(true);
+    setManualErro(null);
+    setManualNaoEhReposicao(false);
+    try {
+      const resp = await fetch("/api/reposicao-manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "parse", texto: manualTexto.trim(), filial: manualFilial.trim() }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { setManualErro(data?.erro ?? "Erro ao interpretar a mensagem."); return; }
+      if (!data.ehReposicao) { setManualNaoEhReposicao(true); return; }
+      setManualCampos(data.campos);
+      setManualAvisos(Array.isArray(data.avisos) ? data.avisos : []);
+      setManualEtapa("conferir");
+    } catch {
+      setManualErro("Erro de conexão ao interpretar a mensagem.");
+    } finally {
+      setManualAnalisando(false);
+    }
+  }
+
+  async function confirmarLancamentoManual() {
+    if (!manualCampos) return;
+    if (!manualMotoristaNome.trim()) {
+      setManualErro("Informe o nome do motorista.");
+      return;
+    }
+    setManualConfirmando(true);
+    setManualErro(null);
+    try {
+      const resp = await fetch("/api/reposicao-manual", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "confirmar",
+          filial: manualFilial.trim(),
+          motoristaNome: manualMotoristaNome.trim(),
+          motoristaTelefone: manualMotoristaTelefone.trim() || null,
+          mensagemOriginal: manualTexto.trim(),
+          dados: manualCampos,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) { setManualErro(data?.erro ?? "Erro ao registrar a reposição."); return; }
+      setManualAberto(false);
+      await fetchData();
+      alert(`${data.numero} registrada com sucesso.`);
+    } catch {
+      setManualErro("Erro de conexão ao registrar a reposição.");
+    } finally {
+      setManualConfirmando(false);
+    }
   }
 
   // suppress unused import warning
@@ -818,8 +925,21 @@ export default function ReposicoesPage() {
           <button onClick={() => setCoraModalOpen(true)} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <Upload className="h-4 w-4" />Importar CORA
           </button>
+          <button
+            onClick={abrirManual}
+            className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-sm hover:bg-amber-100 transition-colors"
+          >
+            <PenLine className="h-4 w-4" />Lançamento manual
+          </button>
         </div>
       </div>
+
+      {ENVIOS_EM_MASSA_PAUSADOS && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm px-4 py-3">
+          ⚠️ O bot do WhatsApp está pausado (conta em análise 24h por disparo em massa). Use
+          "Lançamento manual" pra colar a mensagem do motorista e registrar a reposição direto pelo site.
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
         {[
@@ -1173,6 +1293,199 @@ export default function ReposicoesPage() {
                 Enviar para validação
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {manualAberto && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg w-full max-w-lg max-h-[85vh] overflow-y-auto p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold">Lançamento manual de reposição</h2>
+              <button onClick={fecharManual} className="text-muted-foreground hover:text-foreground">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {manualEtapa === "colar" && (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Cole exatamente o texto que o motorista mandaria no grupo do WhatsApp (ex.: "falta 2 cx
+                  de skol no pdv 11509, mapa 277834"). O sistema interpreta os campos com a mesma IA do
+                  bot e mostra pra você conferir antes de registrar.
+                </p>
+                <label className="text-sm block space-y-1">
+                  <span className="text-xs text-muted-foreground block">Mensagem</span>
+                  <textarea
+                    value={manualTexto}
+                    onChange={(e) => setManualTexto(e.target.value)}
+                    rows={4}
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                    placeholder="Cole aqui o texto da mensagem..."
+                    autoFocus
+                  />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-sm block space-y-1">
+                    <span className="text-xs text-muted-foreground block">Filial</span>
+                    <input
+                      value={manualFilial}
+                      onChange={(e) => setManualFilial(e.target.value)}
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-sm block space-y-1">
+                    <span className="text-xs text-muted-foreground block">Motorista</span>
+                    <input
+                      value={manualMotoristaNome}
+                      onChange={(e) => setManualMotoristaNome(e.target.value)}
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                      placeholder="Nome do motorista"
+                    />
+                  </label>
+                </div>
+                <label className="text-sm block space-y-1">
+                  <span className="text-xs text-muted-foreground block">Telefone do motorista (opcional)</span>
+                  <input
+                    value={manualMotoristaTelefone}
+                    onChange={(e) => setManualMotoristaTelefone(e.target.value)}
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                    placeholder="Ex.: 24999998888"
+                  />
+                </label>
+
+                {manualNaoEhReposicao && (
+                  <div className="rounded-md bg-yellow-50 text-yellow-800 text-sm px-3 py-2">
+                    Essa mensagem não parece uma solicitação de reposição. Confira o texto e tente de novo.
+                  </div>
+                )}
+                {manualErro && <div className="rounded-md bg-red-50 text-red-700 text-sm px-3 py-2">{manualErro}</div>}
+
+                <div className="flex justify-end gap-2">
+                  <button onClick={fecharManual} disabled={manualAnalisando} className="px-4 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50">
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={analisarTextoManual}
+                    disabled={manualAnalisando}
+                    className="flex items-center gap-2 px-4 py-2 rounded-md bg-amber-600 text-white text-sm hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                  >
+                    {manualAnalisando ? <Loader2 className="h-4 w-4 animate-spin" /> : <PenLine className="h-4 w-4" />}
+                    Analisar mensagem
+                  </button>
+                </div>
+              </>
+            )}
+
+            {manualEtapa === "conferir" && manualCampos && (
+              <>
+                <p className="text-sm text-muted-foreground">
+                  Confira e corrija os campos antes de registrar. A mensagem original fica salva junto da reposição.
+                </p>
+
+                {manualAvisos.length > 0 && (
+                  <div className="rounded-md bg-yellow-50 text-yellow-800 text-sm px-3 py-2 space-y-1">
+                    {manualAvisos.map((a, i) => (
+                      <div key={i} className="flex gap-1.5">
+                        <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" /><span>{a}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-sm block space-y-1">
+                    <span className="text-xs text-muted-foreground block">Tipo</span>
+                    <select
+                      value={manualCampos.tipoReposicao}
+                      onChange={(e) => setManualCampos({ ...manualCampos, tipoReposicao: e.target.value })}
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                    >
+                      {(["falta", "inversao", "avaria", "troca", "remessa", "indefinido"] as const).map((t) => (
+                        <option key={t} value={t}>{TIPO_REPOSICAO_LABEL[t]}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-sm block space-y-1">
+                    <span className="text-xs text-muted-foreground block">Embalagem</span>
+                    <select
+                      value={manualCampos.embalagem}
+                      onChange={(e) => setManualCampos({ ...manualCampos, embalagem: e.target.value })}
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                    >
+                      {(["unidade", "fardo", "caixa", "indefinido"] as const).map((e2) => (
+                        <option key={e2} value={e2}>{EMBALAGEM_LABEL[e2]}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="text-sm block space-y-1">
+                    <span className="text-xs text-muted-foreground block">PDV</span>
+                    <input
+                      value={manualCampos.codigoPdv}
+                      onChange={(e) => setManualCampos({ ...manualCampos, codigoPdv: e.target.value })}
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                    />
+                  </label>
+                  <label className="text-sm block space-y-1">
+                    <span className="text-xs text-muted-foreground block">Mapa</span>
+                    <input
+                      value={manualCampos.mapa}
+                      onChange={(e) => setManualCampos({ ...manualCampos, mapa: e.target.value })}
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                    />
+                  </label>
+                </div>
+
+                <label className="text-sm block space-y-1">
+                  <span className="text-xs text-muted-foreground block">Produto</span>
+                  <SeletorProduto
+                    value={manualCampos.produto}
+                    onChange={(v) => setManualCampos({ ...manualCampos, produto: v })}
+                    produtos={produtos}
+                    topProdutos={topProdutos}
+                    placeholder="Corrigir produto..."
+                  />
+                </label>
+
+                <label className="text-sm block space-y-1">
+                  <span className="text-xs text-muted-foreground block">Quantidade</span>
+                  <input
+                    value={manualCampos.quantidade}
+                    onChange={(e) => setManualCampos({ ...manualCampos, quantidade: e.target.value })}
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                    placeholder="Ex.: 2 cx"
+                  />
+                </label>
+
+                {manualErro && <div className="rounded-md bg-red-50 text-red-700 text-sm px-3 py-2">{manualErro}</div>}
+
+                <div className="flex justify-between gap-2">
+                  <button
+                    onClick={() => setManualEtapa("colar")}
+                    disabled={manualConfirmando}
+                    className="px-4 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50"
+                  >
+                    Voltar
+                  </button>
+                  <div className="flex gap-2">
+                    <button onClick={fecharManual} disabled={manualConfirmando} className="px-4 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50">
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={confirmarLancamentoManual}
+                      disabled={manualConfirmando}
+                      className="flex items-center gap-2 px-4 py-2 rounded-md bg-amber-600 text-white text-sm hover:bg-amber-700 disabled:opacity-50 transition-colors"
+                    >
+                      {manualConfirmando ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                      Confirmar e registrar
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
