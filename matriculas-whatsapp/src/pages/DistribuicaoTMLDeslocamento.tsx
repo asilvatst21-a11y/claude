@@ -25,6 +25,20 @@ function primeiroDiaDoMesISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`
 }
 
+function primeiroDiaMes(mesISO: string): string {
+  return `${mesISO}-01`
+}
+
+// Último dia do mês (28-31) — se cair no futuro (mês corrente), usa hoje,
+// senão o filtro "Até" ficaria maior que a data mais recente disponível.
+function ultimoDiaMes(mesISO: string): string {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  const ultimo = new Date(ano, mes, 0).getDate()
+  const data = `${mesISO}-${String(ultimo).padStart(2, '0')}`
+  const hoje = hojeISO()
+  return data > hoje ? hoje : data
+}
+
 interface LinhaChecklist {
   id: string
   sala: SalaTML | null
@@ -109,7 +123,16 @@ export default function DistribuicaoTMLDeslocamento() {
   const { usuario } = useAuth()
   const [de, setDe] = useState(primeiroDiaDoMesISO())
   const [ate, setAte] = useState(hojeISO())
+  const [mesFiltro, setMesFiltro] = useState(() => hojeISO().slice(0, 7))
   const [sala, setSala] = useState<SalaTML | 'TODAS'>('TODAS')
+
+  // Filtro rápido por mês — troca "De"/"Até" pro primeiro/último dia do mês
+  // escolhido (o range fica editável manualmente depois, se necessário).
+  function aplicarFiltroMes(mes: string) {
+    setMesFiltro(mes)
+    setDe(primeiroDiaMes(mes))
+    setAte(ultimoDiaMes(mes))
+  }
 
   const [checklist, setChecklist] = useState<LinhaChecklist[]>([])
   const [matinais, setMatinais] = useState<LinhaMatinal[]>([])
@@ -208,6 +231,24 @@ export default function DistribuicaoTMLDeslocamento() {
       pctAntesMatinal: k.n > 0 ? Math.round((k.antesMatinal / k.n) * 1000) / 10 : 0,
     }))
   }, [checklistFiltrado])
+
+  const porDiaDeslocamento = useMemo(() => {
+    const mapa = new Map<string, { data: string; soma: number; n: number }>()
+    for (const c of comDeslocamento) {
+      if (!c.data) continue
+      const k = mapa.get(c.data) ?? { data: c.data, soma: 0, n: 0 }
+      k.soma += c.tempo_deslocamento_minutos ?? 0
+      k.n++
+      mapa.set(c.data, k)
+    }
+    return [...mapa.values()]
+      .sort((a, b) => a.data.localeCompare(b.data))
+      .map((k) => ({
+        data: formatarDataBR(k.data),
+        tempoMedio: k.n > 0 ? Math.round((k.soma / k.n) * 10) / 10 : 0,
+        registros: k.n,
+      }))
+  }, [comDeslocamento])
 
   const porMotoristaDeslocamento = useMemo(() => {
     const mapa = new Map<string, { nome: string; matricula: number | null; soma: number; n: number }>()
@@ -430,6 +471,15 @@ export default function DistribuicaoTMLDeslocamento() {
 
       <div className="flex flex-wrap items-end gap-3 border rounded-lg bg-white p-3">
         <div>
+          <label className="block text-xs text-muted-foreground mb-1">Mês</label>
+          <input
+            type="month"
+            value={mesFiltro}
+            onChange={(e) => aplicarFiltroMes(e.target.value)}
+            className="border rounded-md px-2 py-1.5 text-sm"
+          />
+        </div>
+        <div>
           <label className="block text-xs text-muted-foreground mb-1">De</label>
           <input type="date" value={de} onChange={(e) => setDe(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm" />
         </div>
@@ -574,6 +624,26 @@ export default function DistribuicaoTMLDeslocamento() {
               </ComposedChart>
             </ResponsiveContainer>
           </ChartCard>
+
+          {porDiaDeslocamento.length > 0 && (
+            <ChartCard
+              title="Tempo médio de deslocamento por dia"
+              subtitle={`Média diária do horário de início do checklist menos o fim real da matinal${sala !== 'TODAS' ? ` — ${SALA_TML_LABEL[sala]}` : ''}`}
+            >
+              <ResponsiveContainer width="100%" height={260}>
+                <ComposedChart data={porDiaDeslocamento} margin={{ top: 20 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                  <XAxis dataKey="data" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} angle={-30} textAnchor="end" height={50} />
+                  <YAxis tick={{ fontSize: 12 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={TOOLTIP_STYLE} cursor={{ fill: '#f8fafc' }} />
+                  <Legend wrapperStyle={{ fontSize: 12 }} />
+                  <Bar dataKey="tempoMedio" name="Tempo médio de deslocamento (min)" fill="#0891b2" radius={[8, 8, 0, 0]} barSize={22}>
+                    <LabelList dataKey="tempoMedio" position="top" style={{ fontSize: 10, fill: '#0891b2', fontWeight: 600 }} />
+                  </Bar>
+                </ComposedChart>
+              </ResponsiveContainer>
+            </ChartCard>
+          )}
 
           <div className="border rounded-xl bg-white shadow-sm">
             <button onClick={() => setTopMotoristasAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b text-left">
