@@ -7,8 +7,8 @@ import {
 import { supabase } from '../lib/supabase'
 import { enviarMensagemGrupo } from '../lib/zapi'
 import {
-  buscarBaiasDoMapa, iniciarBaia, marcarItem, registrarDivergencia, finalizarBaia,
-  montarMensagemDivergencia, buscarPessoasConferencia, PORTA_LABEL,
+  buscarBaiasDoMapa, iniciarBaia, marcarItem, registrarDivergencia, finalizarBaia, pularBaia,
+  montarMensagemDivergencia, buscarPessoasConferencia, PORTA_LABEL, MOTIVOS_PULAR_BAIA,
   type BaiaConf, type ItemConf, type PortaConf, type PessoaConferencia,
 } from '../lib/conferencia'
 import { ENVIOS_CONFERENCIA_DIVERGENCIA_PAUSADOS } from '../lib/whatsappStatus'
@@ -44,6 +44,7 @@ export default function ConferenciaDigital() {
   const [buscaProduto, setBuscaProduto] = useState('')
   const [buscaProdutoAberta, setBuscaProdutoAberta] = useState(false)
   const [produtoSelecionado, setProdutoSelecionado] = useState<(ItemConf & { baiaRotulo: string }) | null>(null)
+  const [pularAberto, setPularAberto] = useState(false)
 
   useEffect(() => {
     supabase.from('filiais').select('nome').order('nome').then(({ data }) => {
@@ -166,8 +167,25 @@ export default function ConferenciaDigital() {
     }
   }
 
+  async function confirmarPular(motivo: string) {
+    if (!baiaAtiva) return
+    try {
+      await pularBaia(baiaAtiva, motivo, nome.trim() || null)
+      setBaias((prev) => prev.map((b) => b.id === baiaAtiva ? { ...b, status: 'pulada', motivoPulada: motivo } : b))
+      setPularAberto(false)
+      setBaiaAtiva(null)
+      setTela('baias')
+      await recarregar()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao pular a baia. Tente de novo.')
+    }
+  }
+
   const baia = useMemo(() => baias.find((b) => b.id === baiaAtiva) ?? null, [baias, baiaAtiva])
+  // "Resolvidas" = conferidas OU puladas — as duas liberam o mapa; o badge
+  // visual continua diferenciando as duas (ver tela de lista de baias).
   const conferidas = baias.filter((b) => b.status === 'conferida').length
+  const resolvidas = baias.filter((b) => b.status === 'conferida' || b.status === 'pulada').length
 
   // Proteção: se a tela de detalhe ficar sem uma baia correspondente (ex.:
   // a lista foi recarregada e o id não bateu mais), volta pra lista em vez
@@ -322,12 +340,15 @@ export default function ConferenciaDigital() {
 
           <div className="bg-white border rounded-xl px-4 py-3">
             <div className="flex items-baseline justify-between mb-2">
-              <b className="text-sm">{conferidas} de {baias.length} baias conferidas</b>
-              <span className="text-xs text-gray-500 tabular-nums">{baias.length - conferidas} faltam</span>
+              <b className="text-sm">{resolvidas} de {baias.length} baias resolvidas</b>
+              <span className="text-xs text-gray-500 tabular-nums">{baias.length - resolvidas} faltam</span>
             </div>
             <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
-              <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${baias.length ? (conferidas / baias.length) * 100 : 0}%` }} />
+              <div className="h-full bg-green-500 rounded-full transition-all" style={{ width: `${baias.length ? (resolvidas / baias.length) * 100 : 0}%` }} />
             </div>
+            {resolvidas > conferidas && (
+              <p className="text-[11px] text-amber-600 font-semibold mt-1.5">{resolvidas - conferidas} pulada(s) sem conferir item a item</p>
+            )}
           </div>
 
           {grupos.map(([porta, arr]) => (
@@ -338,19 +359,24 @@ export default function ConferenciaDigital() {
               {arr.map((b) => {
                 const feitos = b.itens.filter((i) => i.conferido).length
                 const done = b.status === 'conferida'
+                const pulada = b.status === 'pulada'
                 return (
-                  <button key={b.id} onClick={() => abrirBaia(b)} className={`w-full flex items-center gap-3 p-3 rounded-2xl border text-left active:scale-[.99] transition ${done ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+                  <button key={b.id} onClick={() => abrirBaia(b)} className={`w-full flex items-center gap-3 p-3 rounded-2xl border text-left active:scale-[.99] transition ${done ? 'bg-green-50 border-green-200' : pulada ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200'}`}>
                     <span className={`w-[52px] h-[52px] shrink-0 rounded-xl grid place-content-center text-center ${b.porta === 'M' ? 'bg-brand-800 text-white' : b.porta === 'A' ? 'bg-accent-100 text-accent-800 border border-accent-200' : 'bg-gray-200 text-gray-600'}`}>
                       <span className="text-xl font-extrabold leading-none">{b.porta}</span>
                       {b.ordem != null && <span className="text-[11px] font-bold opacity-85 tabular-nums mt-0.5">{String(b.ordem).padStart(2, '0')}</span>}
                     </span>
                     <span className="flex-1 min-w-0">
                       <span className="block text-sm font-bold">{b.rotulo}</span>
-                      <span className="block text-xs text-gray-500 tabular-nums mt-0.5">{done ? `${b.totalItens} itens conferidos` : `${feitos}/${b.totalItens} itens · ${b.totalCaixas} cx`}</span>
+                      <span className="block text-xs text-gray-500 tabular-nums mt-0.5">
+                        {done ? `${b.totalItens} itens conferidos` : pulada ? (b.motivoPulada ?? 'Pulada') : `${feitos}/${b.totalItens} itens · ${b.totalCaixas} cx`}
+                      </span>
                     </span>
                     {done
                       ? <span className="text-green-700 text-xs font-bold flex items-center gap-1"><Check className="h-4 w-4" /> Conferida</span>
-                      : <span className="text-[11px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-200 px-2 py-1 rounded-full">Pendente</span>}
+                      : pulada
+                        ? <span className="text-[11px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-200 px-2 py-1 rounded-full">Pulada</span>
+                        : <span className="text-[11px] font-bold uppercase tracking-wide bg-amber-100 text-amber-700 border border-amber-200 px-2 py-1 rounded-full">Pendente</span>}
                     <ChevronRight className="h-5 w-5 text-gray-300 shrink-0" />
                   </button>
                 )
@@ -358,10 +384,10 @@ export default function ConferenciaDigital() {
             </div>
           ))}
 
-          {conferidas === baias.length && baias.length > 0 && (
+          {resolvidas === baias.length && baias.length > 0 && (
             <div className="bg-green-600 text-white rounded-2xl p-4 flex items-center gap-3 mt-2">
               <CheckCircle2 className="h-8 w-8 shrink-0" />
-              <div><b className="block">Mapa {mapa} conferido!</b><span className="text-sm text-green-50">Todas as baias foram verificadas.</span></div>
+              <div><b className="block">Mapa {mapa} conferido!</b><span className="text-sm text-green-50">Todas as baias foram verificadas ou puladas.</span></div>
             </div>
           )}
         </div>
@@ -410,14 +436,70 @@ export default function ConferenciaDigital() {
         ))}
       </div>
 
-      <div className="fixed bottom-0 inset-x-0 bg-white border-t px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
-        <p className="text-center text-xs text-gray-500 mb-2 tabular-nums">{feitos} de {totalBaia} itens conferidos</p>
+      <div className="fixed bottom-0 inset-x-0 bg-white border-t px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] space-y-2">
+        <p className="text-center text-xs text-gray-500 tabular-nums">{feitos} de {totalBaia} itens conferidos</p>
         <button onClick={confirmarBaia} disabled={!tudoFeito} className={`w-full rounded-xl py-3.5 font-bold text-base flex items-center justify-center gap-2 ${tudoFeito ? 'bg-green-600 text-white' : 'bg-gray-200 text-gray-400'}`}>
           {tudoFeito ? <><Check className="h-5 w-5" /> Confirmar baia</> : `Confirmar baia (${feitos}/${totalBaia})`}
         </button>
+        {baia?.status !== 'conferida' && (
+          <button onClick={() => setPularAberto(true)} className="w-full rounded-xl py-2.5 font-bold text-sm text-amber-700 border-2 border-amber-200 bg-amber-50 flex items-center justify-center gap-2">
+            <AlertTriangle className="h-4 w-4" /> Pular conferência desta baia
+          </button>
+        )}
       </div>
 
       {divItem && <DivergenciaModal item={divItem} onClose={() => setDivItem(null)} onConfirm={confirmarDivergencia} />}
+      {pularAberto && <PularBaiaModal onClose={() => setPularAberto(false)} onConfirm={confirmarPular} />}
+    </div>
+  )
+}
+
+function PularBaiaModal({ onClose, onConfirm }: {
+  onClose: () => void
+  onConfirm: (motivo: string) => void | Promise<void>
+}) {
+  const [motivo, setMotivo] = useState<string>(MOTIVOS_PULAR_BAIA[0])
+  const [outro, setOutro] = useState('')
+  const [enviando, setEnviando] = useState(false)
+  const precisaOutro = motivo === 'Outro'
+  const motivoFinal = precisaOutro ? outro.trim() : motivo
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wide text-amber-600">Pular conferência</div>
+            <div className="text-sm text-gray-600 mt-0.5">Por que não dá pra conferir item a item essa baia?</div>
+          </div>
+          <button onClick={onClose}><X className="h-5 w-5 text-gray-400" /></button>
+        </div>
+        <div className="space-y-2">
+          {MOTIVOS_PULAR_BAIA.map((m) => (
+            <button
+              key={m}
+              onClick={() => setMotivo(m)}
+              className={`w-full text-left px-4 py-3 rounded-xl border-2 text-sm font-bold ${motivo === m ? 'border-amber-500 bg-amber-50 text-amber-800' : 'border-gray-200 text-gray-600'}`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+        {precisaOutro && (
+          <input
+            value={outro}
+            onChange={(e) => setOutro(e.target.value)}
+            placeholder="Descreva o motivo"
+            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl text-sm"
+          />
+        )}
+        <button
+          onClick={async () => { setEnviando(true); await onConfirm(motivoFinal); setEnviando(false) }}
+          disabled={enviando || !motivoFinal}
+          className="w-full bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-bold rounded-xl py-3.5 flex items-center justify-center gap-2"
+        >
+          {enviando ? <Loader2 className="h-5 w-5 animate-spin" /> : <AlertTriangle className="h-5 w-5" />} Pular esta baia
+        </button>
+      </div>
     </div>
   )
 }

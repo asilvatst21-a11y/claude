@@ -276,11 +276,21 @@ export default function DistribuicaoConferencia() {
                   <tr key={m.mapa} className="hover:bg-muted/30 transition-colors">
                     <td className="px-3 py-2 font-semibold tabular-nums">{m.mapa}</td>
                     <td className="px-3 py-2">
-                      {m.concluido
-                        ? <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full"><CheckCircle2 className="h-3 w-3" /> Conferido</span>
-                        : m.baiasConferidas > 0
-                          ? <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full"><Clock className="h-3 w-3" /> Em conferência</span>
-                          : <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">Aguardando</span>}
+                      <div className="flex flex-wrap items-center gap-1">
+                        {m.concluido
+                          ? <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full"><CheckCircle2 className="h-3 w-3" /> Conferido</span>
+                          : m.baiasConferidas > 0
+                            ? <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full"><Clock className="h-3 w-3" /> Em conferência</span>
+                            : <span className="inline-flex items-center gap-1 text-xs font-medium text-gray-600 bg-gray-100 px-2 py-0.5 rounded-full">Aguardando</span>}
+                        {m.baiasPuladas > 0 && (
+                          <span
+                            title={m.puladasDetalhe.map((p) => `${p.rotulo} — ${p.motivo ?? 'sem motivo'}`).join('\n')}
+                            className="inline-flex items-center gap-1 text-xs font-medium text-orange-700 bg-orange-100 px-2 py-0.5 rounded-full cursor-help"
+                          >
+                            <AlertTriangle className="h-3 w-3" /> {m.baiasPuladas} pulada{m.baiasPuladas > 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-3 py-2 text-right tabular-nums">{m.baiasConferidas}/{m.totalBaias}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{m.itensConferidos}/{m.totalItens}</td>

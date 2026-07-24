@@ -70,11 +70,22 @@ export interface BaiaConf {
   rotulo: string
   totalItens: number
   totalCaixas: number
-  status: 'pendente' | 'conferida'
+  status: 'pendente' | 'conferida' | 'pulada'
   iniciadaEm: string | null
   finalizadaEm: string | null
+  motivoPulada: string | null
   itens: ItemConf[]
 }
+
+// Motivos pré-definidos pra pular a conferência de uma baia (baia
+// segregada, volume grande demais pro tempo disponível, carro parado pela
+// blitz) — "Outro" libera um campo de texto livre na tela.
+export const MOTIVOS_PULAR_BAIA = [
+  'Baia segregada',
+  'Volume muito grande pra conferir',
+  'CARRO DA BLITZ',
+  'Outro',
+] as const
 
 // ── Import diário do Relatório de Separação ──────────────────────────────
 // Upsert que preserva o progresso: reimportar o mesmo dia atualiza só os
@@ -144,7 +155,7 @@ export async function importarSeparacao(
 export async function buscarBaiasDoMapa(filial: string, mapa: number, data: string): Promise<BaiaConf[]> {
   const { data: baias, error: eBaias } = await supabase
     .from('conferencia_baias')
-    .select('id, palete, porta, ordem, rotulo, total_itens, total_caixas, status, iniciada_em, finalizada_em')
+    .select('id, palete, porta, ordem, rotulo, total_itens, total_caixas, status, iniciada_em, finalizada_em, motivo_pulada')
     .eq('filial', filial).eq('mapa', mapa).eq('data', data)
   if (eBaias) throw new Error(eBaias.message)
   if (!baias || baias.length === 0) return []
@@ -171,8 +182,8 @@ export async function buscarBaiasDoMapa(filial: string, mapa: number, data: stri
     .map((b) => ({
       id: b.id, palete: b.palete, porta: b.porta as PortaConf, ordem: b.ordem, rotulo: rotuloBaia(b.porta as PortaConf, b.ordem),
       totalItens: b.total_itens, totalCaixas: b.total_caixas,
-      status: b.status as 'pendente' | 'conferida',
-      iniciadaEm: b.iniciada_em, finalizadaEm: b.finalizada_em,
+      status: b.status as 'pendente' | 'conferida' | 'pulada',
+      iniciadaEm: b.iniciada_em, finalizadaEm: b.finalizada_em, motivoPulada: b.motivo_pulada,
       itens: (itensPorBaia.get(b.id) ?? []).sort((x, y) => x.sequencia - y.sequencia),
     }))
     .sort((x, y) => ordemBaia(x.porta, x.ordem) - ordemBaia(y.porta, y.ordem))
@@ -212,16 +223,34 @@ export async function finalizarBaia(baiaId: string, conferidoPor: string | null)
   if (error) throw new Error(error.message)
 }
 
+// Finaliza a baia sem exigir que todos os itens estejam marcados — baia
+// segregada, volume grande demais pro tempo disponível etc. Fica com status
+// próprio ('pulada'), diferente de 'conferida', e não conta no tempo médio
+// de conferência do mapa (ver buscarResumoDia/buscarConferenciaPorMapaPeriodo).
+export async function pularBaia(baiaId: string, motivo: string, conferidoPor: string | null): Promise<void> {
+  const { error } = await supabase.from('conferencia_baias')
+    .update({ status: 'pulada', motivo_pulada: motivo, finalizada_em: new Date().toISOString(), conferido_por: conferidoPor })
+    .eq('id', baiaId)
+  if (error) throw new Error(error.message)
+}
+
 // ── Painel Conferência Digital (Distribuição) ────────────────────────────
+export interface BaiaPuladaResumo {
+  rotulo: string
+  motivo: string | null
+}
+
 export interface ResumoMapaConf {
   mapa: number
   totalBaias: number
   baiasConferidas: number
+  baiasPuladas: number
+  puladasDetalhe: BaiaPuladaResumo[]
   totalItens: number
   itensConferidos: number
   divergencias: number
   concluido: boolean
-  tempoMin: number | null      // do início da 1ª baia ao fim da última
+  tempoMin: number | null      // do início da 1ª baia ao fim da última CONFERIDA — baia pulada não entra na conta
   conferidoPor: string | null
 }
 
@@ -235,7 +264,7 @@ export interface ResumoDiaConf {
 export async function buscarResumoDia(filial: string, data: string): Promise<ResumoDiaConf> {
   const { data: baias } = await supabase
     .from('conferencia_baias')
-    .select('mapa, status, iniciada_em, finalizada_em, conferido_por')
+    .select('mapa, porta, ordem, status, iniciada_em, finalizada_em, conferido_por, motivo_pulada')
     .eq('filial', filial).eq('data', data)
   const { data: itens } = await supabase
     .from('conferencia_itens')
@@ -246,7 +275,7 @@ export async function buscarResumoDia(filial: string, data: string): Promise<Res
   const get = (m: number) => {
     let r = porMapa.get(m)
     if (!r) {
-      r = { mapa: m, totalBaias: 0, baiasConferidas: 0, totalItens: 0, itensConferidos: 0, divergencias: 0, concluido: false, tempoMin: null, conferidoPor: null, inicios: [], fins: [] }
+      r = { mapa: m, totalBaias: 0, baiasConferidas: 0, baiasPuladas: 0, puladasDetalhe: [], totalItens: 0, itensConferidos: 0, divergencias: 0, concluido: false, tempoMin: null, conferidoPor: null, inicios: [], fins: [] }
       porMapa.set(m, r)
     }
     return r
@@ -256,9 +285,17 @@ export async function buscarResumoDia(filial: string, data: string): Promise<Res
     const r = get(b.mapa)
     r.totalBaias += 1
     if (b.status === 'conferida') r.baiasConferidas += 1
+    if (b.status === 'pulada') {
+      r.baiasPuladas += 1
+      r.puladasDetalhe.push({ rotulo: rotuloBaia(b.porta as PortaConf, b.ordem), motivo: b.motivo_pulada })
+    }
     if (b.conferido_por && !r.conferidoPor) r.conferidoPor = b.conferido_por
-    if (b.iniciada_em) r.inicios.push(new Date(b.iniciada_em).getTime())
-    if (b.finalizada_em) r.fins.push(new Date(b.finalizada_em).getTime())
+    // Baia pulada não entra no tempo de conferência — não representa uma
+    // conferência real feita item a item.
+    if (b.status === 'conferida') {
+      if (b.iniciada_em) r.inicios.push(new Date(b.iniciada_em).getTime())
+      if (b.finalizada_em) r.fins.push(new Date(b.finalizada_em).getTime())
+    }
   }
   for (const it of itens ?? []) {
     const r = get(it.mapa)
@@ -268,12 +305,13 @@ export async function buscarResumoDia(filial: string, data: string): Promise<Res
   }
 
   const mapas: ResumoMapaConf[] = [...porMapa.values()].map((r) => {
-    const concluido = r.totalBaias > 0 && r.baiasConferidas === r.totalBaias
+    const concluido = r.totalBaias > 0 && (r.baiasConferidas + r.baiasPuladas) === r.totalBaias
     const tempoMin = concluido && r.inicios.length > 0 && r.fins.length > 0
       ? Math.max(1, Math.round((Math.max(...r.fins) - Math.min(...r.inicios)) / 60000))
       : null
     return {
       mapa: r.mapa, totalBaias: r.totalBaias, baiasConferidas: r.baiasConferidas,
+      baiasPuladas: r.baiasPuladas, puladasDetalhe: r.puladasDetalhe,
       totalItens: r.totalItens, itensConferidos: r.itensConferidos, divergencias: r.divergencias,
       concluido, tempoMin, conferidoPor: r.conferidoPor,
     }
@@ -313,20 +351,25 @@ export async function buscarConferenciaPorMapaPeriodo(
     .lte('data', ate)
   if (error) throw new Error(error.message)
 
-  const porMapa = new Map<string, { inicios: string[]; fins: string[]; totalBaias: number; conferidas: number }>()
+  const porMapa = new Map<string, { inicios: string[]; fins: string[]; totalBaias: number; conferidas: number; puladas: number }>()
   for (const b of data ?? []) {
     const chave = `${b.mapa}|${b.data}`
-    const r = porMapa.get(chave) ?? { inicios: [], fins: [], totalBaias: 0, conferidas: 0 }
+    const r = porMapa.get(chave) ?? { inicios: [], fins: [], totalBaias: 0, conferidas: 0, puladas: 0 }
     r.totalBaias += 1
     if (b.status === 'conferida') r.conferidas += 1
-    if (b.iniciada_em) r.inicios.push(b.iniciada_em)
-    if (b.finalizada_em) r.fins.push(b.finalizada_em)
+    if (b.status === 'pulada') r.puladas += 1
+    // Baia pulada não entra no início/fim da conferência — não representa
+    // uma conferência real feita item a item (ver buscarResumoDia).
+    if (b.status === 'conferida') {
+      if (b.iniciada_em) r.inicios.push(b.iniciada_em)
+      if (b.finalizada_em) r.fins.push(b.finalizada_em)
+    }
     porMapa.set(chave, r)
   }
 
   const resultado = new Map<string, ConferenciaPassoMapa>()
   for (const [chave, r] of porMapa) {
-    const concluido = r.totalBaias > 0 && r.conferidas === r.totalBaias
+    const concluido = r.totalBaias > 0 && (r.conferidas + r.puladas) === r.totalBaias
     resultado.set(chave, {
       inicio: r.inicios.length > 0 ? [...r.inicios].sort()[0] : null,
       fim: concluido && r.fins.length > 0 ? [...r.fins].sort().slice(-1)[0] : null,
