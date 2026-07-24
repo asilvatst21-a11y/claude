@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Package, Check, ChevronRight, ChevronLeft, Loader2, Search, Building2,
-  AlertTriangle, CheckCircle2, ArrowLeft, Truck, X, Recycle,
+  AlertTriangle, CheckCircle2, ArrowLeft, Truck, X, Recycle, Share, MoreVertical, PlusSquare, Smartphone,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { enviarMensagemGrupo } from '../lib/zapi'
@@ -28,8 +28,46 @@ function hojeISO(): string {
 
 type Tela = 'inicio' | 'baias' | 'baia'
 
+// Detecta a plataforma pra mostrar o passo a passo certo de "adicionar à
+// tela inicial" — o gesto é bem diferente entre iOS (compartilhar) e
+// Android (menu de três pontos).
+function detectarPlataforma(): 'ios' | 'android' | 'outro' {
+  const ua = navigator.userAgent || ''
+  if (/iphone|ipad|ipod/i.test(ua)) return 'ios'
+  if (/android/i.test(ua)) return 'android'
+  return 'outro'
+}
+
 export default function ConferenciaDigital() {
   const [tela, setTela] = useState<Tela>('inicio')
+  const [instalarAberto, setInstalarAberto] = useState(false)
+
+  // Enquanto essa página estiver aberta, usa um manifesto e título próprios
+  // — assim "adicionar à tela inicial" cria um ícone de "Conferência
+  // Digital", não do painel inteiro. Desfaz ao sair da página.
+  useEffect(() => {
+    const tituloOriginal = document.title
+    const linkManifest = document.querySelector('link[rel="manifest"]')
+    const hrefOriginal = linkManifest?.getAttribute('href') ?? null
+    document.title = 'Conferência Digital'
+    linkManifest?.setAttribute('href', '/manifest-conferencia.webmanifest')
+
+    const appleTitle = document.createElement('meta')
+    appleTitle.name = 'apple-mobile-web-app-title'
+    appleTitle.content = 'Conferência'
+    const appleCapable = document.createElement('meta')
+    appleCapable.name = 'apple-mobile-web-app-capable'
+    appleCapable.content = 'yes'
+    document.head.appendChild(appleTitle)
+    document.head.appendChild(appleCapable)
+
+    return () => {
+      document.title = tituloOriginal
+      if (hrefOriginal) linkManifest?.setAttribute('href', hrefOriginal)
+      appleTitle.remove()
+      appleCapable.remove()
+    }
+  }, [])
   const [filiais, setFiliais] = useState<string[]>([])
   const [filial, setFilial] = useState('')
   const [nome, setNome] = useState('')
@@ -242,6 +280,12 @@ export default function ConferenciaDigital() {
           <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Package className="h-4 w-4" /> Conferência de carga</div>
           <h1 className="text-2xl font-bold">Conferir caminhão</h1>
           <p className="text-brand-200 text-sm mt-1">Confira os produtos carregados, baia por baia.</p>
+          <button
+            onClick={() => setInstalarAberto(true)}
+            className="mt-3 inline-flex items-center gap-1.5 text-xs font-bold text-accent-200 bg-white/10 border border-white/15 rounded-full px-3 py-1.5"
+          >
+            <Smartphone className="h-3.5 w-3.5" /> Adicionar à tela inicial do celular
+          </button>
         </div>
         <div className="flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 pb-8 flex flex-col gap-4">
           <div>
@@ -289,6 +333,7 @@ export default function ConferenciaDigital() {
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <Search className="h-5 w-5" />} Buscar baias do mapa
           </button>
         </div>
+        {instalarAberto && <InstalarAppModal onClose={() => setInstalarAberto(false)} />}
       </div>
     )
   }
@@ -471,6 +516,59 @@ export default function ConferenciaDigital() {
 
       {divItem && <DivergenciaModal item={divItem} onClose={() => setDivItem(null)} onConfirm={confirmarDivergencia} />}
       {pularAberto && <PularBaiaModal onClose={() => setPularAberto(false)} onConfirm={confirmarPular} />}
+    </div>
+  )
+}
+
+function PassoInstalar({ n, children }: { n: number; children: ReactNode }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="w-6 h-6 shrink-0 rounded-full bg-brand-800 text-white text-xs font-bold grid place-content-center mt-0.5">{n}</span>
+      <p className="text-sm text-gray-700 leading-snug">{children}</p>
+    </div>
+  )
+}
+
+function InstalarAppModal({ onClose }: { onClose: () => void }) {
+  const plataforma = useMemo(() => detectarPlataforma(), [])
+  return (
+    <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center" onClick={onClose}>
+      <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wide text-accent-600">Adicionar à tela inicial</div>
+            <div className="text-sm text-gray-600 mt-0.5">Deixe a Conferência Digital com ícone próprio, igual um app.</div>
+          </div>
+          <button onClick={onClose}><X className="h-5 w-5 text-gray-400" /></button>
+        </div>
+
+        {plataforma === 'ios' && (
+          <div className="space-y-3">
+            <PassoInstalar n={1}>Toque no ícone de <b>Compartilhar</b> <Share className="inline h-4 w-4 -mt-0.5" /> na barra do Safari (embaixo, no meio).</PassoInstalar>
+            <PassoInstalar n={2}>Role a lista de opções e toque em <b>"Adicionar à Tela de Início"</b> <PlusSquare className="inline h-4 w-4 -mt-0.5" />.</PassoInstalar>
+            <PassoInstalar n={3}>Toque em <b>"Adicionar"</b> no canto superior. Pronto — o ícone aparece na tela do celular.</PassoInstalar>
+          </div>
+        )}
+        {plataforma === 'android' && (
+          <div className="space-y-3">
+            <PassoInstalar n={1}>Toque no menu <MoreVertical className="inline h-4 w-4 -mt-0.5" /> (três pontinhos) no canto superior do Chrome.</PassoInstalar>
+            <PassoInstalar n={2}>Toque em <b>"Adicionar à tela inicial"</b> ou <b>"Instalar app"</b>.</PassoInstalar>
+            <PassoInstalar n={3}>Confirme tocando em <b>"Adicionar"</b>/<b>"Instalar"</b>. Pronto — o ícone aparece na tela do celular.</PassoInstalar>
+          </div>
+        )}
+        {plataforma === 'outro' && (
+          <div className="space-y-3">
+            <PassoInstalar n={1}>Abra essa página pelo navegador do <b>celular</b> (Safari no iPhone ou Chrome no Android).</PassoInstalar>
+            <PassoInstalar n={2}>No iPhone: toque em Compartilhar → "Adicionar à Tela de Início". No Android: toque no menu (⋮) → "Adicionar à tela inicial".</PassoInstalar>
+          </div>
+        )}
+
+        <div className="bg-accent-50 border border-accent-100 rounded-xl px-3.5 py-3 text-xs text-accent-800">
+          Depois disso, é só abrir pelo ícone — sem precisar digitar o endereço de novo toda vez.
+        </div>
+
+        <button onClick={onClose} className="w-full border-2 border-gray-200 text-gray-700 font-bold rounded-xl py-3 text-sm">Entendi</button>
+      </div>
     </div>
   )
 }

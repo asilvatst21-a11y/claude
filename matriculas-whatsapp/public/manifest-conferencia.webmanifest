@@ -1,0 +1,14 @@
+{
+  "name": "Conferência Digital — LOG20",
+  "short_name": "Conferência",
+  "description": "Confira a carga do caminhão baia por baia, direto do celular.",
+  "start_url": "/conferencia",
+  "scope": "/conferencia",
+  "display": "standalone",
+  "background_color": "#102a36",
+  "theme_color": "#163847",
+  "icons": [
+    { "src": "/logo.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/logo.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}
