@@ -82,8 +82,8 @@ export interface BaiaConf {
 // blitz) — "Outro" libera um campo de texto livre na tela.
 export const MOTIVOS_PULAR_BAIA = [
   'Baia segregada',
-  'Volume muito grande pra conferir',
-  'CARRO DA BLITZ',
+  'Baia complexa',
+  'Carro da Blitz',
   'Outro',
 ] as const
 

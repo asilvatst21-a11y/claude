@@ -1,15 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ClipboardCheck, Upload, Loader2, RefreshCw, AlertTriangle, CheckCircle2,
-  Clock, Search, Link2, Settings2, ExternalLink, ChevronDown, ChevronRight, Send, Copy,
+  Clock, Search, Link2, Settings2, ExternalLink, ChevronDown, ChevronRight, Send, Copy, X, Timer,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { listarGrupos, enviarMensagemWhatsApp, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
-import { importarSeparacao, buscarResumoDia, buscarDivergenciasDoMapa, montarMensagensDivergenciaMapa, type ResumoDiaConf } from '../lib/conferencia'
+import {
+  importarSeparacao, buscarResumoDia, buscarDivergenciasDoMapa, montarMensagensDivergenciaMapa,
+  buscarBaiasDoMapa, type ResumoDiaConf, type BaiaConf,
+} from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_CONFERENCIA_LINK_PAUSADOS } from '../lib/whatsappStatus'
+
+// Tempo gasto numa baia (do início ao fim da conferência) — null se ainda
+// não foi iniciada ou finalizada. Usado só pra exibição no detalhe do mapa.
+function duracaoBaiaMin(b: BaiaConf): number | null {
+  if (!b.iniciadaEm || !b.finalizadaEm) return null
+  return Math.max(0, Math.round((new Date(b.finalizadaEm).getTime() - new Date(b.iniciadaEm).getTime()) / 60000))
+}
 
 // Data local (não UTC) — consistente com a página do ajudante (ConferenciaDigital).
 function hojeISO(): string {
@@ -39,6 +49,11 @@ export default function DistribuicaoConferencia() {
   const [resultadoEnvioLink, setResultadoEnvioLink] = useState<string | null>(null)
   const [copiandoDivergenciaMapa, setCopiandoDivergenciaMapa] = useState<number | null>(null)
   const [divergenciaCopiada, setDivergenciaCopiada] = useState<number | null>(null)
+
+  const [detalheMapa, setDetalheMapa] = useState<number | null>(null)
+  const [detalheBaias, setDetalheBaias] = useState<BaiaConf[]>([])
+  const [carregandoDetalhe, setCarregandoDetalhe] = useState(false)
+  const [erroDetalhe, setErroDetalhe] = useState<string | null>(null)
 
   const linkPublico = `${window.location.origin}/conferencia`
 
@@ -112,6 +127,25 @@ export default function DistribuicaoConferencia() {
       setErro(err instanceof Error ? err.message : 'Erro ao copiar mensagem de divergência')
     } finally {
       setCopiandoDivergenciaMapa(null)
+    }
+  }
+
+  // Detalhe do mapa: baia por baia, com o tempo que a pessoa levou em cada
+  // uma (do início ao fim da conferência) — pra identificar onde o tempo foi
+  // gasto, além do total agregado que já aparece na tabela.
+  async function abrirDetalheMapa(mapa: number) {
+    if (!usuario) return
+    setDetalheMapa(mapa)
+    setDetalheBaias([])
+    setErroDetalhe(null)
+    setCarregandoDetalhe(true)
+    try {
+      const lista = await buscarBaiasDoMapa(usuario.filial, mapa, dataOperacao)
+      setDetalheBaias(lista)
+    } catch (err) {
+      setErroDetalhe(err instanceof Error ? err.message : 'Erro ao buscar as baias do mapa')
+    } finally {
+      setCarregandoDetalhe(false)
     }
   }
 
@@ -274,7 +308,11 @@ export default function DistribuicaoConferencia() {
               <tbody className="divide-y">
                 {resumo.mapas.map((m) => (
                   <tr key={m.mapa} className="hover:bg-muted/30 transition-colors">
-                    <td className="px-3 py-2 font-semibold tabular-nums">{m.mapa}</td>
+                    <td className="px-3 py-2 font-semibold tabular-nums">
+                      <button onClick={() => abrirDetalheMapa(m.mapa)} className="underline decoration-dotted hover:text-accent-700" title="Ver tempo por baia">
+                        {m.mapa}
+                      </button>
+                    </td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap items-center gap-1">
                         {m.concluido
@@ -319,6 +357,53 @@ export default function DistribuicaoConferencia() {
           </div>
         ))}
       </div>
+
+      {detalheMapa != null && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <div>
+                <h2 className="font-semibold flex items-center gap-1.5"><Timer className="h-4 w-4 text-accent-600" /> Tempo por baia — Mapa {detalheMapa}</h2>
+                <p className="text-xs text-muted-foreground">{formatarDataBR(dataOperacao)}</p>
+              </div>
+              <button onClick={() => setDetalheMapa(null)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5">
+              {carregandoDetalhe ? (
+                <div className="flex items-center justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-accent-500" /></div>
+              ) : erroDetalhe ? (
+                <p className="text-sm text-red-600">{erroDetalhe}</p>
+              ) : detalheBaias.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Nenhuma baia encontrada.</p>
+              ) : (
+                <div className="space-y-2">
+                  {detalheBaias.map((b) => {
+                    const min = duracaoBaiaMin(b)
+                    return (
+                      <div key={b.id} className="flex items-center justify-between gap-3 border rounded-lg px-3 py-2.5">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold truncate">{b.rotulo}</p>
+                          {b.status === 'pulada'
+                            ? <p className="text-xs text-orange-700">Pulada — {b.motivoPulada ?? 'sem motivo'}</p>
+                            : b.status === 'pendente'
+                              ? <p className="text-xs text-muted-foreground">{!b.iniciadaEm ? 'Ainda não iniciada' : 'Em andamento'}</p>
+                              : <p className="text-xs text-green-700">Conferida</p>}
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-base font-bold tabular-nums">{min != null ? `${min} min` : '—'}</p>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t">
+              <button onClick={() => setDetalheMapa(null)} className="px-4 py-2 rounded-lg text-sm border hover:bg-accent transition-colors">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
