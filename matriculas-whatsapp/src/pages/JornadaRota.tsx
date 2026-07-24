@@ -20,7 +20,7 @@ import {
 } from '../lib/jornada'
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_JORNADA_PAUSADOS } from '../lib/whatsappStatus'
-import { buscarStatusColaboradoresPorNome, pessoaEstaAtiva } from '../lib/statusAtivo'
+import { buscarStatusColaboradoresPorNome, podeEnviarPara } from '../lib/statusAtivo'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -705,7 +705,12 @@ export default function JornadaRota() {
         .select('nome, telefone')
         .eq('filial', usuario.filial)
         .eq('sala', salaTml)
-      const supervisores = (supervisoresRaw ?? []).filter((s) => pessoaEstaAtiva(statusPorNome, s.nome))
+      const supervisores = []
+      for (const s of supervisoresRaw ?? []) {
+        if (await podeEnviarPara({ origem: 'jornada_supervisor_sala', filial: usuario.filial, mapaStatus: statusPorNome, nome: s.nome, telefone: s.telefone, detalhe: `Sala ${sala}` })) {
+          supervisores.push(s)
+        }
+      }
 
       // 3 mensagens curtas por sala — cada uma só com o Top 5 do seu
       // indicador, em vez de uma mensagem única com tudo.
@@ -733,7 +738,8 @@ export default function JornadaRota() {
       if (l.aderencia == null || l.aderencia >= ADERENCIA_MINIMA) continue
       if (l.percConclusao != null && l.percConclusao >= 1) continue
       if (!l.telefone) continue
-      if (!pessoaEstaAtiva(statusPorNome, l.nome)) continue
+      const pode = await podeEnviarPara({ origem: 'jornada_aderencia_motorista', filial: usuario.filial, mapaStatus: statusPorNome, nome: l.nome, telefone: l.telefone, detalhe: `Mapa ${l.mapa}` })
+      if (!pode) continue
       await enviarMensagemWhatsApp(l.telefone, montarMensagemAlertaAderenciaMotorista(l, dataOperacao))
     }
 

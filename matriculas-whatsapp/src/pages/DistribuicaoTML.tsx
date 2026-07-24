@@ -17,7 +17,7 @@ import { iniciarConversaMotorista, buscarConversasPorAlertas } from '../lib/tmlC
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML, ConversaMotoristaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_TML_PAUSADOS } from '../lib/whatsappStatus'
-import { buscarStatusColaboradoresPorNome, pessoaEstaAtiva } from '../lib/statusAtivo'
+import { buscarStatusColaboradoresPorNome, podeEnviarPara } from '../lib/statusAtivo'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
@@ -702,7 +702,12 @@ export default function DistribuicaoTML() {
               .select('nome, telefone')
               .eq('filial', usuario.filial)
               .eq('sala', sala)
-            const sups = (supsRaw ?? []).filter((s) => pessoaEstaAtiva(statusPorNomePendentes, s.nome))
+            const sups = []
+            for (const s of supsRaw ?? []) {
+              if (await podeEnviarPara({ origem: 'tml_pendentes_cdd', filial: usuario.filial, mapaStatus: statusPorNomePendentes, nome: s.nome, telefone: s.telefone, detalhe: `Sala ${sala}` })) {
+                sups.push(s)
+              }
+            }
             if (!sups.length) continue
             const lista = pendentes.sort((a, b) => a.mapa - b.mapa)
             let msg = `🚛 *PENDENTES NO CDD — ${hora}*\n`
@@ -1056,7 +1061,12 @@ export default function DistribuicaoTML() {
           .eq('sala', alerta.sala),
         buscarStatusColaboradoresPorNome(usuario.filial),
       ])
-      const supervisores = (supervisoresRaw ?? []).filter((s) => pessoaEstaAtiva(statusPorNomeAlerta, s.nome))
+      const supervisores = []
+      for (const s of supervisoresRaw ?? []) {
+        if (await podeEnviarPara({ origem: 'tml_alerta_perdido', filial: usuario.filial, mapaStatus: statusPorNomeAlerta, nome: s.nome, telefone: s.telefone, detalhe: `Mapa ${alerta.mapa}` })) {
+          supervisores.push(s)
+        }
+      }
 
       if (!supervisores.length) {
         setErro(`Nenhum supervisor cadastrado para a sala ${SALA_TML_LABEL[alerta.sala] ?? alerta.sala}`)
@@ -1114,8 +1124,12 @@ export default function DistribuicaoTML() {
         return
       }
       const statusPorNomeConversa = await buscarStatusColaboradoresPorNome(usuario.filial)
-      if (!pessoaEstaAtiva(statusPorNomeConversa, motorista?.nome ?? alerta.nome)) {
-        setErro(`${alerta.nome ?? 'Este motorista'} está com status diferente de TRABALHANDO no cadastro — conversa não iniciada.`)
+      const podeConversar = await podeEnviarPara({
+        origem: 'tml_conversa_motorista', filial: usuario.filial, mapaStatus: statusPorNomeConversa,
+        nome: motorista?.nome ?? alerta.nome, telefone, detalhe: `Mapa ${alerta.mapa}`,
+      })
+      if (!podeConversar) {
+        setErro(`${alerta.nome ?? 'Este motorista'} está com status diferente de TRABALHANDO (ou não encontrado no cadastro central) — conversa não iniciada.`)
         return
       }
 

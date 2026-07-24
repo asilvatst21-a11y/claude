@@ -1,18 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ClipboardCheck, Upload, Loader2, RefreshCw, AlertTriangle, CheckCircle2,
-  Clock, Search, Link2, Settings2, ExternalLink, ChevronDown, ChevronRight, Send, Copy, X, Timer, MessageSquare,
+  Clock, Search, Link2, Settings2, ExternalLink, ChevronDown, ChevronRight, Copy, X, Timer, MessageSquare,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { listarGrupos, enviarMensagemWhatsApp, type GrupoZApi } from '../lib/zapi'
+import { listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   importarSeparacao, importarRetornaveis, buscarResumoDia, buscarDivergenciasDoMapa, montarMensagensDivergenciaMapa,
   buscarBaiasDoMapa, buscarSugestoes, type ResumoDiaConf, type BaiaConf, type SugestaoConf,
 } from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
-import { ENVIOS_CONFERENCIA_LINK_PAUSADOS } from '../lib/whatsappStatus'
 
 // Tempo gasto numa baia — do PRIMEIRO ITEM marcado (não da abertura da
 // baia, que infla o tempo quando o ajudante só dá uma olhada em várias
@@ -54,8 +53,6 @@ export default function DistribuicaoConferencia() {
   const [buscandoGrupos, setBuscandoGrupos] = useState(false)
   const [erroGrupos, setErroGrupos] = useState<string | null>(null)
   const [copiado, setCopiado] = useState<string | null>(null)
-  const [enviandoLink, setEnviandoLink] = useState(false)
-  const [resultadoEnvioLink, setResultadoEnvioLink] = useState<string | null>(null)
   const [copiandoDivergenciaMapa, setCopiandoDivergenciaMapa] = useState<number | null>(null)
   const [divergenciaCopiada, setDivergenciaCopiada] = useState<number | null>(null)
 
@@ -184,46 +181,6 @@ export default function DistribuicaoConferencia() {
     }
   }
 
-  // Manda o link do ajudante pra todo mundo (motorista/ajudante) com
-  // telefone cadastrado em Gente › Colaboradores — mesmo cadastro/filtro já
-  // usado na Consulta de Pendências.
-  async function enviarLinkParaTime() {
-    if (!usuario) return
-    if (ENVIOS_CONFERENCIA_LINK_PAUSADOS) {
-      alert('Envio em massa pausado: o WhatsApp ficou 24h em análise por disparo em massa. Tente novamente mais tarde.')
-      return
-    }
-    const { data } = await supabase
-      .from('colaboradores')
-      .select('nome, telefone, funcao, status')
-      .eq('filial', usuario.filial)
-      .not('telefone', 'is', null)
-    const destinatarios = (data ?? []).filter((c) => {
-      const status = (c.status ?? '').trim().toUpperCase()
-      // Bloqueia qualquer status explícito diferente de TRABALHANDO
-      // (DESLIGADO, FÉRIAS, AFASTADO etc.) — sem status cadastrado (branco)
-      // continua liberado, pra não travar quem ainda não teve o campo
-      // preenchido na planilha de RH.
-      return /AJUDANTE|MOTORISTA/i.test(c.funcao ?? '') && (status === '' || status === 'TRABALHANDO') && (c.telefone ?? '').trim()
-    })
-    if (destinatarios.length === 0) {
-      alert('Nenhum motorista/ajudante com telefone cadastrado em Gente › Colaboradores.')
-      return
-    }
-    if (!window.confirm(`Enviar o link da Conferência Digital por WhatsApp pra ${destinatarios.length} pessoa(s) (motoristas e ajudantes com telefone cadastrado)?`)) return
-
-    setEnviandoLink(true)
-    setResultadoEnvioLink(null)
-    let enviados = 0
-    for (const c of destinatarios) {
-      const primeiro = (c.nome ?? '').trim().split(/\s+/)[0] ?? ''
-      const mensagem = `Oi${primeiro ? `, ${primeiro}` : ''}! Segue o link da Conferência Digital pra registrar a conferência do seu mapa pelo celular:\n${linkPublico}`
-      const { sucesso } = await enviarMensagemWhatsApp(c.telefone!.trim(), mensagem)
-      if (sucesso) enviados++
-    }
-    setResultadoEnvioLink(`${enviados} de ${destinatarios.length} mensagem(ns) enviada(s).`)
-    setEnviandoLink(false)
-  }
 
   async function salvarGrupo() {
     if (!usuario) return
@@ -262,19 +219,10 @@ export default function DistribuicaoConferencia() {
         <a href="/conferencia" target="_blank" rel="noreferrer" className="text-sm font-semibold text-accent-700 underline flex items-center gap-1">{linkPublico} <ExternalLink className="h-3.5 w-3.5" /></a>
         <div className="ml-auto flex items-center gap-2">
           <button onClick={() => copiarId(linkPublico)} className="text-xs px-2 py-1 rounded border border-accent-300 text-accent-700 hover:bg-accent-100">{copiado === linkPublico ? 'Copiado' : 'Copiar link'}</button>
-          <button
-            onClick={enviarLinkParaTime}
-            disabled={enviandoLink || ENVIOS_CONFERENCIA_LINK_PAUSADOS}
-            title={ENVIOS_CONFERENCIA_LINK_PAUSADOS ? 'Envio em massa pausado (WhatsApp em análise 24h) — use "Copiar link" e envie manualmente no grupo' : undefined}
-            className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-accent-300 text-accent-700 hover:bg-accent-100 disabled:opacity-50"
-          >
-            {enviandoLink ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Enviar link ao time
-          </button>
         </div>
-        {ENVIOS_CONFERENCIA_LINK_PAUSADOS && (
-          <p className="w-full text-xs text-amber-700">⚠️ Envio em massa pausado — use "Copiar link" e mande manualmente no grupo até o WhatsApp voltar.</p>
-        )}
-        {resultadoEnvioLink && <p className="w-full text-xs text-accent-800">{resultadoEnvioLink}</p>}
+        <p className="w-full text-xs text-muted-foreground">
+          Copie e cole no grupo do time — o disparo automático pra cada motorista/ajudante foi removido (era um envio em massa que arriscava travar o número de novo).
+        </p>
       </div>
 
       {/* Config WhatsApp */}

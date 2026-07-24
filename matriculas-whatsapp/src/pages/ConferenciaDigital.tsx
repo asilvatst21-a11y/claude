@@ -12,7 +12,7 @@ import {
   type BaiaConf, type ItemConf, type PortaConf, type PessoaConferencia,
 } from '../lib/conferencia'
 import { ENVIOS_CONFERENCIA_DIVERGENCIA_PAUSADOS } from '../lib/whatsappStatus'
-import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorNomeGlobal, pessoaEstaAtiva } from '../lib/statusAtivo'
+import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorNomeGlobal, podeEnviarPara } from '../lib/statusAtivo'
 
 function normalizarBusca(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
@@ -208,7 +208,8 @@ export default function ConferenciaDigital() {
       const statusPorNome = pessoa.tipo === 'motorista'
         ? await buscarStatusColaboradoresPorNome(filial)
         : await buscarStatusColaboradoresPorNomeGlobal()
-      if (!pessoaEstaAtiva(statusPorNome, pessoa.nome)) return
+      const podeEnviar = await podeEnviarPara({ origem: 'conferencia_sugestao', filial, mapaStatus: statusPorNome, nome: pessoa.nome, telefone: pessoa.telefone, detalhe: `Mapa ${mapa}` })
+      if (!podeEnviar) return
       await enviarPerguntaSugestao(filial, Number(mapa), hojeISO(), pessoa.nome, pessoa.telefone)
     } catch {
       /* best-effort — não afeta a confirmação da baia */

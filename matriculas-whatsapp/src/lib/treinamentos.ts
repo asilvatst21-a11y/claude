@@ -1,7 +1,5 @@
 import { supabase } from './supabase'
-import { enviarMensagemWhatsApp, enviarMensagemGrupo } from './zapi'
-import { ENVIOS_TREINAMENTO_PAUSADOS } from './whatsappStatus'
-import { buscarStatusColaboradoresPorNome, pessoaEstaAtiva } from './statusAtivo'
+import { enviarMensagemGrupo } from './zapi'
 import type { SalaTML } from './tml'
 
 export interface TreinamentoParaAviso {
@@ -9,63 +7,33 @@ export interface TreinamentoParaAviso {
   titulo: string
 }
 
-// Mesma normalização usada em jornada.ts/Disparos.tsx pra casar matrícula
-// (número) entre cadastros que guardam ela como string (zeros à esquerda variam).
-function normalizarMatricula(s: string): string {
-  return s.trim().replace(/^0+/, '') || '0'
-}
-
-// Manda o aviso individual do treinamento pra cada motorista da sala, e mais
-// uma mensagem única no grupo da sala direcionando pra conversa particular
-// com o bot. Reaproveitado tanto pelo disparo automático (Timer da Matinal,
-// ao finalizar) quanto pelo botão de forçar disparo manual (tela
+// Manda UMA mensagem no grupo da sala avisando do treinamento e
+// direcionando quem tiver dúvida pra conversa particular com o bot.
+// Reaproveitado tanto pelo disparo automático (Timer da Matinal, ao
+// finalizar) quanto pelo botão de forçar disparo manual (tela
 // Treinamentos), pros casos em que ninguém finalizou a matinal pelo botão
 // (ex.: auto-finalização por reimport do checklist) e o aviso automático
 // nunca saiu.
 //
-// Telefone: prioriza motoristas_sala_tml.telefone, mas cai pro cadastro
-// central de Matrículas (Segurança) quando esse campo estiver vazio — a
-// maioria dos motoristas só tem o número lá, sem duplicar cadastro só pra
-// sala de Distribuição (mesmo fallback já usado em jornada.ts). Sem isso,
-// só quem tivesse telefone preenchido nas duas tabelas recebia o aviso.
+// Antes isso também mandava uma mensagem individual pra cada motorista da
+// sala — removido porque um disparo em massa desses foi o que derrubou o
+// número do WhatsApp (23/07/2026). Só o aviso único ao grupo permanece.
 export async function enviarAvisosTreinamento(
   filial: string, sala: SalaTML, treino: TreinamentoParaAviso, matinalId?: number,
 ): Promise<{ enviados: number }> {
-  // Envio em massa pausado (número em análise no WhatsApp) — ver whatsappStatus.ts.
-  if (ENVIOS_TREINAMENTO_PAUSADOS) return { enviados: 0 }
-
-  const [{ data: colaboradores }, { data: cadastroMatriculas }, { data: filialRow }, statusPorNome] = await Promise.all([
-    supabase.from('motoristas_sala_tml').select('matricula, nome, telefone').eq('filial', filial).eq('sala', sala),
-    supabase.from('matriculas').select('numero, whatsapp').eq('filial', filial).eq('ativo', true),
-    supabase.from('filiais').select('grupo_matinal_colorado_whatsapp, grupo_matinal_subfuria_whatsapp').eq('nome', filial).maybeSingle(),
-    buscarStatusColaboradoresPorNome(filial),
-  ])
-  const telefonePorNumeroCadastro = new Map((cadastroMatriculas ?? []).map((m) => [normalizarMatricula(m.numero), m.whatsapp]))
+  const { data: filialRow } = await supabase
+    .from('filiais')
+    .select('grupo_matinal_colorado_whatsapp, grupo_matinal_subfuria_whatsapp')
+    .eq('nome', filial)
+    .maybeSingle()
 
   let enviados = 0
-  for (const c of colaboradores ?? []) {
-    if (!pessoaEstaAtiva(statusPorNome, c.nome)) continue
-    const telefoneCadastro = c.matricula != null ? telefonePorNumeroCadastro.get(normalizarMatricula(String(c.matricula))) : null
-    const telefone = (c.telefone ?? telefoneCadastro ?? '').trim()
-    if (!telefone) continue
-    const primeiro = (c.nome ?? '').trim().split(/\s+/)[0] ?? ''
-    const mensagem =
-      `Bom dia${primeiro ? `, ${primeiro}` : ''}! Hoje na matinal vimos *${treino.titulo}*. ` +
-      `Ficou alguma dúvida? Pode perguntar por aqui — escrevendo ou mandando um áudio.`
-    const { sucesso } = await enviarMensagemWhatsApp(telefone, mensagem)
-    if (sucesso) {
-      enviados++
-      await supabase.from('matinal_treinamento_avisos').insert({
-        treinamento_id: treino.id, filial, sala, colaborador_telefone: telefone, colaborador_nome: c.nome ?? null,
-      })
-    }
-  }
-
   const grupoSala = sala === 'COLORADO' ? filialRow?.grupo_matinal_colorado_whatsapp : filialRow?.grupo_matinal_subfuria_whatsapp
   if (grupoSala) {
-    await enviarMensagemGrupo(grupoSala,
+    const { sucesso } = await enviarMensagemGrupo(grupoSala,
       `📋 Hoje na matinal tivemos o treinamento *${treino.titulo}*.\n` +
       `Quem ficou com alguma dúvida, me chama aqui no privado dizendo algo como *"fiquei com dúvida no treinamento"* — eu já te ajudo a tirar.`)
+    if (sucesso) enviados = 1
   }
 
   if (matinalId != null) {

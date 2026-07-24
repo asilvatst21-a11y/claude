@@ -3,7 +3,7 @@ import type { FrotaDisponibilidade, FrotaPlaca, FrotaIVTratativa } from '../type
 import { supabase } from './supabase'
 import { enviarListaOpcoesWhatsApp } from './zapi'
 import { formatarDataBR } from './utils'
-import { buscarStatusColaboradoresPorNome, pessoaEstaAtiva } from './statusAtivo'
+import { buscarStatusColaboradoresPorNome, podeEnviarPara } from './statusAtivo'
 
 export type FrotaDisponibilidadeInsert = Omit<FrotaDisponibilidade, 'id' | 'created_at'>
 
@@ -1296,7 +1296,12 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
     const { data: supervisoresRaw } = item.sala
       ? await supabase.from('supervisores_tml').select('id, nome, telefone').eq('filial', filial).eq('sala', item.sala)
       : await supabase.from('supervisores_tml').select('id, nome, telefone').eq('filial', filial)
-    const supervisores = (supervisoresRaw ?? []).filter((s) => pessoaEstaAtiva(statusPorNomeFixacao, s.nome))
+    const supervisores = []
+    for (const s of supervisoresRaw ?? []) {
+      if (await podeEnviarPara({ origem: 'frota_divergencia_fixacao', filial, mapaStatus: statusPorNomeFixacao, nome: s.nome, telefone: s.telefone, detalhe: `Placa ${item.placa}` })) {
+        supervisores.push(s)
+      }
+    }
 
     const mensagem = montarMensagemFixacaoMotorista({
       ...item,

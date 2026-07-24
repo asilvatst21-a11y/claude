@@ -18,7 +18,7 @@ import { enviarMensagemGrupo, enviarMensagemWhatsApp, enviarImagemGrupo } from '
 import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
 import { formatarDataBR } from '../lib/utils'
 import { ehMotoristaOuAjudante, calcularVencimento, type VencimentoInfo } from '../lib/gsdpqVencimento'
-import { buscarStatusColaboradoresPorNome, pessoaEstaAtiva } from '../lib/statusAtivo'
+import { buscarStatusColaboradoresPorNome, podeEnviarPara } from '../lib/statusAtivo'
 import type { GsdpqAvaliacao, GsdpqAcao, GsdpqColaborador, GsdpqSupervisor } from '../types'
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -819,7 +819,8 @@ export default function Gsdpq() {
       for (const [eq, lista] of porEquipe) {
         const supervisor = supervisores.find(s => s.equipe === eq)
         if (!supervisor) continue
-        if (!pessoaEstaAtiva(statusPorNomeVencimentos, supervisor.nome)) continue
+        const podeEnviar = await podeEnviarPara({ origem: 'gsdpq_vencimento', filial: usuario.filial, mapaStatus: statusPorNomeVencimentos, nome: supervisor.nome, telefone: supervisor.telefone, detalhe: `Equipe ${eq}` })
+        if (!podeEnviar) continue
         const linhas = lista.map(v => {
           const dr = v.info!.diasRestantes
           const status = dr <= 0 ? `vencido há ${Math.abs(dr)}d` : `faltam ${dr}d`

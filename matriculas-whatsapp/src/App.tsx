@@ -30,6 +30,7 @@ import Clientes from './pages/Clientes'
 import Historico from './pages/Historico'
 import Admin from './pages/Admin'
 import Gsdpq from './pages/Gsdpq'
+import EnviosBloqueados from './pages/EnviosBloqueados'
 import GsdpqSupervisores from './pages/GsdpqSupervisores'
 import Dto from './pages/Dto'
 import DtoGerenciador from './pages/DtoGerenciador'
@@ -110,6 +111,7 @@ export default function App() {
             <Route path="/historico" element={<Historico />} />
             <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
             <Route path="/fluxo" element={<AdminRoute><FluxoPunitivo /></AdminRoute>} />
+            <Route path="/envios-bloqueados" element={<AdminRoute><EnviosBloqueados /></AdminRoute>} />
             <Route path="/gsdpq" element={<Gsdpq />} />
             <Route path="/gsdpq/supervisores" element={<GsdpqSupervisores />} />
             <Route path="/dto" element={<Dto />} />
