@@ -14,11 +14,15 @@ import {
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_CONFERENCIA_LINK_PAUSADOS } from '../lib/whatsappStatus'
 
-// Tempo gasto numa baia (do início ao fim da conferência) — null se ainda
-// não foi iniciada ou finalizada. Usado só pra exibição no detalhe do mapa.
+// Tempo gasto numa baia — do PRIMEIRO ITEM marcado (não da abertura da
+// baia, que infla o tempo quando o ajudante só dá uma olhada em várias
+// baias antes de conferir de verdade) até o fim da conferência. Cai pra
+// "iniciada_em" só se não tiver nenhum item marcado (ex.: baia pulada sem
+// conferir nada). Null se ainda não foi iniciada ou finalizada.
 function duracaoBaiaMin(b: BaiaConf): number | null {
-  if (!b.iniciadaEm || !b.finalizadaEm) return null
-  return Math.max(0, Math.round((new Date(b.finalizadaEm).getTime() - new Date(b.iniciadaEm).getTime()) / 60000))
+  const inicio = b.primeiroItemEm ?? b.iniciadaEm
+  if (!inicio || !b.finalizadaEm) return null
+  return Math.max(0, Math.round((new Date(b.finalizadaEm).getTime() - new Date(inicio).getTime()) / 60000))
 }
 
 // Data local (não UTC) — consistente com a página do ajudante (ConferenciaDigital).

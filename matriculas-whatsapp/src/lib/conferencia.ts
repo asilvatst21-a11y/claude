@@ -72,6 +72,7 @@ export interface BaiaConf {
   totalCaixas: number
   status: 'pendente' | 'conferida' | 'pulada'
   iniciadaEm: string | null
+  primeiroItemEm: string | null
   finalizadaEm: string | null
   motivoPulada: string | null
   itens: ItemConf[]
@@ -155,7 +156,7 @@ export async function importarSeparacao(
 export async function buscarBaiasDoMapa(filial: string, mapa: number, data: string): Promise<BaiaConf[]> {
   const { data: baias, error: eBaias } = await supabase
     .from('conferencia_baias')
-    .select('id, palete, porta, ordem, rotulo, total_itens, total_caixas, status, iniciada_em, finalizada_em, motivo_pulada')
+    .select('id, palete, porta, ordem, rotulo, total_itens, total_caixas, status, iniciada_em, finalizada_em, primeiro_item_em, motivo_pulada')
     .eq('filial', filial).eq('mapa', mapa).eq('data', data)
   if (eBaias) throw new Error(eBaias.message)
   if (!baias || baias.length === 0) return []
@@ -183,7 +184,7 @@ export async function buscarBaiasDoMapa(filial: string, mapa: number, data: stri
       id: b.id, palete: b.palete, porta: b.porta as PortaConf, ordem: b.ordem, rotulo: rotuloBaia(b.porta as PortaConf, b.ordem),
       totalItens: b.total_itens, totalCaixas: b.total_caixas,
       status: b.status as 'pendente' | 'conferida' | 'pulada',
-      iniciadaEm: b.iniciada_em, finalizadaEm: b.finalizada_em, motivoPulada: b.motivo_pulada,
+      iniciadaEm: b.iniciada_em, finalizadaEm: b.finalizada_em, primeiroItemEm: b.primeiro_item_em, motivoPulada: b.motivo_pulada,
       itens: (itensPorBaia.get(b.id) ?? []).sort((x, y) => x.sequencia - y.sequencia),
     }))
     .sort((x, y) => ordemBaia(x.porta, x.ordem) - ordemBaia(y.porta, y.ordem))
@@ -197,11 +198,23 @@ export async function iniciarBaia(baiaId: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
-export async function marcarItem(itemId: string, conferido: boolean): Promise<void> {
+// Grava quando o PRIMEIRO item da baia foi marcado (conferido ou com
+// divergência) — só na primeira vez. Diferente de "iniciada_em" (que marca
+// quando o ajudante só ABRIU a baia, mesmo sem mexer em nada ainda), esse
+// horário reflete o início real do trabalho de conferência, usado pra medir
+// quanto tempo cada baia efetivamente levou.
+async function marcarPrimeiroItem(baiaId: string): Promise<void> {
+  await supabase.from('conferencia_baias')
+    .update({ primeiro_item_em: new Date().toISOString() })
+    .eq('id', baiaId).is('primeiro_item_em', null)
+}
+
+export async function marcarItem(itemId: string, conferido: boolean, baiaId: string): Promise<void> {
   const { error } = await supabase.from('conferencia_itens')
     .update({ conferido, conferido_em: conferido ? new Date().toISOString() : null })
     .eq('id', itemId)
   if (error) throw new Error(error.message)
+  if (conferido) await marcarPrimeiroItem(baiaId)
 }
 
 export async function registrarDivergencia(
@@ -209,11 +222,13 @@ export async function registrarDivergencia(
   tipo: 'falta' | 'sobra' | 'avaria',
   qtdReal: number | null,
   obs: string | null,
+  baiaId: string,
 ): Promise<void> {
   const { error } = await supabase.from('conferencia_itens')
     .update({ divergencia: true, tipo_divergencia: tipo, qtd_real: qtdReal, obs, conferido: true, conferido_em: new Date().toISOString() })
     .eq('id', itemId)
   if (error) throw new Error(error.message)
+  await marcarPrimeiroItem(baiaId)
 }
 
 export async function finalizarBaia(baiaId: string, conferidoPor: string | null): Promise<void> {
@@ -264,7 +279,7 @@ export interface ResumoDiaConf {
 export async function buscarResumoDia(filial: string, data: string): Promise<ResumoDiaConf> {
   const { data: baias } = await supabase
     .from('conferencia_baias')
-    .select('mapa, porta, ordem, status, iniciada_em, finalizada_em, conferido_por, motivo_pulada')
+    .select('mapa, porta, ordem, status, iniciada_em, finalizada_em, primeiro_item_em, conferido_por, motivo_pulada')
     .eq('filial', filial).eq('data', data)
   const { data: itens } = await supabase
     .from('conferencia_itens')
@@ -291,9 +306,13 @@ export async function buscarResumoDia(filial: string, data: string): Promise<Res
     }
     if (b.conferido_por && !r.conferidoPor) r.conferidoPor = b.conferido_por
     // Baia pulada não entra no tempo de conferência — não representa uma
-    // conferência real feita item a item.
+    // conferência real feita item a item. Usa o horário do PRIMEIRO ITEM
+    // marcado como início (não "iniciada_em", que só marca a abertura da
+    // baia — inflava o tempo quando o ajudante dava uma olhada em várias
+    // baias antes de conferir de verdade).
     if (b.status === 'conferida') {
-      if (b.iniciada_em) r.inicios.push(new Date(b.iniciada_em).getTime())
+      const inicioReal = b.primeiro_item_em ?? b.iniciada_em
+      if (inicioReal) r.inicios.push(new Date(inicioReal).getTime())
       if (b.finalizada_em) r.fins.push(new Date(b.finalizada_em).getTime())
     }
   }

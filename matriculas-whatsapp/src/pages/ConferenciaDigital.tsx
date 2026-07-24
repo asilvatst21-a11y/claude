@@ -110,9 +110,9 @@ export default function ConferenciaDigital() {
   }
 
   async function toggleItem(it: ItemConf) {
-    if (it.divergencia) return
+    if (it.divergencia || !baiaAtiva) return
     try {
-      await marcarItem(it.id, !it.conferido)
+      await marcarItem(it.id, !it.conferido, baiaAtiva)
       setBaias((prev) => prev.map((b) => b.id !== baiaAtiva ? b : {
         ...b, itens: b.itens.map((x) => x.id === it.id ? { ...x, conferido: !x.conferido } : x),
       }))
@@ -122,10 +122,10 @@ export default function ConferenciaDigital() {
   }
 
   async function confirmarDivergencia(tipo: 'falta' | 'sobra' | 'avaria', qtdReal: string, obs: string) {
-    if (!divItem) return
+    if (!divItem || !baiaAtiva) return
     const qtd = qtdReal.trim() === '' ? null : Number(qtdReal)
     try {
-      await registrarDivergencia(divItem.id, tipo, isNaN(qtd as number) ? null : qtd, obs.trim() || null)
+      await registrarDivergencia(divItem.id, tipo, isNaN(qtd as number) ? null : qtd, obs.trim() || null, baiaAtiva)
       const baia = baias.find((b) => b.id === baiaAtiva)
       setBaias((prev) => prev.map((b) => b.id !== baiaAtiva ? b : {
         ...b, itens: b.itens.map((x) => x.id === divItem.id
