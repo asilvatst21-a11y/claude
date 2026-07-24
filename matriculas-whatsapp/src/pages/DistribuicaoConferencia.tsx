@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase'
 import { listarGrupos, enviarMensagemWhatsApp, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
-  importarSeparacao, buscarResumoDia, buscarDivergenciasDoMapa, montarMensagensDivergenciaMapa,
+  importarSeparacao, importarRetornaveis, buscarResumoDia, buscarDivergenciasDoMapa, montarMensagensDivergenciaMapa,
   buscarBaiasDoMapa, buscarSugestoes, type ResumoDiaConf, type BaiaConf, type SugestaoConf,
 } from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
@@ -37,9 +37,11 @@ export default function DistribuicaoConferencia() {
   const [resumo, setResumo] = useState<ResumoDiaConf | null>(null)
   const [loading, setLoading] = useState(true)
   const [uploading, setUploading] = useState(false)
+  const [uploadingRetornaveis, setUploadingRetornaveis] = useState(false)
   const [erro, setErro] = useState('')
   const [ultimoImport, setUltimoImport] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const inputRetornaveisRef = useRef<HTMLInputElement>(null)
 
   const [configAberta, setConfigAberta] = useState(false)
   const [tabelaAberta, setTabelaAberta] = useState(true)
@@ -109,6 +111,21 @@ export default function DistribuicaoConferencia() {
       setErro(err instanceof Error ? err.message : 'Erro ao importar o Relatório de Separação')
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function handleImportarRetornaveis(file: File) {
+    if (!usuario) return
+    setUploadingRetornaveis(true); setErro('')
+    try {
+      const buffer = await file.arrayBuffer()
+      const { mapas, itens } = await importarRetornaveis(usuario.filial, dataOperacao, buffer)
+      await fetchResumo()
+      alert(`Retornáveis importados: ${mapas} mapa(s), ${itens} item(ns). O progresso já conferido foi preservado.`)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao importar o relatório de retornáveis (02.05.01)')
+    } finally {
+      setUploadingRetornaveis(false)
     }
   }
 
@@ -271,7 +288,7 @@ export default function DistribuicaoConferencia() {
       )}
 
       {/* Import + data */}
-      <div className="grid gap-4 sm:grid-cols-[1fr_auto] sm:items-end">
+      <div className="grid gap-4 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
         <div className="border rounded-lg bg-white p-4">
           <h3 className="text-sm font-semibold">Relatório de Separação</h3>
           <p className="text-xs text-muted-foreground mt-0.5 mb-3">Import diário. Reimportar preserva o que o ajudante já conferiu.</p>
@@ -281,6 +298,15 @@ export default function DistribuicaoConferencia() {
             {ultimoImport && <p className="text-xs text-muted-foreground mt-1">Último import: {new Date(ultimoImport).toLocaleString('pt-BR')}</p>}
           </div>
           <input ref={inputRef} type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportar(f); if (inputRef.current) inputRef.current.value = '' }} />
+        </div>
+        <div className="border rounded-lg bg-white p-4">
+          <h3 className="text-sm font-semibold">Retornáveis (02.05.01)</h3>
+          <p className="text-xs text-muted-foreground mt-0.5 mb-3">Cria a baia de retornáveis de cada mapa, conferida na saída junto com os produtos.</p>
+          <div className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer hover:border-accent-500 hover:bg-accent/30 transition-colors" onClick={() => inputRetornaveisRef.current?.click()}>
+            {uploadingRetornaveis ? <Loader2 className="h-7 w-7 mx-auto mb-1.5 animate-spin text-accent-500" /> : <Upload className="h-7 w-7 mx-auto mb-1.5 text-muted-foreground" />}
+            <p className="text-sm font-medium">{uploadingRetornaveis ? 'Processando...' : 'Clique para importar (.csv)'}</p>
+          </div>
+          <input ref={inputRetornaveisRef} type="file" accept=".csv,.inf,.txt" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportarRetornaveis(f); if (inputRetornaveisRef.current) inputRetornaveisRef.current.value = '' }} />
         </div>
         <div className="border rounded-lg bg-white p-4">
           <label className="text-sm font-medium block mb-1.5">Data</label>

@@ -750,3 +750,66 @@ export function parseSeparacaoBuffer(buffer: ArrayBuffer): SeparacaoItem[] {
   }
   return out;
 }
+
+// ── Relatório 02.05.01 — retornáveis que saem em cada mapa ────────────────
+// Exportação SAP em texto puro, separado por ";", em ISO-8859-1 (latin1) —
+// diferente dos outros relatórios (.xlsx lidos pela lib xlsx), por isso o
+// parser é dedicado: decodifica o buffer como latin1 e quebra linha a linha,
+// em vez de usar XLSX.read (que espera um arquivo binário Excel).
+export interface RetornavelItem {
+  mapa: number;
+  codigo: string;
+  descricao: string | null;
+  unidade: string | null;
+  quantidade: number;
+}
+
+// Número no padrão BR ("1.489" = mil e quatrocentos e oitenta e nove;
+// "3,500" seria 3,5) — ponto é separador de milhar, vírgula é decimal.
+function parseNumeroBR(s: string): number {
+  const limpo = s.trim().replace(/\./g, "").replace(",", ".");
+  const n = Number(limpo);
+  return isNaN(n) ? 0 : n;
+}
+
+export function parseRetornavelBuffer(buffer: ArrayBuffer): RetornavelItem[] {
+  const texto = new TextDecoder("iso-8859-1").decode(buffer);
+  const linhas = texto.split(/\r?\n/).filter((l) => l.trim().length > 0);
+  if (linhas.length < 2) return [];
+
+  const header = linhas[0].split(";").map(normalize);
+  const itemIdx = acharColuna(header, "item");
+  const descIdx = acharColuna(header, "descricao");
+  const unidIdx = acharColuna(header, "unidade");
+  const mapaIdx = acharColuna(header, "mapa");
+  const qtdIdx = acharColuna(header, "entrada inteiras");
+  if (itemIdx === -1 || mapaIdx === -1 || qtdIdx === -1) return [];
+
+  // Soma por (mapa, item) — o relatório às vezes traz mais de uma linha
+  // pro mesmo item no mesmo mapa (ex.: lotes/documentos diferentes).
+  const porChave = new Map<string, RetornavelItem>();
+  for (let i = 1; i < linhas.length; i++) {
+    const cols = linhas[i].split(";");
+    const mapa = Number((cols[mapaIdx] ?? "").trim());
+    if (!mapa || isNaN(mapa)) continue;
+    const codigo = (cols[itemIdx] ?? "").trim();
+    if (!codigo) continue;
+    const quantidade = parseNumeroBR(cols[qtdIdx] ?? "0");
+    if (!quantidade) continue;
+
+    const chave = `${mapa}|${codigo}`;
+    const atual = porChave.get(chave);
+    if (atual) {
+      atual.quantidade += quantidade;
+      continue;
+    }
+    porChave.set(chave, {
+      mapa,
+      codigo,
+      descricao: descIdx !== -1 ? (cols[descIdx] ?? "").trim() || null : null,
+      unidade: unidIdx !== -1 ? (cols[unidIdx] ?? "").trim() || null : null,
+      quantidade,
+    });
+  }
+  return [...porChave.values()];
+}

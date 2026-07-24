@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Package, Check, ChevronRight, ChevronLeft, Loader2, Search, Building2,
-  AlertTriangle, CheckCircle2, ArrowLeft, Truck, X,
+  AlertTriangle, CheckCircle2, ArrowLeft, Truck, X, Recycle,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { enviarMensagemGrupo } from '../lib/zapi'
@@ -217,7 +217,7 @@ export default function ConferenciaDigital() {
   const grupos = useMemo(() => {
     const g = new Map<PortaConf, BaiaConf[]>()
     for (const b of baias) { const arr = g.get(b.porta) ?? []; arr.push(b); g.set(b.porta, arr) }
-    return (['M', 'A', 'Z'] as PortaConf[]).map((p) => [p, g.get(p) ?? []] as const).filter(([, arr]) => arr.length > 0)
+    return (['M', 'A', 'Z', 'R'] as PortaConf[]).map((p) => [p, g.get(p) ?? []] as const).filter(([, arr]) => arr.length > 0)
   }, [baias])
 
   // Busca de produto: acha em qual baia um item está e a quantidade prevista
@@ -381,8 +381,10 @@ export default function ConferenciaDigital() {
                 const pulada = b.status === 'pulada'
                 return (
                   <button key={b.id} onClick={() => abrirBaia(b)} className={`w-full flex items-center gap-3 p-3 rounded-2xl border text-left active:scale-[.99] transition ${done ? 'bg-green-50 border-green-200' : pulada ? 'bg-amber-50 border-amber-200' : 'bg-white border-gray-200'}`}>
-                    <span className={`w-[52px] h-[52px] shrink-0 rounded-xl grid place-content-center text-center ${b.porta === 'M' ? 'bg-brand-800 text-white' : b.porta === 'A' ? 'bg-accent-100 text-accent-800 border border-accent-200' : 'bg-gray-200 text-gray-600'}`}>
-                      <span className="text-xl font-extrabold leading-none">{b.porta}</span>
+                    <span className={`w-[52px] h-[52px] shrink-0 rounded-xl grid place-content-center text-center ${b.porta === 'M' ? 'bg-brand-800 text-white' : b.porta === 'A' ? 'bg-accent-100 text-accent-800 border border-accent-200' : b.porta === 'R' ? 'bg-accent-500 text-white' : 'bg-gray-200 text-gray-600'}`}>
+                      {b.porta === 'R'
+                        ? <Recycle className="h-6 w-6" />
+                        : <span className="text-xl font-extrabold leading-none">{b.porta}</span>}
                       {b.ordem != null && <span className="text-[11px] font-bold opacity-85 tabular-nums mt-0.5">{String(b.ordem).padStart(2, '0')}</span>}
                     </span>
                     <span className="flex-1 min-w-0">

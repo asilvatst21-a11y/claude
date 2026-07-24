@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import { valesSupabase } from './valesSupabase'
-import { parseSeparacaoBuffer } from './tmlParser'
+import { parseSeparacaoBuffer, parseRetornavelBuffer, type RetornavelItem } from './tmlParser'
 import { enviarMensagemWhatsApp } from './zapi'
 import { ENVIOS_CONFERENCIA_SUGESTAO_PAUSADOS } from './whatsappStatus'
 
@@ -9,7 +9,12 @@ import { ENVIOS_CONFERENCIA_SUGESTAO_PAUSADOS } from './whatsappStatus'
 //   P02_M_02_1/42  → porta M (motorista), ordem 02
 //   P03_A_03_1/42  → porta A (ajudante),  ordem 03
 //   Z_ITEM_NAO_PALLETIZADO → itens avulsos (sem palete)
-export type PortaConf = 'M' | 'A' | 'Z'
+// "R" é uma baia própria de retornáveis (garrafeira, palete, chapatex etc.),
+// importada do relatório 02.05.01 — não vem do Relatório de Separação.
+export type PortaConf = 'M' | 'A' | 'Z' | 'R'
+
+// Chave de palete fixa pra baia de retornáveis — só existe uma por mapa/dia.
+export const PALETE_RETORNAVEL = 'RETORNAVEL'
 
 interface PaleteInfo {
   porta: PortaConf
@@ -23,8 +28,8 @@ interface PaleteInfo {
 // resquício de imports antigos; se essa função mudar o texto, baias já
 // importadas antes não ficariam atualizadas sem reimportar o relatório.
 export function rotuloBaia(porta: PortaConf, ordem: number | null): string {
-  const nomePorta = porta === 'M' ? 'Motorista' : porta === 'A' ? 'Ajudante' : 'Avulsos'
-  return porta === 'Z' || ordem == null ? nomePorta : `${nomePorta} · Baia ${String(ordem).padStart(2, '0')}`
+  const nomePorta = porta === 'M' ? 'Motorista' : porta === 'A' ? 'Ajudante' : porta === 'R' ? 'Retornáveis' : 'Avulsos'
+  return porta === 'Z' || porta === 'R' || ordem == null ? nomePorta : `${nomePorta} · Baia ${String(ordem).padStart(2, '0')}`
 }
 
 export function parsePalete(palete: string): PaleteInfo {
@@ -36,10 +41,10 @@ export function parsePalete(palete: string): PaleteInfo {
   return { porta, ordem: ordemOuNull, rotulo: rotuloBaia(porta, ordemOuNull) }
 }
 
-// Ordena baias: porta Motorista, depois Ajudante, depois Avulsos; dentro de
-// cada porta pela ordem.
+// Ordena baias: porta Motorista, depois Ajudante, depois Avulsos, depois
+// Retornáveis; dentro de cada porta pela ordem.
 export function ordemBaia(porta: PortaConf, ordem: number | null): number {
-  const base = porta === 'M' ? 0 : porta === 'A' ? 1000 : 2000
+  const base = porta === 'M' ? 0 : porta === 'A' ? 1000 : porta === 'Z' ? 2000 : 3000
   return base + (ordem ?? 999)
 }
 
@@ -47,6 +52,7 @@ export const PORTA_LABEL: Record<PortaConf, string> = {
   M: 'Porta Motorista',
   A: 'Porta Ajudante',
   Z: 'Itens avulsos',
+  R: 'Retornáveis',
 }
 
 export interface ItemConf {
@@ -152,6 +158,83 @@ export async function importarSeparacao(
   if (eItens) throw new Error(eItens.message)
 
   return { mapas: mapasDistintos.length, baias: baiaRows.length, itens: itemRows.length }
+}
+
+// ── Import diário do relatório 02.05.01 (retornáveis) ────────────────────
+// Cria uma baia própria por mapa (porta "R") com a quantidade de cada
+// retornável que deveria sair no caminhão — conferida de manhã, antes da
+// rota, junto com as demais baias. Mesmo padrão de upsert que preserva
+// progresso já feito ao reimportar.
+export async function importarRetornaveis(
+  filial: string,
+  data: string,
+  buffer: ArrayBuffer,
+): Promise<{ mapas: number; itens: number }> {
+  const itens = parseRetornavelBuffer(buffer)
+  if (itens.length === 0) {
+    throw new Error('Nenhum item encontrado no arquivo. Confira se é o relatório 02.05.01 de retornáveis.')
+  }
+
+  const porMapa = new Map<number, { totalItens: number; totalCaixas: number }>()
+  for (const it of itens) {
+    const b = porMapa.get(it.mapa) ?? { totalItens: 0, totalCaixas: 0 }
+    b.totalItens += 1
+    b.totalCaixas += it.quantidade
+    porMapa.set(it.mapa, b)
+  }
+
+  const agora = new Date().toISOString()
+  const baiaRows = [...porMapa.entries()].map(([mapa, b]) => ({
+    filial, mapa, data, palete: PALETE_RETORNAVEL,
+    porta: 'R' as PortaConf, ordem: null, rotulo: rotuloBaia('R', null),
+    total_itens: b.totalItens, total_caixas: b.totalCaixas, importado_em: agora,
+  }))
+  const { error: eBaias } = await supabase
+    .from('conferencia_baias')
+    .upsert(baiaRows, { onConflict: 'filial,mapa,data,palete' })
+  if (eBaias) throw new Error(eBaias.message)
+
+  const mapasDistintos = [...porMapa.keys()]
+  const { data: baiasSalvas, error: eSel } = await supabase
+    .from('conferencia_baias')
+    .select('id, mapa')
+    .eq('filial', filial).eq('data', data).eq('palete', PALETE_RETORNAVEL)
+    .in('mapa', mapasDistintos.length > 0 ? mapasDistintos : [-1])
+  if (eSel) throw new Error(eSel.message)
+  const idPorMapa = new Map((baiasSalvas ?? []).map((b) => [b.mapa, b.id]))
+
+  // Sequência estável por mapa (ordenada pelo código do item, não pela
+  // ordem bruta do arquivo) — reimportar não pode embaralhar qual item já
+  // foi conferido, já que o upsert casa por (mapa, palete, sequencia).
+  const itensPorMapaOrdenados = new Map<number, RetornavelItem[]>()
+  for (const it of itens) {
+    const arr = itensPorMapaOrdenados.get(it.mapa) ?? []
+    arr.push(it)
+    itensPorMapaOrdenados.set(it.mapa, arr)
+  }
+  const itemRows: {
+    baia_id: string; filial: string; mapa: number; data: string; palete: string; sequencia: number
+    codigo: string | null; descricao: string | null; tipo: null; quantidade: number; unidade: string | null
+  }[] = []
+  for (const [mapa, arr] of itensPorMapaOrdenados) {
+    const baiaId = idPorMapa.get(mapa)
+    if (!baiaId) continue
+    const ordenados = [...arr].sort((a, b) => a.codigo.localeCompare(b.codigo))
+    ordenados.forEach((it, i) => {
+      itemRows.push({
+        baia_id: baiaId,
+        filial, mapa, data, palete: PALETE_RETORNAVEL, sequencia: i + 1,
+        codigo: it.codigo, descricao: it.descricao, tipo: null,
+        quantidade: it.quantidade, unidade: it.unidade,
+      })
+    })
+  }
+  const { error: eItens } = await supabase
+    .from('conferencia_itens')
+    .upsert(itemRows, { onConflict: 'filial,mapa,data,palete,sequencia' })
+  if (eItens) throw new Error(eItens.message)
+
+  return { mapas: mapasDistintos.length, itens: itemRows.length }
 }
 
 // ── Página do ajudante ────────────────────────────────────────────────────
