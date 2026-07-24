@@ -19,7 +19,7 @@ import {
   type LinhaJornada, type SalaJornada, type SituacaoJornada, type KpisJornada, type StatusPrevisao,
 } from '../lib/jornada'
 import { formatarDataBR } from '../lib/utils'
-import { ENVIOS_EM_MASSA_PAUSADOS } from '../lib/whatsappStatus'
+import { ENVIOS_JORNADA_PAUSADOS } from '../lib/whatsappStatus'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -679,7 +679,7 @@ export default function JornadaRota() {
   // chamado tanto pelo botão manual quanto automaticamente após o import.
   async function enviarMensagensAutomatico(): Promise<string[]> {
     if (!usuario) return []
-    if (ENVIOS_EM_MASSA_PAUSADOS) return []
+    if (ENVIOS_JORNADA_PAUSADOS) return []
     const erros: string[] = []
     const lista = await buscarJornadaDoDia(usuario.filial, dataOperacao)
     const porSala = agruparPorSala(lista)
@@ -770,7 +770,7 @@ export default function JornadaRota() {
   }
 
   async function handleEnviarManual() {
-    if (ENVIOS_EM_MASSA_PAUSADOS) {
+    if (ENVIOS_JORNADA_PAUSADOS) {
       alert('Envio em massa pausado: o WhatsApp ficou 24h em análise por disparo em massa. Use "Gerar imagem e texto p/ copiar".')
       return
     }
@@ -920,14 +920,14 @@ export default function JornadaRota() {
           </button>
           <button
             onClick={handleEnviarManual}
-            disabled={enviando || linhas.length === 0 || ENVIOS_EM_MASSA_PAUSADOS}
-            title={ENVIOS_EM_MASSA_PAUSADOS ? 'Envio em massa pausado (WhatsApp em análise 24h)' : undefined}
+            disabled={enviando || linhas.length === 0 || ENVIOS_JORNADA_PAUSADOS}
+            title={ENVIOS_JORNADA_PAUSADOS ? 'Envio em massa pausado (WhatsApp em análise 24h)' : undefined}
             className="flex items-center gap-2 px-3 py-2 rounded-md bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white text-sm transition-colors"
           >
             {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             Enviar por sala + CDD
           </button>
-          {ENVIOS_EM_MASSA_PAUSADOS && (
+          {ENVIOS_JORNADA_PAUSADOS && (
             <button
               onClick={handleGerarParaCopiar}
               disabled={gerandoCopiar || linhas.length === 0}
@@ -943,7 +943,7 @@ export default function JornadaRota() {
         </div>
       </div>
 
-      {ENVIOS_EM_MASSA_PAUSADOS && (
+      {ENVIOS_JORNADA_PAUSADOS && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm px-4 py-3">
           ⚠️ Envio pelo WhatsApp está pausado (conta em análise 24h por disparo em massa).
           Use "Gerar imagem e texto p/ copiar" pra mandar manualmente nos grupos/supervisores.

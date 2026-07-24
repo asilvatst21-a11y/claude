@@ -8,7 +8,7 @@ import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { enviarAvisosTreinamento } from '../lib/treinamentos'
-import { ENVIOS_EM_MASSA_PAUSADOS } from '../lib/whatsappStatus'
+import { ENVIOS_TREINAMENTO_PAUSADOS } from '../lib/whatsappStatus'
 import { SALA_TML_LABEL, type SalaTML } from '../lib/tml'
 import { formatarDataBR } from '../lib/utils'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
@@ -325,7 +325,7 @@ export default function Treinamentos() {
             </div>
           </div>
 
-          {ENVIOS_EM_MASSA_PAUSADOS && (
+          {ENVIOS_TREINAMENTO_PAUSADOS && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm px-4 py-3">
               ⚠️ Envio automático de avisos do treinamento está pausado — o WhatsApp ficou 24h em análise
               por disparo em massa. "Forçar disparo" não envia nada enquanto isso.
@@ -363,8 +363,8 @@ export default function Treinamentos() {
                       <td className="px-3 py-2">
                         <button
                           onClick={() => forcarDisparo(t)}
-                          disabled={forcando === t.id || ENVIOS_EM_MASSA_PAUSADOS}
-                          title={ENVIOS_EM_MASSA_PAUSADOS
+                          disabled={forcando === t.id || ENVIOS_TREINAMENTO_PAUSADOS}
+                          title={ENVIOS_TREINAMENTO_PAUSADOS
                             ? 'Envio em massa pausado (WhatsApp em análise 24h)'
                             : 'Manda os avisos agora mesmo se ninguém finalizou a matinal pelo botão (ex.: quando a matinal foi auto-finalizada sem passar pelo "Timer da Matinal")'}
                           className="flex items-center gap-1.5 text-xs px-2 py-1.5 rounded border hover:bg-accent disabled:opacity-50 whitespace-nowrap"

@@ -1,6 +1,6 @@
 import { supabase } from './supabase'
 import { enviarMensagemWhatsApp, enviarMensagemGrupo } from './zapi'
-import { ENVIOS_EM_MASSA_PAUSADOS } from './whatsappStatus'
+import { ENVIOS_TREINAMENTO_PAUSADOS } from './whatsappStatus'
 import type { SalaTML } from './tml'
 
 export interface TreinamentoParaAviso {
@@ -31,7 +31,7 @@ export async function enviarAvisosTreinamento(
   filial: string, sala: SalaTML, treino: TreinamentoParaAviso, matinalId?: number,
 ): Promise<{ enviados: number }> {
   // Envio em massa pausado (número em análise no WhatsApp) — ver whatsappStatus.ts.
-  if (ENVIOS_EM_MASSA_PAUSADOS) return { enviados: 0 }
+  if (ENVIOS_TREINAMENTO_PAUSADOS) return { enviados: 0 }
 
   const [{ data: colaboradores }, { data: cadastroMatriculas }, { data: filialRow }] = await Promise.all([
     supabase.from('motoristas_sala_tml').select('matricula, nome, telefone').eq('filial', filial).eq('sala', sala),

@@ -16,7 +16,7 @@ import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, mapasPende
 import { iniciarConversaMotorista, buscarConversasPorAlertas } from '../lib/tmlConversaMotorista'
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML, ConversaMotoristaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
-import { ENVIOS_EM_MASSA_PAUSADOS } from '../lib/whatsappStatus'
+import { ENVIOS_TML_PAUSADOS } from '../lib/whatsappStatus'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
@@ -135,7 +135,7 @@ function hojeISO(): string {
 // /distribuicao/tml/whatsapp toda vez que a planilha de saída é importada.
 // Se nenhum grupo estiver configurado, não falha — apenas não envia.
 async function enviarResumoDiario(filial: string, data: string): Promise<void> {
-  if (ENVIOS_EM_MASSA_PAUSADOS) return
+  if (ENVIOS_TML_PAUSADOS) return
   const { data: filialRow } = await supabase
     .from('filiais')
     .select('grupo_tml_diario_whatsapp')
@@ -1242,8 +1242,8 @@ export default function DistribuicaoTML() {
           </button>
           <button
             onClick={handleEnviarResumoDiario}
-            disabled={enviandoResumoDiario || ENVIOS_EM_MASSA_PAUSADOS}
-            title={ENVIOS_EM_MASSA_PAUSADOS ? 'Envio em massa pausado (WhatsApp em análise 24h)' : undefined}
+            disabled={enviandoResumoDiario || ENVIOS_TML_PAUSADOS}
+            title={ENVIOS_TML_PAUSADOS ? 'Envio em massa pausado (WhatsApp em análise 24h)' : undefined}
             className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50"
           >
             {enviandoResumoDiario ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
@@ -1251,14 +1251,14 @@ export default function DistribuicaoTML() {
           </button>
           <button
             onClick={handleEnviarResumoGerencial}
-            disabled={enviandoResumoGerencial || ENVIOS_EM_MASSA_PAUSADOS}
-            title={ENVIOS_EM_MASSA_PAUSADOS ? 'Envio em massa pausado (WhatsApp em análise 24h)' : undefined}
+            disabled={enviandoResumoGerencial || ENVIOS_TML_PAUSADOS}
+            title={ENVIOS_TML_PAUSADOS ? 'Envio em massa pausado (WhatsApp em análise 24h)' : undefined}
             className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50"
           >
             {enviandoResumoGerencial ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             Enviar resumo gerencial
           </button>
-          {ENVIOS_EM_MASSA_PAUSADOS && (
+          {ENVIOS_TML_PAUSADOS && (
             <button
               onClick={handleGerarParaCopiar}
               disabled={gerandoCopiar}
@@ -1277,7 +1277,7 @@ export default function DistribuicaoTML() {
         </div>
       </div>
 
-      {ENVIOS_EM_MASSA_PAUSADOS && (
+      {ENVIOS_TML_PAUSADOS && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 text-amber-800 text-sm px-4 py-3">
           ⚠️ Envio automático e manual pelo WhatsApp está pausado (conta em análise 24h por disparo em massa).
           Use "Gerar imagem e texto p/ copiar" pra mandar manualmente no grupo.
