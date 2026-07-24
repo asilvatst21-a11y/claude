@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { enviarMensagemWhatsApp, enviarMensagemGrupo } from './zapi'
 import { ENVIOS_TREINAMENTO_PAUSADOS } from './whatsappStatus'
+import { buscarStatusColaboradoresPorNome, pessoaEstaAtiva } from './statusAtivo'
 import type { SalaTML } from './tml'
 
 export interface TreinamentoParaAviso {
@@ -33,15 +34,17 @@ export async function enviarAvisosTreinamento(
   // Envio em massa pausado (número em análise no WhatsApp) — ver whatsappStatus.ts.
   if (ENVIOS_TREINAMENTO_PAUSADOS) return { enviados: 0 }
 
-  const [{ data: colaboradores }, { data: cadastroMatriculas }, { data: filialRow }] = await Promise.all([
+  const [{ data: colaboradores }, { data: cadastroMatriculas }, { data: filialRow }, statusPorNome] = await Promise.all([
     supabase.from('motoristas_sala_tml').select('matricula, nome, telefone').eq('filial', filial).eq('sala', sala),
     supabase.from('matriculas').select('numero, whatsapp').eq('filial', filial).eq('ativo', true),
     supabase.from('filiais').select('grupo_matinal_colorado_whatsapp, grupo_matinal_subfuria_whatsapp').eq('nome', filial).maybeSingle(),
+    buscarStatusColaboradoresPorNome(filial),
   ])
   const telefonePorNumeroCadastro = new Map((cadastroMatriculas ?? []).map((m) => [normalizarMatricula(m.numero), m.whatsapp]))
 
   let enviados = 0
   for (const c of colaboradores ?? []) {
+    if (!pessoaEstaAtiva(statusPorNome, c.nome)) continue
     const telefoneCadastro = c.matricula != null ? telefonePorNumeroCadastro.get(normalizarMatricula(String(c.matricula))) : null
     const telefone = (c.telefone ?? telefoneCadastro ?? '').trim()
     if (!telefone) continue

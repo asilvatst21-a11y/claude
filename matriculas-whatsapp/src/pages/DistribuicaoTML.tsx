@@ -17,6 +17,7 @@ import { iniciarConversaMotorista, buscarConversasPorAlertas } from '../lib/tmlC
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML, ConversaMotoristaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_TML_PAUSADOS } from '../lib/whatsappStatus'
+import { buscarStatusColaboradoresPorNome, pessoaEstaAtiva } from '../lib/statusAtivo'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
@@ -694,13 +695,15 @@ export default function DistribuicaoTML() {
         if (faltamPorSala.size > 0) {
           const now = new Date()
           const hora = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+          const statusPorNomePendentes = await buscarStatusColaboradoresPorNome(usuario.filial)
           for (const [sala, pendentes] of faltamPorSala) {
-            const { data: sups } = await supabase
+            const { data: supsRaw } = await supabase
               .from('supervisores_tml')
-              .select('telefone')
+              .select('nome, telefone')
               .eq('filial', usuario.filial)
               .eq('sala', sala)
-            if (!sups?.length) continue
+            const sups = (supsRaw ?? []).filter((s) => pessoaEstaAtiva(statusPorNomePendentes, s.nome))
+            if (!sups.length) continue
             const lista = pendentes.sort((a, b) => a.mapa - b.mapa)
             let msg = `🚛 *PENDENTES NO CDD — ${hora}*\n`
             msg += `${SALA_TML_LABEL[sala]} — ${lista.length} ainda não saíram:\n\n`
@@ -1045,13 +1048,17 @@ export default function DistribuicaoTML() {
     setEnviandoAlertaId(alerta.id)
     try {
       const mensagem = montarMensagemTml(alerta)
-      const { data: supervisores } = await supabase
-        .from('supervisores_tml')
-        .select('id, nome, telefone')
-        .eq('filial', usuario.filial)
-        .eq('sala', alerta.sala)
+      const [{ data: supervisoresRaw }, statusPorNomeAlerta] = await Promise.all([
+        supabase
+          .from('supervisores_tml')
+          .select('id, nome, telefone')
+          .eq('filial', usuario.filial)
+          .eq('sala', alerta.sala),
+        buscarStatusColaboradoresPorNome(usuario.filial),
+      ])
+      const supervisores = (supervisoresRaw ?? []).filter((s) => pessoaEstaAtiva(statusPorNomeAlerta, s.nome))
 
-      if (!supervisores?.length) {
+      if (!supervisores.length) {
         setErro(`Nenhum supervisor cadastrado para a sala ${SALA_TML_LABEL[alerta.sala] ?? alerta.sala}`)
         return
       }
@@ -1104,6 +1111,11 @@ export default function DistribuicaoTML() {
       const telefone = motorista?.telefone?.trim()
       if (!telefone) {
         setErro(`Motorista ${alerta.nome ?? alerta.matricula} está sem telefone cadastrado. Cadastre em "Motoristas" antes de perguntar.`)
+        return
+      }
+      const statusPorNomeConversa = await buscarStatusColaboradoresPorNome(usuario.filial)
+      if (!pessoaEstaAtiva(statusPorNomeConversa, motorista?.nome ?? alerta.nome)) {
+        setErro(`${alerta.nome ?? 'Este motorista'} está com status diferente de TRABALHANDO no cadastro — conversa não iniciada.`)
         return
       }
 

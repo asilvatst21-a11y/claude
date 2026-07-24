@@ -12,6 +12,7 @@ import {
   type BaiaConf, type ItemConf, type PortaConf, type PessoaConferencia,
 } from '../lib/conferencia'
 import { ENVIOS_CONFERENCIA_DIVERGENCIA_PAUSADOS } from '../lib/whatsappStatus'
+import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorNomeGlobal, pessoaEstaAtiva } from '../lib/statusAtivo'
 
 function normalizarBusca(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
@@ -202,6 +203,12 @@ export default function ConferenciaDigital() {
     const pessoa = pessoas.find((p) => normalizarBusca(p.nome) === normalizarBusca(nome))
     if (!pessoa?.telefone) return
     try {
+      // Motorista: cadastro por filial (colaboradores). Ajudante: tabela
+      // "ajudantes" é única da empresa, sem filial — checa globalmente.
+      const statusPorNome = pessoa.tipo === 'motorista'
+        ? await buscarStatusColaboradoresPorNome(filial)
+        : await buscarStatusColaboradoresPorNomeGlobal()
+      if (!pessoaEstaAtiva(statusPorNome, pessoa.nome)) return
       await enviarPerguntaSugestao(filial, Number(mapa), hojeISO(), pessoa.nome, pessoa.telefone)
     } catch {
       /* best-effort — não afeta a confirmação da baia */

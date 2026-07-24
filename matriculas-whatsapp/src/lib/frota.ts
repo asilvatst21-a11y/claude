@@ -3,6 +3,7 @@ import type { FrotaDisponibilidade, FrotaPlaca, FrotaIVTratativa } from '../type
 import { supabase } from './supabase'
 import { enviarListaOpcoesWhatsApp } from './zapi'
 import { formatarDataBR } from './utils'
+import { buscarStatusColaboradoresPorNome, pessoaEstaAtiva } from './statusAtivo'
 
 export type FrotaDisponibilidadeInsert = Omit<FrotaDisponibilidade, 'id' | 'created_at'>
 
@@ -1285,14 +1286,17 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
       .map((r) => ({ placa: r.placa, data_saida: r.data, regiao_entregas: r.regiao_entregas, cidades_entregas: null })),
   ])
 
+  const statusPorNomeFixacao = await buscarStatusColaboradoresPorNome(filial)
+
   for (const item of nokUnico) {
     if (jaAlertados.has(`${item.placa}|${item.data}`)) continue
 
     // Quando sala é desconhecida (motoristas_sala_tml sem mapeamento), envia
     // para todos os supervisores ativos da filial em vez de silenciar.
-    const { data: supervisores } = item.sala
+    const { data: supervisoresRaw } = item.sala
       ? await supabase.from('supervisores_tml').select('id, nome, telefone').eq('filial', filial).eq('sala', item.sala)
       : await supabase.from('supervisores_tml').select('id, nome, telefone').eq('filial', filial)
+    const supervisores = (supervisoresRaw ?? []).filter((s) => pessoaEstaAtiva(statusPorNomeFixacao, s.nome))
 
     const mensagem = montarMensagemFixacaoMotorista({
       ...item,

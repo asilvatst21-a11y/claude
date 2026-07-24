@@ -20,6 +20,7 @@ import {
 } from '../lib/jornada'
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_JORNADA_PAUSADOS } from '../lib/whatsappStatus'
+import { buscarStatusColaboradoresPorNome, pessoaEstaAtiva } from '../lib/statusAtivo'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -684,11 +685,14 @@ export default function JornadaRota() {
     const lista = await buscarJornadaDoDia(usuario.filial, dataOperacao)
     const porSala = agruparPorSala(lista)
 
-    const { data: filialConfig } = await supabase
-      .from('filiais')
-      .select('grupo_jornada_whatsapp, numero_extra_aderencia_whatsapp')
-      .eq('nome', usuario.filial)
-      .maybeSingle()
+    const [{ data: filialConfig }, statusPorNome] = await Promise.all([
+      supabase
+        .from('filiais')
+        .select('grupo_jornada_whatsapp, numero_extra_aderencia_whatsapp')
+        .eq('nome', usuario.filial)
+        .maybeSingle(),
+      buscarStatusColaboradoresPorNome(usuario.filial),
+    ])
     const numeroExtra = filialConfig?.numero_extra_aderencia_whatsapp || null
 
     for (const sala of SALAS_JORNADA) {
@@ -696,18 +700,19 @@ export default function JornadaRota() {
       if (linhasSala.length === 0) continue
       const salaTml = SALA_JORNADA_PARA_TML[sala]
       if (!salaTml) continue
-      const { data: supervisores } = await supabase
+      const { data: supervisoresRaw } = await supabase
         .from('supervisores_tml')
-        .select('telefone')
+        .select('nome, telefone')
         .eq('filial', usuario.filial)
         .eq('sala', salaTml)
+      const supervisores = (supervisoresRaw ?? []).filter((s) => pessoaEstaAtiva(statusPorNome, s.nome))
 
       // 3 mensagens curtas por sala — cada uma só com o Top 5 do seu
       // indicador, em vez de uma mensagem única com tudo.
       const msgJornada = montarMensagemJornadaSala(sala, linhasSala, dataOperacao)
       const msgIv = montarMensagemIvSala(sala, linhasSala, dataOperacao)
       const msgAderencia = montarMensagemAderenciaSala(sala, linhasSala, dataOperacao)
-      for (const sup of supervisores ?? []) {
+      for (const sup of supervisores) {
         if (msgJornada) await enviarMensagemWhatsApp(sup.telefone, msgJornada)
         await enviarMensagemWhatsApp(sup.telefone, msgIv)
         await enviarMensagemWhatsApp(sup.telefone, msgAderencia)
@@ -728,6 +733,7 @@ export default function JornadaRota() {
       if (l.aderencia == null || l.aderencia >= ADERENCIA_MINIMA) continue
       if (l.percConclusao != null && l.percConclusao >= 1) continue
       if (!l.telefone) continue
+      if (!pessoaEstaAtiva(statusPorNome, l.nome)) continue
       await enviarMensagemWhatsApp(l.telefone, montarMensagemAlertaAderenciaMotorista(l, dataOperacao))
     }
 

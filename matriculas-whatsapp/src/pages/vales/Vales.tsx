@@ -45,6 +45,7 @@ import { useAuth } from "@/lib/auth";
 import { enviarMensagemGrupo } from "@/lib/zapi";
 import { sendMessage } from "@/lib/valesZapi";
 import { formatPhoneForZAPI } from "@/lib/valesUtils";
+import { buscarStatusColaboradoresPorNomeGlobal, pessoaEstaAtiva } from "@/lib/statusAtivo";
 
 interface ValeRow extends ValeDetalhes {
   notificacao_pendente_enviada: boolean;
@@ -338,7 +339,8 @@ export default function ValesPage() {
         return;
       }
 
-      const ajudantesComTel = vale.ajudantes.filter((a) => a.telefone);
+      const statusPorNomeVale = await buscarStatusColaboradoresPorNomeGlobal();
+      const ajudantesComTel = vale.ajudantes.filter((a) => a.telefone && pessoaEstaAtiva(statusPorNomeVale, a.nome));
       if (ajudantesComTel.length === 0) {
         throw new Error("Nenhum ajudante com telefone cadastrado");
       }
@@ -406,7 +408,8 @@ export default function ValesPage() {
   const notificarResolucao = async (vale: ValeRow) => {
     setNotificandoResolucaoId(vale.id);
     try {
-      const ajudantesComTel = vale.ajudantes.filter((a) => a.telefone);
+      const statusPorNomeVale = await buscarStatusColaboradoresPorNomeGlobal();
+      const ajudantesComTel = vale.ajudantes.filter((a) => a.telefone && pessoaEstaAtiva(statusPorNomeVale, a.nome));
       if (ajudantesComTel.length === 0) {
         throw new Error("Nenhum ajudante com telefone cadastrado");
       }

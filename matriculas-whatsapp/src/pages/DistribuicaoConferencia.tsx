@@ -198,9 +198,14 @@ export default function DistribuicaoConferencia() {
       .select('nome, telefone, funcao, status')
       .eq('filial', usuario.filial)
       .not('telefone', 'is', null)
-    const destinatarios = (data ?? []).filter((c) =>
-      /AJUDANTE|MOTORISTA/i.test(c.funcao ?? '') && (c.status ?? '').toUpperCase() !== 'DESLIGADO' && (c.telefone ?? '').trim()
-    )
+    const destinatarios = (data ?? []).filter((c) => {
+      const status = (c.status ?? '').trim().toUpperCase()
+      // Bloqueia qualquer status explícito diferente de TRABALHANDO
+      // (DESLIGADO, FÉRIAS, AFASTADO etc.) — sem status cadastrado (branco)
+      // continua liberado, pra não travar quem ainda não teve o campo
+      // preenchido na planilha de RH.
+      return /AJUDANTE|MOTORISTA/i.test(c.funcao ?? '') && (status === '' || status === 'TRABALHANDO') && (c.telefone ?? '').trim()
+    })
     if (destinatarios.length === 0) {
       alert('Nenhum motorista/ajudante com telefone cadastrado em Gente › Colaboradores.')
       return
