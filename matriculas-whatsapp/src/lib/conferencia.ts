@@ -1,6 +1,8 @@
 import { supabase } from './supabase'
 import { valesSupabase } from './valesSupabase'
 import { parseSeparacaoBuffer } from './tmlParser'
+import { enviarMensagemWhatsApp } from './zapi'
+import { ENVIOS_CONFERENCIA_SUGESTAO_PAUSADOS } from './whatsappStatus'
 
 // ── Baia (palete) ─────────────────────────────────────────────────────────
 // O campo "Palete" do Relatório de Separação já traz a porta e a ordem:
@@ -477,15 +479,16 @@ export function montarMensagensDivergenciaMapa(mapa: number, data: string, diver
 export interface PessoaConferencia {
   nome: string
   tipo: 'motorista' | 'ajudante'
+  telefone: string | null
 }
 
 export async function buscarPessoasConferencia(filial: string): Promise<PessoaConferencia[]> {
   const [{ data: motoristas }, { data: ajudantes }] = await Promise.all([
-    supabase.from('motoristas_sala_tml').select('nome').eq('filial', filial),
+    supabase.from('motoristas_sala_tml').select('nome, telefone').eq('filial', filial),
     // A tabela "ajudantes" (módulo de Vales) só concede acesso ao
     // service_role — usa o client com a service key, igual o resto do
     // módulo de Vales já faz no front.
-    valesSupabase.from('ajudantes').select('nome'),
+    valesSupabase.from('ajudantes').select('nome, telefone'),
   ])
   const vistos = new Set<string>()
   const lista: PessoaConferencia[] = []
@@ -494,14 +497,68 @@ export async function buscarPessoasConferencia(filial: string): Promise<PessoaCo
     const chave = nome.toLowerCase()
     if (!nome || vistos.has(chave)) continue
     vistos.add(chave)
-    lista.push({ nome, tipo: 'motorista' })
+    lista.push({ nome, tipo: 'motorista', telefone: m.telefone || null })
   }
   for (const a of ajudantes ?? []) {
     const nome = (a.nome ?? '').trim()
     const chave = nome.toLowerCase()
     if (!nome || vistos.has(chave)) continue
     vistos.add(chave)
-    lista.push({ nome, tipo: 'ajudante' })
+    lista.push({ nome, tipo: 'ajudante', telefone: a.telefone || null })
   }
   return lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+}
+
+// ── Pergunta de sugestão ao finalizar o mapa ─────────────────────────────
+// Mandada uma vez por pessoa/mapa, quando o mapa fica 100% resolvido
+// (conferido ou pulado) e o nome digitado bate com alguém com telefone
+// cadastrado. A resposta em texto livre é capturada pelo webhook
+// (ver api/zapi-webhook.ts) e aparece na aba "Sugestões" do painel.
+export function montarMensagemSugestao(nome: string, mapa: number): string {
+  const primeiro = nome.trim().split(/\s+/)[0] ?? nome
+  return (
+    `✅ *Conferência do mapa ${mapa} finalizada!*\n\n` +
+    `Oi, ${primeiro}! Vi que você concluiu a conferência desse mapa.\n\n` +
+    `Você tem alguma sugestão pra gente melhorar esse processo? Algo que trava, que podia ser mais rápido, ou que faria diferença?\n\n` +
+    `Responda aqui com sua ideia — toda sugestão ajuda a melhorar o sistema. Se não tiver nada, pode ignorar essa mensagem. Boa rota e bom trabalho! 🙌`
+  )
+}
+
+export async function enviarPerguntaSugestao(
+  filial: string, mapa: number, data: string, nome: string, telefone: string,
+): Promise<void> {
+  if (ENVIOS_CONFERENCIA_SUGESTAO_PAUSADOS) return
+  const { sucesso } = await enviarMensagemWhatsApp(telefone, montarMensagemSugestao(nome, mapa))
+  if (!sucesso) return
+  await supabase.from('conferencia_sugestoes').insert({
+    filial, mapa, data, nome, telefone, status: 'aguardando',
+  })
+}
+
+// ── Painel: listagem de sugestões (aba "Sugestões") ──────────────────────
+export interface SugestaoConf {
+  id: string
+  mapa: number
+  data: string
+  nome: string | null
+  telefone: string
+  perguntaEnviadaEm: string
+  resposta: string | null
+  respondidaEm: string | null
+  status: 'aguardando' | 'respondida'
+}
+
+export async function buscarSugestoes(filial: string, limite = 200): Promise<SugestaoConf[]> {
+  const { data, error } = await supabase
+    .from('conferencia_sugestoes')
+    .select('id, mapa, data, nome, telefone, pergunta_enviada_em, resposta, respondida_em, status')
+    .eq('filial', filial)
+    .order('pergunta_enviada_em', { ascending: false })
+    .limit(limite)
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((s) => ({
+    id: s.id, mapa: s.mapa, data: s.data, nome: s.nome, telefone: s.telefone,
+    perguntaEnviadaEm: s.pergunta_enviada_em, resposta: s.resposta, respondidaEm: s.respondida_em,
+    status: s.status as 'aguardando' | 'respondida',
+  }))
 }

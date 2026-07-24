@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ClipboardCheck, Upload, Loader2, RefreshCw, AlertTriangle, CheckCircle2,
-  Clock, Search, Link2, Settings2, ExternalLink, ChevronDown, ChevronRight, Send, Copy, X, Timer,
+  Clock, Search, Link2, Settings2, ExternalLink, ChevronDown, ChevronRight, Send, Copy, X, Timer, MessageSquare,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -9,7 +9,7 @@ import { listarGrupos, enviarMensagemWhatsApp, type GrupoZApi } from '../lib/zap
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   importarSeparacao, buscarResumoDia, buscarDivergenciasDoMapa, montarMensagensDivergenciaMapa,
-  buscarBaiasDoMapa, type ResumoDiaConf, type BaiaConf,
+  buscarBaiasDoMapa, buscarSugestoes, type ResumoDiaConf, type BaiaConf, type SugestaoConf,
 } from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_CONFERENCIA_LINK_PAUSADOS } from '../lib/whatsappStatus'
@@ -43,6 +43,9 @@ export default function DistribuicaoConferencia() {
 
   const [configAberta, setConfigAberta] = useState(false)
   const [tabelaAberta, setTabelaAberta] = useState(true)
+  const [sugestoesAberta, setSugestoesAberta] = useState(false)
+  const [sugestoes, setSugestoes] = useState<SugestaoConf[]>([])
+  const [loadingSugestoes, setLoadingSugestoes] = useState(false)
   const [grupo, setGrupo] = useState('')
   const [grupoOriginal, setGrupoOriginal] = useState('')
   const [grupos, setGrupos] = useState<GrupoZApi[]>([])
@@ -80,8 +83,19 @@ export default function DistribuicaoConferencia() {
     setUltimoImport(ult?.importado_em ?? null)
   }, [usuario, dataOperacao])
 
+  const fetchSugestoes = useCallback(async () => {
+    if (!usuario) return
+    setLoadingSugestoes(true)
+    try {
+      setSugestoes(await buscarSugestoes(usuario.filial))
+    } finally {
+      setLoadingSugestoes(false)
+    }
+  }, [usuario])
+
   useEffect(() => { fetchResumo() }, [fetchResumo])
   useEffect(() => { fetchConfig() }, [fetchConfig])
+  useEffect(() => { fetchSugestoes() }, [fetchSugestoes])
 
   async function handleImportar(file: File) {
     if (!usuario) return
@@ -360,6 +374,44 @@ export default function DistribuicaoConferencia() {
             </table>
           </div>
         ))}
+      </div>
+
+      <div className="border rounded-lg bg-white">
+        <button onClick={() => setSugestoesAberta((v) => !v)} className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
+          <span className="flex items-center gap-2 font-semibold text-sm">
+            {sugestoesAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+            <MessageSquare className="h-4 w-4 text-accent-600" /> Sugestões
+          </span>
+          <span className="text-xs text-muted-foreground">
+            {sugestoes.filter((s) => s.status === 'respondida').length} de {sugestoes.length} respondida(s)
+          </span>
+        </button>
+        {sugestoesAberta && (
+          loadingSugestoes ? (
+            <div className="flex items-center justify-center py-8 border-t"><Loader2 className="h-5 w-5 animate-spin text-accent-500" /></div>
+          ) : sugestoes.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4 border-t">
+              Nenhuma pergunta de sugestão enviada ainda — ela é mandada automaticamente pro telefone
+              cadastrado da pessoa quando ela finaliza um mapa (todas as baias conferidas ou puladas).
+            </p>
+          ) : (
+            <div className="border-t divide-y max-h-[420px] overflow-y-auto">
+              {sugestoes.map((s) => (
+                <div key={s.id} className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <p className="text-sm font-semibold">{s.nome ?? '—'} <span className="text-muted-foreground font-normal">· Mapa {s.mapa} · {formatarDataBR(s.data)}</span></p>
+                    {s.status === 'respondida'
+                      ? <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Respondida</span>
+                      : <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Aguardando</span>}
+                  </div>
+                  {s.resposta
+                    ? <p className="text-sm text-gray-700 mt-1.5">"{s.resposta}"</p>
+                    : <p className="text-xs text-muted-foreground mt-1.5">Ainda sem resposta.</p>}
+                </div>
+              ))}
+            </div>
+          )
+        )}
       </div>
 
       {detalheMapa != null && (

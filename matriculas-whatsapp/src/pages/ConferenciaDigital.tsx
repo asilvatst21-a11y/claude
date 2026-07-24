@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabase'
 import { enviarMensagemGrupo } from '../lib/zapi'
 import {
   buscarBaiasDoMapa, iniciarBaia, marcarItem, registrarDivergencia, finalizarBaia, pularBaia,
-  montarMensagemDivergencia, buscarPessoasConferencia, PORTA_LABEL, MOTIVOS_PULAR_BAIA,
+  montarMensagemDivergencia, buscarPessoasConferencia, enviarPerguntaSugestao, PORTA_LABEL, MOTIVOS_PULAR_BAIA,
   type BaiaConf, type ItemConf, type PortaConf, type PessoaConferencia,
 } from '../lib/conferencia'
 import { ENVIOS_CONFERENCIA_DIVERGENCIA_PAUSADOS } from '../lib/whatsappStatus'
@@ -153,12 +153,30 @@ export default function ConferenciaDigital() {
     }
   }
 
+  // Se essa era a última baia pendente do mapa, manda a pergunta de
+  // sugestão pro telefone cadastrado da pessoa que digitou o nome — só
+  // uma vez por mapa/pessoa, best-effort (não afeta a confirmação da baia).
+  // Usa o "baias" da closure (estado ainda não atualizado por esta ação),
+  // tratando a própria baiaAtiva como já resolvida.
+  async function avisarSugestaoSeMapaFinalizado() {
+    const mapaFinalizado = baias.every((b) => b.id === baiaAtiva || b.status === 'conferida' || b.status === 'pulada')
+    if (!mapaFinalizado) return
+    const pessoa = pessoas.find((p) => normalizarBusca(p.nome) === normalizarBusca(nome))
+    if (!pessoa?.telefone) return
+    try {
+      await enviarPerguntaSugestao(filial, Number(mapa), hojeISO(), pessoa.nome, pessoa.telefone)
+    } catch {
+      /* best-effort — não afeta a confirmação da baia */
+    }
+  }
+
   async function confirmarBaia() {
     if (!baiaAtiva) return
     setErro('')
     try {
       await finalizarBaia(baiaAtiva, nome.trim() || null)
       setBaias((prev) => prev.map((b) => b.id === baiaAtiva ? { ...b, status: 'conferida' } : b))
+      await avisarSugestaoSeMapaFinalizado()
       setBaiaAtiva(null)
       setTela('baias')
       await recarregar()
@@ -172,6 +190,7 @@ export default function ConferenciaDigital() {
     try {
       await pularBaia(baiaAtiva, motivo, nome.trim() || null)
       setBaias((prev) => prev.map((b) => b.id === baiaAtiva ? { ...b, status: 'pulada', motivoPulada: motivo } : b))
+      await avisarSugestaoSeMapaFinalizado()
       setPularAberto(false)
       setBaiaAtiva(null)
       setTela('baias')

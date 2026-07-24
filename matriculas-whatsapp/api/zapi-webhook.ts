@@ -2491,6 +2491,50 @@ async function tratarDuvidaMatinal(
   return await processarDuvidaSobreTreinamento(aviso.treinamento_id, aviso.filial, aviso.sala, remetente, nomeColab, conteudo, porAudio)
 }
 
+// TTL da pergunta de sugestão da Conferência Digital (24h) — depois desse
+// prazo uma mensagem qualquer do telefone não é mais tratada como resposta
+// à pergunta (ver enviarPerguntaSugestao em src/lib/conferencia.ts, chamado
+// ao finalizar um mapa).
+const SUGESTAO_CONFERENCIA_TTL_MIN = 60 * 24
+
+// Resposta livre a "tem alguma sugestão pra melhorar a conferência?" — só
+// processa se houver uma pergunta pendente (status='aguardando') pra esse
+// telefone; senão retorna null e cai no próximo fluxo do roteamento.
+async function tratarSugestaoConferenciaPendente(
+  body: any, remetente: string,
+): Promise<{ ok: boolean; action: string } | null> {
+  // Saudação/comando da Aurora tem prioridade — quem foi avisado da
+  // sugestão mas quer usar o menu não fica travado nesse fluxo.
+  const textoBruto = extrairTexto(body).trim()
+  if (ehSaudacaoAurora(textoBruto) || ehTrocarAssuntoAurora(textoBruto) || ehEncerrarAurora(textoBruto)) return null
+
+  const limite = new Date(Date.now() - SUGESTAO_CONFERENCIA_TTL_MIN * 60_000).toISOString()
+  const { data: pendente } = await supabase
+    .from('conferencia_sugestoes')
+    .select('id')
+    .eq('telefone', remetente)
+    .eq('status', 'aguardando')
+    .gte('created_at', limite)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!pendente) return null
+
+  if (!textoBruto) {
+    // Clique de botão/lista (ex.: menu da Aurora) não é resposta à
+    // sugestão — devolve null pra outro fluxo tratar.
+    if (extrairBotaoResposta(body)) return null
+    return { ok: true, action: 'sugestao-conferencia-sem-conteudo' }
+  }
+
+  await supabase.from('conferencia_sugestoes')
+    .update({ resposta: textoBruto, respondida_em: new Date().toISOString(), status: 'respondida' })
+    .eq('id', pendente.id)
+
+  await enviar(remetente, 'Valeu pela sugestão! Vamos analisar com o time. 🙌')
+  return { ok: true, action: 'sugestao-conferencia-respondida' }
+}
+
 // Pré-seleção de tema: quando não há aviso do dia (o colaborador quer
 // perguntar sobre um treinamento de outro dia), o bot descobre a sala dele e
 // oferece os treinamentos publicados pra escolher antes de responder. Estado
@@ -3387,6 +3431,11 @@ export default async function handler(req: any, res: any) {
       const rDuvidaMatinal = await tratarDuvidaMatinal(body, grupoId, senderName)
       if (rDuvidaMatinal) {
         res.status(200).json(rDuvidaMatinal)
+        return
+      }
+      const rSugestaoConferencia = await tratarSugestaoConferenciaPendente(body, grupoId)
+      if (rSugestaoConferencia) {
+        res.status(200).json(rSugestaoConferencia)
         return
       }
 

@@ -12,6 +12,10 @@ export const ENVIOS_CONFERENCIA_LINK_PAUSADOS = true
 export const ENVIOS_CONFERENCIA_DIVERGENCIA_PAUSADOS = false
 export const ENVIOS_TML_PAUSADOS = false // reabilitado em 23/07/2026
 export const ENVIOS_JORNADA_PAUSADOS = false // reabilitado em 23/07/2026
+// Pergunta de sugestão ao finalizar um mapa na Conferência Digital: uma
+// mensagem por pessoa/mapa, não é disparo em massa — feature nova, nunca
+// esteve envolvida no bloqueio original.
+export const ENVIOS_CONFERENCIA_SUGESTAO_PAUSADOS = false
 
 // Indicador agregado — só pra avisos genéricos de "o bot ainda está
 // paralisado" (ex.: banner da tela de Reposições) — true enquanto qualquer
