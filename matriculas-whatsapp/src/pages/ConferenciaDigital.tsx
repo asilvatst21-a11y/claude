@@ -12,7 +12,7 @@ import {
   type BaiaConf, type ItemConf, type PortaConf, type PessoaConferencia,
 } from '../lib/conferencia'
 import { ENVIOS_CONFERENCIA_DIVERGENCIA_PAUSADOS } from '../lib/whatsappStatus'
-import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorNomeGlobal, podeEnviarPara } from '../lib/statusAtivo'
+import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorNomeGlobal, buscarStatusColaboradoresPorMatricula, podeEnviarPara } from '../lib/statusAtivo'
 
 function normalizarBusca(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
@@ -203,12 +203,20 @@ export default function ConferenciaDigital() {
     const pessoa = pessoas.find((p) => normalizarBusca(p.nome) === normalizarBusca(nome))
     if (!pessoa?.telefone) return
     try {
-      // Motorista: cadastro por filial (colaboradores). Ajudante: tabela
-      // "ajudantes" é única da empresa, sem filial — checa globalmente.
+      // Motorista: cadastro por filial (colaboradores), casando por matrícula
+      // (mais confiável que nome — evita bloqueio por nome truncado/diferente
+      // entre motoristas_sala_tml e colaboradores). Ajudante: tabela
+      // "ajudantes" é única da empresa, sem filial — checa globalmente por nome.
       const statusPorNome = pessoa.tipo === 'motorista'
         ? await buscarStatusColaboradoresPorNome(filial)
         : await buscarStatusColaboradoresPorNomeGlobal()
-      const podeEnviar = await podeEnviarPara({ origem: 'conferencia_sugestao', filial, mapaStatus: statusPorNome, nome: pessoa.nome, telefone: pessoa.telefone, detalhe: `Mapa ${mapa}` })
+      const statusPorMatricula = pessoa.tipo === 'motorista'
+        ? await buscarStatusColaboradoresPorMatricula(filial)
+        : undefined
+      const podeEnviar = await podeEnviarPara({
+        origem: 'conferencia_sugestao', filial, mapaStatus: statusPorNome, nome: pessoa.nome, telefone: pessoa.telefone, detalhe: `Mapa ${mapa}`,
+        matricula: pessoa.matricula, mapaStatusPorMatricula: statusPorMatricula,
+      })
       if (!podeEnviar) return
       await enviarPerguntaSugestao(filial, Number(mapa), hojeISO(), pessoa.nome, pessoa.telefone)
     } catch {

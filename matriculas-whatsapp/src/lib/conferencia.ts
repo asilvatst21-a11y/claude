@@ -563,11 +563,18 @@ export interface PessoaConferencia {
   nome: string
   tipo: 'motorista' | 'ajudante'
   telefone: string | null
+  // Só motorista tem matrícula aqui (vem de motoristas_sala_tml). É a chave
+  // usada pra cruzar com `colaboradores` no lugar do nome — nomes importados
+  // em motoristas_sala_tml às vezes vêm truncados (ex.: planilha de origem
+  // com nome cortado em 30 caracteres), o que faz o nome não bater com o
+  // cadastro central e bloquear o envio por engano mesmo a pessoa estando
+  // ativa. Matrícula não sofre esse problema.
+  matricula: string | null
 }
 
 export async function buscarPessoasConferencia(filial: string): Promise<PessoaConferencia[]> {
   const [{ data: motoristas }, { data: ajudantes }] = await Promise.all([
-    supabase.from('motoristas_sala_tml').select('nome, telefone').eq('filial', filial),
+    supabase.from('motoristas_sala_tml').select('nome, telefone, matricula').eq('filial', filial),
     // A tabela "ajudantes" (módulo de Vales) só concede acesso ao
     // service_role — usa o client com a service key, igual o resto do
     // módulo de Vales já faz no front.
@@ -580,14 +587,14 @@ export async function buscarPessoasConferencia(filial: string): Promise<PessoaCo
     const chave = nome.toLowerCase()
     if (!nome || vistos.has(chave)) continue
     vistos.add(chave)
-    lista.push({ nome, tipo: 'motorista', telefone: m.telefone || null })
+    lista.push({ nome, tipo: 'motorista', telefone: m.telefone || null, matricula: m.matricula != null ? String(m.matricula) : null })
   }
   for (const a of ajudantes ?? []) {
     const nome = (a.nome ?? '').trim()
     const chave = nome.toLowerCase()
     if (!nome || vistos.has(chave)) continue
     vistos.add(chave)
-    lista.push({ nome, tipo: 'ajudante', telefone: a.telefone || null })
+    lista.push({ nome, tipo: 'ajudante', telefone: a.telefone || null, matricula: null })
   }
   return lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
 }

@@ -40,6 +40,21 @@ export async function buscarStatusColaboradoresPorNomeGlobal(): Promise<Map<stri
   return mapa
 }
 
+// Variante por matrícula — usada quando dá pra cruzar por um identificador
+// estável em vez de nome. Nomes importados de planilha às vezes vêm
+// truncados ou com grafia diferente entre tabelas (ex.: motoristas_sala_tml
+// vs. o nome que originou o cadastro em `colaboradores`), o que faz o match
+// por nome falhar mesmo com a pessoa ativa. Matrícula não tem esse problema.
+export async function buscarStatusColaboradoresPorMatricula(filial: string): Promise<Map<string, string>> {
+  const { data } = await supabase.from('colaboradores').select('matricula, status').eq('filial', filial)
+  const mapa = new Map<string, string>()
+  for (const c of data ?? []) {
+    if (c.matricula == null) continue
+    mapa.set(String(c.matricula).trim(), (c.status ?? '').trim().toUpperCase())
+  }
+  return mapa
+}
+
 // Grava na central de bloqueios (tela "Envios bloqueados") — não trava o
 // fluxo de quem chamou; falha ao registrar é só logada no console.
 export async function registrarEnvioBloqueado(params: {
@@ -77,8 +92,23 @@ export async function podeEnviarPara(params: {
   nome: string | null | undefined
   telefone?: string | null
   detalhe?: string | null
+  // Opcional: quando informados, a matrícula tem prioridade sobre o nome pra
+  // achar o status em `colaboradores` (mais confiável que casar por nome).
+  matricula?: string | number | null
+  mapaStatusPorMatricula?: Map<string, string>
 }): Promise<boolean> {
-  const { origem, filial, mapaStatus, nome, telefone, detalhe } = params
+  const { origem, filial, mapaStatus, nome, telefone, detalhe, matricula, mapaStatusPorMatricula } = params
+  if (matricula != null && mapaStatusPorMatricula) {
+    const statusPorMatricula = mapaStatusPorMatricula.get(String(matricula).trim())
+    if (statusPorMatricula === STATUS_ATIVO) return true
+    if (statusPorMatricula != null) {
+      await registrarEnvioBloqueado({ origem, filial, nome, telefone, motivo: `Status "${statusPorMatricula}" — diferente de TRABALHANDO`, detalhe })
+      return false
+    }
+    // Matrícula não encontrada em `colaboradores`: cai pro match por nome
+    // abaixo em vez de bloquear direto — pode ser matrícula divergente
+    // entre cadastros.
+  }
   if (!nome) {
     await registrarEnvioBloqueado({ origem, filial, nome, telefone, motivo: 'Sem nome cadastrado — não dá pra confirmar o status', detalhe })
     return false
