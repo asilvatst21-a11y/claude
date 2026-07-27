@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import { enviarMensagemGrupo, enviarMensagemWhatsApp, enviarImagemGrupo } from '../lib/zapi'
+import { enviarMensagemGrupo, enviarMensagemWhatsApp, enviarImagemGrupo, aguardarEntreEnvios } from '../lib/zapi'
 import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
 import { formatarDataBR } from '../lib/utils'
 import { ehMotoristaOuAjudante, calcularVencimento, type VencimentoInfo } from '../lib/gsdpqVencimento'
@@ -833,6 +833,7 @@ export default function Gsdpq() {
           status: sucesso ? 'enviado' : 'erro', erro: erro ?? null,
         })
         if (sucesso) enviosSupervisor++
+        await aguardarEntreEnvios()
       }
 
       let imagemEnviada = false

@@ -53,6 +53,13 @@ async function enviar(destino: string, message: string): Promise<void> {
 
 const enviarGrupo = enviar
 
+// Pausa entre envios num loop que manda mensagem pra vários destinatários
+// (lembretes em lote) — sem isso, o loop dispara tudo em sequência quase
+// instantânea, o padrão que costuma derrubar a conta por suspeita de spam.
+function aguardarEntreEnvios(ms = 1500): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 // Envia mensagem com botões interativos (send-button-list). Como botões andam
 // instáveis em grupos no WhatsApp, o próprio texto da mensagem já instrui a
 // resposta (SIM/NÃO, OK/NOK) e, se a API falhar, caímos para texto puro.
@@ -2237,6 +2244,7 @@ export async function verificarLembretesFrotaLeve(grupoAlvo?: string): Promise<n
       [{ id: `frl_ret_pick:${s.id}`, label: '📥 Registrar Retorno' }])
     await supabase.from('frota_leve_saidas').update({ lembrete_enviado_em: new Date().toISOString() }).eq('id', s.id)
     enviados++
+    await aguardarEntreEnvios()
   }
   return enviados
 }
@@ -2834,6 +2842,7 @@ export async function verificarLembretesMatinal(): Promise<number> {
     }
     await supabase.from('duvidas_matinal').update({ lembrete_enviado_em: new Date().toISOString() }).eq('id', d.id)
     acoes++
+    await aguardarEntreEnvios()
   }
 
   const { data: semResposta } = await supabase
@@ -2849,6 +2858,7 @@ export async function verificarLembretesMatinal(): Promise<number> {
       'Ainda não recebi resposta do palestrante sobre sua dúvida. Vou verificar pessoalmente e te retorno assim que souber.')
     await supabase.from('duvidas_matinal').update({ aviso_atraso_enviado_em: new Date().toISOString() }).eq('id', d.id)
     acoes++
+    await aguardarEntreEnvios()
   }
 
   return acoes

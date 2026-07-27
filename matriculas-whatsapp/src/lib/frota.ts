@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx'
 import type { FrotaDisponibilidade, FrotaPlaca, FrotaIVTratativa } from '../types'
 import { supabase } from './supabase'
-import { enviarListaOpcoesWhatsApp } from './zapi'
+import { enviarListaOpcoesWhatsApp, aguardarEntreEnvios } from './zapi'
 import { formatarDataBR } from './utils'
 import { buscarStatusColaboradoresPorNome, podeEnviarPara } from './statusAtivo'
 
@@ -1342,6 +1342,7 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
     for (const sup of supervisores) {
       const resultado = await enviarListaOpcoesWhatsApp(sup.telefone, mensagem, 'Motivo da divergência', 'Selecionar motivo', opcoes)
       if (!resultado.sucesso) errosEnvio.push(`${sup.nome}: ${resultado.erro}`)
+      await aguardarEntreEnvios()
     }
 
     await supabase.from('alertas_fixacao_motorista')

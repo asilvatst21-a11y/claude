@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { enviarListaOpcoesWhatsApp, enviarMensagemWhatsApp, enviarMensagemGrupo, enviarImagemGrupo } from '../lib/zapi'
+import { enviarListaOpcoesWhatsApp, enviarMensagemWhatsApp, enviarMensagemGrupo, enviarImagemGrupo, aguardarEntreEnvios } from '../lib/zapi'
 import { serieCartaControleCDD, renderCartaControlePNG } from '../lib/tmlCartaControle'
 import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer, type ChecklistTML } from '../lib/tmlParser'
 import {
@@ -713,7 +713,7 @@ export default function DistribuicaoTML() {
             let msg = `🚛 *PENDENTES NO CDD — ${hora}*\n`
             msg += `${SALA_TML_LABEL[sala]} — ${lista.length} ainda não saíram:\n\n`
             for (const p of lista) msg += `• Mapa ${p.mapa} — ${p.placa ?? '—'} — ${p.nome ?? '—'}\n`
-            for (const sup of sups) await enviarMensagemWhatsApp(sup.telefone, msg)
+            for (const sup of sups) { await enviarMensagemWhatsApp(sup.telefone, msg); await aguardarEntreEnvios() }
           }
         }
       } catch {
@@ -1080,6 +1080,7 @@ export default function DistribuicaoTML() {
       for (const sup of supervisores) {
         const resultado = await enviarMensagemWhatsApp(sup.telefone, mensagem)
         if (!resultado.sucesso) erros.push(`${sup.nome}: ${resultado.erro}`)
+        await aguardarEntreEnvios()
       }
 
       const { error } = await supabase

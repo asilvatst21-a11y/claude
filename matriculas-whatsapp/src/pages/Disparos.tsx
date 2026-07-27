@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { valesSupabase } from '../lib/valesSupabase'
 import { useAuth } from '../lib/auth'
-import { enviarMensagemWhatsApp, enviarImagemWhatsApp, formatarMensagem } from '../lib/zapi'
+import { enviarMensagemWhatsApp, enviarImagemWhatsApp, formatarMensagem, aguardarEntreEnvios } from '../lib/zapi'
 import type { Matricula, Cliente } from '../types'
 import { FileSpreadsheet, CheckCircle, XCircle, Send, AlertTriangle, Image, RefreshCw } from 'lucide-react'
 
@@ -176,6 +176,7 @@ export default function Disparos() {
 
       res.push({ linha, enviado: sucesso, erro })
       setProgressoCruzamento(Math.round(((i + 1) / aptos.length) * 100))
+      if (i < aptos.length - 1) await aguardarEntreEnvios()
     }
 
     setResultadosCruzamento(res)
@@ -315,6 +316,7 @@ export default function Disparos() {
 
       res.push({ ...linha, enviado: sucesso, erro })
       setProgresso(Math.round(((i + 1) / aptos.length) * 100))
+      if (i < aptos.length - 1) await aguardarEntreEnvios()
     }
 
     setResultados(res)

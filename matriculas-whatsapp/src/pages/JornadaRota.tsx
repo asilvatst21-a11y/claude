@@ -9,7 +9,7 @@ import {
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { parseBeesBuffer, parseRoteirizadorBuffer } from '../lib/tmlParser'
-import { enviarMensagemWhatsApp, enviarImagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { enviarMensagemWhatsApp, enviarImagemGrupo, listarGrupos, aguardarEntreEnvios, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   buscarJornadaDoDia, calcularKpis, agruparPorSala,
@@ -721,6 +721,7 @@ export default function JornadaRota() {
         if (msgJornada) await enviarMensagemWhatsApp(sup.telefone, msgJornada)
         await enviarMensagemWhatsApp(sup.telefone, msgIv)
         await enviarMensagemWhatsApp(sup.telefone, msgAderencia)
+        await aguardarEntreEnvios()
       }
       // Número extra: recebe a aderência das duas salas (uma mensagem por sala).
       if (numeroExtra) {
@@ -741,6 +742,7 @@ export default function JornadaRota() {
       const pode = await podeEnviarPara({ origem: 'jornada_aderencia_motorista', filial: usuario.filial, mapaStatus: statusPorNome, nome: l.nome, telefone: l.telefone, detalhe: `Mapa ${l.mapa}` })
       if (!pode) continue
       await enviarMensagemWhatsApp(l.telefone, montarMensagemAlertaAderenciaMotorista(l, dataOperacao))
+      await aguardarEntreEnvios()
     }
 
     if (filialConfig?.grupo_jornada_whatsapp) {

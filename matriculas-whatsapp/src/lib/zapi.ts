@@ -13,6 +13,15 @@ function limparNumero(numero: string): string {
   return limpo.startsWith('55') ? limpo : `55${limpo}`
 }
 
+// Pausa entre envios num loop de disparo pra várias pessoas — sem isso, um
+// loop `for` dispara todas as mensagens em sequência quase instantânea, o
+// que é o padrão clássico que derruba a conta do WhatsApp por suspeita de
+// spam. Use dentro de todo loop que manda mensagem pra mais de um número
+// (não precisa em envio único pra uma pessoa/grupo).
+export function aguardarEntreEnvios(ms = 1500): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
 export async function enviarMensagemWhatsApp(
   numero: string,
   mensagem: string

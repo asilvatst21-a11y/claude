@@ -42,7 +42,7 @@ import { formatCurrency, formatDateBR, calcPrazo, type PrazoStatus } from "@/lib
 import { valesSupabase } from "@/lib/valesSupabase";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
-import { enviarMensagemGrupo } from "@/lib/zapi";
+import { enviarMensagemGrupo, aguardarEntreEnvios } from "@/lib/zapi";
 import { sendMessage } from "@/lib/valesZapi";
 import { formatPhoneForZAPI } from "@/lib/valesUtils";
 import { buscarStatusColaboradoresPorNomeGlobal, podeEnviarPara } from "@/lib/statusAtivo";
@@ -382,6 +382,7 @@ export default function ValesPage() {
         });
 
         if (result.success) sent++;
+        await aguardarEntreEnvios();
       }
 
       if (sent > 0) {
@@ -444,6 +445,7 @@ export default function ValesPage() {
           enviada_em: result.success ? new Date().toISOString() : null,
         });
         if (result.success) sent++;
+        await aguardarEntreEnvios();
       }
 
       if (sent > 0) {
