@@ -6,15 +6,12 @@
 // aviso ao grupo) e a extinção de "Enviar link ao time"
 // (DistribuicaoConferencia.tsx).
 //
-// TML e Jornada/Rota travaram o WhatsApp de novo em 25/07/2026. Decisão
-// permanente (não é mais um toggle de emergência temporário): esses dois
-// ficam SEMPRE pausados daqui pra frente — envio automático e manual pelo
-// botão desabilitados, e as telas caem no fluxo "Gerar imagem e texto p/
-// copiar" pra mandar manualmente fora do app. Não reative sem confirmar
-// com o usuário.
+// TML e Jornada/Rota travaram o WhatsApp de novo em 25/07/2026 e ficaram
+// pausados (envio automático e manual pelo botão) até 27/07/2026, quando
+// foram reabilitados a pedido do usuário.
 export const ENVIOS_CONFERENCIA_DIVERGENCIA_PAUSADOS = false
-export const ENVIOS_TML_PAUSADOS = true
-export const ENVIOS_JORNADA_PAUSADOS = true
+export const ENVIOS_TML_PAUSADOS = false
+export const ENVIOS_JORNADA_PAUSADOS = false
 export const ENVIOS_CONFERENCIA_SUGESTAO_PAUSADOS = false
 
 // Indicador agregado — só pra avisos genéricos de "o bot ainda está
