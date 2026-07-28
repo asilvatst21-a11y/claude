@@ -1,7 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import * as XLSX from "xlsx";
 import { useSearchParams } from "react-router-dom";
-import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, AlertTriangle, Clock, ChevronUp, ChevronDown, ChevronsUpDown, Download, GitBranch, FileWarning, ShieldAlert } from "lucide-react";
+import { MessageCircle, Loader2, RefreshCw, Eye, Search, X, Send, UserPlus, AlertTriangle, Clock, ChevronUp, ChevronDown, ChevronsUpDown, Download, GitBranch, FileWarning, ShieldAlert, MoreVertical } from "lucide-react";
 import { ValeDetalhesModal, type ValeDetalhes } from "./ValeDetalhesModal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -236,6 +237,43 @@ export default function ValesPage() {
   const [contestarVale, setContestarVale] = useState<ValeRow | null>(null);
   const [motivoContestacao, setMotivoContestacao] = useState("");
   const [contestando, setContestando] = useState(false);
+
+  // Menu de ações por linha — um só botão "Ações" abre um dropdown com as
+  // opções (Atribuir/Detalhes/Notificar/Fluxo/Contestar), no lugar de vários
+  // botões lado a lado, pra sobrar espaço na tabela pras outras colunas.
+  // Renderizado via portal (position: fixed, ancorado no botão clicado) pra
+  // não ficar cortado pelo scroll da tabela.
+  const [acoesAbertoId, setAcoesAbertoId] = useState<string | null>(null);
+  const [acoesPos, setAcoesPos] = useState<{ top: number; left: number } | null>(null);
+  const acoesMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!acoesAbertoId) return;
+    function fechar() {
+      setAcoesAbertoId(null);
+    }
+    function aoClicarFora(e: MouseEvent) {
+      if (acoesMenuRef.current && !acoesMenuRef.current.contains(e.target as Node)) fechar();
+    }
+    document.addEventListener("mousedown", aoClicarFora);
+    window.addEventListener("scroll", fechar, true);
+    window.addEventListener("resize", fechar);
+    return () => {
+      document.removeEventListener("mousedown", aoClicarFora);
+      window.removeEventListener("scroll", fechar, true);
+      window.removeEventListener("resize", fechar);
+    };
+  }, [acoesAbertoId]);
+
+  function toggleAcoes(e: React.MouseEvent<HTMLButtonElement>, valeId: string) {
+    if (acoesAbertoId === valeId) {
+      setAcoesAbertoId(null);
+      return;
+    }
+    const r = e.currentTarget.getBoundingClientRect();
+    setAcoesPos({ top: r.bottom + 4, left: r.right });
+    setAcoesAbertoId(valeId);
+  }
 
   // Consulta de Pendências (link de autoatendimento) — só entra na mensagem
   // quando a chave "consulta_pendencias_ativa" estiver ligada em Configurações.
@@ -1251,72 +1289,67 @@ export default function ValesPage() {
                             )}
                           </TableCell>
                           <TableCell className="sticky right-0 z-10 bg-background text-right shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)]">
-                            <div className="flex items-center justify-end gap-1">
-                              {vale.ajudantes.length === 0 && (
-                                <Button variant="outline" size="sm" onClick={() => setAtribuirVale(vale)} title="Atribuir ajudante">
-                                  <UserPlus className="h-4 w-4" />
-                                  <span className="ml-1 hidden sm:inline">Atribuir</span>
-                                </Button>
-                              )}
-                              <Button variant="outline" size="sm" onClick={() => setDetalhesVale(vale)} title="Ver detalhes">
-                                <Eye className="h-4 w-4" />
-                                <span className="ml-1 hidden sm:inline">Detalhes</span>
-                              </Button>
-                              <Button
-                                variant="outline" size="sm"
-                                onClick={() => openPreview(vale)}
-                                disabled={notifyingId === vale.id}
-                                title="Enviar notificação WhatsApp"
+                            <Button variant="outline" size="sm" onClick={(e) => toggleAcoes(e, vale.id)}>
+                              <MoreVertical className="h-4 w-4" />
+                              <span className="ml-1 hidden sm:inline">Ações</span>
+                            </Button>
+                            {acoesAbertoId === vale.id && acoesPos && createPortal(
+                              <div
+                                ref={acoesMenuRef}
+                                style={{ position: "fixed", top: acoesPos.top, left: acoesPos.left, transform: "translateX(-100%)" }}
+                                className="z-50 w-48 rounded-md border bg-background shadow-lg py-1 text-left"
                               >
-                                {notifyingId === vale.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <MessageCircle className="h-4 w-4" />
+                                {vale.ajudantes.length === 0 && (
+                                  <button
+                                    onClick={() => { setAcoesAbertoId(null); setAtribuirVale(vale); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
+                                  >
+                                    <UserPlus className="h-4 w-4" /> Atribuir ajudante
+                                  </button>
                                 )}
-                                <span className="ml-1 hidden sm:inline">Notificar</span>
-                              </Button>
-                              {linkPendenciasAtivo && (vale.status_vale === "Abonado" || vale.status_vale === "Faturado") && !vale.notificacao_final_enviada && (
-                                <Button
-                                  variant="outline" size="sm"
-                                  onClick={() => notificarResolucao(vale)}
-                                  disabled={notificandoResolucaoId === vale.id}
-                                  title="Avisar o colaborador da tratativa final"
-                                  className="border-green-200 text-green-700 hover:bg-green-50"
+                                <button
+                                  onClick={() => { setAcoesAbertoId(null); setDetalhesVale(vale); }}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors"
                                 >
-                                  {notificandoResolucaoId === vale.id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
-                                  ) : (
-                                    <MessageCircle className="h-4 w-4" />
-                                  )}
-                                  <span className="ml-1 hidden sm:inline">Avisar resolução</span>
-                                </Button>
-                              )}
-                              {(vale.status_vale === "Faturado" || vale.status_vale === "Faturar") && (
-                                <Button
-                                  variant="outline" size="sm"
-                                  onClick={() => abrirSolicitarFluxo(vale)}
-                                  title="Solicitar fluxo punitivo"
-                                  className="border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                  <Eye className="h-4 w-4" /> Detalhes
+                                </button>
+                                <button
+                                  onClick={() => { setAcoesAbertoId(null); openPreview(vale); }}
+                                  disabled={notifyingId === vale.id}
+                                  className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted transition-colors disabled:opacity-50"
                                 >
-                                  <GitBranch className="h-4 w-4" />
-                                  <span className="ml-1 hidden sm:inline">Fluxo</span>
-                                </Button>
-                              )}
-                              {(vale.status_vale === "Faturado" || vale.status_vale === "Faturar") && (
-                                <Button
-                                  variant={vale.contestado ? "secondary" : "outline"}
-                                  size="sm"
-                                  onClick={() => openContestar(vale)}
-                                  title={vale.contestado ? "Vale já contestado — ver/editar motivo" : "Contestar vale"}
-                                  className={vale.contestado ? "text-orange-700" : ""}
-                                >
-                                  <ShieldAlert className="h-4 w-4" />
-                                  <span className="ml-1 hidden sm:inline">
-                                    {vale.contestado ? "Contestado" : "Contestar"}
-                                  </span>
-                                </Button>
-                              )}
-                            </div>
+                                  {notifyingId === vale.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+                                  Notificar
+                                </button>
+                                {linkPendenciasAtivo && (vale.status_vale === "Abonado" || vale.status_vale === "Faturado") && !vale.notificacao_final_enviada && (
+                                  <button
+                                    onClick={() => { setAcoesAbertoId(null); notificarResolucao(vale); }}
+                                    disabled={notificandoResolucaoId === vale.id}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-green-700 hover:bg-green-50 transition-colors disabled:opacity-50"
+                                  >
+                                    {notificandoResolucaoId === vale.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+                                    Avisar resolução
+                                  </button>
+                                )}
+                                {(vale.status_vale === "Faturado" || vale.status_vale === "Faturar") && (
+                                  <button
+                                    onClick={() => { setAcoesAbertoId(null); abrirSolicitarFluxo(vale); }}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-50 transition-colors"
+                                  >
+                                    <GitBranch className="h-4 w-4" /> Fluxo
+                                  </button>
+                                )}
+                                {(vale.status_vale === "Faturado" || vale.status_vale === "Faturar") && (
+                                  <button
+                                    onClick={() => { setAcoesAbertoId(null); openContestar(vale); }}
+                                    className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-orange-50 transition-colors ${vale.contestado ? "text-orange-700" : ""}`}
+                                  >
+                                    <ShieldAlert className="h-4 w-4" /> {vale.contestado ? "Contestado" : "Contestar"}
+                                  </button>
+                                )}
+                              </div>,
+                              document.body
+                            )}
                           </TableCell>
                         </TableRow>
                       ))}
