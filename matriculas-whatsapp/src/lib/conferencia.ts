@@ -1,8 +1,6 @@
 import { supabase } from './supabase'
 import { valesSupabase } from './valesSupabase'
 import { parseSeparacaoBuffer, parseRetornavelBuffer, type RetornavelItem } from './tmlParser'
-import { enviarMensagemWhatsApp } from './zapi'
-import { ENVIOS_CONFERENCIA_SUGESTAO_PAUSADOS } from './whatsappStatus'
 
 // ── Baia (palete) ─────────────────────────────────────────────────────────
 // O campo "Palete" do Relatório de Separação já traz a porta e a ordem:
@@ -599,37 +597,17 @@ export async function buscarPessoasConferencia(filial: string): Promise<PessoaCo
   return lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
 }
 
-// ── Pergunta de sugestão ao finalizar o mapa ─────────────────────────────
-// Mandada uma vez por pessoa/mapa, quando o mapa fica 100% resolvido
-// (conferido ou pulado) e o nome digitado bate com alguém com telefone
-// cadastrado. A resposta em texto livre é capturada pelo webhook
-// (ver api/zapi-webhook.ts) e aparece na aba "Sugestões" do painel.
-export function montarMensagemSugestao(nome: string, mapa: number): string {
-  const primeiro = nome.trim().split(/\s+/)[0] ?? nome
-  return (
-    `✅ *Conferência do mapa ${mapa} finalizada!*\n\n` +
-    `Oi, ${primeiro}! Vi que você concluiu a conferência desse mapa.\n\n` +
-    `Você tem alguma sugestão pra gente melhorar esse processo? Algo que trava, que podia ser mais rápido, ou que faria diferença?\n\n` +
-    `Responda aqui com sua ideia — toda sugestão ajuda a melhorar o sistema. Se não tiver nada, pode ignorar essa mensagem. Boa rota e bom trabalho! 🙌`
-  )
-}
-
-export async function enviarPerguntaSugestao(
-  filial: string, mapa: number, data: string, nome: string, telefone: string,
-): Promise<void> {
-  if (ENVIOS_CONFERENCIA_SUGESTAO_PAUSADOS) return
-  const { sucesso } = await enviarMensagemWhatsApp(telefone, montarMensagemSugestao(nome, mapa))
-  if (!sucesso) return
-  await supabase.from('conferencia_sugestoes').insert({
-    filial, mapa, data, nome, telefone, status: 'aguardando',
-  })
-}
-
 // ── Painel: listagem de sugestões (aba "Sugestões") ──────────────────────
+// A pergunta de sugestão não é mais mandada automaticamente ao finalizar um
+// mapa — agora é uma opção dentro do menu de autoatendimento da Aurora
+// (api/zapi-webhook.ts, item "Sugestões"). Essa listagem continua valendo,
+// só passa a ler linhas inseridas pelo fluxo da Aurora em vez do antigo
+// envio automático.
 export interface SugestaoConf {
   id: string
-  mapa: number
-  data: string
+  // null quando a sugestão veio do menu geral da Aurora, sem mapa associado.
+  mapa: number | null
+  data: string | null
   nome: string | null
   telefone: string
   perguntaEnviadaEm: string

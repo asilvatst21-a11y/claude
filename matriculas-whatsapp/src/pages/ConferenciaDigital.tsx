@@ -8,11 +8,10 @@ import { supabase } from '../lib/supabase'
 import { enviarMensagemGrupo } from '../lib/zapi'
 import {
   buscarBaiasDoMapa, iniciarBaia, marcarItem, registrarDivergencia, finalizarBaia, pularBaia,
-  montarMensagemDivergencia, buscarPessoasConferencia, enviarPerguntaSugestao, PORTA_LABEL, MOTIVOS_PULAR_BAIA,
+  montarMensagemDivergencia, buscarPessoasConferencia, PORTA_LABEL, MOTIVOS_PULAR_BAIA,
   type BaiaConf, type ItemConf, type PortaConf, type PessoaConferencia,
 } from '../lib/conferencia'
 import { ENVIOS_CONFERENCIA_DIVERGENCIA_PAUSADOS } from '../lib/whatsappStatus'
-import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorNomeGlobal, buscarStatusColaboradoresPorMatricula, podeEnviarPara } from '../lib/statusAtivo'
 
 function normalizarBusca(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
@@ -192,45 +191,12 @@ export default function ConferenciaDigital() {
     }
   }
 
-  // Se essa era a última baia pendente do mapa, manda a pergunta de
-  // sugestão pro telefone cadastrado da pessoa que digitou o nome — só
-  // uma vez por mapa/pessoa, best-effort (não afeta a confirmação da baia).
-  // Usa o "baias" da closure (estado ainda não atualizado por esta ação),
-  // tratando a própria baiaAtiva como já resolvida.
-  async function avisarSugestaoSeMapaFinalizado() {
-    const mapaFinalizado = baias.every((b) => b.id === baiaAtiva || b.status === 'conferida' || b.status === 'pulada')
-    if (!mapaFinalizado) return
-    const pessoa = pessoas.find((p) => normalizarBusca(p.nome) === normalizarBusca(nome))
-    if (!pessoa?.telefone) return
-    try {
-      // Motorista: cadastro por filial (colaboradores), casando por matrícula
-      // (mais confiável que nome — evita bloqueio por nome truncado/diferente
-      // entre motoristas_sala_tml e colaboradores). Ajudante: tabela
-      // "ajudantes" é única da empresa, sem filial — checa globalmente por nome.
-      const statusPorNome = pessoa.tipo === 'motorista'
-        ? await buscarStatusColaboradoresPorNome(filial)
-        : await buscarStatusColaboradoresPorNomeGlobal()
-      const statusPorMatricula = pessoa.tipo === 'motorista'
-        ? await buscarStatusColaboradoresPorMatricula(filial)
-        : undefined
-      const podeEnviar = await podeEnviarPara({
-        origem: 'conferencia_sugestao', filial, mapaStatus: statusPorNome, nome: pessoa.nome, telefone: pessoa.telefone, detalhe: `Mapa ${mapa}`,
-        matricula: pessoa.matricula, mapaStatusPorMatricula: statusPorMatricula,
-      })
-      if (!podeEnviar) return
-      await enviarPerguntaSugestao(filial, Number(mapa), hojeISO(), pessoa.nome, pessoa.telefone)
-    } catch {
-      /* best-effort — não afeta a confirmação da baia */
-    }
-  }
-
   async function confirmarBaia() {
     if (!baiaAtiva) return
     setErro('')
     try {
       await finalizarBaia(baiaAtiva, nome.trim() || null)
       setBaias((prev) => prev.map((b) => b.id === baiaAtiva ? { ...b, status: 'conferida' } : b))
-      await avisarSugestaoSeMapaFinalizado()
       setBaiaAtiva(null)
       setTela('baias')
       await recarregar()
@@ -244,7 +210,6 @@ export default function ConferenciaDigital() {
     try {
       await pularBaia(baiaAtiva, motivo, nome.trim() || null)
       setBaias((prev) => prev.map((b) => b.id === baiaAtiva ? { ...b, status: 'pulada', motivoPulada: motivo } : b))
-      await avisarSugestaoSeMapaFinalizado()
       setPularAberto(false)
       setBaiaAtiva(null)
       setTela('baias')

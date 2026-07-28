@@ -2931,6 +2931,7 @@ const AURORA_CATEGORIAS: OpcaoZ[] = [
   { id: 'aurora_cat:treinamentos', title: '🎓 Treinamentos' },
   { id: 'aurora_cat:financeiro', title: '💰 Financeiro' },
   { id: 'aurora_cat:armazem', title: '📦 Armazém' },
+  { id: 'aurora_cat:sugestoes', title: '💬 Sugestões' },
 ]
 
 const AURORA_SUBMENUS: Record<string, OpcaoZ[]> = {
@@ -2941,6 +2942,7 @@ const AURORA_SUBMENUS: Record<string, OpcaoZ[]> = {
   treinamentos: [{ id: 'aurora_item:duvida_treinamento', title: 'Tirar dúvida sobre um treinamento' }],
   financeiro: [{ id: 'aurora_item:pendencias', title: 'Consultar minhas pendências' }],
   armazem: [{ id: 'aurora_item:variavel', title: 'Consultar meu variável/pontuação' }],
+  sugestoes: [{ id: 'aurora_item:enviar_sugestao', title: 'Enviar uma sugestão' }],
 }
 
 async function mostrarMenuCategorias(remetente: string, nome: string | null): Promise<void> {
@@ -3229,6 +3231,11 @@ async function tratarItemAurora(remetente: string, senderName: string, itemId: s
     await perguntarProximoPasso(remetente)
     return { ok: true, action: 'aurora-link-variavel' }
   }
+  if (itemId === 'aurora_item:enviar_sugestao') {
+    await definirEstadoAurora(remetente, 'aguardando_sugestao_texto')
+    await enviar(remetente, '💬 Manda sua sugestão! Pode ser sobre qualquer processo — o que trava, o que podia ser mais rápido, ou o que faria diferença no seu dia a dia.')
+    return { ok: true, action: 'aurora-pede-sugestao' }
+  }
   await enviar(remetente, '🔧 Essa opção ainda está em construção — em breve você poderá usar por aqui. Por enquanto, fale com o seu supervisor.')
   await perguntarProximoPasso(remetente)
   return { ok: true, action: 'aurora-em-breve' }
@@ -3305,6 +3312,29 @@ async function tratarAurora(
       await enviar(remetente, resposta)
       await perguntarProximoPasso(remetente)
       return { ok: true, action: 'aurora-matricula-respondido' }
+    }
+    if (sessao.estado === 'aguardando_sugestao_texto') {
+      let conteudo = texto.trim()
+      if (!conteudo && temAudioSemTexto(body)) {
+        const transcrito = await transcreverAudio(extrairAudioUrl(body))
+        if (!transcrito) {
+          await enviar(remetente, 'Não consegui entender o áudio. Pode escrever sua sugestão?')
+          return { ok: true, action: 'aurora-sugestao-audio-falhou' }
+        }
+        conteudo = transcrito
+      }
+      if (!conteudo) {
+        await enviar(remetente, 'Pode escrever sua sugestão em texto (ou áudio)?')
+        return { ok: true, action: 'aurora-sugestao-repete' }
+      }
+      const filial = await filialDoTelefoneOuPadrao(remetente)
+      await supabase.from('conferencia_sugestoes').insert({
+        filial, nome: senderName || null, telefone: remetente,
+        resposta: conteudo, status: 'respondida', respondida_em: new Date().toISOString(),
+      })
+      await enviar(remetente, 'Valeu pela sugestão! Vamos analisar com o time. 🙌')
+      await perguntarProximoPasso(remetente)
+      return { ok: true, action: 'aurora-sugestao-registrada' }
     }
     if (sessao.estado === 'pos_resposta') {
       if (btn === 'aurora_pos:nova' || ehTrocarAssuntoAurora(texto) || /^\s*nova\b/i.test(texto)) {

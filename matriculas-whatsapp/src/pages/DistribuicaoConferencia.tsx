@@ -370,15 +370,20 @@ export default function DistribuicaoConferencia() {
             <div className="flex items-center justify-center py-8 border-t"><Loader2 className="h-5 w-5 animate-spin text-accent-500" /></div>
           ) : sugestoes.length === 0 ? (
             <p className="text-sm text-muted-foreground p-4 border-t">
-              Nenhuma pergunta de sugestão enviada ainda — ela é mandada automaticamente pro telefone
-              cadastrado da pessoa quando ela finaliza um mapa (todas as baias conferidas ou puladas).
+              Nenhuma sugestão registrada ainda — os colaboradores podem enviar pelo menu
+              "Sugestões" no chat da Aurora, a qualquer momento.
             </p>
           ) : (
             <div className="border-t divide-y max-h-[420px] overflow-y-auto">
               {sugestoes.map((s) => (
                 <div key={s.id} className="px-4 py-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <p className="text-sm font-semibold">{s.nome ?? '—'} <span className="text-muted-foreground font-normal">· Mapa {s.mapa} · {formatarDataBR(s.data)}</span></p>
+                    <p className="text-sm font-semibold">
+                      {s.nome ?? '—'}{' '}
+                      <span className="text-muted-foreground font-normal">
+                        · {s.mapa != null ? `Mapa ${s.mapa} · ${formatarDataBR(s.data)}` : 'Via chat da Aurora'}
+                      </span>
+                    </p>
                     {s.status === 'respondida'
                       ? <span className="text-xs font-medium text-green-700 bg-green-100 px-2 py-0.5 rounded-full">Respondida</span>
                       : <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">Aguardando</span>}

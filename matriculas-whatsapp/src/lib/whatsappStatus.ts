@@ -12,7 +12,6 @@
 export const ENVIOS_CONFERENCIA_DIVERGENCIA_PAUSADOS = false
 export const ENVIOS_TML_PAUSADOS = false
 export const ENVIOS_JORNADA_PAUSADOS = false
-export const ENVIOS_CONFERENCIA_SUGESTAO_PAUSADOS = false
 
 // Indicador agregado — só pra avisos genéricos de "o bot ainda está
 // paralisado" (ex.: banner da tela de Reposições). Sem nenhum disparo em
