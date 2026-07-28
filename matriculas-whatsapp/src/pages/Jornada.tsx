@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import { isColaboradoresFile, parseColaboradores } from '../lib/colaboradores'
+import { isColaboradoresFile, parseColaboradores, importarColaboradores } from '../lib/colaboradores'
 import { FiltroMulti } from '../components/FiltroMulti'
 import type { JornadaRegistro, Colaborador } from '../types'
 
@@ -214,14 +214,16 @@ export default function Jornada() {
       const wb = XLSX.read(buffer)
       if (isColaboradoresFile(wb)) {
         const rows = parseColaboradores(buffer, usuario.filial)
-        const CHUNK = 100
-        for (let i = 0; i < rows.length; i += CHUNK) {
-          // "email" é só extraído pra referência futura, não existe coluna
-          // hoje em `colaboradores` — não entra no upsert.
-          const lote = rows.slice(i, i + CHUNK).map(({ email: _email, ...resto }) => resto)
-          await supabase.from('colaboradores')
-            .upsert(lote, { onConflict: 'filial,nome_norm' })
-        }
+        // Não altera quem já está cadastrado e continua na planilha — só
+        // insere quem é novo e marca como desligado quem sumiu (ver
+        // importarColaboradores em lib/colaboradores.ts, mesma regra usada
+        // na tela Colaboradores).
+        const resultado = await importarColaboradores(usuario.filial, rows)
+        alert(
+          `${resultado.novos} novo(s) colaborador(es) inserido(s). ` +
+          `${resultado.desligados} marcado(s) como desligado(s) (sumiram da planilha). ` +
+          `${resultado.mantidos} já cadastrado(s) e mantido(s) sem alteração.`
+        )
       } else {
         const rows = parseJornada(buffer, usuario.filial)
         const CHUNK = 100

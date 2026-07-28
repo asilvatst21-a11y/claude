@@ -1,4 +1,5 @@
 import * as XLSX from 'xlsx'
+import { supabase } from './supabase'
 import type { Colaborador } from '../types'
 
 // Planilha oficial de colaboradores (LOG20/Promax). Detecção e parsing
@@ -77,4 +78,51 @@ export function parseColaboradores(buffer: ArrayBuffer, filial: string): Colabor
     })
   })
   return out
+}
+
+export interface ResultadoImportacaoColaboradores {
+  novos: number
+  novosInseridos: ColaboradorImportado[]
+  desligados: number
+  mantidos: number
+}
+
+// Compartilhada entre a tela Colaboradores e o import de Jornada — importar
+// a planilha NUNCA altera quem já está cadastrado e continua aparecendo
+// nela (evita sobrescrever edição manual feita na tela). Só:
+//  1) insere quem é realmente novo (não existia ainda pra essa filial);
+//  2) marca como DESLIGADO quem estava TRABALHANDO mas sumiu da planilha
+//     mais recente (não mexe em quem já tinha outro status manual, ex.:
+//     Férias).
+export async function importarColaboradores(
+  filial: string, rows: ColaboradorImportado[],
+): Promise<ResultadoImportacaoColaboradores> {
+  const { data: existentes, error: eExistentes } = await supabase
+    .from('colaboradores')
+    .select('id, nome_norm, status')
+    .eq('filial', filial)
+  if (eExistentes) throw new Error(eExistentes.message)
+
+  const normalizarNome = (s: string) => s.trim().toLowerCase()
+  const nomesExistentes = new Set((existentes ?? []).map((c) => c.nome_norm))
+  const nomesNaPlanilha = new Set(rows.map((r) => normalizarNome(r.nome)))
+
+  const novos = rows.filter((r) => !nomesExistentes.has(normalizarNome(r.nome)))
+  const CHUNK = 100
+  for (let i = 0; i < novos.length; i += CHUNK) {
+    const lote = novos.slice(i, i + CHUNK).map(({ email: _email, ...resto }) => resto)
+    if (lote.length === 0) continue
+    const { error } = await supabase.from('colaboradores').insert(lote)
+    if (error) throw new Error(error.message)
+  }
+
+  const desligados = (existentes ?? []).filter((c) => c.status === 'TRABALHANDO' && !nomesNaPlanilha.has(c.nome_norm))
+  if (desligados.length > 0) {
+    const { error } = await supabase.from('colaboradores')
+      .update({ status: 'DESLIGADO' })
+      .in('id', desligados.map((c) => c.id))
+    if (error) throw new Error(error.message)
+  }
+
+  return { novos: novos.length, novosInseridos: novos, desligados: desligados.length, mantidos: rows.length - novos.length }
 }

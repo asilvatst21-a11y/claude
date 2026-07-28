@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpDown, CheckCircle2, Loader2, Plus, RefreshCw, Search, Upload, Users, X } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { parseColaboradores } from '../lib/colaboradores'
+import { parseColaboradores, importarColaboradores } from '../lib/colaboradores'
 import { FiltroMulti } from '../components/FiltroMulti'
 import type { Colaborador } from '../types'
 
@@ -130,6 +130,12 @@ export default function Colaboradores() {
     await fetchColaboradores()
   }
 
+  // Importação NÃO altera quem já está cadastrado e continua na planilha —
+  // só insere quem é novo e marca como desligado quem sumiu (ver
+  // importarColaboradores em lib/colaboradores.ts, compartilhada com o
+  // import de Jornada). Cadastro de quem continua ativo fica intocado,
+  // mesmo que a planilha traga status/função/equipe/telefone diferentes
+  // pra essa pessoa — evita sobrescrever edição manual feita aqui na tela.
   async function handleImportar(file: File) {
     if (!usuario) return
     setImportando(true)
@@ -137,19 +143,19 @@ export default function Colaboradores() {
       const buffer = await file.arrayBuffer()
       const rows = parseColaboradores(buffer, usuario.filial)
       if (rows.length === 0) throw new Error('Nenhum colaborador encontrado na planilha (esperado colunas COLABORADOR, FUNCAO, EQUIPE).')
-      const CHUNK = 100
-      for (let i = 0; i < rows.length; i += CHUNK) {
-        const lote = rows.slice(i, i + CHUNK).map(({ email: _email, ...resto }) => resto)
-        const { error } = await supabase.from('colaboradores').upsert(lote, { onConflict: 'filial,nome_norm' })
-        if (error) throw new Error(error.message)
-      }
-      // Propaga o telefone recém-importado pras tabelas que os fluxos de
-      // WhatsApp ainda leem direto (motoristas/supervisores TML e GSD).
-      const comTelefoneNovo = rows.filter(r => r.telefone)
+
+      const resultado = await importarColaboradores(usuario.filial, rows)
+
+      // Propaga telefone só de quem foi inserido agora — quem já existia
+      // não é alterado.
+      const comTelefoneNovo = resultado.novosInseridos.filter(r => r.telefone)
       await Promise.all(comTelefoneNovo.map(r => sincronizarTelefone(usuario.filial, r.nome, r.matricula_promax ?? null, r.telefone ?? null)))
       await fetchColaboradores()
-      const comTel = comTelefoneNovo.length
-      alert(`${rows.length} colaborador(es) importado(s)/atualizado(s). ${comTel} com telefone reconhecido na planilha.`)
+      alert(
+        `${resultado.novos} novo(s) colaborador(es) inserido(s). ` +
+        `${resultado.desligados} marcado(s) como desligado(s) (sumiram da planilha). ` +
+        `${resultado.mantidos} já cadastrado(s) e mantido(s) sem alteração.`
+      )
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Erro ao importar planilha.')
     } finally {
