@@ -497,6 +497,56 @@ export async function buscarMapasParados(filial: string, diasAtras = 14): Promis
     .sort((a, b) => (b.minutosParado ?? 0) - (a.minutosParado ?? 0))
 }
 
+// Mesma regra do cron server-side (finalizarMapasParadosAutomaticamente em
+// api/zapi-webhook.ts), só que rodada pelo navegador — não manda nenhuma
+// mensagem de WhatsApp, então funciona mesmo com o Z-API fora do ar/
+// suspenso. Mapa com pelo menos uma baia iniciada há mais de `minMinutos`
+// e ainda não concluído: as baias que sobraram como 'pendente' viram
+// 'pulada' (motivo automático), com finalizada_em = horário da ÚLTIMA baia
+// CONFERIDA do mapa (não "agora", pra não inflar o tempo registrado); sem
+// nenhuma conferida ainda, cai pro horário atual.
+export async function finalizarMapasParadosManual(filial: string, minMinutos = 30, diasAtras = 3): Promise<number> {
+  const desde = new Date(Date.now() - diasAtras * 86_400_000).toISOString().slice(0, 10)
+  const { data: baias, error } = await supabase
+    .from('conferencia_baias')
+    .select('id, mapa, data, status, iniciada_em, finalizada_em')
+    .eq('filial', filial)
+    .gte('data', desde)
+  if (error) throw new Error(error.message)
+  if (!baias || baias.length === 0) return 0
+
+  const porMapa = new Map<string, typeof baias>()
+  for (const b of baias) {
+    const chave = `${b.mapa}|${b.data}`
+    const lista = porMapa.get(chave) ?? []
+    lista.push(b)
+    porMapa.set(chave, lista)
+  }
+
+  const limite = Date.now() - minMinutos * 60_000
+  let mapasFinalizados = 0
+  for (const lista of porMapa.values()) {
+    const pendentes = lista.filter((b) => b.status === 'pendente')
+    if (pendentes.length === 0) continue
+
+    const inicios = lista.map((b) => b.iniciada_em).filter((t): t is string => !!t).map((t) => new Date(t).getTime())
+    if (inicios.length === 0) continue
+    if (Math.min(...inicios) > limite) continue
+
+    const finsConferidos = lista
+      .filter((b) => b.status === 'conferida' && b.finalizada_em)
+      .map((b) => new Date(b.finalizada_em as string).getTime())
+    const horarioFinal = finsConferidos.length > 0 ? new Date(Math.max(...finsConferidos)).toISOString() : new Date().toISOString()
+
+    const { error: eUpdate } = await supabase
+      .from('conferencia_baias')
+      .update({ status: 'pulada', motivo_pulada: 'Finalização automática — mapa parado há mais de 30 minutos', finalizada_em: horarioFinal })
+      .in('id', pendentes.map((b) => b.id))
+    if (!eUpdate) mapasFinalizados++
+  }
+  return mapasFinalizados
+}
+
 // ── Análise do TML: início/fim da conferência por mapa num período ──────
 export interface ConferenciaPassoMapa {
   inicio: string | null // ISO — menor iniciada_em entre as baias do mapa

@@ -9,7 +9,8 @@ import { listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   importarSeparacao, importarRetornaveis, buscarResumoDia, buscarDivergenciasDoMapa, montarMensagensDivergenciaMapa,
-  buscarBaiasDoMapa, buscarSugestoes, buscarMapasParados, type ResumoDiaConf, type BaiaConf, type SugestaoConf, type MapaParadoConf,
+  buscarBaiasDoMapa, buscarSugestoes, buscarMapasParados, finalizarMapasParadosManual,
+  type ResumoDiaConf, type BaiaConf, type SugestaoConf, type MapaParadoConf,
 } from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
 
@@ -58,6 +59,7 @@ export default function DistribuicaoConferencia() {
   const [mapasParadosAberta, setMapasParadosAberta] = useState(true)
   const [mapasParados, setMapasParados] = useState<MapaParadoConf[]>([])
   const [loadingMapasParados, setLoadingMapasParados] = useState(false)
+  const [finalizandoParados, setFinalizandoParados] = useState(false)
   const [grupo, setGrupo] = useState('')
   const [grupoOriginal, setGrupoOriginal] = useState('')
   const [grupos, setGrupos] = useState<GrupoZApi[]>([])
@@ -117,6 +119,22 @@ export default function DistribuicaoConferencia() {
   useEffect(() => { fetchConfig() }, [fetchConfig])
   useEffect(() => { fetchSugestoes() }, [fetchSugestoes])
   useEffect(() => { fetchMapasParados() }, [fetchMapasParados])
+
+  // Mesma regra do cron server-side, rodada pelo navegador — não depende do
+  // WhatsApp/Z-API, então funciona mesmo com a conta suspensa/fora do ar.
+  async function handleFinalizarParados() {
+    if (!usuario) return
+    setFinalizandoParados(true)
+    try {
+      const n = await finalizarMapasParadosManual(usuario.filial)
+      alert(n > 0 ? `${n} mapa(s) finalizado(s) automaticamente.` : 'Nenhum mapa parado há mais de 30 minutos no momento.')
+      await Promise.all([fetchMapasParados(), fetchResumo()])
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao finalizar mapas parados.')
+    } finally {
+      setFinalizandoParados(false)
+    }
+  }
 
   async function handleImportar(file: File) {
     if (!usuario) return
@@ -379,15 +397,26 @@ export default function DistribuicaoConferencia() {
 
       {/* Mapas pendentes — não finalizados, de qualquer dia dentro da janela */}
       <div className="border rounded-lg bg-white">
-        <button onClick={() => setMapasParadosAberta((v) => !v)} className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
-          <span className="flex items-center gap-2 font-semibold text-sm">
+        <div className="w-full flex items-center justify-between gap-2 px-4 py-3">
+          <button onClick={() => setMapasParadosAberta((v) => !v)} className="flex items-center gap-2 font-semibold text-sm text-left">
             {mapasParadosAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
             <AlertTriangle className="h-4 w-4 text-amber-600" /> Mapas pendentes
-          </span>
-          {mapasParados.length > 0 && (
-            <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{mapasParados.length}</span>
-          )}
-        </button>
+          </button>
+          <div className="flex items-center gap-2">
+            {mapasParados.length > 0 && (
+              <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{mapasParados.length}</span>
+            )}
+            <button
+              onClick={handleFinalizarParados}
+              disabled={finalizandoParados}
+              title="Finaliza (marca como pulada) as baias pendentes de mapas parados há mais de 30 minutos — não usa WhatsApp"
+              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-50 whitespace-nowrap"
+            >
+              {finalizandoParados ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+              Finalizar parados agora
+            </button>
+          </div>
+        </div>
         {mapasParadosAberta && (
           loadingMapasParados ? (
             <div className="flex items-center justify-center py-8 border-t"><Loader2 className="h-5 w-5 animate-spin text-accent-500" /></div>
