@@ -1,5 +1,6 @@
 import { supabase } from './supabase'
 import { formatarDataBR } from './utils'
+import { variarTexto } from './zapi'
 
 // Mesma normalização usada em Disparos.tsx pra casar matrícula (número)
 // entre cadastros que guardam ela como string (zeros à esquerda variam).
@@ -361,8 +362,8 @@ export function montarMensagemJornadaSala(sala: SalaJornada, linhas: LinhaJornad
 
   if (atrasados.length === 0) return null
 
-  let texto = `🚚 *JORNADA — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)} · limite ${formatarDuracao(JORNADA_LIMITE_MIN)}\n\n`
-  texto += `⚠️ Previsão atrasada (no ritmo atual):\n`
+  let texto = `${variarTexto(['🚚 *JORNADA', '🕐 *ACOMPANHAMENTO DE JORNADA', '📍 *STATUS DA JORNADA'])} — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)} · limite ${formatarDuracao(JORNADA_LIMITE_MIN)}\n\n`
+  texto += `${variarTexto(['⚠️ Previsão atrasada (no ritmo atual):', '⚠️ No ritmo atual, previsão de atraso pra:', '⚠️ Seguindo assim, devem atrasar:'])}\n`
   atrasados.forEach((l, i) => {
     texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — previsto ${l.previsaoChegada}, no ritmo atual chega ~${l.previsaoChegadaDinamica}\n`
   })
@@ -373,14 +374,14 @@ export function montarMensagemIvSala(sala: SalaJornada, linhas: LinhaJornada[], 
   const kpi = calcularKpis(linhas)
   const top = linhas.filter((l) => l.menos4min > 0).sort((a, b) => b.menos4min - a.menos4min).slice(0, 5)
 
-  let texto = `⚡ *IV E DEVOLUÇÃO — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)}\n\n`
+  let texto = `${variarTexto(['⚡ *IV E DEVOLUÇÃO', '📦 *INDICADORES DE ENTREGA', '⚡ *IV/DEVOLUÇÃO DO DIA'])} — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)}\n\n`
   texto += `IV da sala: ${formatarPct(kpi.iv)}\n`
   texto += `Devolução da sala: ${formatarPct(kpi.devolucaoPct)}\n`
   if (top.length === 0) {
     texto += `\nNenhuma entrega marcada como rápida demais (<4min).`
     return texto
   }
-  texto += `\nTop 5 — entregas <4min:\n`
+  texto += `\n${variarTexto(['Top 5 — entregas <4min:', 'As 5 entregas mais rápidas (<4min):', '5 entregas com menos de 4min:'])}\n`
   top.forEach((l, i) => {
     texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — ${l.menos4min} entrega(s)\n`
   })
@@ -397,7 +398,7 @@ export function montarMensagemAderenciaSala(sala: SalaJornada, linhas: LinhaJorn
     .sort((a, b) => a.aderencia - b.aderencia)
     .slice(0, 5)
 
-  let texto = `🎯 *ADERÊNCIA — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)} · meta ${formatarPct(ADERENCIA_MINIMA)}\n\n`
+  let texto = `${variarTexto(['🎯 *ADERÊNCIA', '📊 *ADERÊNCIA DO DIA', '🎯 *ACOMPANHAMENTO DE ADERÊNCIA'])} — ${SALA_JORNADA_LABEL[sala]}*\n${formatarDataBR(data)} · meta ${formatarPct(ADERENCIA_MINIMA)}\n\n`
   if (comDados.length === 0) {
     texto += `Sem dados de aderência ainda.`
     return texto
@@ -406,7 +407,7 @@ export function montarMensagemAderenciaSala(sala: SalaJornada, linhas: LinhaJorn
     texto += `Ninguém abaixo da meta hoje ✅`
     return texto
   }
-  texto += `Abaixo da meta:\n`
+  texto += `${variarTexto(['Abaixo da meta:', 'Estão abaixo da meta:', 'Precisam de atenção (abaixo da meta):'])}\n`
   abaixoDaMeta.forEach((l, i) => {
     texto += `${i + 1}. ${l.nome ?? l.placa ?? `Mapa ${l.mapa}`} — ${formatarPct(l.aderencia)} ⚠️\n`
   })
@@ -418,12 +419,23 @@ export function montarMensagemAderenciaSala(sala: SalaJornada, linhas: LinhaJorn
 // mensagens de rotina que continuam indo só pro supervisor.
 export function montarMensagemAlertaAderenciaMotorista(l: LinhaJornada, data: string): string {
   const foraDoRaio = l.entregaForaRaio + l.devForaRaio
-  return (
+  const saudacao = l.nome ? `, ${l.nome}` : ''
+  return variarTexto([
     `⚠️ *ATENÇÃO — ADERÊNCIA ABAIXO DA META*\n${formatarDataBR(data)}\n\n` +
-    `Olá${l.nome ? `, ${l.nome}` : ''}! No mapa ${l.mapa} sua aderência está em *${formatarPct(l.aderencia)}*, abaixo da meta de ${formatarPct(ADERENCIA_MINIMA)}.\n` +
+    `Olá${saudacao}! No mapa ${l.mapa} sua aderência está em *${formatarPct(l.aderencia)}*, abaixo da meta de ${formatarPct(ADERENCIA_MINIMA)}.\n` +
     `Entregas fora do raio combinado: ${foraDoRaio}.\n\n` +
-    `Por favor, fique atento ao raio de entrega nas próximas paradas.`
-  )
+    `Por favor, fique atento ao raio de entrega nas próximas paradas.`,
+
+    `⚠️ *ADERÊNCIA ABAIXO DA META*\n${formatarDataBR(data)}\n\n` +
+    `Oi${saudacao}! Reparei que no mapa ${l.mapa} sua aderência está em *${formatarPct(l.aderencia)}*, abaixo da meta de ${formatarPct(ADERENCIA_MINIMA)}.\n` +
+    `Entregas fora do raio combinado: ${foraDoRaio}.\n\n` +
+    `Fica de olho no raio de entrega nas próximas paradas, por favor.`,
+
+    `⚠️ *ATENÇÃO COM A ADERÊNCIA*\n${formatarDataBR(data)}\n\n` +
+    `E aí${saudacao}! No mapa ${l.mapa} a aderência está em *${formatarPct(l.aderencia)}*, abaixo dos ${formatarPct(ADERENCIA_MINIMA)} da meta.\n` +
+    `Entregas fora do raio combinado: ${foraDoRaio}.\n\n` +
+    `Presta atenção no raio de entrega nas próximas paradas, valeu?`,
+  ])
 }
 
 export function montarMensagemCdd(porSala: Map<SalaJornada, LinhaJornada[]>, data: string): string {

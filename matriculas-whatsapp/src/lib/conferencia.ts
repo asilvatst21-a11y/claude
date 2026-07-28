@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
 import { valesSupabase } from './valesSupabase'
 import { parseSeparacaoBuffer, parseRetornavelBuffer, type RetornavelItem } from './tmlParser'
+import { variarTexto } from './zapi'
 
 // ── Baia (palete) ─────────────────────────────────────────────────────────
 // O campo "Palete" do Relatório de Separação já traz a porta e a ordem:
@@ -553,7 +554,7 @@ export function montarMensagemDivergencia(p: {
   const tipo = p.item.tipoDivergencia === 'falta' ? 'FALTA'
     : p.item.tipoDivergencia === 'sobra' ? 'SOBRA'
     : 'AVARIA'
-  let texto = `⚠️ *DIVERGÊNCIA NA CONFERÊNCIA*\n\n`
+  let texto = `${variarTexto(['⚠️ *DIVERGÊNCIA NA CONFERÊNCIA*', '⚠️ *DIVERGÊNCIA ENCONTRADA NA CONFERÊNCIA*', '📦 *DIVERGÊNCIA NA BAIA*'])}\n\n`
   texto += `🗺️ Mapa: ${p.mapa}\n`
   texto += `📦 Baia: ${p.baiaRotulo}\n`
   texto += `🔎 Tipo: ${tipo}\n`

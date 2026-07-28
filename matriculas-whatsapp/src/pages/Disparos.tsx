@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { valesSupabase } from '../lib/valesSupabase'
 import { useAuth } from '../lib/auth'
-import { enviarMensagemWhatsApp, enviarImagemWhatsApp, formatarMensagem, aguardarEntreEnvios } from '../lib/zapi'
+import { enviarMensagemWhatsApp, enviarImagemWhatsApp, formatarMensagem, aguardarEntreEnvios, variarTexto } from '../lib/zapi'
 import type { Matricula, Cliente } from '../types'
 import { FileSpreadsheet, CheckCircle, XCircle, Send, AlertTriangle, Image, RefreshCw } from 'lucide-react'
 
@@ -41,9 +41,34 @@ const TEMPLATE_PADRAO = `Olá motorista! Hoje você tem entrega no cliente *{{no
 
 {{observacoes}}`
 
+// Variações do template padrão — se o usuário não editou a mensagem (segue
+// igual ao TEMPLATE_PADRAO acima), o disparo sorteia uma redação diferente
+// pra cada destinatário em vez de mandar o texto idêntico pra todo mundo,
+// um dos gatilhos de bloqueio por spam. Editar o texto na tela desativa a
+// variação automática (o disparo respeita o que foi digitado).
+const TEMPLATE_PADRAO_VARIANTES = [
+  TEMPLATE_PADRAO,
+  `Oi! Passando pra avisar que hoje tem entrega marcada no cliente *{{nomeCliente}}* (Cód: {{codigoCliente}}).
+
+{{observacoes}}`,
+  `E aí, motorista! Você tem uma entrega hoje pro cliente *{{nomeCliente}}* (Cód: {{codigoCliente}}).
+
+{{observacoes}}`,
+]
+
 const TEMPLATE_CRUZAMENTO_PADRAO = `Olá {{nomeMotorista}}! Você está escalado hoje (mapa {{mapa}}) para o PDV crítico *{{nomeCliente}}* (Cód: {{codigoCliente}}).
 
 {{observacoes}}`
+
+const TEMPLATE_CRUZAMENTO_PADRAO_VARIANTES = [
+  TEMPLATE_CRUZAMENTO_PADRAO,
+  `Oi, {{nomeMotorista}}! Hoje você está na escala (mapa {{mapa}}) pro PDV crítico *{{nomeCliente}}* (Cód: {{codigoCliente}}).
+
+{{observacoes}}`,
+  `{{nomeMotorista}}, tudo bem? Você foi escalado hoje (mapa {{mapa}}) pra atender o PDV crítico *{{nomeCliente}}* (Cód: {{codigoCliente}}).
+
+{{observacoes}}`,
+]
 
 // Remove zeros à esquerda para comparar códigos entre cadastros distintos
 // (ex.: "0021663" cadastrado em Clientes vs. 21663 importado em vendas_dia).
@@ -144,7 +169,8 @@ export default function Disparos() {
 
     for (let i = 0; i < aptos.length; i++) {
       const linha = aptos[i]
-      const mensagem = formatarMensagem(templateCruzamento, {
+      const templateEfetivo = templateCruzamento === TEMPLATE_CRUZAMENTO_PADRAO ? variarTexto(TEMPLATE_CRUZAMENTO_PADRAO_VARIANTES) : templateCruzamento
+      const mensagem = formatarMensagem(templateEfetivo, {
         matricula: linha.matricula ?? '',
         nomeMotorista: linha.nomeMotorista ?? '',
         mapa: linha.mapa ?? '',
@@ -285,7 +311,8 @@ export default function Disparos() {
 
     for (let i = 0; i < aptos.length; i++) {
       const linha = aptos[i]
-      const mensagem = formatarMensagem(template, {
+      const templateEfetivo = template === TEMPLATE_PADRAO ? variarTexto(TEMPLATE_PADRAO_VARIANTES) : template
+      const mensagem = formatarMensagem(templateEfetivo, {
         matricula: linha.matricula,
         nomeMotorista: linha.nomeMotorista ?? '',
         codigoCliente: linha.codigoCliente,

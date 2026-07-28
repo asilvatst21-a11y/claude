@@ -1,5 +1,5 @@
 import { supabase } from './supabase'
-import { enviarMensagemWhatsApp } from './zapi'
+import { enviarMensagemWhatsApp, variarTexto } from './zapi'
 import type { AlertaTML, ConversaMotoristaTML } from '../types'
 
 // Primeiro nome, pra deixar a abordagem mais pessoal ("Oi, João!" em vez do
@@ -11,18 +11,31 @@ function primeiroNome(nome: string | null): string {
 }
 
 // Mensagem 1 — tom acolhedor. Enviada no disparo manual. As respostas
-// (motivo e depois solução) são conduzidas pelo webhook.
+// (motivo e depois solução) são conduzidas pelo webhook. Redação varia a
+// cada envio (mesmo sentido, texto diferente) — evita mandar o texto
+// idêntico pra motoristas diferentes, um dos gatilhos de bloqueio por spam.
 export function montarMensagemAberturaMotorista(a: {
   nome: string | null
   mapa: number
   atraso_minutos: number
 }): string {
-  return (
-    `Oi, ${primeiroNome(a.nome)}! Tudo bem? 👋\n\n` +
+  const nome = primeiroNome(a.nome)
+  return variarTexto([
+    `Oi, ${nome}! Tudo bem? 👋\n\n` +
     `Vi aqui que sua saída de hoje (mapa ${a.mapa}) ficou ${a.atraso_minutos} minutos além do horário combinado.\n\n` +
     `Não é pra te cobrar nada, só quero entender: o que rolou hoje que atrasou a saída?\n\n` +
-    `_Pode responder por texto ou áudio, como for melhor pra você._`
-  )
+    `_Pode responder por texto ou áudio, como for melhor pra você._`,
+
+    `Opa, ${nome}! Passando rapidinho. 👋\n\n` +
+    `Reparei que a sua saída de hoje (mapa ${a.mapa}) ficou ${a.atraso_minutos} minutos depois do combinado.\n\n` +
+    `Não é cobrança, só quero entender o que aconteceu hoje que atrasou a saída.\n\n` +
+    `_Pode me responder por texto ou áudio, o que for mais fácil._`,
+
+    `E aí, ${nome}, tudo certo? 👋\n\n` +
+    `Vi que hoje a saída do mapa ${a.mapa} atrasou ${a.atraso_minutos} minutos em relação ao horário combinado.\n\n` +
+    `Sem cobrança nenhuma, só queria entender o que rolou pra atrasar.\n\n` +
+    `_Fique à vontade pra responder em texto ou áudio._`,
+  ])
 }
 
 export interface IniciarConversaResultado {

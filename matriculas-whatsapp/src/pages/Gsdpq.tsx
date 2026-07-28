@@ -14,7 +14,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import { enviarMensagemGrupo, enviarMensagemWhatsApp, enviarImagemGrupo, aguardarEntreEnvios } from '../lib/zapi'
+import { enviarMensagemGrupo, enviarMensagemWhatsApp, enviarImagemGrupo, aguardarEntreEnvios, variarTexto } from '../lib/zapi'
 import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
 import { formatarDataBR } from '../lib/utils'
 import { ehMotoristaOuAjudante, calcularVencimento, type VencimentoInfo } from '../lib/gsdpqVencimento'
@@ -826,7 +826,7 @@ export default function Gsdpq() {
           const status = dr <= 0 ? `vencido há ${Math.abs(dr)}d` : `faltam ${dr}d`
           return `👤 ${v.colaborador.nome} — ${status} (ciclo ${v.info!.cicloDias}d)`
         }).join('\n')
-        const mensagem = `🔔 *Vencimentos de GSD — Equipe ${eq}*\n\n${linhas}\n\nFavor agendar a aplicação do GSD para os colaboradores acima.`
+        const mensagem = `${variarTexto(['🔔 *Vencimentos de GSD', '🔔 *GSD a vencer/vencido', '📋 *Aplicações de GSD pendentes'])} — Equipe ${eq}*\n\n${linhas}\n\n${variarTexto(['Favor agendar a aplicação do GSD para os colaboradores acima.', 'Por favor, agende a aplicação do GSD pra esses colaboradores.', 'Pede pra agendar a aplicação do GSD pra essa turma acima.'])}`
         const { sucesso, erro } = await enviarMensagemWhatsApp(supervisor.telefone, mensagem)
         await supabase.from('disparos').insert({
           filial: usuario.filial, whatsapp: supervisor.telefone, mensagem,

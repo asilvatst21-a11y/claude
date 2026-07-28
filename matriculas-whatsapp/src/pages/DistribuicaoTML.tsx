@@ -5,7 +5,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { enviarListaOpcoesWhatsApp, enviarMensagemWhatsApp, enviarMensagemGrupo, enviarImagemGrupo, aguardarEntreEnvios } from '../lib/zapi'
+import { enviarListaOpcoesWhatsApp, enviarMensagemWhatsApp, enviarMensagemGrupo, enviarImagemGrupo, aguardarEntreEnvios, variarTexto } from '../lib/zapi'
 import { serieCartaControleCDD, renderCartaControlePNG } from '../lib/tmlCartaControle'
 import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer, type ChecklistTML } from '../lib/tmlParser'
 import {
@@ -116,7 +116,7 @@ function montarMensagemTml(alerta: {
   atraso_minutos: number
 }): string {
   return (
-    `⚠️ *TML PERDIDO*\n\n` +
+    `${variarTexto(['⚠️ *TML PERDIDO*', '⚠️ *SAÍDA FORA DO TML*', '🚛 *TML NÃO CUMPRIDO*'])}\n\n` +
     `🗺️ Mapa: ${alerta.mapa}\n` +
     `🚛 Placa: ${alerta.placa ?? '-'}\n` +
     `👤 Motorista: ${alerta.nome ?? '—'} (matrícula ${alerta.matricula ?? '—'})\n` +
@@ -124,7 +124,7 @@ function montarMensagemTml(alerta: {
     `🕐 Limite de saída: ${alerta.horario_limite}\n` +
     `🕑 Saída real: ${alerta.horario_saida}\n` +
     `⏱️ Atraso: ${alerta.atraso_minutos} min\n\n` +
-    `O motorista perdeu o TML. *Responda esta mensagem explicando o que aconteceu* — o controle vai classificar o motivo no sistema.`
+    `${variarTexto(['O motorista perdeu o TML. *Responda esta mensagem explicando o que aconteceu* — o controle vai classificar o motivo no sistema.', 'Esse motorista não cumpriu o TML. *Responda aqui explicando o que houve* — vamos classificar o motivo no sistema.', 'O TML não foi cumprido nessa saída. *Conta pra gente o que aconteceu, respondendo esta mensagem* — o motivo entra no sistema.'])}`
   )
 }
 
@@ -710,7 +710,7 @@ export default function DistribuicaoTML() {
             }
             if (!sups.length) continue
             const lista = pendentes.sort((a, b) => a.mapa - b.mapa)
-            let msg = `🚛 *PENDENTES NO CDD — ${hora}*\n`
+            let msg = `${variarTexto(['🚛 *PENDENTES NO CDD', '🚛 *AINDA NO CDD', '📍 *MAPAS PENDENTES NO CDD'])} — ${hora}*\n`
             msg += `${SALA_TML_LABEL[sala]} — ${lista.length} ainda não saíram:\n\n`
             for (const p of lista) msg += `• Mapa ${p.mapa} — ${p.placa ?? '—'} — ${p.nome ?? '—'}\n`
             for (const sup of sups) { await enviarMensagemWhatsApp(sup.telefone, msg); await aguardarEntreEnvios() }

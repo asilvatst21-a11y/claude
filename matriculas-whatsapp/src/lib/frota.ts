@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx'
 import type { FrotaDisponibilidade, FrotaPlaca, FrotaIVTratativa } from '../types'
 import { supabase } from './supabase'
-import { enviarListaOpcoesWhatsApp, aguardarEntreEnvios } from './zapi'
+import { enviarListaOpcoesWhatsApp, aguardarEntreEnvios, variarTexto } from './zapi'
 import { formatarDataBR } from './utils'
 import { buscarStatusColaboradoresPorNome, podeEnviarPara } from './statusAtivo'
 
@@ -1218,14 +1218,14 @@ function montarMensagemFixacaoMotorista(item: {
   const esperados = [item.nomeEsperada1, item.nomeEsperada2].filter(Boolean).join(' ou ')
   const linhaTerritorio = item.territorio ? linhaTerritorioFixacaoMotorista(item.territorio) : null
   return (
-    `⚠️ *FIXAÇÃO DE MOTORISTA — DIVERGÊNCIA*\n\n` +
+    `${variarTexto(['⚠️ *FIXAÇÃO DE MOTORISTA — DIVERGÊNCIA*', '⚠️ *DIVERGÊNCIA NA FIXAÇÃO DE MOTORISTA*', '🚛 *MOTORISTA DIFERENTE DO FIXADO NA PLACA*'])}\n\n` +
     `🚛 Placa: ${item.placa}\n` +
     `📅 Data: ${formatarDataBR(item.data)}\n` +
     `🏢 Sala: ${item.sala ?? '—'}\n` +
     `👤 Motorista que rodou: ${item.nomeExecutou ?? '—'}\n` +
     `📌 Motorista(s) fixado(s) na placa: ${esperados || '—'}\n` +
     (linhaTerritorio ? `${linhaTerritorio}\n` : '') +
-    `\nA placa rodou com um motorista diferente do fixado. *Selecione abaixo o motivo da divergência*:`
+    `\n${variarTexto(['A placa rodou com um motorista diferente do fixado. *Selecione abaixo o motivo da divergência*:', 'Essa placa saiu com um motorista diferente do que está fixado. *Escolha abaixo o motivo*:', 'Identificamos um motorista diferente do fixado nessa placa. *Selecione o motivo abaixo*:'])}`
   )
 }
 

@@ -22,6 +22,14 @@ export function aguardarEntreEnvios(ms = 1500): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+// Sorteia uma entre várias redações equivalentes pra um mesmo aviso — o
+// WhatsApp também sinaliza como spam o mesmo texto repetido pra números
+// diferentes, mesmo enviado devagar. Cada chamada varia a redação, mantendo
+// o mesmo sentido/dados.
+export function variarTexto(variantes: string[]): string {
+  return variantes[Math.floor(Math.random() * variantes.length)]
+}
+
 export async function enviarMensagemWhatsApp(
   numero: string,
   mensagem: string

@@ -42,7 +42,7 @@ import { formatCurrency, formatDateBR, calcPrazo, type PrazoStatus } from "@/lib
 import { valesSupabase } from "@/lib/valesSupabase";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
-import { enviarMensagemGrupo, aguardarEntreEnvios } from "@/lib/zapi";
+import { enviarMensagemGrupo, aguardarEntreEnvios, variarTexto } from "@/lib/zapi";
 import { sendMessage } from "@/lib/valesZapi";
 import { formatPhoneForZAPI } from "@/lib/valesUtils";
 import { buscarStatusColaboradoresPorNomeGlobal, podeEnviarPara } from "@/lib/statusAtivo";
@@ -152,8 +152,27 @@ const TEMPLATE_DEFAULT =
   "Olá {nome}! Você possui {qtd} vale(s) pendente(s) no sistema LOG20 que precisam ser tratados. " +
   "Vale(s): {vales}. Por favor, procure o financeiro para regularizar.";
 
+// Variações do template padrão — se o usuário não personalizou a mensagem
+// (nas Configurações), o envio sorteia uma redação diferente pra cada
+// ajudante em vez do texto idêntico pra todo mundo, um dos gatilhos de
+// bloqueio por spam. Uma mensagem personalizada nas Configurações desativa
+// a variação automática (respeita o texto configurado).
+const TEMPLATE_DEFAULT_VARIANTES = [
+  TEMPLATE_DEFAULT,
+  "Oi, {nome}! Você tem {qtd} vale(s) pendente(s) no LOG20 que precisam ser resolvidos. " +
+  "Vale(s): {vales}. Procure o financeiro pra regularizar, por favor.",
+  "{nome}, tudo bem? Consta {qtd} vale(s) pendente(s) no sistema LOG20 no seu nome. " +
+  "Vale(s): {vales}. Passa no financeiro pra regularizar quando puder.",
+];
+
 const MENSAGEM_TELEFONE_MANUAL =
   "Prezado colaborador, você possui pendências, procure o setor financeiro em até 24h.";
+
+const MENSAGEM_TELEFONE_MANUAL_VARIANTES = [
+  MENSAGEM_TELEFONE_MANUAL,
+  "Olá! Consta uma pendência em seu nome — procure o setor financeiro em até 24h.",
+  "Oi, tudo bem? Você tem uma pendência a resolver — passe no financeiro em até 24h.",
+];
 
 // Acrescenta o link de autoatendimento na MESMA mensagem (nunca uma segunda
 // mensagem) — só quando a Consulta de Pendências estiver ativa.
@@ -165,6 +184,12 @@ function comLinkPendencias(mensagem: string, ativo: boolean): string {
 
 const MENSAGEM_ATUALIZACAO_FINAL =
   "Olá {nome}! Há uma atualização nas suas pendências financeiras. Acesse: {link}";
+
+const MENSAGEM_ATUALIZACAO_FINAL_VARIANTES = [
+  MENSAGEM_ATUALIZACAO_FINAL,
+  "Oi, {nome}! Suas pendências financeiras tiveram uma atualização. Acesse: {link}",
+  "{nome}, passando pra avisar: houve uma atualização nas suas pendências financeiras. Acesse: {link}",
+];
 
 export default function ValesPage() {
   const [searchParams] = useSearchParams();
@@ -308,7 +333,7 @@ export default function ValesPage() {
         const phone = formatPhoneForZAPI(telefoneManual);
         if (!phone) throw new Error("Telefone inválido");
 
-        const mensagemManual = comLinkPendencias(MENSAGEM_TELEFONE_MANUAL, linkPendenciasAtivo);
+        const mensagemManual = comLinkPendencias(variarTexto(MENSAGEM_TELEFONE_MANUAL_VARIANTES), linkPendenciasAtivo);
         const result = await sendMessage(phone, mensagemManual);
 
         await valesSupabase.from("notificacoes").insert({
@@ -363,7 +388,8 @@ export default function ValesPage() {
       for (const ajudante of ajudantesComTel) {
         const phone = formatPhoneForZAPI(ajudante.telefone);
         if (!phone) continue;
-        const mensagem = comLinkPendencias(buildMensagem(template, {
+        const templateEfetivo = template === TEMPLATE_DEFAULT ? variarTexto(TEMPLATE_DEFAULT_VARIANTES) : template;
+        const mensagem = comLinkPendencias(buildMensagem(templateEfetivo, {
           nome: ajudante.nome,
           qtd: "1",
           vales: `#${numeroVale}`,
@@ -431,7 +457,7 @@ export default function ValesPage() {
       for (const ajudante of ajudantesComTel) {
         const phone = formatPhoneForZAPI(ajudante.telefone);
         if (!phone) continue;
-        const mensagem = buildMensagem(MENSAGEM_ATUALIZACAO_FINAL, { nome: ajudante.nome, link });
+        const mensagem = buildMensagem(variarTexto(MENSAGEM_ATUALIZACAO_FINAL_VARIANTES), { nome: ajudante.nome, link });
         const result = await sendMessage(phone, mensagem);
 
         await valesSupabase.from("notificacoes").insert({
