@@ -87,6 +87,51 @@ const PRAZO_STYLES: Record<PrazoStatus, string> = {
 type SortField = "mapa" | "numero_vale" | "data_emissao" | "itens" | "valor_total" | "status_vale" | "prazo";
 type SortDir = "asc" | "desc";
 
+interface RankingAjudante {
+  nome: string;
+  totalGerados: number;
+  valorGerado: number;
+  totalAbonados: number;
+  valorAbonado: number;
+  totalFaturados: number;
+  valorFaturado: number;
+}
+type RankingSortField = "totalGerados" | "valorGerado" | "totalAbonados" | "valorAbonado" | "totalFaturados" | "valorFaturado";
+
+// Um vale com 2 ajudantes (vale dividido) conta pra cada um — os dois
+// geraram o vale, mesmo que a responsabilidade seja compartilhada. Vales
+// sem ajudante atribuído não entram no ranking (já aparecem na aba
+// "Sem ajudante").
+function calcularRankingAjudantes(lista: ValeRow[]): RankingAjudante[] {
+  const mapa = new Map<string, RankingAjudante>();
+  const get = (nome: string) => {
+    let r = mapa.get(nome);
+    if (!r) {
+      r = { nome, totalGerados: 0, valorGerado: 0, totalAbonados: 0, valorAbonado: 0, totalFaturados: 0, valorFaturado: 0 };
+      mapa.set(nome, r);
+    }
+    return r;
+  };
+  for (const v of lista) {
+    const valor = v.valor_total ?? 0;
+    for (const a of v.ajudantes) {
+      const r = get(a.nome);
+      r.totalGerados += 1;
+      r.valorGerado += valor;
+      if (v.status_vale === "Abonado") { r.totalAbonados += 1; r.valorAbonado += valor; }
+      if (v.status_vale === "Faturado" || v.status_vale === "Faturar") { r.totalFaturados += 1; r.valorFaturado += valor; }
+    }
+  }
+  return [...mapa.values()];
+}
+
+function sortRanking(lista: RankingAjudante[], field: RankingSortField, dir: SortDir): RankingAjudante[] {
+  return [...lista].sort((a, b) => {
+    const cmp = a[field] - b[field];
+    return dir === "asc" ? cmp : -cmp;
+  });
+}
+
 function SortableHead({
   field, label, sortField, sortDir, onSort, className,
 }: {
@@ -199,6 +244,8 @@ export default function ValesPage() {
   const [vales, setVales] = useState<ValeRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("todos");
+  const [rankingSortField, setRankingSortField] = useState<RankingSortField>("totalGerados");
+  const [rankingSortDir, setRankingSortDir] = useState<SortDir>("desc");
   const [notifyingId, setNotifyingId] = useState<string | null>(null);
   const [detalhesVale, setDetalhesVale] = useState<ValeDetalhes | null>(null);
 
@@ -774,6 +821,36 @@ export default function ValesPage() {
       : []),
   ];
 
+  // Ranking nominal — respeita o mesmo filtro de data/busca já aplicado em
+  // valesFiltered (o usuário escolhe o período nos campos de Data acima).
+  const rankingAjudantes = sortRanking(calcularRankingAjudantes(valesFiltered), rankingSortField, rankingSortDir);
+
+  function handleSortRanking(field: RankingSortField) {
+    if (rankingSortField === field) {
+      setRankingSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setRankingSortField(field);
+      setRankingSortDir("desc");
+    }
+  }
+
+  function exportRankingExcel() {
+    const data = rankingAjudantes.map((r) => ({
+      "Ajudante": r.nome,
+      "Vales Gerados": r.totalGerados,
+      "Valor Gerado": r.valorGerado,
+      "Abonados": r.totalAbonados,
+      "Valor Abonado": r.valorAbonado,
+      "Faturados": r.totalFaturados,
+      "Valor Faturado": r.valorFaturado,
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws["!cols"] = [{ wch: 28 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Ranking");
+    XLSX.writeFile(wb, `vales-ranking-${new Date().toISOString().slice(0, 10)}.xlsx`);
+  }
+
   function exportExcel() {
     const rows = sortVales(filterByTab(valesFiltered, activeTab), sortField, sortDir);
     const data = rows.map((v) => ({
@@ -1171,7 +1248,75 @@ export default function ValesPage() {
               {tab.label} ({tab.count})
             </TabsTrigger>
           ))}
+          <TabsTrigger value="ranking">Ranking</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="ranking">
+          <Card>
+            <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+              <div>
+                <CardTitle>Ranking nominal</CardTitle>
+                <CardDescription>
+                  Por ajudante, no período selecionado nos campos de Data acima
+                  {hasFilters && <span className="text-primary"> · filtro ativo</span>}
+                </CardDescription>
+              </div>
+              <Button variant="outline" size="sm" onClick={exportRankingExcel} disabled={rankingAjudantes.length === 0} className="gap-2">
+                <Download className="h-4 w-4" /> Exportar Excel
+              </Button>
+            </CardHeader>
+            <CardContent>
+              {rankingAjudantes.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  Nenhum vale com ajudante no período selecionado.
+                </div>
+              ) : (
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Ajudante</TableHead>
+                      {([
+                        ["totalGerados", "Vales Gerados"],
+                        ["valorGerado", "Valor Gerado"],
+                        ["totalAbonados", "Abonados"],
+                        ["valorAbonado", "Valor Abonado"],
+                        ["totalFaturados", "Faturados"],
+                        ["valorFaturado", "Valor Faturado"],
+                      ] as [RankingSortField, string][]).map(([field, label]) => (
+                        <TableHead key={field} className="text-right">
+                          <button
+                            onClick={() => handleSortRanking(field)}
+                            className="flex items-center gap-1 ml-auto font-medium hover:text-foreground transition-colors"
+                          >
+                            {label}
+                            {rankingSortField === field ? (
+                              rankingSortDir === "asc" ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />
+                            ) : (
+                              <ChevronsUpDown className="h-3.5 w-3.5 text-muted-foreground/50" />
+                            )}
+                          </button>
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rankingAjudantes.map((r) => (
+                      <TableRow key={r.nome}>
+                        <TableCell className="font-medium">{r.nome}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.totalGerados}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatCurrency(r.valorGerado)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.totalAbonados}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatCurrency(r.valorAbonado)}</TableCell>
+                        <TableCell className="text-right tabular-nums">{r.totalFaturados}</TableCell>
+                        <TableCell className="text-right tabular-nums">{formatCurrency(r.valorFaturado)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
 
         {tabs.map((tab) => (
           <TabsContent key={tab.value} value={tab.value}>
