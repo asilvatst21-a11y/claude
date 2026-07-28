@@ -256,6 +256,23 @@ const EMBALAGEM_LABEL: Record<string, string> = {
   unidade: 'Unidade', fardo: 'Fardo', indefinido: 'Não informado',
 }
 
+// Rede de segurança pra embalagem: a IA às vezes se confunde quando o NOME
+// do produto no catálogo menciona "Caixa C/12 Un" (a embalagem em que o
+// produto normalmente é vendido) e classifica como "fardo" mesmo quando o
+// motorista escreveu literalmente "Quantidade: 2 Unidades" — o texto que a
+// pessoa digitou é a fonte da verdade, não o nome do produto. Procura
+// primeiro numa linha "Quantidade: N <palavra>" (formato do bot de
+// confirmação); sem achar, cai pra procurar em qualquer lugar do texto.
+// Retorna null quando não há nenhuma palavra de embalagem explícita — nesse
+// caso mantém o que a IA decidiu.
+function detectarEmbalagemExplicita(texto: string): 'unidade' | 'fardo' | null {
+  const linhaQtd = texto.match(/quantidade\s*[:\-]?\s*\d+\s*([a-zçãáéíóúâêô.]+)/i)?.[1]
+  const candidato = linhaQtd ?? texto
+  if (/\bfardos?\b|\bpacotes?\b|\bengradados?\b|\bcaixas?\s+fechadas?\b/i.test(candidato)) return 'fardo'
+  if (/\bunidades?\b|\bun\.?\b/i.test(candidato)) return 'unidade'
+  return null
+}
+
 // Busca os 40 produtos mais recentes do catálogo para enriquecer o prompt da IA.
 // Se a tabela estiver vazia (antes da primeira importação), retorna lista vazia.
 // Remove acentos e baixa caixa, para casar com o catálogo (que é todo sem acento).
@@ -495,6 +512,9 @@ async function extrairReposicaoIA(texto: string): Promise<ReposicaoIA> {
           'ou "indefinido" se não der pra saber. ' +
           'embalagem: "unidade" (produto avulso, unidade, garrafa/lata solta) ou "fardo" (fardo, pacote, caixa fechada, engradado); ' +
           'use "indefinido" se a mensagem não deixar claro se é unidade ou fardo. ' +
+          'IMPORTANTE: a palavra que o motorista usou pra quantidade (ex.: "2 Unidades", "3 Fardos") sempre vale mais que ' +
+          'a embalagem típica citada no NOME do produto do catálogo (ex.: um produto chamado "Caixa C/12 Un" pode ' +
+          'perfeitamente estar sendo reportado como "2 Unidades" faltando, não como fardo/caixa). ' +
           'Para o campo "produto", use o nome padronizado do catálogo se conseguir identificar, ' +
           'incluindo o código numérico se mencionado.' + catalogo,
         messages: [{ role: 'user', content: texto }],
@@ -841,6 +861,10 @@ async function tratarReposicao(
         if (!novo.tipo_reposicao && iaResp.tipo_reposicao !== 'indefinido') novo.tipo_reposicao = iaResp.tipo_reposicao
         if (!novo.embalagem && iaResp.embalagem !== 'indefinido') novo.embalagem = iaResp.embalagem
       }
+      if (!novo.embalagem) {
+        const embalagemExplicita = detectarEmbalagemExplicita(contexto)
+        if (embalagemExplicita) novo.embalagem = embalagemExplicita
+      }
     }
 
     const upd = mesclarCampos(pendColeta, novo)
@@ -976,6 +1000,8 @@ async function tratarReposicao(
     await enviar(grupoId, `⚠️ ${senderName || 'Olá'}, não consegui processar sua mensagem agora. Tente reenviar em instantes; se persistir, contate o *monitoramento*.`)
     return { ok: true, action: 'repos-ia-erro' }
   }
+  const embalagemExplicita = detectarEmbalagemExplicita(conteudo)
+  if (embalagemExplicita) ia.embalagem = embalagemExplicita
   if (!ia.eh_reposicao) {
     // Não é solicitação de reposição → bot fica em silêncio (evita poluir o grupo)
     return { ok: true, action: 'repos-nao-aplicavel' }
