@@ -299,53 +299,6 @@ export default function DistribuicaoConferencia() {
         ))}
       </div>
 
-      {/* Mapas parados — não finalizados, de qualquer dia dentro da janela */}
-      <div className="border rounded-lg bg-white">
-        <button onClick={() => setMapasParadosAberta((v) => !v)} className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
-          <span className="flex items-center gap-2 font-semibold text-sm">
-            {mapasParadosAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-            <AlertTriangle className="h-4 w-4 text-amber-600" /> Mapas parados
-          </span>
-          {mapasParados.length > 0 && (
-            <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{mapasParados.length}</span>
-          )}
-        </button>
-        {mapasParadosAberta && (
-          loadingMapasParados ? (
-            <div className="flex items-center justify-center py-8 border-t"><Loader2 className="h-5 w-5 animate-spin text-accent-500" /></div>
-          ) : mapasParados.length === 0 ? (
-            <p className="text-sm text-muted-foreground p-4 border-t">
-              Nenhum mapa parado nos últimos 14 dias — tudo que foi importado está finalizado ou em andamento recente.
-            </p>
-          ) : (
-            <div className="overflow-x-auto border-t">
-              <table className="w-full text-sm">
-                <thead className="bg-muted/50">
-                  <tr>
-                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Mapa</th>
-                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Data</th>
-                    <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Baias pendentes</th>
-                    <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Parado há</th>
-                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Responsável</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {mapasParados.map((m) => (
-                    <tr key={`${m.mapa}-${m.data}`} className="hover:bg-muted/30 transition-colors">
-                      <td className="px-3 py-2 font-semibold tabular-nums">{m.mapa}</td>
-                      <td className="px-3 py-2">{formatarDataBR(m.data)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{m.baiasPendentes}/{m.totalBaias}</td>
-                      <td className="px-3 py-2 text-right tabular-nums font-medium text-amber-700">{formatarMinutosParado(m.minutosParado)}</td>
-                      <td className="px-3 py-2">{m.quemNome ?? <span className="text-muted-foreground">Ninguém iniciou</span>}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        )}
-      </div>
-
       {/* Tabela por mapa */}
       <div className="border rounded-lg bg-white">
         <button onClick={() => setTabelaAberta(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b text-left">
@@ -422,6 +375,53 @@ export default function DistribuicaoConferencia() {
             </table>
           </div>
         ))}
+      </div>
+
+      {/* Mapas pendentes — não finalizados, de qualquer dia dentro da janela */}
+      <div className="border rounded-lg bg-white">
+        <button onClick={() => setMapasParadosAberta((v) => !v)} className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
+          <span className="flex items-center gap-2 font-semibold text-sm">
+            {mapasParadosAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+            <AlertTriangle className="h-4 w-4 text-amber-600" /> Mapas pendentes
+          </span>
+          {mapasParados.length > 0 && (
+            <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{mapasParados.length}</span>
+          )}
+        </button>
+        {mapasParadosAberta && (
+          loadingMapasParados ? (
+            <div className="flex items-center justify-center py-8 border-t"><Loader2 className="h-5 w-5 animate-spin text-accent-500" /></div>
+          ) : mapasParados.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4 border-t">
+              Nenhum mapa pendente nos últimos 14 dias — tudo que foi importado está finalizado ou em andamento recente.
+            </p>
+          ) : (
+            <div className="overflow-x-auto border-t">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Mapa</th>
+                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Data</th>
+                    <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Baias pendentes</th>
+                    <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Parado há</th>
+                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Responsável</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {mapasParados.map((m) => (
+                    <tr key={`${m.mapa}-${m.data}`} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-3 py-2 font-semibold tabular-nums">{m.mapa}</td>
+                      <td className="px-3 py-2">{formatarDataBR(m.data)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{m.baiasPendentes}/{m.totalBaias}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium text-amber-700">{formatarMinutosParado(m.minutosParado)}</td>
+                      <td className="px-3 py-2">{m.quemNome ?? <span className="text-muted-foreground">Ninguém iniciou</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
       </div>
 
       <div className="border rounded-lg bg-white">
