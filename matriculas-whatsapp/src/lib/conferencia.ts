@@ -273,10 +273,12 @@ export async function buscarBaiasDoMapa(filial: string, mapa: number, data: stri
     .sort((x, y) => ordemBaia(x.porta, x.ordem) - ordemBaia(y.porta, y.ordem))
 }
 
-// Marca a baia como iniciada (só na primeira vez) — base pro tempo de conferência.
-export async function iniciarBaia(baiaId: string): Promise<void> {
+// Marca a baia como iniciada (só na primeira vez) — base pro tempo de
+// conferência e pra saber quem avisar caso a baia fique parada (ver
+// verificarLembretesConferenciaParada em api/zapi-webhook.ts).
+export async function iniciarBaia(baiaId: string, iniciadoPor?: string | null, iniciadoPorTelefone?: string | null): Promise<void> {
   const { error } = await supabase.from('conferencia_baias')
-    .update({ iniciada_em: new Date().toISOString() })
+    .update({ iniciada_em: new Date().toISOString(), iniciado_por: iniciadoPor ?? null, iniciado_por_telefone: iniciadoPorTelefone ?? null })
     .eq('id', baiaId).is('iniciada_em', null)
   if (error) throw new Error(error.message)
 }
@@ -429,6 +431,69 @@ export async function buscarResumoDia(filial: string, data: string): Promise<Res
       ? Math.round(temposConcluidos.reduce((a, b) => a + b, 0) / temposConcluidos.length)
       : null,
   }
+}
+
+// ── Painel: mapas parados (não finalizados, sem atividade recente) ──────
+// Ao contrário de buscarResumoDia (um dia por vez), essa varre uma janela de
+// dias — um mapa pode ficar aberto de um dia pro outro e continuar
+// aparecendo até alguém finalizar ou pular as baias que faltam.
+export interface MapaParadoConf {
+  mapa: number
+  data: string
+  totalBaias: number
+  baiasPendentes: number
+  ultimaAtividade: string | null // maior timestamp entre import/início/1º item/fim de qualquer baia do mapa
+  minutosParado: number | null
+  quemNome: string | null
+  quemTelefone: string | null
+}
+
+export async function buscarMapasParados(filial: string, diasAtras = 14): Promise<MapaParadoConf[]> {
+  const desde = new Date(Date.now() - diasAtras * 86_400_000).toISOString().slice(0, 10)
+  const { data: baias, error } = await supabase
+    .from('conferencia_baias')
+    .select('mapa, data, status, importado_em, iniciada_em, primeiro_item_em, finalizada_em, iniciado_por, iniciado_por_telefone')
+    .eq('filial', filial)
+    .gte('data', desde)
+  if (error) throw new Error(error.message)
+
+  const porMapa = new Map<string, {
+    mapa: number; data: string; totalBaias: number; pendentes: number
+    ultimaAtividade: number | null; quemNome: string | null; quemTelefone: string | null; quemEm: number
+  }>()
+  for (const b of baias ?? []) {
+    const chave = `${b.mapa}|${b.data}`
+    let r = porMapa.get(chave)
+    if (!r) {
+      r = { mapa: b.mapa, data: b.data, totalBaias: 0, pendentes: 0, ultimaAtividade: null, quemNome: null, quemTelefone: null, quemEm: 0 }
+      porMapa.set(chave, r)
+    }
+    r.totalBaias += 1
+    if (b.status === 'pendente') r.pendentes += 1
+    for (const ts of [b.importado_em, b.iniciada_em, b.primeiro_item_em, b.finalizada_em]) {
+      if (!ts) continue
+      const t = new Date(ts).getTime()
+      if (r.ultimaAtividade == null || t > r.ultimaAtividade) r.ultimaAtividade = t
+    }
+    // "Quem" é a pessoa que tocou a baia mais recentemente entre as que
+    // ainda faltam — prioriza quem abriu uma baia pendente (é quem a gente
+    // precisa cutucar), não quem já terminou outra baia do mesmo mapa.
+    if (b.status === 'pendente' && b.iniciado_por_telefone && b.iniciada_em) {
+      const t = new Date(b.iniciada_em).getTime()
+      if (t > r.quemEm) { r.quemEm = t; r.quemNome = b.iniciado_por; r.quemTelefone = b.iniciado_por_telefone }
+    }
+  }
+
+  const agora = Date.now()
+  return [...porMapa.values()]
+    .filter((r) => r.pendentes > 0) // concluído (tudo conferida/pulada) não é "parado"
+    .map((r): MapaParadoConf => ({
+      mapa: r.mapa, data: r.data, totalBaias: r.totalBaias, baiasPendentes: r.pendentes,
+      ultimaAtividade: r.ultimaAtividade ? new Date(r.ultimaAtividade).toISOString() : null,
+      minutosParado: r.ultimaAtividade ? Math.round((agora - r.ultimaAtividade) / 60000) : null,
+      quemNome: r.quemNome, quemTelefone: r.quemTelefone,
+    }))
+    .sort((a, b) => (b.minutosParado ?? 0) - (a.minutosParado ?? 0))
 }
 
 // ── Análise do TML: início/fim da conferência por mapa num período ──────

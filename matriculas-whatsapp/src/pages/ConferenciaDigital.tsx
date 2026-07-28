@@ -141,7 +141,10 @@ export default function ConferenciaDigital() {
     setBaiaAtiva(b.id)
     setTela('baia')
     try {
-      await iniciarBaia(b.id)
+      // Grava quem abriu a baia (se o nome digitado bater com alguém
+      // cadastrado) — é o telefone usado pro lembrete de baia parada.
+      const pessoa = pessoas.find((p) => normalizarBusca(p.nome) === normalizarBusca(nome))
+      await iniciarBaia(b.id, nome.trim() || null, pessoa?.telefone ?? null)
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao abrir a baia.')
     }

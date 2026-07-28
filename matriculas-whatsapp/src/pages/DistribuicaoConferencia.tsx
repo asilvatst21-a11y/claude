@@ -9,7 +9,7 @@ import { listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   importarSeparacao, importarRetornaveis, buscarResumoDia, buscarDivergenciasDoMapa, montarMensagensDivergenciaMapa,
-  buscarBaiasDoMapa, buscarSugestoes, type ResumoDiaConf, type BaiaConf, type SugestaoConf,
+  buscarBaiasDoMapa, buscarSugestoes, buscarMapasParados, type ResumoDiaConf, type BaiaConf, type SugestaoConf, type MapaParadoConf,
 } from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
 
@@ -30,6 +30,14 @@ function hojeISO(): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+function formatarMinutosParado(min: number | null): string {
+  if (min == null) return '—'
+  if (min < 60) return `${min} min`
+  const h = Math.floor(min / 60)
+  const resto = min % 60
+  return resto > 0 ? `${h}h${resto}min` : `${h}h`
+}
+
 export default function DistribuicaoConferencia() {
   const { usuario } = useAuth()
   const [dataOperacao, setDataOperacao] = useState(hojeISO)
@@ -47,6 +55,9 @@ export default function DistribuicaoConferencia() {
   const [sugestoesAberta, setSugestoesAberta] = useState(false)
   const [sugestoes, setSugestoes] = useState<SugestaoConf[]>([])
   const [loadingSugestoes, setLoadingSugestoes] = useState(false)
+  const [mapasParadosAberta, setMapasParadosAberta] = useState(true)
+  const [mapasParados, setMapasParados] = useState<MapaParadoConf[]>([])
+  const [loadingMapasParados, setLoadingMapasParados] = useState(false)
   const [grupo, setGrupo] = useState('')
   const [grupoOriginal, setGrupoOriginal] = useState('')
   const [grupos, setGrupos] = useState<GrupoZApi[]>([])
@@ -92,9 +103,20 @@ export default function DistribuicaoConferencia() {
     }
   }, [usuario])
 
+  const fetchMapasParados = useCallback(async () => {
+    if (!usuario) return
+    setLoadingMapasParados(true)
+    try {
+      setMapasParados(await buscarMapasParados(usuario.filial))
+    } finally {
+      setLoadingMapasParados(false)
+    }
+  }, [usuario])
+
   useEffect(() => { fetchResumo() }, [fetchResumo])
   useEffect(() => { fetchConfig() }, [fetchConfig])
   useEffect(() => { fetchSugestoes() }, [fetchSugestoes])
+  useEffect(() => { fetchMapasParados() }, [fetchMapasParados])
 
   async function handleImportar(file: File) {
     if (!usuario) return
@@ -275,6 +297,53 @@ export default function DistribuicaoConferencia() {
             <div className={`text-2xl font-bold ${k.cor}`}>{k.valor}</div>
           </div>
         ))}
+      </div>
+
+      {/* Mapas parados — não finalizados, de qualquer dia dentro da janela */}
+      <div className="border rounded-lg bg-white">
+        <button onClick={() => setMapasParadosAberta((v) => !v)} className="w-full flex items-center justify-between gap-2 px-4 py-3 text-left">
+          <span className="flex items-center gap-2 font-semibold text-sm">
+            {mapasParadosAberta ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
+            <AlertTriangle className="h-4 w-4 text-amber-600" /> Mapas parados
+          </span>
+          {mapasParados.length > 0 && (
+            <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">{mapasParados.length}</span>
+          )}
+        </button>
+        {mapasParadosAberta && (
+          loadingMapasParados ? (
+            <div className="flex items-center justify-center py-8 border-t"><Loader2 className="h-5 w-5 animate-spin text-accent-500" /></div>
+          ) : mapasParados.length === 0 ? (
+            <p className="text-sm text-muted-foreground p-4 border-t">
+              Nenhum mapa parado nos últimos 14 dias — tudo que foi importado está finalizado ou em andamento recente.
+            </p>
+          ) : (
+            <div className="overflow-x-auto border-t">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Mapa</th>
+                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Data</th>
+                    <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Baias pendentes</th>
+                    <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Parado há</th>
+                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Responsável</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {mapasParados.map((m) => (
+                    <tr key={`${m.mapa}-${m.data}`} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-3 py-2 font-semibold tabular-nums">{m.mapa}</td>
+                      <td className="px-3 py-2">{formatarDataBR(m.data)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{m.baiasPendentes}/{m.totalBaias}</td>
+                      <td className="px-3 py-2 text-right tabular-nums font-medium text-amber-700">{formatarMinutosParado(m.minutosParado)}</td>
+                      <td className="px-3 py-2">{m.quemNome ?? <span className="text-muted-foreground">Ninguém iniciou</span>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        )}
       </div>
 
       {/* Tabela por mapa */}

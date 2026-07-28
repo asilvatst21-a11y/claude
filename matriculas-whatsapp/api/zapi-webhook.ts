@@ -2249,6 +2249,34 @@ export async function verificarLembretesFrotaLeve(grupoAlvo?: string): Promise<n
   return enviados
 }
 
+// Lembrete de baia parada: quem abriu a baia (iniciarBaia grava
+// iniciado_por/iniciado_por_telefone, ver src/lib/conferencia.ts) e não
+// terminou em 5 minutos recebe uma pergunta simples se já finalizou. Chamado
+// só por cron (/api/conferencia-parada-check) — diferente do lembrete de
+// Frota Leve, não tem "grupo" pra rodar de forma oportunista a cada mensagem.
+export async function verificarLembretesConferenciaParada(): Promise<number> {
+  const limite = new Date(Date.now() - 5 * 60_000).toISOString()
+  const { data } = await supabase
+    .from('conferencia_baias')
+    .select('id, mapa, rotulo, iniciado_por, iniciado_por_telefone')
+    .eq('status', 'pendente')
+    .not('iniciada_em', 'is', null)
+    .not('iniciado_por_telefone', 'is', null)
+    .lte('iniciada_em', limite)
+    .is('lembrete_parado_enviado_em', null)
+    .limit(50)
+  let enviados = 0
+  for (const b of data ?? []) {
+    await enviar(normalizarTelefoneBR(b.iniciado_por_telefone),
+      `⏰ ${b.iniciado_por ? `${b.iniciado_por}, a` : 'A'}inda está conferindo a baia *${b.rotulo}* do mapa *${b.mapa}*?\n` +
+      `Se já terminou, volta no app e marca como concluída. Se travou em algo, chama o supervisor.`)
+    await supabase.from('conferencia_baias').update({ lembrete_parado_enviado_em: new Date().toISOString() }).eq('id', b.id)
+    enviados++
+    await aguardarEntreEnvios()
+  }
+  return enviados
+}
+
 async function tratarFrotaLeve(
   body: any, grupoId: string, filial: string, texto: string,
   senderName: string, participante: string,
