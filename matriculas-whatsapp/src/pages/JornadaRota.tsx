@@ -941,16 +941,15 @@ export default function JornadaRota() {
             {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
             Enviar por sala + CDD
           </button>
-          {ENVIOS_JORNADA_PAUSADOS && (
-            <button
-              onClick={handleGerarParaCopiar}
-              disabled={gerandoCopiar || linhas.length === 0}
-              className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-sm hover:bg-amber-100 transition-colors disabled:opacity-50"
-            >
-              {gerandoCopiar ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
-              Gerar imagem e texto p/ copiar
-            </button>
-          )}
+          <button
+            onClick={handleGerarParaCopiar}
+            disabled={gerandoCopiar || linhas.length === 0}
+            title="Gera a imagem/texto pra você mandar manualmente, sem depender do envio automático"
+            className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-sm hover:bg-amber-100 transition-colors disabled:opacity-50"
+          >
+            {gerandoCopiar ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+            Gerar imagem e texto p/ copiar
+          </button>
           <button onClick={fetchJornada} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
           </button>
