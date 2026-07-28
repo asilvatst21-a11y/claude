@@ -105,6 +105,13 @@ export default function ConferenciaDigital() {
     return pessoas.filter((p) => normalizarBusca(p.nome).includes(termo)).slice(0, 8)
   }, [pessoas, nome])
 
+  // Só nomes cadastrados podem seguir — sem opção de texto livre. Compara
+  // exato (normalizado) com a lista de motoristas/ajudantes da filial.
+  const nomeSelecionado = useMemo(
+    () => pessoas.some((p) => normalizarBusca(p.nome) === normalizarBusca(nome)),
+    [pessoas, nome],
+  )
+
   const recarregar = useCallback(async () => {
     const num = Number(mapa.trim())
     if (!filial || !num) return
@@ -120,6 +127,7 @@ export default function ConferenciaDigital() {
     const num = Number(mapa.trim())
     if (!filial || !num) { setErro('Selecione a filial e digite o número do mapa.'); return }
     if (!nome.trim()) { setErro('Digite seu nome antes de conferir.'); return }
+    if (!nomeSelecionado) { setErro('Selecione seu nome na lista de sugestões. Se não encontrar seu nome, procure o supervisor.'); return }
     setErro(''); setLoading(true)
     try {
       const lista = await buscarBaiasDoMapa(filial, num, hojeISO())
@@ -306,6 +314,12 @@ export default function ConferenciaDigital() {
                   </button>
                 ))}
               </div>
+            )}
+            {nome.trim() && !nomeSelecionado && (!sugestoesAbertas || sugestoes.length === 0) && (
+              <p className="text-xs text-amber-700 mt-1.5 flex items-start gap-1">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                Não encontramos esse nome no cadastro. Selecione um nome da lista — se não encontrar o seu, procure o supervisor.
+              </p>
             )}
           </div>
           <div>
