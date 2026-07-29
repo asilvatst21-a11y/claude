@@ -1,7 +1,9 @@
 import { supabase } from './supabase'
+import { valesSupabase } from './valesSupabase'
 import { buscarJornadaDoDia, SALA_JORNADA_PARA_TML, JORNADA_LIMITE_MIN, type SalaJornada } from './jornada'
 import type { SalaTML } from './tml'
 import { REGRAS_TML, horarioParaMinutos, tempoDeslocamentoMinutos } from './tml'
+import { variarTexto, enviarListaOpcoesWhatsApp, aguardarEntreEnvios } from './zapi'
 
 export type KpiFechamento = 'devolucao_pdv' | 'jornada_liquida' | 'aderencia_raio' | 'tml' | 'rating' | 'iv_deslocamento'
 export type SalaFechamento = SalaTML | 'CDD'
@@ -488,6 +490,8 @@ export async function buscarParametros(filial: string): Promise<ParametroFechame
 }
 
 // Farol de 3 cores pra um valor contra Meta/Bench, respeitando a direção.
+// (Nível agregado por sala/CDD — aba Painel. Farol por motorista usa
+// classificarCriterio, com a faixa extra do Gatilho — ver abaixo.)
 export function farolDoValor(valor: number | null, p: ParametroFechamento | undefined): 'g' | 'a' | 'r' | null {
   if (valor == null || !p || p.meta == null) return null
   const bateuMeta = p.direcao === 'maior_melhor' ? valor >= p.meta : valor <= p.meta
@@ -497,47 +501,115 @@ export function farolDoValor(valor: number | null, p: ParametroFechamento | unde
   return dentroDoBench ? 'a' : 'r'
 }
 
+function normalizarNomeFarol(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
+}
+
+export type TierFarol = 'destaque' | 'meta' | 'atencao' | 'bate_papo'
+
+export interface CriterioFarol {
+  valor: number | null
+  tier: TierFarol | null
+}
+
+// Classifica um valor em 4 faixas (Bench/Meta/Gatilho, respeitando a
+// direção do KPI):
+//  - Destaque: melhor que o Bench.
+//  - Meta: bateu a Meta, mas não o Bench.
+//  - Atenção: não bateu a Meta, mas ainda não estourou o Gatilho — só
+//    aparece no relatório, não gera bate-papo.
+//  - Bate-papo: estourou o Gatilho — aciona o convite automático.
+// Sem Meta cadastrada não dá pra classificar (null). Sem Gatilho, qualquer
+// coisa que não bata a Meta já conta como Bate-papo (não sobra "Atenção").
+export function classificarCriterio(valor: number | null, p: ParametroFechamento | undefined): CriterioFarol {
+  if (valor == null || !p || p.meta == null) return { valor, tier: null }
+  const maiorMelhor = p.direcao === 'maior_melhor'
+  const passa = (alvo: number) => (maiorMelhor ? valor >= alvo : valor <= alvo)
+  if (p.bench != null && passa(p.bench)) return { valor, tier: 'destaque' }
+  if (passa(p.meta)) return { valor, tier: 'meta' }
+  if (p.gatilho != null && passa(p.gatilho)) return { valor, tier: 'atencao' }
+  return { valor, tier: 'bate_papo' }
+}
+
+export const KPI_LABEL_CURTO: Record<string, string> = {
+  devolucao_pdv: 'Devolução PDV',
+  aderencia_raio: 'Aderência ao Raio',
+  tml: 'TML',
+  iv_deslocamento: 'IV — Deslocamento',
+}
+
+function formatarValorGatilho(kpi: string, valor: number): string {
+  if (kpi === 'devolucao_pdv' || kpi === 'aderencia_raio') return `${(valor * 100).toFixed(1)}%`
+  if (kpi === 'tml' || kpi === 'iv_deslocamento') return `${Math.round(valor)} min`
+  return String(valor)
+}
+
 // ── Farol Motoristas: por mapa, os mesmos critérios da planilha de
-// referência (Aderência ao Raio, Devolução Fora do Raio, TML, Devolução) +
-// IV-Deslocamento, apurados automaticamente a partir do que o próprio
-// sistema já calculou pro dia (BEES/Jornada, 03.11.49.02 pra Devolução e
-// Jornada, checklist_tml pra IV-Deslocamento) — nada de subir relatório à
-// parte. Motorista e ajudantes vêm de mapa_equipe (import diário da aba
-// "Base", já usado em Reposições).
+// referência (Aderência ao Raio, TML, Devolução) + IV-Deslocamento, apurados
+// automaticamente a partir do que o próprio sistema já calculou pro dia
+// (BEES/Jornada, 03.11.49.02 pra Devolução e Jornada, checklist_tml pra
+// IV-Deslocamento, historico_tml pro TML em minutos) — nada de subir
+// relatório à parte. Motorista e ajudantes vêm de mapa_equipe (import diário
+// da aba "Base", já usado em Reposições); telefone do motorista vem de
+// motoristas_sala_tml (matrícula), do ajudante vem do cadastro de Ajudantes
+// (Vales), casado por nome.
 export interface LinhaFarolMotorista {
   mapa: number
   matricula: number | null
   nome: string | null
-  ajudantes: string[]
+  telefone: string | null
+  ajudantes: { nome: string; telefone: string | null }[]
   sala: SalaTML
-  aderenciaOk: boolean | null
-  tmlOk: boolean | null
-  devolucaoOk: boolean | null
-  ivDeslocamentoOk: boolean | null
+  aderencia: CriterioFarol
+  tml: CriterioFarol
+  devolucao: CriterioFarol
+  ivDeslocamento: CriterioFarol
 }
 
 export async function gerarFarolAutomatico(
   filial: string, data: string, parametros: ParametroFechamento[],
 ): Promise<LinhaFarolMotorista[]> {
-  const metaAderencia = parametros.find((p) => p.kpi === 'aderencia_raio')?.meta ?? 0.95
-  const metaDevolucao = parametros.find((p) => p.kpi === 'devolucao_pdv')?.meta ?? 0.031
-  const metaIvDeslocamento = parametros.find((p) => p.kpi === 'iv_deslocamento')?.meta ?? 5
+  const pAderencia = parametros.find((p) => p.kpi === 'aderencia_raio')
+  const pDevolucao = parametros.find((p) => p.kpi === 'devolucao_pdv')
+  const pIv = parametros.find((p) => p.kpi === 'iv_deslocamento')
+  const pTml = parametros.find((p) => p.kpi === 'tml')
 
-  const [linhasJornada, { data: historico, error: erroHist }, { data: devolucoes, error: erroDevol }, { data: equipe, error: erroEquipe }, { data: mapasDia, error: erroMapas }, { data: checklist, error: erroChecklist }] = await Promise.all([
+  const [
+    linhasJornada,
+    { data: historico, error: erroHist },
+    { data: devolucoes, error: erroDevol },
+    { data: equipe, error: erroEquipe },
+    { data: mapasDia, error: erroMapas },
+    { data: checklist, error: erroChecklist },
+    { data: roster, error: erroRoster },
+    { data: ajudantesCad, error: erroAjudantes },
+  ] = await Promise.all([
     buscarJornadaDoDia(filial, data),
-    supabase.from('historico_tml').select('mapa, resultado').eq('filial', filial).eq('data_saida', data),
+    supabase.from('historico_tml').select('mapa, sala, horario_saida, resultado').eq('filial', filial).eq('data_saida', data),
     supabase.from('fechamento_dia_devolucoes_pdv').select('mapa, devolucoes').eq('filial', filial).eq('data', data),
     supabase.from('mapa_equipe').select('mapa, motorista_nome, ajudante1_nome, ajudante2_nome').eq('filial', filial).eq('data', data),
     supabase.from('fechamento_dia_mapas_dia').select('mapa, entregas').eq('filial', filial).eq('data', data),
     supabase.from('checklist_tml').select('mapa, sala, horario_inicio, tempo_deslocamento_minutos').eq('filial', filial).eq('data', data),
+    supabase.from('motoristas_sala_tml').select('matricula, telefone').eq('filial', filial),
+    valesSupabase.from('ajudantes').select('nome, telefone'),
   ])
   if (erroHist) console.error(`gerarFarolAutomatico (${data}) historico error:`, erroHist.message)
   if (erroDevol) console.error(`gerarFarolAutomatico (${data}) devolucoes error:`, erroDevol.message)
   if (erroEquipe) console.error(`gerarFarolAutomatico (${data}) equipe error:`, erroEquipe.message)
   if (erroMapas) console.error(`gerarFarolAutomatico (${data}) mapas error:`, erroMapas.message)
   if (erroChecklist) console.error(`gerarFarolAutomatico (${data}) checklist error:`, erroChecklist.message)
+  if (erroRoster) console.error(`gerarFarolAutomatico (${data}) roster error:`, erroRoster.message)
+  if (erroAjudantes) console.error(`gerarFarolAutomatico (${data}) ajudantes error:`, erroAjudantes.message)
 
-  const resultadoTmlPorMapa = new Map((historico ?? []).map((h) => [h.mapa as number, h.resultado as string]))
+  // TML em minutos, por mapa — mesma régua de calcularTml (início da
+  // matinal da sala até a saída real), só que por mapa em vez da média.
+  const tmlMinutosPorMapa = new Map<number, number>()
+  for (const h of historico ?? []) {
+    if (!h.sala || (h.sala !== 'COLORADO' && h.sala !== 'SUB-FURIA') || !h.horario_saida) continue
+    if (h.resultado === 'invalido') continue
+    const sala = h.sala as SalaTML
+    tmlMinutosPorMapa.set(h.mapa as number, horarioParaMinutos(h.horario_saida) - horarioParaMinutos(REGRAS_TML[sala].matinal))
+  }
   const devolucoesPorMapa = new Map((devolucoes ?? []).map((d) => [d.mapa as number, d.devolucoes as number]))
   const equipePorMapa = new Map((equipe ?? []).map((e) => [String(e.mapa), e]))
   const entregasPorMapa = new Map((mapasDia ?? []).map((m) => [m.mapa as number, m.entregas as number | null]))
@@ -546,16 +618,16 @@ export async function gerarFarolAutomatico(
       .filter((c): c is typeof c & { sala: SalaTML } => c.sala === 'COLORADO' || c.sala === 'SUB-FURIA')
       .map((c) => [c.mapa as number, c.tempo_deslocamento_minutos ?? (c.horario_inicio ? tempoDeslocamentoMinutos(c.sala, c.horario_inicio) : null)]),
   )
+  const telefonePorMatricula = new Map((roster ?? []).map((r) => [r.matricula as number, (r.telefone as string | null) ?? null]))
+  const telefonePorNomeAjudante = new Map((ajudantesCad ?? []).map((a) => [normalizarNomeFarol(a.nome as string), (a.telefone as string | null) ?? null]))
 
   const resultado: LinhaFarolMotorista[] = []
   for (const l of linhasJornada) {
     const sala = SALA_JORNADA_PARA_TML[l.sala as SalaJornada]
     if (!sala) continue // Externos/freteiro não entra no Farol (só Colorado/Sub-Fúria)
 
-    const aderenciaOk = l.aderencia != null ? l.aderencia >= metaAderencia : null
-
-    const resultadoTml = resultadoTmlPorMapa.get(l.mapa)
-    const tmlOk = resultadoTml === 'no_prazo' ? true : resultadoTml === 'atrasado' ? false : null
+    const aderencia = classificarCriterio(l.aderencia, pAderencia)
+    const tml = classificarCriterio(tmlMinutosPorMapa.get(l.mapa) ?? null, pTml)
 
     // Sem linha em fechamento_dia_devolucoes_pdv não quer dizer "sem dado" —
     // esse upload é 1 linha por NOTA DEVOLVIDA (ver importarDevolucoesPdv
@@ -565,57 +637,187 @@ export async function gerarFarolAutomatico(
     // do mapa são conhecidas (mapa não importado no 03.11.49.02 daquele dia).
     const entregas = entregasPorMapa.get(l.mapa) ?? l.entregasPrevistas
     const devolucoesMapa = devolucoesPorMapa.get(l.mapa) ?? 0
-    const devolucaoOk = entregas ? devolucoesMapa / entregas <= metaDevolucao : null
+    const devolucao = classificarCriterio(entregas ? devolucoesMapa / entregas : null, pDevolucao)
 
-    const tempoDeslocamento = deslocamentoPorMapa.get(l.mapa)
-    const ivDeslocamentoOk = tempoDeslocamento != null ? tempoDeslocamento <= metaIvDeslocamento : null
+    const ivDeslocamento = classificarCriterio(deslocamentoPorMapa.get(l.mapa) ?? null, pIv)
 
     const eq = equipePorMapa.get(String(l.mapa))
-    const ajudantes = [eq?.ajudante1_nome, eq?.ajudante2_nome].filter((n): n is string => !!n)
+    const ajudantesNomes = [eq?.ajudante1_nome, eq?.ajudante2_nome].filter((n): n is string => !!n)
+    const ajudantes = ajudantesNomes.map((nome) => ({ nome, telefone: telefonePorNomeAjudante.get(normalizarNomeFarol(nome)) ?? null }))
 
     resultado.push({
       mapa: l.mapa,
       matricula: l.matricula,
       nome: eq?.motorista_nome ?? l.nome,
+      telefone: l.matricula != null ? telefonePorMatricula.get(l.matricula) ?? null : null,
       ajudantes,
       sala,
-      aderenciaOk,
-      tmlOk,
-      devolucaoOk,
-      ivDeslocamentoOk,
+      aderencia,
+      tml,
+      devolucao,
+      ivDeslocamento,
     })
   }
   return resultado
 }
 
-export function classificarResultado(l: { aderenciaOk: boolean | null; tmlOk: boolean | null; devolucaoOk: boolean | null; ivDeslocamentoOk: boolean | null }): 'destaque' | 'bate_papo' | 'neutro' {
-  const criterios = [l.aderenciaOk, l.tmlOk, l.devolucaoOk, l.ivDeslocamentoOk].filter((v): v is boolean => v != null)
+export function classificarResultado(l: { aderencia: CriterioFarol; tml: CriterioFarol; devolucao: CriterioFarol; ivDeslocamento: CriterioFarol }): 'destaque' | 'bate_papo' | 'neutro' {
+  const criterios = [l.aderencia, l.tml, l.devolucao, l.ivDeslocamento].filter((c) => c.tier != null)
   if (criterios.length === 0) return 'neutro'
-  const okCount = criterios.filter(Boolean).length
-  if (okCount === criterios.length) return 'destaque'
-  if (okCount <= 1) return 'bate_papo'
+  if (criterios.some((c) => c.tier === 'bate_papo')) return 'bate_papo'
+  if (criterios.every((c) => c.tier === 'destaque')) return 'destaque'
   return 'neutro'
 }
 
-function formatarNomeComAjudantes(l: { nome: string | null; ajudantes: string[] }): string {
+function formatarNomeComAjudantes(l: { nome: string | null; ajudantes: { nome: string; telefone: string | null }[] }): string {
   const partes = [l.nome ?? '—']
-  if (l.ajudantes.length > 0) partes.push(`Ajudante${l.ajudantes.length > 1 ? 's' : ''}: ${l.ajudantes.join(', ')}`)
+  if (l.ajudantes.length > 0) partes.push(`Ajudante${l.ajudantes.length > 1 ? 's' : ''}: ${l.ajudantes.map((a) => a.nome).join(', ')}`)
   return partes.join(' — ')
 }
 
-// Texto de orientação pro grupo (destaques) e pro supervisor (bate-papo).
+// Texto de orientação pro grupo/supervisor (destaques) e pro supervisor
+// (bate-papo) — o resumo de bate-papo mostra "✅ já respondeu" pra quem já
+// resolveu sozinho pelo bot, então o supervisor sabe quem ainda precisa
+// cobrar pessoalmente.
 export function montarTextosOrientacao(
-  linhas: { nome: string | null; ajudantes: string[]; sala: SalaFechamento; resultado: string | null }[],
+  linhas: { mapa: number; nome: string | null; ajudantes: { nome: string; telefone: string | null }[]; sala: SalaFechamento; resultado: string | null }[],
   salaLabel: string, dataBR: string,
+  statusPorMapa?: Map<number, { total: number; respondidas: number }>,
 ): { destaques: string; batePapo: string } {
   const destaques = linhas.filter((l) => l.resultado === 'destaque')
   const bate = linhas.filter((l) => l.resultado === 'bate_papo')
 
   const txtDestaques = destaques.length > 0
-    ? `🏆 *Destaques — ${salaLabel} (${dataBR})*\nBateram todos os indicadores do dia:\n${destaques.map((d) => `• ${formatarNomeComAjudantes(d)}`).join('\n')}`
+    ? `🏆 *Destaques — ${salaLabel} (${dataBR})*\nSuperaram o Bench em todos os indicadores do dia:\n${destaques.map((d) => `• ${formatarNomeComAjudantes(d)}`).join('\n')}`
     : ''
   const txtBatePapo = bate.length > 0
-    ? `🎯 *Precisa de um bate-papo — ${salaLabel} (${dataBR})*\nPerderam a maioria (ou todos) os indicadores do dia:\n${bate.map((d) => `• ${formatarNomeComAjudantes(d)}`).join('\n')}`
+    ? `🎯 *Precisa de um bate-papo — ${salaLabel} (${dataBR})*\nEstouraram o gatilho em pelo menos um indicador:\n${bate.map((d) => {
+        const st = statusPorMapa?.get(d.mapa)
+        const anotacao = st && st.total > 0 && st.respondidas === st.total ? ' ✅ já respondeu' : ''
+        return `• ${formatarNomeComAjudantes(d)}${anotacao}`
+      }).join('\n')}`
     : ''
   return { destaques: txtDestaques, batePapo: txtBatePapo }
+}
+
+// ── Pendências de bate-papo (gatilho) — 1 linha por (mapa, kpi, pessoa) que
+// estourou o Gatilho. Motorista sempre entra; ajudante entra em tudo,
+// EXCETO IV-Deslocamento (métrica de condução, não do ajudante).
+export interface PendenciaGatilho {
+  mapa: number
+  kpi: KpiFechamento
+  pessoaTipo: 'motorista' | 'ajudante'
+  pessoaNome: string
+  pessoaTelefone: string | null
+  valor: number | null
+}
+
+export function gerarPendenciasGatilho(linhas: LinhaFarolMotorista[]): PendenciaGatilho[] {
+  const out: PendenciaGatilho[] = []
+  for (const l of linhas) {
+    const criteriosMotorista: { kpi: KpiFechamento; c: CriterioFarol; soMotorista?: boolean }[] = [
+      { kpi: 'aderencia_raio', c: l.aderencia },
+      { kpi: 'tml', c: l.tml },
+      { kpi: 'devolucao_pdv', c: l.devolucao },
+      { kpi: 'iv_deslocamento', c: l.ivDeslocamento, soMotorista: true },
+    ]
+    for (const { kpi, c, soMotorista } of criteriosMotorista) {
+      if (c.tier !== 'bate_papo') continue
+      out.push({ mapa: l.mapa, kpi, pessoaTipo: 'motorista', pessoaNome: l.nome ?? `Matrícula ${l.matricula ?? '—'}`, pessoaTelefone: l.telefone, valor: c.valor })
+      if (soMotorista) continue
+      for (const aj of l.ajudantes) {
+        out.push({ mapa: l.mapa, kpi, pessoaTipo: 'ajudante', pessoaNome: aj.nome, pessoaTelefone: aj.telefone, valor: c.valor })
+      }
+    }
+  }
+  return out
+}
+
+interface PendenciaGravada {
+  id: string
+  mapa: number
+  kpi: string
+  pessoa_nome: string
+  pessoa_telefone: string | null
+  valor: number | null
+  status: string
+}
+
+// Grava as pendências do dia (upsert — reprocessar o Farol não duplica nem
+// mexe em quem já está 'coletando'/'respondido') e manda o convite via
+// WhatsApp só pra quem ainda está 'aguardando'. Cada pessoa recebe UMA
+// mensagem com a lista de todos os indicadores que estourou (não uma por
+// indicador) — ela escolhe qual comentar primeiro pelo próprio WhatsApp.
+// Textos variam a cada envio e o intervalo entre pessoas é de 5s — mitigação
+// de spam da Meta, mesmo padrão já adotado nos outros disparos em massa.
+export async function enviarConvitesGatilho(
+  filial: string, data: string, linhasFarol: LinhaFarolMotorista[],
+): Promise<{ enviados: number; semTelefone: number; falhaEnvio: number }> {
+  const pendencias = gerarPendenciasGatilho(linhasFarol)
+  if (pendencias.length === 0) return { enviados: 0, semTelefone: 0, falhaEnvio: 0 }
+
+  const { data: gravadas, error } = await supabase
+    .from('fechamento_dia_gatilho_pendencias')
+    .upsert(
+      pendencias.map((p) => ({
+        filial, data, mapa: p.mapa, kpi: p.kpi, pessoa_tipo: p.pessoaTipo, pessoa_nome: p.pessoaNome,
+        pessoa_telefone: p.pessoaTelefone, valor: p.valor,
+      })),
+      { onConflict: 'filial,data,mapa,kpi,pessoa_nome', ignoreDuplicates: false },
+    )
+    .select('id, mapa, kpi, pessoa_nome, pessoa_telefone, valor, status')
+  if (error) {
+    console.error('enviarConvitesGatilho upsert error:', error.message)
+    return { enviados: 0, semTelefone: 0, falhaEnvio: 0 }
+  }
+
+  const pendentes = (gravadas ?? []).filter((g): g is PendenciaGravada => g.status === 'aguardando')
+  const semTelefone = pendentes.filter((g) => !g.pessoa_telefone).length
+  const porTelefone = new Map<string, PendenciaGravada[]>()
+  for (const g of pendentes) {
+    if (!g.pessoa_telefone) continue
+    const arr = porTelefone.get(g.pessoa_telefone) ?? []
+    arr.push(g)
+    porTelefone.set(g.pessoa_telefone, arr)
+  }
+
+  let enviados = 0
+  let falhaEnvio = 0
+  for (const [telefone, itens] of porTelefone) {
+    const nome = itens[0].pessoa_nome
+    const primeiroNome = nome.trim().split(/\s+/)[0] || nome
+    const listaTexto = itens.map((it) => `${KPI_LABEL_CURTO[it.kpi] ?? it.kpi}${it.valor != null ? ` (${formatarValorGatilho(it.kpi, it.valor)})` : ''}`).join(', ')
+    const mensagem = variarTexto([
+      `Oi, ${primeiroNome}! 👋 Hoje ${itens.length > 1 ? 'alguns indicadores seus ficaram' : 'um indicador seu ficou'} fora da meta: ${listaTexto}. Queremos ouvir sua sugestão pra melhorar — não é cobrança, é só isso mesmo. Qual você quer comentar?`,
+      `${primeiroNome}, tudo bem? Reparamos que hoje ${listaTexto} ${itens.length > 1 ? 'ficaram' : 'ficou'} fora da meta. Gostaríamos da sua opinião sobre o que rolou — qual desses você comenta primeiro?`,
+      `Opa, ${primeiroNome}! Vi que hoje ${listaTexto} ${itens.length > 1 ? 'ficaram' : 'ficou'} fora da meta. Sem cobrança, só queremos entender melhor — qual você quer falar?`,
+    ])
+    const opcoes = itens.map((it) => ({ id: `gatilho:${it.id}`, title: KPI_LABEL_CURTO[it.kpi] ?? it.kpi }))
+    const r = await enviarListaOpcoesWhatsApp(telefone, mensagem, 'Indicadores fora da meta', 'Selecionar', opcoes)
+    if (r.sucesso) enviados++
+    else falhaEnvio++
+    await aguardarEntreEnvios(5000)
+  }
+  return { enviados, semTelefone, falhaEnvio }
+}
+
+// Status de resposta por mapa (pra anotar "✅ já respondeu" no resumo do
+// supervisor) — considera respondido quando TODAS as pendências daquele
+// mapa (motorista + ajudantes, em todos os indicadores estourados) já
+// tiverem resposta.
+export async function buscarStatusPendenciasPorMapa(filial: string, data: string): Promise<Map<number, { total: number; respondidas: number }>> {
+  const { data: rows, error } = await supabase
+    .from('fechamento_dia_gatilho_pendencias')
+    .select('mapa, status')
+    .eq('filial', filial)
+    .eq('data', data)
+  if (error) console.error('buscarStatusPendenciasPorMapa error:', error.message)
+  const mapa = new Map<number, { total: number; respondidas: number }>()
+  for (const r of rows ?? []) {
+    const atual = mapa.get(r.mapa as number) ?? { total: 0, respondidas: 0 }
+    atual.total++
+    if (r.status === 'respondido') atual.respondidas++
+    mapa.set(r.mapa as number, atual)
+  }
+  return mapa
 }

@@ -2667,8 +2667,88 @@ async function tratarSugestaoConferenciaPendente(
     .update({ resposta: textoBruto, respondida_em: new Date().toISOString(), status: 'respondida' })
     .eq('id', pendente.id)
 
-  await enviar(remetente, 'Valeu pela sugestão! Vamos analisar com o time. 🙌')
+  await enviar(remetente, 'Valeu pela resposta! Vamos tratar o problema relatado e te damos um retorno. 🙌')
   return { ok: true, action: 'sugestao-conferencia-respondida' }
+}
+
+// ── Bate-papo do Farol Motoristas (Fechamento do Dia) ─────────────────────────
+// Convite chega como lista com TODOS os indicadores estourados da pessoa
+// (motorista ou ajudante) de uma vez. Ao clicar num item a pendência vira
+// 'coletando' e o bot pede a resposta (texto ou áudio); a próxima mensagem
+// desse telefone é gravada e o supervisor é avisado no grupo do Fechamento,
+// pra não precisar cobrar de novo no bate-papo do dia seguinte. Motorista e
+// ajudante têm pendência própria — cada um responde independente da mesma
+// mapa/kpi, sem sobrescrever a resposta do outro.
+const KPI_LABEL_GATILHO: Record<string, string> = {
+  aderencia_raio: 'Aderência ao Raio', tml: 'TML', devolucao_pdv: 'Devolução PDV', iv_deslocamento: 'IV-Deslocamento',
+}
+
+async function avisarSupervisorRespostaGatilho(filial: string, mapa: number, pessoaNome: string, kpi: string): Promise<void> {
+  const { data: filialRow } = await supabase.from('filiais').select('grupo_fechamento_whatsapp').eq('nome', filial).maybeSingle()
+  const grupo = filialRow?.grupo_fechamento_whatsapp
+  if (!grupo) return
+  const primeiro = pessoaNome.trim().split(/\s+/)[0] || pessoaNome
+  await enviarGrupo(grupo, `✅ *${primeiro}* (mapa ${mapa}) já respondeu sobre *${KPI_LABEL_GATILHO[kpi] ?? kpi}* — não precisa cobrar de novo no bate-papo.`)
+}
+
+async function tratarGatilhoBatePapo(body: any, remetente: string): Promise<{ ok: boolean; action: string } | null> {
+  const rawBtn = extrairBotaoResposta(body)
+  if (rawBtn.startsWith('gatilho:')) {
+    const pendenciaId = rawBtn.slice('gatilho:'.length).trim()
+    if (!pendenciaId) return { ok: true, action: 'invalid-button' }
+    const { data: pend } = await supabase
+      .from('fechamento_dia_gatilho_pendencias')
+      .select('id, mapa, kpi, pessoa_nome, status')
+      .eq('id', pendenciaId)
+      .maybeSingle()
+    if (!pend) return { ok: true, action: 'gatilho-pendencia-nao-encontrada' }
+    await supabase.from('fechamento_dia_gatilho_pendencias').update({ status: 'coletando' }).eq('id', pend.id)
+    await enviar(remetente,
+      `Beleza! Sobre *${KPI_LABEL_GATILHO[pend.kpi] ?? pend.kpi}* (mapa ${pend.mapa}) — me conta o que rolou e, se quiser, uma ideia pra melhorar. Pode mandar em texto ou áudio. 🎙️`)
+    return { ok: true, action: 'gatilho-coletando' }
+  }
+
+  // Saudação/comando da Aurora tem prioridade — quem está com uma pendência
+  // 'coletando' mas quer usar o menu não fica travado nesse fluxo.
+  const textoBruto = extrairTexto(body).trim()
+  if (ehSaudacaoAurora(textoBruto) || ehTrocarAssuntoAurora(textoBruto) || ehEncerrarAurora(textoBruto)) return null
+
+  const digitos = ultimosDigitos(remetente)
+  if (!digitos) return null
+
+  const { data: coletando } = await supabase
+    .from('fechamento_dia_gatilho_pendencias')
+    .select('id, filial, mapa, kpi, pessoa_nome, pessoa_telefone, status')
+    .eq('status', 'coletando')
+    .order('criado_em', { ascending: false })
+    .limit(50)
+  const pend = (coletando ?? []).find((p: any) => p.pessoa_telefone && ultimosDigitos(p.pessoa_telefone) === digitos)
+  if (!pend) return null
+
+  let conteudo = textoBruto
+  if (!conteudo && temAudioSemTexto(body)) {
+    const transcrito = await transcreverAudio(extrairAudioUrl(body))
+    if (!transcrito) {
+      await enviar(remetente, 'Recebi seu áudio, mas não consegui entender direito. Pode mandar de novo ou escrever em texto?')
+      return { ok: true, action: 'gatilho-audio-falhou' }
+    }
+    conteudo = transcrito
+  }
+  if (!conteudo) {
+    // Clique de botão/lista de outro fluxo (ex.: menu da Aurora) não é
+    // resposta a essa pendência — devolve null em vez de reivindicar a
+    // mensagem e deixá-la sem resposta nenhuma.
+    if (extrairBotaoResposta(body)) return null
+    return { ok: true, action: 'gatilho-sem-conteudo' }
+  }
+
+  await supabase.from('fechamento_dia_gatilho_pendencias')
+    .update({ resposta: conteudo, status: 'respondido', respondido_em: new Date().toISOString() })
+    .eq('id', pend.id)
+
+  await enviar(remetente, 'Valeu pela resposta! Vamos tratar o problema relatado e te damos um retorno. 🙌')
+  await avisarSupervisorRespostaGatilho(pend.filial, pend.mapa, pend.pessoa_nome, pend.kpi)
+  return { ok: true, action: 'gatilho-respondido' }
 }
 
 // Pré-seleção de tema: quando não há aviso do dia (o colaborador quer
@@ -3460,7 +3540,7 @@ async function tratarAurora(
         filial, nome: senderName || null, telefone: remetente,
         resposta: conteudo, status: 'respondida', respondida_em: new Date().toISOString(),
       })
-      await enviar(remetente, 'Valeu pela sugestão! Vamos analisar com o time. 🙌')
+      await enviar(remetente, 'Valeu pela resposta! Vamos tratar o problema relatado e te damos um retorno. 🙌')
       await perguntarProximoPasso(remetente)
       return { ok: true, action: 'aurora-sugestao-registrada' }
     }
@@ -3604,6 +3684,12 @@ export default async function handler(req: any, res: any) {
       const rSugestaoConferencia = await tratarSugestaoConferenciaPendente(body, grupoId)
       if (rSugestaoConferencia) {
         res.status(200).json(rSugestaoConferencia)
+        return
+      }
+
+      const rGatilho = await tratarGatilhoBatePapo(body, grupoId)
+      if (rGatilho) {
+        res.status(200).json(rGatilho)
         return
       }
 

@@ -13,9 +13,10 @@ import { formatarDataBR } from '../lib/utils'
 import {
   KPIS_FECHAMENTO, type KpiFechamento, type SalaFechamento, type ParametroFechamento,
   recalcularAutomaticos, recalcularAutomaticosPeriodo, primeiroDiaDoMes, salvarValorManual, diasDaSemanaAte, buscarValoresFechamento, buscarParametros,
-  farolDoValor, gerarFarolAutomatico, classificarResultado, montarTextosOrientacao, type LinhaFarolMotorista,
+  farolDoValor, gerarFarolAutomatico, classificarResultado, montarTextosOrientacao, type LinhaFarolMotorista, type CriterioFarol, type TierFarol,
   diagnosticarDeslocamento, type DiagnosticoDeslocamentoDia,
   parseDevolucaoPdv, salvarDevolucoesPdv, parseMapasDia, salvarMapasDia,
+  enviarConvitesGatilho, buscarStatusPendenciasPorMapa,
 } from '../lib/fechamentoDia'
 
 const SALAS: SalaFechamento[] = ['COLORADO', 'SUB-FURIA', 'CDD']
@@ -35,6 +36,22 @@ function formatarValor(valor: number | null, kpi: KpiFechamento): string {
 
 const FAROL_COR: Record<'g' | 'a' | 'r', string> = { g: '#2E9E63', a: '#D9A027', r: '#D14B42' }
 const FAROL_BG: Record<'g' | 'a' | 'r', string> = { g: '#EAF7EF', a: '#FDF5E3', r: '#FCEDEC' }
+
+const TIER_LABEL: Record<TierFarol, string> = { destaque: 'Destaque', meta: 'Meta', atencao: 'Atenção', bate_papo: 'Bate-papo' }
+const TIER_COR: Record<TierFarol, string> = { destaque: '#2E9E63', meta: '#3F6FB0', atencao: '#D9A027', bate_papo: '#D14B42' }
+const TIER_BG: Record<TierFarol, string> = { destaque: '#EAF7EF', meta: '#EAF1FB', atencao: '#FDF5E3', bate_papo: '#FCEDEC' }
+
+function CriterioChip({ criterio, kpi }: { criterio: CriterioFarol; kpi: KpiFechamento }) {
+  if (criterio.tier == null) return <span className="text-muted-foreground text-xs">—</span>
+  return (
+    <span
+      className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+      style={{ color: TIER_COR[criterio.tier], background: TIER_BG[criterio.tier] }}
+    >
+      {criterio.valor != null ? formatarValor(criterio.valor, kpi) : ''} · {TIER_LABEL[criterio.tier]}
+    </span>
+  )
+}
 
 export default function FechamentoDia() {
   const { usuario } = useAuth()
@@ -64,6 +81,10 @@ export default function FechamentoDia() {
 
   const [diagnostico, setDiagnostico] = useState<DiagnosticoDeslocamentoDia[] | null>(null)
   const [diagnosticando, setDiagnosticando] = useState(false)
+
+  const [enviandoConvites, setEnviandoConvites] = useState(false)
+  const [resultadoConvites, setResultadoConvites] = useState<{ enviados: number; semTelefone: number; falhaEnvio: number } | null>(null)
+  const [statusPendencias, setStatusPendencias] = useState<Map<number, { total: number; respondidas: number }>>(new Map())
 
   const [enviandoDevolucao, setEnviandoDevolucao] = useState(false)
   const [devolucaoMsg, setDevolucaoMsg] = useState<string | null>(null)
@@ -98,6 +119,11 @@ export default function FechamentoDia() {
   }, [usuario, data])
 
   useEffect(() => { fetchTudo() }, [fetchTudo])
+
+  useEffect(() => {
+    if (!usuario) return
+    buscarStatusPendenciasPorMapa(usuario.filial, data).then(setStatusPendencias)
+  }, [usuario, data])
 
   async function recalcular() {
     if (!usuario) return
@@ -249,21 +275,41 @@ export default function FechamentoDia() {
     await supabase.from('fechamento_dia_farol_motoristas').insert(
       farolLinhas.map((l) => ({
         filial: usuario.filial, data, matricula: l.matricula, nome: l.nome, sala: l.sala,
-        aderencia_ok: l.aderenciaOk, tml_ok: l.tmlOk, devolucao_ok: l.devolucaoOk,
-        iv_deslocamento_ok: l.ivDeslocamentoOk, resultado: l.resultado,
+        aderencia_tier: l.aderencia.tier, aderencia_valor: l.aderencia.valor,
+        tml_tier: l.tml.tier, tml_valor: l.tml.valor,
+        devolucao_tier: l.devolucao.tier, devolucao_valor: l.devolucao.valor,
+        iv_deslocamento_tier: l.ivDeslocamento.tier, iv_deslocamento_valor: l.ivDeslocamento.valor,
+        resultado: l.resultado,
       })),
     )
     setSalvandoFarol(false)
+    if (usuario) setStatusPendencias(await buscarStatusPendenciasPorMapa(usuario.filial, data))
+  }
+
+  async function enviarConvitesDoDia() {
+    if (!usuario || farolLinhas.length === 0) return
+    setEnviandoConvites(true)
+    setResultadoConvites(null)
+    setErro('')
+    try {
+      const resultado = await enviarConvitesGatilho(usuario.filial, data, farolLinhas)
+      setResultadoConvites(resultado)
+      setStatusPendencias(await buscarStatusPendenciasPorMapa(usuario.filial, data))
+    } catch (e) {
+      setErro(`Erro ao enviar os convites de bate-papo: ${e instanceof Error ? e.message : String(e)}`)
+    } finally {
+      setEnviandoConvites(false)
+    }
   }
 
   const textosPorSala = useMemo(() => {
     const out: Record<string, { destaques: string; batePapo: string }> = {}
     for (const sala of ['COLORADO', 'SUB-FURIA'] as const) {
       const linhas = farolLinhas.filter((l) => l.sala === sala)
-      out[sala] = montarTextosOrientacao(linhas, SALA_LABEL[sala], formatarDataBR(data))
+      out[sala] = montarTextosOrientacao(linhas, SALA_LABEL[sala], formatarDataBR(data), statusPendencias)
     }
     return out
-  }, [farolLinhas, data])
+  }, [farolLinhas, data, statusPendencias])
 
   async function confirmarEEnviar() {
     if (!usuario) return
@@ -569,12 +615,12 @@ export default function FechamentoDia() {
                       <tr key={l.mapa} className="border-b last:border-0">
                         <td className="px-3 py-2 font-mono text-xs">{l.mapa}</td>
                         <td className="px-3 py-2">{l.nome}</td>
-                        <td className="px-3 py-2">{l.ajudantes.join(', ') || '—'}</td>
+                        <td className="px-3 py-2">{l.ajudantes.map((a) => a.nome).join(', ') || '—'}</td>
                         <td className="px-3 py-2">{SALA_LABEL[l.sala]}</td>
-                        <td className="px-3 py-2">{l.aderenciaOk == null ? '—' : l.aderenciaOk ? '✅' : '❌'}</td>
-                        <td className="px-3 py-2">{l.tmlOk == null ? '—' : l.tmlOk ? '✅' : '❌'}</td>
-                        <td className="px-3 py-2">{l.devolucaoOk == null ? '—' : l.devolucaoOk ? '✅' : '❌'}</td>
-                        <td className="px-3 py-2">{l.ivDeslocamentoOk == null ? '—' : l.ivDeslocamentoOk ? '✅' : '❌'}</td>
+                        <td className="px-3 py-2"><CriterioChip criterio={l.aderencia} kpi="aderencia_raio" /></td>
+                        <td className="px-3 py-2"><CriterioChip criterio={l.tml} kpi="tml" /></td>
+                        <td className="px-3 py-2"><CriterioChip criterio={l.devolucao} kpi="devolucao_pdv" /></td>
+                        <td className="px-3 py-2"><CriterioChip criterio={l.ivDeslocamento} kpi="iv_deslocamento" /></td>
                         <td className="px-3 py-2">
                           <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${l.resultado === 'destaque' ? 'bg-green-50 text-green-700' : l.resultado === 'bate_papo' ? 'bg-amber-50 text-amber-700' : 'bg-gray-100 text-gray-500'}`}>
                             {l.resultado === 'destaque' ? 'Destaque' : l.resultado === 'bate_papo' ? 'Bate-papo' : 'Neutro'}
@@ -585,9 +631,21 @@ export default function FechamentoDia() {
                   </tbody>
                 </table>
               </div>
-              <button onClick={salvarFarol} disabled={salvandoFarol} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-md bg-primary text-primary-foreground disabled:opacity-50">
-                {salvandoFarol ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Salvar Farol do dia
-              </button>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={salvarFarol} disabled={salvandoFarol} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-md bg-primary text-primary-foreground disabled:opacity-50">
+                  {salvandoFarol ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />} Salvar Farol do dia
+                </button>
+                <button onClick={enviarConvitesDoDia} disabled={enviandoConvites} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-md border hover:bg-accent disabled:opacity-50">
+                  {enviandoConvites ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Enviar convites de bate-papo (motorista/ajudante)
+                </button>
+              </div>
+              {resultadoConvites && (
+                <p className="text-xs text-muted-foreground">
+                  {resultadoConvites.enviados} convite(s) enviado(s)
+                  {resultadoConvites.semTelefone > 0 ? `, ${resultadoConvites.semTelefone} sem telefone cadastrado` : ''}
+                  {resultadoConvites.falhaEnvio > 0 ? `, ${resultadoConvites.falhaEnvio} com falha no envio` : ''}.
+                </p>
+              )}
             </>
           )}
         </div>
@@ -669,7 +727,7 @@ const th: React.CSSProperties = { fontSize: 9, textTransform: 'uppercase', lette
 const td: React.CSSProperties = { padding: '6px 8px', borderBottom: '1px solid #eef1f4' }
 
 function ParametrosTab({ filial, parametros, onSalvo }: { filial: string; parametros: ParametroFechamento[]; onSalvo: () => void }) {
-  const [editando, setEditando] = useState<Record<string, { meta: string; bench: string }>>({})
+  const [editando, setEditando] = useState<Record<string, { meta: string; bench: string; gatilho: string; direcao: 'menor_melhor' | 'maior_melhor' }>>({})
   const [salvando, setSalvando] = useState<string | null>(null)
 
   async function salvar(kpi: KpiFechamento) {
@@ -683,7 +741,7 @@ function ParametrosTab({ filial, parametros, onSalvo }: { filial: string; parame
       return def.unidade === 'percentual' ? n / 100 : n
     }
     await supabase.from('fechamento_dia_parametros').upsert(
-      { filial, kpi, meta: parseVal(ed.meta), bench: parseVal(ed.bench) },
+      { filial, kpi, meta: parseVal(ed.meta), bench: parseVal(ed.bench), gatilho: parseVal(ed.gatilho), direcao: ed.direcao },
       { onConflict: 'filial,kpi' },
     )
     setSalvando(null)
@@ -692,18 +750,71 @@ function ParametrosTab({ filial, parametros, onSalvo }: { filial: string; parame
 
   return (
     <div className="rounded-lg border p-4 space-y-3">
-      <h2 className="font-semibold text-sm flex items-center gap-1.5"><Settings className="h-4 w-4" /> Meta e Bench por KPI</h2>
+      <h2 className="font-semibold text-sm flex items-center gap-1.5"><Settings className="h-4 w-4" /> Meta, Bench, Gatilho e Direção por KPI</h2>
+      <p className="text-xs text-muted-foreground">
+        Direção define se maior valor é melhor ou pior. Bench é o patamar de <strong>Destaque</strong> (precisa superar,
+        não só bater a Meta). Gatilho é o patamar que, quando ultrapassado, marca o indicador como <strong>Bate-papo</strong>
+        (aciona o convite automático por WhatsApp) — sem Gatilho definido, qualquer valor que não bate a Meta já vira Bate-papo.
+      </p>
       <div className="space-y-2">
         {KPIS_FECHAMENTO.map((k) => {
           const p = parametros.find((pp) => pp.kpi === k.key)
           const def = KPIS_FECHAMENTO.find((kk) => kk.key === k.key)!
           const metaAtual = p?.meta != null ? (def.unidade === 'percentual' ? (p.meta * 100).toFixed(1) : String(p.meta)) : ''
           const benchAtual = p?.bench != null ? (def.unidade === 'percentual' ? (p.bench * 100).toFixed(1) : String(p.bench)) : ''
+          const gatilhoAtual = p?.gatilho != null ? (def.unidade === 'percentual' ? (p.gatilho * 100).toFixed(1) : String(p.gatilho)) : ''
+          const direcaoAtual = p?.direcao ?? 'maior_melhor'
+          const ed = editando[k.key]
           return (
             <div key={k.key} className="flex items-center gap-3 border rounded-lg p-3 flex-wrap">
               <span className="text-sm font-medium flex-1 min-w-[180px]">{k.label}</span>
-              <input placeholder="Meta" defaultValue={metaAtual} onChange={(e) => setEditando((ed) => ({ ...ed, [k.key]: { ...ed[k.key], meta: e.target.value, bench: ed[k.key]?.bench ?? benchAtual } }))} className="w-24 px-2 py-1 text-xs border rounded" />
-              <input placeholder="Bench" defaultValue={benchAtual} onChange={(e) => setEditando((ed) => ({ ...ed, [k.key]: { ...ed[k.key], bench: e.target.value, meta: ed[k.key]?.meta ?? metaAtual } }))} className="w-24 px-2 py-1 text-xs border rounded" />
+              <select
+                value={ed?.direcao ?? direcaoAtual}
+                onChange={(e) => setEditando((prev) => ({
+                  ...prev,
+                  [k.key]: {
+                    meta: prev[k.key]?.meta ?? metaAtual, bench: prev[k.key]?.bench ?? benchAtual,
+                    gatilho: prev[k.key]?.gatilho ?? gatilhoAtual, direcao: e.target.value as 'menor_melhor' | 'maior_melhor',
+                  },
+                }))}
+                className="px-2 py-1 text-xs border rounded"
+              >
+                <option value="maior_melhor">Maior melhor</option>
+                <option value="menor_melhor">Menor melhor</option>
+              </select>
+              <input
+                placeholder="Meta" defaultValue={metaAtual}
+                onChange={(e) => setEditando((prev) => ({
+                  ...prev,
+                  [k.key]: {
+                    meta: e.target.value, bench: prev[k.key]?.bench ?? benchAtual,
+                    gatilho: prev[k.key]?.gatilho ?? gatilhoAtual, direcao: prev[k.key]?.direcao ?? direcaoAtual,
+                  },
+                }))}
+                className="w-24 px-2 py-1 text-xs border rounded"
+              />
+              <input
+                placeholder="Bench" defaultValue={benchAtual}
+                onChange={(e) => setEditando((prev) => ({
+                  ...prev,
+                  [k.key]: {
+                    meta: prev[k.key]?.meta ?? metaAtual, bench: e.target.value,
+                    gatilho: prev[k.key]?.gatilho ?? gatilhoAtual, direcao: prev[k.key]?.direcao ?? direcaoAtual,
+                  },
+                }))}
+                className="w-24 px-2 py-1 text-xs border rounded"
+              />
+              <input
+                placeholder="Gatilho" defaultValue={gatilhoAtual}
+                onChange={(e) => setEditando((prev) => ({
+                  ...prev,
+                  [k.key]: {
+                    meta: prev[k.key]?.meta ?? metaAtual, bench: prev[k.key]?.bench ?? benchAtual,
+                    gatilho: e.target.value, direcao: prev[k.key]?.direcao ?? direcaoAtual,
+                  },
+                }))}
+                className="w-24 px-2 py-1 text-xs border rounded"
+              />
               <button onClick={() => salvar(k.key)} disabled={salvando === k.key} className="text-xs px-2.5 py-1.5 rounded bg-primary text-primary-foreground disabled:opacity-50">
                 {salvando === k.key ? '…' : 'Salvar'}
               </button>
