@@ -511,7 +511,6 @@ export interface LinhaFarolMotorista {
   ajudantes: string[]
   sala: SalaTML
   aderenciaOk: boolean | null
-  devolucaoForaRaioOk: boolean | null
   tmlOk: boolean | null
   devolucaoOk: boolean | null
   ivDeslocamentoOk: boolean | null
@@ -554,14 +553,19 @@ export async function gerarFarolAutomatico(
     if (!sala) continue // Externos/freteiro não entra no Farol (só Colorado/Sub-Fúria)
 
     const aderenciaOk = l.aderencia != null ? l.aderencia >= metaAderencia : null
-    const devolucaoForaRaioOk = l.entregasPrevistas ? l.devForaRaio === 0 : null
 
     const resultadoTml = resultadoTmlPorMapa.get(l.mapa)
     const tmlOk = resultadoTml === 'no_prazo' ? true : resultadoTml === 'atrasado' ? false : null
 
+    // Sem linha em fechamento_dia_devolucoes_pdv não quer dizer "sem dado" —
+    // esse upload é 1 linha por NOTA DEVOLVIDA (ver importarDevolucoesPdv
+    // acima), então um mapa sem nenhuma devolução simplesmente não aparece
+    // no relatório. Sem esse fallback pra 0, esses mapas (a maioria, no dia
+    // a dia) ficavam com "—" em vez de ✅. Só fica null quando nem entregas
+    // do mapa são conhecidas (mapa não importado no 03.11.49.02 daquele dia).
     const entregas = entregasPorMapa.get(l.mapa) ?? l.entregasPrevistas
-    const devolucoesMapa = devolucoesPorMapa.get(l.mapa)
-    const devolucaoOk = devolucoesMapa != null && entregas ? devolucoesMapa / entregas <= metaDevolucao : null
+    const devolucoesMapa = devolucoesPorMapa.get(l.mapa) ?? 0
+    const devolucaoOk = entregas ? devolucoesMapa / entregas <= metaDevolucao : null
 
     const tempoDeslocamento = deslocamentoPorMapa.get(l.mapa)
     const ivDeslocamentoOk = tempoDeslocamento != null ? tempoDeslocamento <= metaIvDeslocamento : null
@@ -576,7 +580,6 @@ export async function gerarFarolAutomatico(
       ajudantes,
       sala,
       aderenciaOk,
-      devolucaoForaRaioOk,
       tmlOk,
       devolucaoOk,
       ivDeslocamentoOk,
@@ -585,8 +588,8 @@ export async function gerarFarolAutomatico(
   return resultado
 }
 
-export function classificarResultado(l: { aderenciaOk: boolean | null; devolucaoForaRaioOk: boolean | null; tmlOk: boolean | null; devolucaoOk: boolean | null; ivDeslocamentoOk: boolean | null }): 'destaque' | 'bate_papo' | 'neutro' {
-  const criterios = [l.aderenciaOk, l.devolucaoForaRaioOk, l.tmlOk, l.devolucaoOk, l.ivDeslocamentoOk].filter((v): v is boolean => v != null)
+export function classificarResultado(l: { aderenciaOk: boolean | null; tmlOk: boolean | null; devolucaoOk: boolean | null; ivDeslocamentoOk: boolean | null }): 'destaque' | 'bate_papo' | 'neutro' {
+  const criterios = [l.aderenciaOk, l.tmlOk, l.devolucaoOk, l.ivDeslocamentoOk].filter((v): v is boolean => v != null)
   if (criterios.length === 0) return 'neutro'
   const okCount = criterios.filter(Boolean).length
   if (okCount === criterios.length) return 'destaque'
