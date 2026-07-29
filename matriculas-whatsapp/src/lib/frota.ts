@@ -1274,11 +1274,17 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
   // achar que já tinha alertado.
   const { data: existentes } = await supabase
     .from('alertas_fixacao_motorista')
-    .select('placa, data')
+    .select('placa, data, numero, status')
     .eq('filial', filial)
     .in('placa', nokUnico.map((c) => c.placa))
-    .in('status', ['pendente', 'enviado'])
-  const jaAlertados = new Set((existentes ?? []).map((a) => `${a.placa}|${a.data}`))
+  const jaAlertados = new Set(
+    (existentes ?? []).filter((a) => a.status === 'pendente' || a.status === 'enviado').map((a) => `${a.placa}|${a.data}`)
+  )
+  // Upsert atualiza a linha existente em vez de inserir uma nova — reaproveita
+  // o número já gravado (senão gerarNumeroFixacao, que conta linhas da
+  // tabela, devolve o MESMO número pra vários itens do lote: como upsert não
+  // aumenta o total de linhas, a contagem não avança entre um item e outro).
+  const numeroExistentePorChave = new Map((existentes ?? []).map((a) => [`${a.placa}|${a.data}`, a.numero]))
 
   // frota_placas só guarda a matrícula do motorista fixado, não o nome — o
   // nome é resolvido pelo roster cadastrado (motoristas_sala_tml), única
@@ -1332,7 +1338,7 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
       nomeEsperada2: item.matriculaEsperada2 ? nomePorMatricula.get(item.matriculaEsperada2) ?? null : null,
       territorio: avaliarTerritorioMotorista(item.placa, item.data, territorioProgramadoPorPlacaData, regioesPorPlacaData),
     })
-    const numero = await gerarNumeroFixacao(filial)
+    const numero = numeroExistentePorChave.get(`${item.placa}|${item.data}`) ?? await gerarNumeroFixacao(filial)
 
     // UPSERT (não insert): a tabela tem UNIQUE (filial, placa, data), então
     // reprocessar uma placa/dia que já tinha um alerta 'erro' precisa
