@@ -1198,13 +1198,24 @@ function gerarNumeroFixacao(): string {
   return `FIX-${ds}-${sufixo}`
 }
 
+// Resume uma lista de bairros "A / B / C / D" pros 2 primeiros + "+N", com o
+// texto completo disponível à parte — evita mensagem/imagem gigante quando a
+// placa entrega em muitos bairros no mesmo dia (ou quando a lista vem com
+// entradas repetidas de mais de uma fonte, ex.: historico_tml +
+// frota_territorio_historico contribuindo o mesmo texto).
+export function resumirRegiao(regiao: string, max = 2): { resumo: string; completo: string } {
+  const partes = regiao.split('/').map(p => p.trim()).filter(Boolean)
+  if (partes.length <= max) return { resumo: regiao, completo: regiao }
+  return { resumo: `${partes.slice(0, max).join(', ')} +${partes.length - max}`, completo: regiao }
+}
+
 // Linha extra sobre território pra mensagem de fixação de motorista — null
 // quando a placa/dia nem tem território programado ainda (não vale a pena
 // avisar sobre um dado que não existe).
 function linhaTerritorioFixacaoMotorista(info: TerritorioMotoristaInfo): string | null {
   if (info.status === 'sem_roteirizacao') return null
-  if (info.status === 'ok') return `📍 Território: rodou em ${info.regiaoExecutada} — bate com o programado (${info.territorioProgramado}) ✅`
-  if (info.status === 'divergente') return `📍 Território: devia rodar em ${info.territorioProgramado}, rodou em ${info.regiaoExecutada} ⚠️`
+  if (info.status === 'ok') return `📍 Território: rodou em ${resumirRegiao(info.regiaoExecutada ?? '').resumo} — bate com o programado (${info.territorioProgramado}) ✅`
+  if (info.status === 'divergente') return `📍 Território: devia rodar em ${info.territorioProgramado}, rodou em ${resumirRegiao(info.regiaoExecutada ?? '').resumo} ⚠️`
   return `📍 Território: programado ${info.territorioProgramado} — ainda sem região executada pra confirmar`
 }
 

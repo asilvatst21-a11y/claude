@@ -17,7 +17,7 @@ import {
   cruzarMotorista, rankingMotoristasPerdaFixacao, calcularAderenciaMotoristaPorDia, calcularAderenciaMotoristaMeses, calcularAderenciaMotoristaPorDiaESala,
   processarFixacaoMotorista, parseBaseMapaTerritorio, MOTIVOS_FIXACAO_MOTORISTA,
   detalhePorPlaca, sequenciaAtualIndisponivel, rankingMotivosPeriodo,
-  agruparRegioesPorPlacaData, agruparTerritorioProgramadoPorPlacaData, avaliarTerritorioMotorista,
+  agruparRegioesPorPlacaData, agruparTerritorioProgramadoPorPlacaData, avaliarTerritorioMotorista, resumirRegiao,
   type FrotaDisponibilidadeInsert, type HistoricoTmlRegiao, type ResumoDiaFrota, type ResumoPerfilFrota, type StatusPlacaFrota,
   type CruzamentoTerritorioItem, type TrocaTerritorioItem, type HistoricoTmlMotorista, type CruzamentoMotoristaItem,
   type TerritorioMotoristaInfo,
@@ -103,15 +103,6 @@ function PessoaMotorista({ nome, matricula, destaque }: { nome: string | null; m
       {nome && <span className="text-[10px] text-gray-400">Mat. {matricula}</span>}
     </div>
   )
-}
-
-// Resume uma lista de bairros "A / B / C / D" pros 2 primeiros + "+N", com o
-// texto completo disponível no tooltip — evita que a célula estoure quando
-// a placa entrega em muitos bairros no mesmo dia.
-function resumirRegiao(regiao: string, max = 2): { resumo: string; completo: string } {
-  const partes = regiao.split('/').map(p => p.trim()).filter(Boolean)
-  if (partes.length <= max) return { resumo: regiao, completo: regiao }
-  return { resumo: `${partes.slice(0, max).join(', ')} +${partes.length - max}`, completo: regiao }
 }
 
 // Badge da coluna Território no cruzamento de Fixação de Motorista.
@@ -2101,7 +2092,7 @@ const FixacaoMotoristaExportTemplate = forwardRef<HTMLDivElement, {
               <td style={{ ...td, color: '#475569' }}>
                 {territorio && estiloTerr && territorio.status !== 'sem_roteirizacao' ? (
                   <span style={{ display: 'inline-block', background: estiloTerr.bg, color: estiloTerr.fg, border: `1px solid ${estiloTerr.border}`, borderRadius: '999px', padding: '2px 8px', fontSize: '9px', fontWeight: 700 }}>
-                    {territorio.status === 'ok' ? territorio.territorioProgramado : territorio.status === 'divergente' ? `${territorio.regiaoExecutada} ≠ ${territorio.territorioProgramado}` : 'sem execução'}
+                    {territorio.status === 'ok' ? territorio.territorioProgramado : territorio.status === 'divergente' ? `${resumirRegiao(territorio.regiaoExecutada ?? '').resumo} ≠ ${territorio.territorioProgramado}` : 'sem execução'}
                   </span>
                 ) : '—'}
               </td>
