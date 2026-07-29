@@ -17,7 +17,7 @@ import { iniciarConversaMotorista, buscarConversasPorAlertas } from '../lib/tmlC
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML, ConversaMotoristaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_TML_PAUSADOS } from '../lib/whatsappStatus'
-import { buscarStatusColaboradoresPorNome, podeEnviarPara } from '../lib/statusAtivo'
+import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorTelefone, podeEnviarPara } from '../lib/statusAtivo'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
@@ -696,6 +696,7 @@ export default function DistribuicaoTML() {
           const now = new Date()
           const hora = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
           const statusPorNomePendentes = await buscarStatusColaboradoresPorNome(usuario.filial)
+          const statusPorTelefonePendentes = await buscarStatusColaboradoresPorTelefone(usuario.filial)
           for (const [sala, pendentes] of faltamPorSala) {
             const { data: supsRaw } = await supabase
               .from('supervisores_tml')
@@ -704,7 +705,10 @@ export default function DistribuicaoTML() {
               .eq('sala', sala)
             const sups = []
             for (const s of supsRaw ?? []) {
-              if (await podeEnviarPara({ origem: 'tml_pendentes_cdd', filial: usuario.filial, mapaStatus: statusPorNomePendentes, nome: s.nome, telefone: s.telefone, detalhe: `Sala ${sala}` })) {
+              if (await podeEnviarPara({
+                origem: 'tml_pendentes_cdd', filial: usuario.filial, mapaStatus: statusPorNomePendentes, nome: s.nome, telefone: s.telefone, detalhe: `Sala ${sala}`,
+                mapaStatusPorTelefone: statusPorTelefonePendentes,
+              })) {
                 sups.push(s)
               }
             }
@@ -1053,17 +1057,21 @@ export default function DistribuicaoTML() {
     setEnviandoAlertaId(alerta.id)
     try {
       const mensagem = montarMensagemTml(alerta)
-      const [{ data: supervisoresRaw }, statusPorNomeAlerta] = await Promise.all([
+      const [{ data: supervisoresRaw }, statusPorNomeAlerta, statusPorTelefoneAlerta] = await Promise.all([
         supabase
           .from('supervisores_tml')
           .select('id, nome, telefone')
           .eq('filial', usuario.filial)
           .eq('sala', alerta.sala),
         buscarStatusColaboradoresPorNome(usuario.filial),
+        buscarStatusColaboradoresPorTelefone(usuario.filial),
       ])
       const supervisores = []
       for (const s of supervisoresRaw ?? []) {
-        if (await podeEnviarPara({ origem: 'tml_alerta_perdido', filial: usuario.filial, mapaStatus: statusPorNomeAlerta, nome: s.nome, telefone: s.telefone, detalhe: `Mapa ${alerta.mapa}` })) {
+        if (await podeEnviarPara({
+          origem: 'tml_alerta_perdido', filial: usuario.filial, mapaStatus: statusPorNomeAlerta, nome: s.nome, telefone: s.telefone, detalhe: `Mapa ${alerta.mapa}`,
+          mapaStatusPorTelefone: statusPorTelefoneAlerta,
+        })) {
           supervisores.push(s)
         }
       }

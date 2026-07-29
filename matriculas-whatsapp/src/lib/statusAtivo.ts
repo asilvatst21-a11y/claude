@@ -55,6 +55,26 @@ export async function buscarStatusColaboradoresPorMatricula(filial: string): Pro
   return mapa
 }
 
+function normalizarTelefoneStatus(tel: string): string {
+  const digitos = tel.replace(/\D/g, '')
+  return digitos.length > 11 && digitos.startsWith('55') ? digitos.slice(2) : digitos
+}
+
+// Variante por telefone — usada pra quem não tem matrícula pra cruzar
+// (supervisores TML/GSD). Nome sozinho falha quando o cadastro central foi
+// gerado a partir de outra planilha com grafia diferente (ex.: supervisor
+// existe em colaboradores só que com o nome de outra fonte de backfill) —
+// telefone costuma ser mais estável que nome nesse caso.
+export async function buscarStatusColaboradoresPorTelefone(filial: string): Promise<Map<string, string>> {
+  const { data } = await supabase.from('colaboradores').select('telefone, status').eq('filial', filial)
+  const mapa = new Map<string, string>()
+  for (const c of data ?? []) {
+    if (!c.telefone) continue
+    mapa.set(normalizarTelefoneStatus(c.telefone), (c.status ?? '').trim().toUpperCase())
+  }
+  return mapa
+}
+
 // Grava na central de bloqueios (tela "Envios bloqueados") — não trava o
 // fluxo de quem chamou; falha ao registrar é só logada no console.
 export async function registrarEnvioBloqueado(params: {
@@ -92,12 +112,15 @@ export async function podeEnviarPara(params: {
   nome: string | null | undefined
   telefone?: string | null
   detalhe?: string | null
-  // Opcional: quando informados, a matrícula tem prioridade sobre o nome pra
-  // achar o status em `colaboradores` (mais confiável que casar por nome).
+  // Opcional: quando informados, matrícula e telefone têm prioridade sobre
+  // o nome pra achar o status em `colaboradores` (mais confiáveis que casar
+  // por nome — motorista casa por matrícula, supervisor (sem matrícula)
+  // casa por telefone).
   matricula?: string | number | null
   mapaStatusPorMatricula?: Map<string, string>
+  mapaStatusPorTelefone?: Map<string, string>
 }): Promise<boolean> {
-  const { origem, filial, mapaStatus, nome, telefone, detalhe, matricula, mapaStatusPorMatricula } = params
+  const { origem, filial, mapaStatus, nome, telefone, detalhe, matricula, mapaStatusPorMatricula, mapaStatusPorTelefone } = params
   if (matricula != null && mapaStatusPorMatricula) {
     const statusPorMatricula = mapaStatusPorMatricula.get(String(matricula).trim())
     if (statusPorMatricula === STATUS_ATIVO) return true
@@ -105,9 +128,18 @@ export async function podeEnviarPara(params: {
       await registrarEnvioBloqueado({ origem, filial, nome, telefone, motivo: `Status "${statusPorMatricula}" — diferente de TRABALHANDO`, detalhe })
       return false
     }
-    // Matrícula não encontrada em `colaboradores`: cai pro match por nome
-    // abaixo em vez de bloquear direto — pode ser matrícula divergente
-    // entre cadastros.
+    // Matrícula não encontrada em `colaboradores`: cai pro match por
+    // telefone/nome abaixo em vez de bloquear direto — pode ser matrícula
+    // divergente entre cadastros.
+  }
+  if (telefone && mapaStatusPorTelefone) {
+    const statusPorTelefone = mapaStatusPorTelefone.get(normalizarTelefoneStatus(telefone))
+    if (statusPorTelefone === STATUS_ATIVO) return true
+    if (statusPorTelefone != null) {
+      await registrarEnvioBloqueado({ origem, filial, nome, telefone, motivo: `Status "${statusPorTelefone}" — diferente de TRABALHANDO`, detalhe })
+      return false
+    }
+    // Telefone não encontrado: cai pro match por nome abaixo.
   }
   if (!nome) {
     await registrarEnvioBloqueado({ origem, filial, nome, telefone, motivo: 'Sem nome cadastrado — não dá pra confirmar o status', detalhe })

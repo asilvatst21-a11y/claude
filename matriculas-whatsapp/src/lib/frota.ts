@@ -3,7 +3,7 @@ import type { FrotaDisponibilidade, FrotaPlaca, FrotaIVTratativa } from '../type
 import { supabase } from './supabase'
 import { enviarListaOpcoesWhatsApp, aguardarEntreEnvios, variarTexto } from './zapi'
 import { formatarDataBR } from './utils'
-import { buscarStatusColaboradoresPorNome, podeEnviarPara } from './statusAtivo'
+import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorTelefone, podeEnviarPara } from './statusAtivo'
 
 export type FrotaDisponibilidadeInsert = Omit<FrotaDisponibilidade, 'id' | 'created_at'>
 
@@ -1287,6 +1287,7 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
   ])
 
   const statusPorNomeFixacao = await buscarStatusColaboradoresPorNome(filial)
+  const statusPorTelefoneFixacao = await buscarStatusColaboradoresPorTelefone(filial)
 
   for (const item of nokUnico) {
     if (jaAlertados.has(`${item.placa}|${item.data}`)) continue
@@ -1298,7 +1299,10 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
       : await supabase.from('supervisores_tml').select('id, nome, telefone').eq('filial', filial)
     const supervisores = []
     for (const s of supervisoresRaw ?? []) {
-      if (await podeEnviarPara({ origem: 'frota_divergencia_fixacao', filial, mapaStatus: statusPorNomeFixacao, nome: s.nome, telefone: s.telefone, detalhe: `Placa ${item.placa}` })) {
+      if (await podeEnviarPara({
+        origem: 'frota_divergencia_fixacao', filial, mapaStatus: statusPorNomeFixacao, nome: s.nome, telefone: s.telefone, detalhe: `Placa ${item.placa}`,
+        mapaStatusPorTelefone: statusPorTelefoneFixacao,
+      })) {
         supervisores.push(s)
       }
     }
