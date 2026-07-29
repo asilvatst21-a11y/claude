@@ -147,7 +147,7 @@ export default function ConsultaPendencias() {
           <button onClick={reiniciar} className="inline-flex items-center gap-1.5 text-brand-200 text-sm mb-6"><ArrowLeft className="h-4 w-4" /> Voltar</button>
           <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Wallet className="h-4 w-4" /> Consulta</div>
           <h1 className="text-2xl font-bold">Olá, {pessoa.nome.split(' ')[0]}</h1>
-          <p className="text-brand-200 text-sm mt-1">Toque numa data pra ver os detalhes.</p>
+          <p className="text-brand-200 text-sm mt-1">Toque em uma data pra ver os detalhes.</p>
         </div>
         <div className="flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 pb-8 flex flex-col gap-3">
           {temReposicoes && (
