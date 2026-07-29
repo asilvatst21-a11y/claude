@@ -57,7 +57,7 @@ export function variarTexto(variantes: string[]): string {
 export async function enviarMensagemWhatsApp(
   numero: string,
   mensagem: string
-): Promise<{ sucesso: boolean; erro?: string }> {
+): Promise<{ sucesso: boolean; erro?: string; messageId?: string }> {
   try {
     const response = await fetch(`${BASE}/send-text`, {
       method: 'POST',
@@ -75,7 +75,7 @@ export async function enviarMensagemWhatsApp(
 export async function enviarMensagemGrupo(
   grupoId: string,
   mensagem: string
-): Promise<{ sucesso: boolean; erro?: string }> {
+): Promise<{ sucesso: boolean; erro?: string; messageId?: string }> {
   try {
     const response = await fetch(`${BASE}/send-text`, {
       method: 'POST',
@@ -94,7 +94,7 @@ export async function enviarBotoesGrupo(
   grupoId: string,
   mensagem: string,
   botoes: { id: string; label: string }[]
-): Promise<{ sucesso: boolean; erro?: string }> {
+): Promise<{ sucesso: boolean; erro?: string; messageId?: string }> {
   try {
     const response = await fetch(`${BASE}/send-button-list`, {
       method: 'POST',
@@ -117,7 +117,7 @@ export async function enviarListaOpcoesWhatsApp(
   titulo: string,
   botaoLabel: string,
   opcoes: { id: string; title: string; description?: string }[]
-): Promise<{ sucesso: boolean; erro?: string }> {
+): Promise<{ sucesso: boolean; erro?: string; messageId?: string }> {
   try {
     const response = await fetch(`${BASE}/send-option-list`, {
       method: 'POST',
@@ -165,7 +165,7 @@ export async function enviarImagemWhatsApp(
   numero: string,
   imagemUrl: string,
   legenda: string
-): Promise<{ sucesso: boolean; erro?: string }> {
+): Promise<{ sucesso: boolean; erro?: string; messageId?: string }> {
   try {
     const response = await fetch(`${BASE}/send-image`, {
       method: 'POST',
@@ -188,7 +188,7 @@ export async function enviarImagemGrupo(
   grupoId: string,
   image: string,
   legenda: string
-): Promise<{ sucesso: boolean; erro?: string }> {
+): Promise<{ sucesso: boolean; erro?: string; messageId?: string }> {
   try {
     const response = await fetch(`${BASE}/send-image`, {
       method: 'POST',

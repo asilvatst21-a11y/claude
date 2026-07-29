@@ -1185,15 +1185,17 @@ export function calcularAderenciaMotoristaMeses(porDia: AderenciaMotoristaDia[],
 // pede uma resposta escrita, capturada pelo fluxo de texto livre do webhook.
 export const MOTIVOS_FIXACAO_MOTORISTA = ['ABS DE MOTORISTA', 'ROTA GRADATIVA', 'PLACA EM MANUTENÇÃO', 'MAPA VIRADO', 'ROTA CRÍTICA', 'ERRO DE ROTEIRIZAÇÃO', 'OUTRO']
 
-async function gerarNumeroFixacao(filial: string): Promise<string> {
-  const { count } = await supabase
-    .from('alertas_fixacao_motorista')
-    .select('*', { count: 'exact', head: true })
-    .eq('filial', filial)
-  const n = ((count ?? 0) + 1).toString().padStart(4, '0')
+// Contar linhas pra gerar o próximo número (como era antes) é frágil: upsert
+// não aumenta a contagem ao atualizar uma linha existente, e um item que
+// falha não avança a contagem — então o próximo item gera o MESMO número
+// (já travou duas vezes por isso, batendo em alertas_fixacao_motorista_
+// numero_key). Usa milissegundos + um sufixo aleatório em vez de contar
+// linhas — não depende do estado da tabela nem da ordem de processamento.
+function gerarNumeroFixacao(): string {
   const d = new Date()
   const ds = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`
-  return `FIX-${ds}-${n}`
+  const sufixo = `${Date.now().toString().slice(-6)}${Math.floor(Math.random() * 100).toString().padStart(2, '0')}`
+  return `FIX-${ds}-${sufixo}`
 }
 
 // Linha extra sobre território pra mensagem de fixação de motorista — null
@@ -1338,7 +1340,7 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
       nomeEsperada2: item.matriculaEsperada2 ? nomePorMatricula.get(item.matriculaEsperada2) ?? null : null,
       territorio: avaliarTerritorioMotorista(item.placa, item.data, territorioProgramadoPorPlacaData, regioesPorPlacaData),
     })
-    const numero = numeroExistentePorChave.get(`${item.placa}|${item.data}`) ?? await gerarNumeroFixacao(filial)
+    const numero = numeroExistentePorChave.get(`${item.placa}|${item.data}`) ?? gerarNumeroFixacao()
 
     // UPSERT (não insert): a tabela tem UNIQUE (filial, placa, data), então
     // reprocessar uma placa/dia que já tinha um alerta 'erro' precisa
@@ -1378,15 +1380,21 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
     }))
 
     const errosEnvio: string[] = []
+    let messageId: string | undefined
     for (const sup of supervisores) {
       const r = await enviarListaOpcoesWhatsApp(sup.telefone, mensagem, 'Motivo da divergência', 'Selecionar motivo', opcoes)
       if (!r.sucesso) errosEnvio.push(`${sup.nome}: ${r.erro}`)
+      else messageId = messageId ?? r.messageId
       await aguardarEntreEnvios()
     }
 
+    // Guarda o zaapId/messageId devolvido pela Z-API — é o identificador que
+    // o suporte da Z-API consegue rastrear pra confirmar se a entrega
+    // realmente chegou no aparelho do supervisor ou ficou presa na fila
+    // (a API não avisa isso de volta pra gente, só o suporte deles vê).
     const falhouPraTodos = errosEnvio.length === supervisores.length
     await supabase.from('alertas_fixacao_motorista')
-      .update({ status: falhouPraTodos ? 'erro' : 'enviado' })
+      .update({ status: falhouPraTodos ? 'erro' : 'enviado', zapi_message_id: messageId ?? null })
       .eq('id', novoAlerta.id)
     if (falhouPraTodos) {
       resultado.falhaEnvio++
