@@ -1254,11 +1254,18 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
   // Uma divergência por placa+dia (mesma chave única da tabela de alertas).
   const nokUnico = Array.from(new Map(nok.map((c) => [`${c.placa}|${c.data}`, c])).values())
 
+  // Só conta como "já alertado" quem teve o envio de fato ENVIADO ou está
+  // aguardando resposta (pendente) — um alerta que ficou 'erro' (ex.: nenhum
+  // supervisor passou na checagem de status) não deve travar novas
+  // tentativas pra sempre, senão corrigir o cadastro do supervisor não
+  // resolve nada: o "Forçar envio" continuaria pulando essa placa/dia por
+  // achar que já tinha alertado.
   const { data: existentes } = await supabase
     .from('alertas_fixacao_motorista')
     .select('placa, data')
     .eq('filial', filial)
     .in('placa', nokUnico.map((c) => c.placa))
+    .in('status', ['pendente', 'enviado'])
   const jaAlertados = new Set((existentes ?? []).map((a) => `${a.placa}|${a.data}`))
 
   // frota_placas só guarda a matrícula do motorista fixado, não o nome — o
