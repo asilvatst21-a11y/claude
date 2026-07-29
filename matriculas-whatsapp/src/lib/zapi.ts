@@ -13,6 +13,30 @@ function limparNumero(numero: string): string {
   return limpo.startsWith('55') ? limpo : `55${limpo}`
 }
 
+// A Z-API responde *HTTP 200* em várias falhas reais (instância desconectada,
+// número fora do WhatsApp, token/Client-Token errado, limite da conta),
+// sinalizando o problema só no CORPO da resposta: {"error": "..."}. Checar
+// apenas `response.ok` fazia todo envio virar "sucesso" mesmo sem a mensagem
+// sair — foi o que mascarou a falha de entrega pros supervisores (a tela
+// dizia "12 enviado(s)" e nada chegava). Mesma checagem que o módulo de
+// Vales (valesZapi.ts) já fazia.
+async function interpretarRespostaEnvio(
+  response: Response
+): Promise<{ sucesso: boolean; erro?: string; messageId?: string }> {
+  const bruto = await response.text().catch(() => '')
+  let corpo: { error?: string; zaapId?: string; messageId?: string; id?: string } | null = null
+  try {
+    corpo = bruto ? JSON.parse(bruto) : null
+  } catch {
+    /* resposta não-JSON — trata pelo status HTTP abaixo */
+  }
+  if (!response.ok) {
+    return { sucesso: false, erro: corpo?.error ?? bruto.slice(0, 300) ?? `HTTP ${response.status}` }
+  }
+  if (corpo?.error) return { sucesso: false, erro: corpo.error }
+  return { sucesso: true, messageId: corpo?.zaapId ?? corpo?.messageId ?? corpo?.id }
+}
+
 // Pausa entre envios num loop de disparo pra várias pessoas — sem isso, um
 // loop `for` dispara todas as mensagens em sequência quase instantânea, o
 // que é o padrão clássico que derruba a conta do WhatsApp por suspeita de
@@ -40,8 +64,7 @@ export async function enviarMensagemWhatsApp(
       headers: HEADERS,
       body: JSON.stringify({ phone: limparNumero(numero), message: mensagem }),
     })
-    if (!response.ok) return { sucesso: false, erro: await response.text() }
-    return { sucesso: true }
+    return await interpretarRespostaEnvio(response)
   } catch (e) {
     return { sucesso: false, erro: String(e) }
   }
@@ -59,8 +82,7 @@ export async function enviarMensagemGrupo(
       headers: HEADERS,
       body: JSON.stringify({ phone: grupoId.trim(), message: mensagem }),
     })
-    if (!response.ok) return { sucesso: false, erro: await response.text() }
-    return { sucesso: true }
+    return await interpretarRespostaEnvio(response)
   } catch (e) {
     return { sucesso: false, erro: String(e) }
   }
@@ -79,8 +101,7 @@ export async function enviarBotoesGrupo(
       headers: HEADERS,
       body: JSON.stringify({ phone: grupoId.trim(), message: mensagem, buttonList: { buttons: botoes } }),
     })
-    if (!response.ok) return { sucesso: false, erro: await response.text() }
-    return { sucesso: true }
+    return await interpretarRespostaEnvio(response)
   } catch (e) {
     return { sucesso: false, erro: String(e) }
   }
@@ -107,8 +128,7 @@ export async function enviarListaOpcoesWhatsApp(
         optionList: { title: titulo, buttonLabel: botaoLabel, options: opcoes },
       }),
     })
-    if (!response.ok) return { sucesso: false, erro: await response.text() }
-    return { sucesso: true }
+    return await interpretarRespostaEnvio(response)
   } catch (e) {
     return { sucesso: false, erro: String(e) }
   }
@@ -156,8 +176,7 @@ export async function enviarImagemWhatsApp(
         caption: legenda,
       }),
     })
-    if (!response.ok) return { sucesso: false, erro: await response.text() }
-    return { sucesso: true }
+    return await interpretarRespostaEnvio(response)
   } catch (e) {
     return { sucesso: false, erro: String(e) }
   }
@@ -176,8 +195,7 @@ export async function enviarImagemGrupo(
       headers: HEADERS,
       body: JSON.stringify({ phone: grupoId.trim(), image, caption: legenda }),
     })
-    if (!response.ok) return { sucesso: false, erro: await response.text() }
-    return { sucesso: true }
+    return await interpretarRespostaEnvio(response)
   } catch (e) {
     return { sucesso: false, erro: String(e) }
   }

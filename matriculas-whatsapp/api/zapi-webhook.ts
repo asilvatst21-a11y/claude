@@ -35,6 +35,23 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY)
 
 // ── Envio de mensagens ──────────────────────────────────────────────────────────
 
+// A Z-API responde HTTP 200 em várias falhas reais (instância desconectada,
+// número fora do WhatsApp, token errado, limite da conta), sinalizando o
+// problema só no CORPO: {"error": "..."}. Checar apenas resp.ok escondia
+// essas falhas — e, nos envios com fallback abaixo, impedia o fallback de
+// texto puro de rodar. Devolve a mensagem de erro, ou null quando deu certo.
+async function falhaEnvioZapi(resp: Response): Promise<string | null> {
+  const bruto = await resp.text().catch(() => '')
+  let corpo: { error?: string } | null = null
+  try {
+    corpo = bruto ? JSON.parse(bruto) : null
+  } catch {
+    /* resposta não-JSON — trata pelo status HTTP abaixo */
+  }
+  if (!resp.ok) return corpo?.error ?? bruto.slice(0, 300) ?? `HTTP ${resp.status}`
+  return corpo?.error ?? null
+}
+
 async function enviar(destino: string, message: string): Promise<void> {
   try {
     const resp = await fetch(`${ZAPI_BASE}/send-text`, {
@@ -42,10 +59,8 @@ async function enviar(destino: string, message: string): Promise<void> {
       headers: { 'Content-Type': 'application/json', 'Client-Token': ZAPI_CLIENT_TOKEN },
       body: JSON.stringify({ phone: destino, message }),
     })
-    if (!resp.ok) {
-      const txt = await resp.text().catch(() => '')
-      console.error('enviar HTTP error:', resp.status, txt)
-    }
+    const erro = await falhaEnvioZapi(resp)
+    if (erro) console.error('enviar falhou:', resp.status, erro)
   } catch (e) {
     console.error('enviar exception:', e)
   }
@@ -71,8 +86,9 @@ async function enviarBotoes(destino: string, message: string, botoes: BotaoZ[]):
       headers: { 'Content-Type': 'application/json', 'Client-Token': ZAPI_CLIENT_TOKEN },
       body: JSON.stringify({ phone: destino, message, buttonList: { buttons: botoes } }),
     })
-    if (!resp.ok) {
-      console.error('send-button-list error:', resp.status, await resp.text().catch(() => ''))
+    const erro = await falhaEnvioZapi(resp)
+    if (erro) {
+      console.error('send-button-list falhou:', resp.status, erro)
       await enviar(destino, message) // fallback: texto (instruções já estão na mensagem)
     }
   } catch (e) {
@@ -92,8 +108,9 @@ async function enviarOpcoes(destino: string, message: string, titulo: string, bo
       headers: { 'Content-Type': 'application/json', 'Client-Token': ZAPI_CLIENT_TOKEN },
       body: JSON.stringify({ phone: destino, message, optionList: { title: titulo, buttonLabel: botaoLabel, options: opcoes } }),
     })
-    if (!resp.ok) {
-      console.error('send-option-list error:', resp.status, await resp.text().catch(() => ''))
+    const erro = await falhaEnvioZapi(resp)
+    if (erro) {
+      console.error('send-option-list falhou:', resp.status, erro)
       await enviar(destino, message)
     }
   } catch (e) {
