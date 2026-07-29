@@ -452,6 +452,7 @@ export interface AlertaFixacaoMotorista {
   mensagem_enviada: string | null
   zapi_message_id: string | null
   status: 'pendente' | 'enviado' | 'respondido' | 'justificado' | 'erro'
+  erro_detalhe: string | null
   justificativa: string | null
   justificado_em: string | null
   resposta_supervisor: string | null

@@ -1609,6 +1609,11 @@ export default function Frota() {
                                       "{alerta.resposta_supervisor}"
                                     </span>
                                   )}
+                                  {alerta?.status === 'erro' && alerta.erro_detalhe && (
+                                    <span className="text-[11px] text-red-500 max-w-[220px] truncate" title={alerta.erro_detalhe}>
+                                      {alerta.erro_detalhe}
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </td>

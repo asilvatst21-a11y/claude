@@ -1351,7 +1351,7 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
         filial, numero, placa: item.placa, data: item.data, sala: item.sala,
         matricula_executou: item.matriculaExecutou, nome_executou: item.nomeExecutou,
         matricula_esperada_1: item.matriculaEsperada1, matricula_esperada_2: item.matriculaEsperada2,
-        mensagem_enviada: mensagem, status: 'erro',
+        mensagem_enviada: mensagem, status: 'erro', erro_detalhe: 'Nenhum supervisor cadastrado/ativo pra essa sala/filial',
       }, { onConflict: 'filial,placa,data' })
       if (error) { resultado.erroGravacao++; resultado.ultimoErro = error.message; continue }
       resultado.semSupervisor++
@@ -1394,7 +1394,11 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
     // (a API não avisa isso de volta pra gente, só o suporte deles vê).
     const falhouPraTodos = errosEnvio.length === supervisores.length
     await supabase.from('alertas_fixacao_motorista')
-      .update({ status: falhouPraTodos ? 'erro' : 'enviado', zapi_message_id: messageId ?? null })
+      .update({
+        status: falhouPraTodos ? 'erro' : 'enviado',
+        zapi_message_id: messageId ?? null,
+        erro_detalhe: falhouPraTodos ? errosEnvio.join(' | ') : null,
+      })
       .eq('id', novoAlerta.id)
     if (falhouPraTodos) {
       resultado.falhaEnvio++
