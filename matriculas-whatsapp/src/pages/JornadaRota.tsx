@@ -20,7 +20,7 @@ import {
 } from '../lib/jornada'
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_JORNADA_PAUSADOS } from '../lib/whatsappStatus'
-import { buscarStatusColaboradoresPorNome, podeEnviarPara } from '../lib/statusAtivo'
+import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorTelefone, buscarStatusColaboradoresPorMatricula, podeEnviarPara } from '../lib/statusAtivo'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -685,13 +685,15 @@ export default function JornadaRota() {
     const lista = await buscarJornadaDoDia(usuario.filial, dataOperacao)
     const porSala = agruparPorSala(lista)
 
-    const [{ data: filialConfig }, statusPorNome] = await Promise.all([
+    const [{ data: filialConfig }, statusPorNome, statusPorTelefone, statusPorMatricula] = await Promise.all([
       supabase
         .from('filiais')
         .select('grupo_jornada_whatsapp, numero_extra_aderencia_whatsapp')
         .eq('nome', usuario.filial)
         .maybeSingle(),
       buscarStatusColaboradoresPorNome(usuario.filial),
+      buscarStatusColaboradoresPorTelefone(usuario.filial),
+      buscarStatusColaboradoresPorMatricula(usuario.filial),
     ])
     const numeroExtra = filialConfig?.numero_extra_aderencia_whatsapp || null
 
@@ -707,7 +709,10 @@ export default function JornadaRota() {
         .eq('sala', salaTml)
       const supervisores = []
       for (const s of supervisoresRaw ?? []) {
-        if (await podeEnviarPara({ origem: 'jornada_supervisor_sala', filial: usuario.filial, mapaStatus: statusPorNome, nome: s.nome, telefone: s.telefone, detalhe: `Sala ${sala}` })) {
+        if (await podeEnviarPara({
+          origem: 'jornada_supervisor_sala', filial: usuario.filial, mapaStatus: statusPorNome, nome: s.nome, telefone: s.telefone, detalhe: `Sala ${sala}`,
+          mapaStatusPorTelefone: statusPorTelefone,
+        })) {
           supervisores.push(s)
         }
       }
@@ -739,7 +744,10 @@ export default function JornadaRota() {
       if (l.aderencia == null || l.aderencia >= ADERENCIA_MINIMA) continue
       if (l.percConclusao != null && l.percConclusao >= 1) continue
       if (!l.telefone) continue
-      const pode = await podeEnviarPara({ origem: 'jornada_aderencia_motorista', filial: usuario.filial, mapaStatus: statusPorNome, nome: l.nome, telefone: l.telefone, detalhe: `Mapa ${l.mapa}` })
+      const pode = await podeEnviarPara({
+        origem: 'jornada_aderencia_motorista', filial: usuario.filial, mapaStatus: statusPorNome, nome: l.nome, telefone: l.telefone, detalhe: `Mapa ${l.mapa}`,
+        matricula: l.matricula, mapaStatusPorMatricula: statusPorMatricula,
+      })
       if (!pode) continue
       await enviarMensagemWhatsApp(l.telefone, montarMensagemAlertaAderenciaMotorista(l, dataOperacao))
       await aguardarEntreEnvios()

@@ -40,6 +40,21 @@ export async function buscarStatusColaboradoresPorNomeGlobal(): Promise<Map<stri
   return mapa
 }
 
+// Variante global por telefone — mesmo raciocínio de buscarStatusColaboradoresPorTelefone,
+// só que sem filtro de filial (ajudantes não têm essa coluna).
+export async function buscarStatusColaboradoresPorTelefoneGlobal(): Promise<Map<string, string>> {
+  const { data } = await supabase.from('colaboradores').select('telefone, status')
+  const mapa = new Map<string, string>()
+  for (const c of data ?? []) {
+    if (!c.telefone) continue
+    const chave = normalizarTelefoneStatus(c.telefone)
+    const atual = mapa.get(chave)
+    const status = (c.status ?? '').trim().toUpperCase()
+    if (atual !== STATUS_ATIVO) mapa.set(chave, status)
+  }
+  return mapa
+}
+
 // Variante por matrícula — usada quando dá pra cruzar por um identificador
 // estável em vez de nome. Nomes importados de planilha às vezes vêm
 // truncados ou com grafia diferente entre tabelas (ex.: motoristas_sala_tml

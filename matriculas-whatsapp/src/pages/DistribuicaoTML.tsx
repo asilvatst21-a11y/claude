@@ -17,7 +17,7 @@ import { iniciarConversaMotorista, buscarConversasPorAlertas } from '../lib/tmlC
 import type { AlertaTML, HistoricoTML, MotivoJustificativaTML, ConversaMotoristaTML } from '../types'
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_TML_PAUSADOS } from '../lib/whatsappStatus'
-import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorTelefone, podeEnviarPara } from '../lib/statusAtivo'
+import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorTelefone, buscarStatusColaboradoresPorMatricula, podeEnviarPara } from '../lib/statusAtivo'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
@@ -1133,9 +1133,11 @@ export default function DistribuicaoTML() {
         return
       }
       const statusPorNomeConversa = await buscarStatusColaboradoresPorNome(usuario.filial)
+      const statusPorMatriculaConversa = await buscarStatusColaboradoresPorMatricula(usuario.filial)
       const podeConversar = await podeEnviarPara({
         origem: 'tml_conversa_motorista', filial: usuario.filial, mapaStatus: statusPorNomeConversa,
         nome: motorista?.nome ?? alerta.nome, telefone, detalhe: `Mapa ${alerta.mapa}`,
+        matricula: alerta.matricula, mapaStatusPorMatricula: statusPorMatriculaConversa,
       })
       if (!podeConversar) {
         setErro(`${alerta.nome ?? 'Este motorista'} está com status diferente de TRABALHANDO (ou não encontrado no cadastro central) — conversa não iniciada.`)
