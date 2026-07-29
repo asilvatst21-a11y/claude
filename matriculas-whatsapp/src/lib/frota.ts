@@ -1242,11 +1242,12 @@ export interface ResultadoFixacaoMotorista {
   enviados: number       // mensagem chegou a pelo menos 1 supervisor
   semSupervisor: number  // nenhum supervisor passou na checagem de status/cadastro
   falhaEnvio: number     // tinha supervisor, mas o envio pelo Z-API falhou pra todos
+  erroGravacao: number   // falha ao gravar o alerta no banco (ex.: erro inesperado do upsert)
   ultimoErro: string | null
 }
 
 export async function processarFixacaoMotorista(filial: string, historico: HistoricoTmlMotorista[]): Promise<ResultadoFixacaoMotorista> {
-  const vazio: ResultadoFixacaoMotorista = { divergencias: 0, puladas: 0, enviados: 0, semSupervisor: 0, falhaEnvio: 0, ultimoErro: null }
+  const vazio: ResultadoFixacaoMotorista = { divergencias: 0, puladas: 0, enviados: 0, semSupervisor: 0, falhaEnvio: 0, erroGravacao: 0, ultimoErro: null }
   const placasDoLote = [...new Set(historico.map((h) => h.placa).filter((p): p is string => !!p))]
   if (placasDoLote.length === 0) return vazio
 
@@ -1263,7 +1264,7 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
 
   // Uma divergência por placa+dia (mesma chave única da tabela de alertas).
   const nokUnico = Array.from(new Map(nok.map((c) => [`${c.placa}|${c.data}`, c])).values())
-  const resultado: ResultadoFixacaoMotorista = { divergencias: nokUnico.length, puladas: 0, enviados: 0, semSupervisor: 0, falhaEnvio: 0, ultimoErro: null }
+  const resultado: ResultadoFixacaoMotorista = { divergencias: nokUnico.length, puladas: 0, enviados: 0, semSupervisor: 0, falhaEnvio: 0, erroGravacao: 0, ultimoErro: null }
 
   // Só conta como "já alertado" quem teve o envio de fato ENVIADO ou está
   // aguardando resposta (pendente) — um alerta que ficou 'erro' (ex.: nenhum
@@ -1333,28 +1334,37 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
     })
     const numero = await gerarNumeroFixacao(filial)
 
+    // UPSERT (não insert): a tabela tem UNIQUE (filial, placa, data), então
+    // reprocessar uma placa/dia que já tinha um alerta 'erro' precisa
+    // SOBRESCREVER essa linha — um insert puro falha com erro de chave
+    // duplicada (e falhava calado, sem cair em nenhum contador abaixo).
     if (!supervisores?.length) {
-      await supabase.from('alertas_fixacao_motorista').insert({
+      const { error } = await supabase.from('alertas_fixacao_motorista').upsert({
         filial, numero, placa: item.placa, data: item.data, sala: item.sala,
         matricula_executou: item.matriculaExecutou, nome_executou: item.nomeExecutou,
         matricula_esperada_1: item.matriculaEsperada1, matricula_esperada_2: item.matriculaEsperada2,
         mensagem_enviada: mensagem, status: 'erro',
-      })
+      }, { onConflict: 'filial,placa,data' })
+      if (error) { resultado.erroGravacao++; resultado.ultimoErro = error.message; continue }
       resultado.semSupervisor++
       continue
     }
 
-    // Insere primeiro para ter o id do alerta, usado nas opções da lista
+    // Grava primeiro para ter o id do alerta, usado nas opções da lista
     // (cada clique já identifica qual alerta deve ser justificado).
-    const { data: novoAlerta } = await supabase.from('alertas_fixacao_motorista').insert({
+    const { data: novoAlerta, error: erroGravar } = await supabase.from('alertas_fixacao_motorista').upsert({
       filial, numero, placa: item.placa, data: item.data, sala: item.sala,
       matricula_executou: item.matriculaExecutou, nome_executou: item.nomeExecutou,
       matricula_esperada_1: item.matriculaEsperada1, matricula_esperada_2: item.matriculaEsperada2,
       supervisor_id: supervisores[0].id,
       mensagem_enviada: mensagem,
       status: 'pendente',
-    }).select('id').single()
-    if (!novoAlerta) continue
+    }, { onConflict: 'filial,placa,data' }).select('id').single()
+    if (!novoAlerta) {
+      resultado.erroGravacao++
+      resultado.ultimoErro = erroGravar?.message ?? resultado.ultimoErro
+      continue
+    }
 
     const opcoes = MOTIVOS_FIXACAO_MOTORISTA.map((motivo) => ({
       id: `fixmotivo:${novoAlerta.id}:${motivo}`,
