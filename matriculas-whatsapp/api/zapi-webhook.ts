@@ -1620,6 +1620,13 @@ async function tratarTml(body: any, remetente: string): Promise<{ ok: boolean; a
   const texto = extrairTexto(body).trim()
   if (!texto) return { ok: true, action: 'no-command' }
 
+  // Saudação/comando da Aurora tem prioridade — um supervisor com alerta
+  // pendente que manda "oi" quer o menu, não está respondendo o alerta.
+  // Sem essa checagem, "oi" virava resposta livre do alerta mais recente e
+  // a Aurora nunca chegava a rodar (bug real: o menu não aparecia pra quem
+  // tinha qualquer alerta de TML/Fixação em aberto).
+  if (ehSaudacaoAurora(texto) || ehTrocarAssuntoAurora(texto) || ehEncerrarAurora(texto)) return { ok: true, action: 'no-command' }
+
   const digitos = ultimosDigitos(remetente)
   if (!digitos) return { ok: true, action: 'no-command' }
 
