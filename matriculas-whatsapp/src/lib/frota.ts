@@ -1236,9 +1236,19 @@ function montarMensagemFixacaoMotorista(item: {
 // pras divergências de placa+dia que ainda não tiverem um registrado, então
 // rodar de novo no mesmo dia não duplica envios). Não lança em caso de falha
 // de envio — só registra o alerta com status "erro".
-export async function processarFixacaoMotorista(filial: string, historico: HistoricoTmlMotorista[]): Promise<void> {
+export interface ResultadoFixacaoMotorista {
+  divergencias: number   // placas com motorista diferente do fixado, no lote
+  puladas: number        // já tinham alerta pendente/enviado — não reprocessadas
+  enviados: number       // mensagem chegou a pelo menos 1 supervisor
+  semSupervisor: number  // nenhum supervisor passou na checagem de status/cadastro
+  falhaEnvio: number     // tinha supervisor, mas o envio pelo Z-API falhou pra todos
+  ultimoErro: string | null
+}
+
+export async function processarFixacaoMotorista(filial: string, historico: HistoricoTmlMotorista[]): Promise<ResultadoFixacaoMotorista> {
+  const vazio: ResultadoFixacaoMotorista = { divergencias: 0, puladas: 0, enviados: 0, semSupervisor: 0, falhaEnvio: 0, ultimoErro: null }
   const placasDoLote = [...new Set(historico.map((h) => h.placa).filter((p): p is string => !!p))]
-  if (placasDoLote.length === 0) return
+  if (placasDoLote.length === 0) return vazio
 
   const { data: placasCadastro } = await supabase
     .from('frota_placas')
@@ -1249,10 +1259,11 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
 
   const cruzamento = cruzarMotorista(historico, (placasCadastro ?? []) as FrotaPlaca[])
   const nok = cruzamento.filter((c) => !c.bate)
-  if (nok.length === 0) return
+  if (nok.length === 0) return vazio
 
   // Uma divergência por placa+dia (mesma chave única da tabela de alertas).
   const nokUnico = Array.from(new Map(nok.map((c) => [`${c.placa}|${c.data}`, c])).values())
+  const resultado: ResultadoFixacaoMotorista = { divergencias: nokUnico.length, puladas: 0, enviados: 0, semSupervisor: 0, falhaEnvio: 0, ultimoErro: null }
 
   // Só conta como "já alertado" quem teve o envio de fato ENVIADO ou está
   // aguardando resposta (pendente) — um alerta que ficou 'erro' (ex.: nenhum
@@ -1297,7 +1308,7 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
   const statusPorTelefoneFixacao = await buscarStatusColaboradoresPorTelefone(filial)
 
   for (const item of nokUnico) {
-    if (jaAlertados.has(`${item.placa}|${item.data}`)) continue
+    if (jaAlertados.has(`${item.placa}|${item.data}`)) { resultado.puladas++; continue }
 
     // Quando sala é desconhecida (motoristas_sala_tml sem mapeamento), envia
     // para todos os supervisores ativos da filial em vez de silenciar.
@@ -1329,6 +1340,7 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
         matricula_esperada_1: item.matriculaEsperada1, matricula_esperada_2: item.matriculaEsperada2,
         mensagem_enviada: mensagem, status: 'erro',
       })
+      resultado.semSupervisor++
       continue
     }
 
@@ -1351,13 +1363,21 @@ export async function processarFixacaoMotorista(filial: string, historico: Histo
 
     const errosEnvio: string[] = []
     for (const sup of supervisores) {
-      const resultado = await enviarListaOpcoesWhatsApp(sup.telefone, mensagem, 'Motivo da divergência', 'Selecionar motivo', opcoes)
-      if (!resultado.sucesso) errosEnvio.push(`${sup.nome}: ${resultado.erro}`)
+      const r = await enviarListaOpcoesWhatsApp(sup.telefone, mensagem, 'Motivo da divergência', 'Selecionar motivo', opcoes)
+      if (!r.sucesso) errosEnvio.push(`${sup.nome}: ${r.erro}`)
       await aguardarEntreEnvios()
     }
 
+    const falhouPraTodos = errosEnvio.length === supervisores.length
     await supabase.from('alertas_fixacao_motorista')
-      .update({ status: errosEnvio.length === supervisores.length ? 'erro' : 'enviado' })
+      .update({ status: falhouPraTodos ? 'erro' : 'enviado' })
       .eq('id', novoAlerta.id)
+    if (falhouPraTodos) {
+      resultado.falhaEnvio++
+      resultado.ultimoErro = errosEnvio[0] ?? null
+    } else {
+      resultado.enviados++
+    }
   }
+  return resultado
 }

@@ -520,9 +520,19 @@ export default function Frota() {
     }
     setForcandoEnvioJustificativa(true)
     try {
-      await processarFixacaoMotorista(usuario.filial, historicoDoDia)
+      const r = await processarFixacaoMotorista(usuario.filial, historicoDoDia)
       await carregarDados()
-      alert(`Envio forçado concluído para ${formatarDataBR(dataAlvo)}. Confira a coluna "Justificativa" na tabela.`)
+      if (r.divergencias === 0) {
+        alert(`Nenhuma divergência de motorista encontrada em ${formatarDataBR(dataAlvo)}.`)
+      } else if (r.enviados === 0 && r.semSupervisor === 0 && r.falhaEnvio === 0 && r.puladas === r.divergencias) {
+        alert(`Todas as ${r.divergencias} divergência(s) de ${formatarDataBR(dataAlvo)} já tinham alerta enviado/pendente — nada reenviado.`);
+      } else {
+        const partes = [`${r.enviados} enviado(s)`]
+        if (r.semSupervisor > 0) partes.push(`${r.semSupervisor} sem supervisor cadastrado/ativo`)
+        if (r.falhaEnvio > 0) partes.push(`${r.falhaEnvio} com falha no envio pelo WhatsApp${r.ultimoErro ? ` (${r.ultimoErro})` : ''}`)
+        if (r.puladas > 0) partes.push(`${r.puladas} já tinham alerta`)
+        alert(`Fixação de ${formatarDataBR(dataAlvo)}: ${partes.join(' · ')}.`)
+      }
     } finally {
       setForcandoEnvioJustificativa(false)
     }
