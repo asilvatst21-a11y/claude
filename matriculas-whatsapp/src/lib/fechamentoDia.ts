@@ -161,22 +161,37 @@ function bateuJornada(sala: SalaTML, mpd: string | null, horaMpd: string | null)
 // senão cruza a matrícula com motoristas_sala_tml, igual buscarJornadaDoDia)
 // e já grava o resultado de "bateu jornada" pronto, pra não recalcular a
 // cada leitura.
-export async function salvarMapasDia(filial: string, linhas: LinhaMapaDia[]): Promise<{ error: string | null }> {
-  if (linhas.length === 0) return { error: null }
+export interface DiagnosticoMapasDia {
+  total: number
+  comSala: number
+  semSala: number
+  matriculasNaoEncontradas: number[]
+}
+
+// Retorna também um diagnóstico de quantos mapas ficaram SEM sala resolvida
+// (placa de freteiro/CRW é esperado; matrícula fora do cadastro de
+// motoristas_sala_tml não é — sem sala, o mapa não entra no cálculo de
+// Jornada Líquida/Devolução PDV daquele dia, e o painel mostra "—" mesmo com
+// o upload tendo dado certo).
+export async function salvarMapasDia(filial: string, linhas: LinhaMapaDia[]): Promise<{ error: string | null; diagnostico: DiagnosticoMapasDia | null }> {
+  if (linhas.length === 0) return { error: null, diagnostico: null }
   const matriculas = [...new Set(linhas.map((l) => l.matricula).filter((m): m is number => m != null))]
   const { data: roster, error: erroRoster } = await supabase
     .from('motoristas_sala_tml')
     .select('matricula, sala')
     .eq('filial', filial)
     .in('matricula', matriculas.length > 0 ? matriculas : [-1])
-  if (erroRoster) return { error: erroRoster.message }
+  if (erroRoster) return { error: erroRoster.message, diagnostico: null }
   const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
 
+  const matriculasNaoEncontradas = new Set<number>()
   const registros = linhas.map((l) => {
-    const salaBruta = l.placa?.toUpperCase().startsWith('CRW')
+    const ehFreteiro = l.placa?.toUpperCase().startsWith('CRW') ?? false
+    const salaBruta = ehFreteiro
       ? null
       : l.matricula != null ? salaPorMatricula.get(l.matricula) ?? null : null
     const sala = salaBruta === 'COLORADO' || salaBruta === 'SUB-FURIA' ? salaBruta : null
+    if (!sala && !ehFreteiro && l.matricula != null) matriculasNaoEncontradas.add(l.matricula)
     return {
       filial, mapa: l.mapa, data: l.data, placa: l.placa, matricula: l.matricula,
       sala, mpd: l.mpd, hora_mpd: l.horaMpd, entregas: l.entregas,
@@ -184,7 +199,12 @@ export async function salvarMapasDia(filial: string, linhas: LinhaMapaDia[]): Pr
     }
   })
   const { error } = await supabase.from('fechamento_dia_mapas_dia').upsert(registros, { onConflict: 'filial,mapa,data' })
-  return { error: error?.message ?? null }
+  const comSala = registros.filter((r) => r.sala != null).length
+  const diagnostico: DiagnosticoMapasDia = {
+    total: registros.length, comSala, semSala: registros.length - comSala,
+    matriculasNaoEncontradas: [...matriculasNaoEncontradas],
+  }
+  return { error: error?.message ?? null, diagnostico }
 }
 
 // ── Cálculo automático: Jornada Líquida — % de mapas que bateram jornada

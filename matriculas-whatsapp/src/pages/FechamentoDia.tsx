@@ -91,6 +91,7 @@ export default function FechamentoDia() {
 
   const [enviandoMapas, setEnviandoMapas] = useState(false)
   const [mapasMsg, setMapasMsg] = useState<string | null>(null)
+  const [mapasMsgAviso, setMapasMsgAviso] = useState(false)
 
   const refColorado = useRef<HTMLDivElement>(null)
   const refSubFuria = useRef<HTMLDivElement>(null)
@@ -206,7 +207,7 @@ export default function FechamentoDia() {
         setErro('Não encontrei linhas válidas (Mapa/Data Entrega) nesse arquivo 03.11.49.02.')
         return
       }
-      const { error: erroSalvar } = await salvarMapasDia(usuario.filial, parsed)
+      const { error: erroSalvar, diagnostico } = await salvarMapasDia(usuario.filial, parsed)
       if (erroSalvar) {
         setErro(`Erro ao salvar os mapas do dia: ${erroSalvar}`)
         return
@@ -215,7 +216,18 @@ export default function FechamentoDia() {
       if (erros.length > 0) {
         setErro(`${erros.length} dia(s) falharam ao recalcular Jornada Líquida/Devolução PDV: ${erros.map((e) => formatarDataBR(e.dia)).join(', ')}`)
       }
-      setMapasMsg(`${parsed.length} mapas processados — recalculado até ${formatarDataBR(data)}.`)
+      let msg = `${parsed.length} mapas processados — recalculado até ${formatarDataBR(data)}.`
+      let aviso = false
+      if (diagnostico && diagnostico.semSala > 0) {
+        aviso = true
+        msg += ` ⚠️ ${diagnostico.semSala} de ${diagnostico.total} mapa(s) ficaram sem sala reconhecida (não contam pra Jornada Líquida/Devolução PDV)`
+        if (diagnostico.matriculasNaoEncontradas.length > 0) {
+          msg += ` — matrícula(s) não cadastrada(s) em Distribuição TML › Motoristas: ${diagnostico.matriculasNaoEncontradas.join(', ')}`
+        }
+        msg += '.'
+      }
+      setMapasMsgAviso(aviso)
+      setMapasMsg(msg)
       await fetchTudo()
     } finally {
       setEnviandoMapas(false)
@@ -471,7 +483,7 @@ export default function FechamentoDia() {
                   onChange={(e) => { const f = e.target.files?.[0]; if (f) processarArquivoMapasDia(f); e.target.value = '' }}
                 />
               </label>
-              {mapasMsg && <p className="text-xs text-green-600">{mapasMsg}</p>}
+              {mapasMsg && <p className={`text-xs ${mapasMsgAviso ? 'text-amber-600' : 'text-green-600'}`}>{mapasMsg}</p>}
             </div>
 
             <div className="border rounded-lg p-3 space-y-2">
