@@ -168,7 +168,7 @@ export default function FechamentoDia() {
     setErro('')
     try {
       const buf = await file.arrayBuffer()
-      const wb = XLSX.read(buf, { type: 'array' })
+      const wb = XLSX.read(buf, { type: 'array', raw: true })
       const ws = wb.Sheets[wb.SheetNames[0]]
       const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as unknown[][]
       const parsed = parseDevolucaoPdv(linhas)
@@ -200,7 +200,7 @@ export default function FechamentoDia() {
     setErro('')
     try {
       const buf = await file.arrayBuffer()
-      const wb = XLSX.read(buf, { type: 'array' })
+      const wb = XLSX.read(buf, { type: 'array', raw: true })
       const ws = wb.Sheets[wb.SheetNames[0]]
       const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true }) as unknown[][]
       const parsed = parseMapasDia(linhas)

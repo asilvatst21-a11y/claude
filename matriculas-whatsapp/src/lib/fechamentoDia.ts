@@ -51,8 +51,21 @@ function excelSerialParaISO(valor: unknown): string | null {
     return new Date(ms).toISOString().slice(0, 10)
   }
   if (typeof valor === 'string') {
-    const m = valor.match(/(\d{4})-(\d{2})-(\d{2})/)
-    if (m) return `${m[1]}-${m[2]}-${m[3]}`
+    const iso = valor.match(/(\d{4})-(\d{2})-(\d{2})/)
+    if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`
+    // dd/mm/yyyy (ou dd/mm/yy) — formato do CSV de origem (03.11.49.02 e
+    // Devolução PDV vêm no padrão brasileiro). Sem isso, um upload em CSV
+    // (em vez de .xlsx) faz o SheetJS "adivinhar" a string como data no
+    // padrão americano (mm/dd) ao ler o arquivo, trocando dia por mês
+    // sempre que o dia é ≤12 — bug real que zerava Jornada Líquida/
+    // Devolução PDV de vários dias sem erro nenhum aparecer.
+    const br = valor.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+    if (br) {
+      const dia = br[1].padStart(2, '0')
+      const mes = br[2].padStart(2, '0')
+      const ano = br[3].length === 2 ? `20${br[3]}` : br[3]
+      return `${ano}-${mes}-${dia}`
+    }
   }
   return null
 }
