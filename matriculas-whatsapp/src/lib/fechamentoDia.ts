@@ -858,3 +858,37 @@ export async function buscarStatusPendenciasPorMapa(filial: string, data: string
   }
   return mapa
 }
+
+export interface PendenciaGatilhoDetalhada {
+  id: string
+  mapa: number
+  kpi: string
+  pessoaTipo: 'motorista' | 'ajudante'
+  pessoaNome: string
+  pessoaTelefone: string | null
+  valor: number | null
+  status: 'aguardando' | 'coletando' | 'respondido'
+  resposta: string | null
+  respondidoEm: string | null
+}
+
+// Painel de acompanhamento das respostas do bate-papo — motorista e
+// ajudante aparecem em linhas separadas (cada um responde por si), pra dar
+// visibilidade de quem já respondeu, quem está no meio da conversa e quem
+// ainda nem viu o convite.
+export async function buscarPendenciasGatilhoDoDia(filial: string, data: string): Promise<PendenciaGatilhoDetalhada[]> {
+  const { data: rows, error } = await supabase
+    .from('fechamento_dia_gatilho_pendencias')
+    .select('id, mapa, kpi, pessoa_tipo, pessoa_nome, pessoa_telefone, valor, status, resposta, respondido_em')
+    .eq('filial', filial)
+    .eq('data', data)
+    .order('mapa', { ascending: true })
+  if (error) {
+    console.error('buscarPendenciasGatilhoDoDia error:', error.message)
+    return []
+  }
+  return (rows ?? []).map((r) => ({
+    id: r.id, mapa: r.mapa, kpi: r.kpi, pessoaTipo: r.pessoa_tipo, pessoaNome: r.pessoa_nome,
+    pessoaTelefone: r.pessoa_telefone, valor: r.valor, status: r.status, resposta: r.resposta, respondidoEm: r.respondido_em,
+  }))
+}

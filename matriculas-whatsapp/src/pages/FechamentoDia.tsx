@@ -16,7 +16,7 @@ import {
   farolDoValor, gerarFarolAutomatico, classificarResultado, montarTextosOrientacao, type LinhaFarolMotorista, type CriterioFarol, type TierFarol,
   diagnosticarDeslocamento, type DiagnosticoDeslocamentoDia,
   parseDevolucaoPdv, salvarDevolucoesPdv, parseMapasDia, salvarMapasDia,
-  enviarConvitesGatilho, buscarStatusPendenciasPorMapa,
+  enviarConvitesGatilho, buscarStatusPendenciasPorMapa, buscarPendenciasGatilhoDoDia, type PendenciaGatilhoDetalhada, KPI_LABEL_CURTO,
 } from '../lib/fechamentoDia'
 
 const SALAS: SalaFechamento[] = ['COLORADO', 'SUB-FURIA', 'CDD']
@@ -85,6 +85,8 @@ export default function FechamentoDia() {
   const [enviandoConvites, setEnviandoConvites] = useState(false)
   const [resultadoConvites, setResultadoConvites] = useState<{ enviados: number; semTelefone: number; falhaEnvio: number; erro: string | null } | null>(null)
   const [statusPendencias, setStatusPendencias] = useState<Map<number, { total: number; respondidas: number }>>(new Map())
+  const [pendenciasGatilho, setPendenciasGatilho] = useState<PendenciaGatilhoDetalhada[]>([])
+  const [carregandoPendencias, setCarregandoPendencias] = useState(false)
 
   const [enviandoDevolucao, setEnviandoDevolucao] = useState(false)
   const [devolucaoMsg, setDevolucaoMsg] = useState<string | null>(null)
@@ -121,10 +123,19 @@ export default function FechamentoDia() {
 
   useEffect(() => { fetchTudo() }, [fetchTudo])
 
-  useEffect(() => {
+  const buscarPendencias = useCallback(async () => {
     if (!usuario) return
-    buscarStatusPendenciasPorMapa(usuario.filial, data).then(setStatusPendencias)
+    setCarregandoPendencias(true)
+    const [status, lista] = await Promise.all([
+      buscarStatusPendenciasPorMapa(usuario.filial, data),
+      buscarPendenciasGatilhoDoDia(usuario.filial, data),
+    ])
+    setStatusPendencias(status)
+    setPendenciasGatilho(lista)
+    setCarregandoPendencias(false)
   }, [usuario, data])
+
+  useEffect(() => { buscarPendencias() }, [buscarPendencias])
 
   async function recalcular() {
     if (!usuario) return
@@ -297,7 +308,7 @@ export default function FechamentoDia() {
       })),
     )
     setSalvandoFarol(false)
-    if (usuario) setStatusPendencias(await buscarStatusPendenciasPorMapa(usuario.filial, data))
+    await buscarPendencias()
   }
 
   async function enviarConvitesDoDia() {
@@ -311,7 +322,7 @@ export default function FechamentoDia() {
         setErro(`Erro ao gravar as pendências de bate-papo: ${resultado.erro} (confira se a migração supabase-migration-fechamento-dia-gatilho.sql já foi rodada no Supabase).`)
       }
       setResultadoConvites(resultado)
-      setStatusPendencias(await buscarStatusPendenciasPorMapa(usuario.filial, data))
+      await buscarPendencias()
     } catch (e) {
       setErro(`Erro ao enviar os convites de bate-papo: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
@@ -664,6 +675,47 @@ export default function FechamentoDia() {
                 </p>
               )}
             </>
+          )}
+
+          {pendenciasGatilho.length > 0 && (
+            <div className="space-y-2 pt-2 border-t">
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <h3 className="font-semibold text-sm">Respostas do bate-papo</h3>
+                <button onClick={buscarPendencias} disabled={carregandoPendencias} className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border hover:bg-accent disabled:opacity-50">
+                  {carregandoPendencias ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />} Atualizar
+                </button>
+              </div>
+              <div className="overflow-x-auto border rounded-lg">
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b bg-muted/20 text-left text-xs text-muted-foreground">
+                    <th className="px-3 py-2">Mapa</th><th className="px-3 py-2">Indicador</th><th className="px-3 py-2">Pessoa</th>
+                    <th className="px-3 py-2">Status</th><th className="px-3 py-2">Resposta</th><th className="px-3 py-2">Respondido em</th>
+                  </tr></thead>
+                  <tbody>
+                    {pendenciasGatilho.map((p) => (
+                      <tr key={p.id} className="border-b last:border-0 align-top">
+                        <td className="px-3 py-2 font-mono text-xs">{p.mapa}</td>
+                        <td className="px-3 py-2">{KPI_LABEL_CURTO[p.kpi] ?? p.kpi}</td>
+                        <td className="px-3 py-2">{p.pessoaNome} <span className="text-[10px] text-muted-foreground uppercase">({p.pessoaTipo})</span></td>
+                        <td className="px-3 py-2">
+                          <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                            p.status === 'respondido' ? 'bg-green-50 text-green-700'
+                              : p.status === 'coletando' ? 'bg-amber-50 text-amber-700'
+                                : 'bg-gray-100 text-gray-500'
+                          }`}
+                          >
+                            {p.status === 'respondido' ? 'Respondido' : p.status === 'coletando' ? 'Respondendo…' : 'Aguardando'}
+                          </span>
+                          {!p.pessoaTelefone && <div className="text-[10px] text-red-500 mt-0.5">sem telefone</div>}
+                        </td>
+                        <td className="px-3 py-2 max-w-xs whitespace-pre-wrap">{p.resposta || '—'}</td>
+                        <td className="px-3 py-2 text-xs text-muted-foreground">{p.respondidoEm ? formatarDataBR(p.respondidoEm) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
         </div>
       )}
