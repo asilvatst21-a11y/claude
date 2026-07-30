@@ -176,6 +176,7 @@ export default function FechamentoDia() {
         setErro('Não encontrei linhas válidas (Mapa/Data) nesse arquivo.')
         return
       }
+      const datasDoArquivo = [...new Set(parsed.map((l) => l.data))].sort()
       const { error: erroSalvar } = await salvarDevolucoesPdv(usuario.filial, parsed)
       if (erroSalvar) {
         setErro(`Erro ao salvar as devoluções: ${erroSalvar}`)
@@ -185,7 +186,7 @@ export default function FechamentoDia() {
       if (erros.length > 0) {
         setErro(`${erros.length} dia(s) falharam ao recalcular Devolução PDV: ${erros.map((e) => formatarDataBR(e.dia)).join(', ')}`)
       }
-      setDevolucaoMsg(`${parsed.length} devoluções processadas — recalculado até ${formatarDataBR(data)}.`)
+      setDevolucaoMsg(`${parsed.length} devoluções processadas (datas no arquivo: ${formatarDataBR(datasDoArquivo[0])} a ${formatarDataBR(datasDoArquivo[datasDoArquivo.length - 1])}) — recalculado até ${formatarDataBR(data)}.`)
       await fetchTudo()
     } finally {
       setEnviandoDevolucao(false)
@@ -207,6 +208,7 @@ export default function FechamentoDia() {
         setErro('Não encontrei linhas válidas (Mapa/Data Entrega) nesse arquivo 03.11.49.02.')
         return
       }
+      const datasDoArquivo = [...new Set(parsed.map((l) => l.data))].sort()
       const { error: erroSalvar, diagnostico } = await salvarMapasDia(usuario.filial, parsed)
       if (erroSalvar) {
         setErro(`Erro ao salvar os mapas do dia: ${erroSalvar}`)
@@ -216,7 +218,7 @@ export default function FechamentoDia() {
       if (erros.length > 0) {
         setErro(`${erros.length} dia(s) falharam ao recalcular Jornada Líquida/Devolução PDV: ${erros.map((e) => formatarDataBR(e.dia)).join(', ')}`)
       }
-      let msg = `${parsed.length} mapas processados — recalculado até ${formatarDataBR(data)}.`
+      let msg = `${parsed.length} mapas processados (datas no arquivo: ${formatarDataBR(datasDoArquivo[0])} a ${formatarDataBR(datasDoArquivo[datasDoArquivo.length - 1])}) — recalculado até ${formatarDataBR(data)}.`
       let aviso = false
       if (diagnostico && diagnostico.semSala > 0) {
         aviso = true
