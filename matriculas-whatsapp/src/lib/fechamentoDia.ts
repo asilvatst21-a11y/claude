@@ -785,9 +785,9 @@ interface PendenciaGravada {
 // de spam da Meta, mesmo padrão já adotado nos outros disparos em massa.
 export async function enviarConvitesGatilho(
   filial: string, data: string, linhasFarol: LinhaFarolMotorista[],
-): Promise<{ enviados: number; semTelefone: number; falhaEnvio: number }> {
+): Promise<{ enviados: number; semTelefone: number; falhaEnvio: number; erro: string | null }> {
   const pendencias = gerarPendenciasGatilho(linhasFarol)
-  if (pendencias.length === 0) return { enviados: 0, semTelefone: 0, falhaEnvio: 0 }
+  if (pendencias.length === 0) return { enviados: 0, semTelefone: 0, falhaEnvio: 0, erro: null }
 
   const { data: gravadas, error } = await supabase
     .from('fechamento_dia_gatilho_pendencias')
@@ -801,7 +801,11 @@ export async function enviarConvitesGatilho(
     .select('id, mapa, kpi, pessoa_nome, pessoa_telefone, valor, status')
   if (error) {
     console.error('enviarConvitesGatilho upsert error:', error.message)
-    return { enviados: 0, semTelefone: 0, falhaEnvio: 0 }
+    // Erro mais comum aqui: a migração supabase-migration-fechamento-dia-
+    // gatilho.sql ainda não foi rodada (tabela não existe) — sem devolver o
+    // erro pra tela, isso aparecia como "0 convites enviados" sem pista
+    // nenhuma do motivo.
+    return { enviados: 0, semTelefone: 0, falhaEnvio: 0, erro: error.message }
   }
 
   const pendentes = (gravadas ?? []).filter((g): g is PendenciaGravada => g.status === 'aguardando')
@@ -831,7 +835,7 @@ export async function enviarConvitesGatilho(
     else falhaEnvio++
     await aguardarEntreEnvios(5000)
   }
-  return { enviados, semTelefone, falhaEnvio }
+  return { enviados, semTelefone, falhaEnvio, erro: null }
 }
 
 // Status de resposta por mapa (pra anotar "✅ já respondeu" no resumo do

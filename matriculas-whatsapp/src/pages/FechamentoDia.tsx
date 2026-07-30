@@ -83,7 +83,7 @@ export default function FechamentoDia() {
   const [diagnosticando, setDiagnosticando] = useState(false)
 
   const [enviandoConvites, setEnviandoConvites] = useState(false)
-  const [resultadoConvites, setResultadoConvites] = useState<{ enviados: number; semTelefone: number; falhaEnvio: number } | null>(null)
+  const [resultadoConvites, setResultadoConvites] = useState<{ enviados: number; semTelefone: number; falhaEnvio: number; erro: string | null } | null>(null)
   const [statusPendencias, setStatusPendencias] = useState<Map<number, { total: number; respondidas: number }>>(new Map())
 
   const [enviandoDevolucao, setEnviandoDevolucao] = useState(false)
@@ -307,6 +307,9 @@ export default function FechamentoDia() {
     setErro('')
     try {
       const resultado = await enviarConvitesGatilho(usuario.filial, data, farolLinhas)
+      if (resultado.erro) {
+        setErro(`Erro ao gravar as pendências de bate-papo: ${resultado.erro} (confira se a migração supabase-migration-fechamento-dia-gatilho.sql já foi rodada no Supabase).`)
+      }
       setResultadoConvites(resultado)
       setStatusPendencias(await buscarStatusPendenciasPorMapa(usuario.filial, data))
     } catch (e) {
@@ -653,7 +656,7 @@ export default function FechamentoDia() {
                   {enviandoConvites ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Enviar convites de bate-papo (motorista/ajudante)
                 </button>
               </div>
-              {resultadoConvites && (
+              {resultadoConvites && !resultadoConvites.erro && (
                 <p className="text-xs text-muted-foreground">
                   {resultadoConvites.enviados} convite(s) enviado(s)
                   {resultadoConvites.semTelefone > 0 ? `, ${resultadoConvites.semTelefone} sem telefone cadastrado` : ''}
