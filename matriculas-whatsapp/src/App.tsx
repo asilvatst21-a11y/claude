@@ -12,6 +12,7 @@ import DistribuicaoTMLSupervisores from './pages/DistribuicaoTMLSupervisores'
 import DistribuicaoTMLMotoristas from './pages/DistribuicaoTMLMotoristas'
 import DistribuicaoTMLAnalise from './pages/DistribuicaoTMLAnalise'
 import DistribuicaoTMLDeslocamento from './pages/DistribuicaoTMLDeslocamento'
+import DistribuicaoTMLDeslocamentoCorrecoes from './pages/DistribuicaoTMLDeslocamentoCorrecoes'
 import DistribuicaoTMLWhatsappConfig from './pages/DistribuicaoTMLWhatsappConfig'
 import DistribuicaoTMLParametros from './pages/DistribuicaoTMLParametros'
 import DtoDistribuicao from './pages/DtoDistribuicao'
@@ -130,6 +131,7 @@ export default function App() {
             <Route path="/distribuicao/tml/motoristas" element={<DistribuicaoTMLMotoristas />} />
             <Route path="/distribuicao/tml/analise" element={<DistribuicaoTMLAnalise />} />
             <Route path="/distribuicao/tml/deslocamento" element={<DistribuicaoTMLDeslocamento />} />
+            <Route path="/distribuicao/tml/deslocamento/correcoes" element={<DistribuicaoTMLDeslocamentoCorrecoes />} />
             <Route path="/distribuicao/tml/whatsapp" element={<DistribuicaoTMLWhatsappConfig />} />
             <Route path="/distribuicao/tml/parametros" element={<DistribuicaoTMLParametros />} />
             <Route path="/distribuicao/dto" element={<DtoDistribuicao />} />
