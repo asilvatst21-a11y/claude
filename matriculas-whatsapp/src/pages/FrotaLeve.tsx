@@ -192,6 +192,26 @@ export default function FrotaLeve() {
     await fetchCadastros()
   }
 
+  const [cancelando, setCancelando] = useState<string | null>(null)
+
+  // Cancela uma viagem travada (placa/condutor com saída sem retorno,
+  // sessão de WhatsApp abandonada no meio etc.) — sem isso, a única forma
+  // de destravar era mexer direto no banco, já que a trava de saída
+  // (travaSaidaAberta no webhook) bloqueia novo registro pra mesma
+  // placa/condutor enquanto tiver algo aberto.
+  async function cancelarViagem(v: FrotaLeveSaida) {
+    const confirmar = window.confirm(
+      `Cancelar o registro de "${v.placa ?? '—'}" (${v.condutor_nome ?? v.motorista_nome ?? 'sem condutor'})?\n\n` +
+      'Isso libera a placa/condutor pra registrar uma nova saída. Use quando a viagem já terminou de verdade mas o registro ficou travado.',
+    )
+    if (!confirmar) return
+    setCancelando(v.id)
+    const { error } = await supabase.from('frota_leve_saidas').update({ status: 'cancelado' }).eq('id', v.id)
+    setCancelando(null)
+    if (error) { setErroCad(`Não foi possível cancelar: ${error.message}`); return }
+    await fetchViagens()
+  }
+
   const abertas = useMemo(() => viagens.filter(v => STATUS_ABERTO.includes(v.status)), [viagens])
   const emRota = useMemo(() => viagens.filter(v => v.status === 'em_rota'), [viagens])
   const atrasadas = useMemo(
@@ -412,6 +432,7 @@ export default function FrotaLeve() {
                 <th className="px-3 py-2 font-medium">Tempo</th>
                 <th className="px-3 py-2 font-medium">Status</th>
                 <th className="px-3 py-2 font-medium">Data</th>
+                <th className="px-3 py-2 font-medium"></th>
               </tr>
             </thead>
             <tbody>
@@ -445,6 +466,17 @@ export default function FrotaLeve() {
                       </span>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{formatarDataBR(v.created_at)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-right">
+                      {STATUS_ABERTO.includes(v.status) && (
+                        <button
+                          onClick={() => cancelarViagem(v)}
+                          disabled={cancelando === v.id}
+                          className="text-xs px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          {cancelando === v.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Cancelar'}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 )
               })}
