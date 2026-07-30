@@ -2696,12 +2696,28 @@ const KPI_LABEL_GATILHO: Record<string, string> = {
   aderencia_raio: 'Aderência ao Raio', tml: 'TML', devolucao_pdv: 'Devolução PDV', iv_deslocamento: 'IV-Deslocamento',
 }
 
-async function avisarSupervisorRespostaGatilho(filial: string, mapa: number, pessoaNome: string, kpi: string): Promise<void> {
-  const { data: filialRow } = await supabase.from('filiais').select('grupo_fechamento_whatsapp').eq('nome', filial).maybeSingle()
-  const grupo = filialRow?.grupo_fechamento_whatsapp
-  if (!grupo) return
+// Avisa só o(s) supervisor(es) daquela sala, direto no celular — não vai
+// mais pro grupo do Fechamento (decisão explícita: individual em vez de
+// compartilhado, igual o texto de orientação do painel).
+async function avisarSupervisorRespostaGatilho(filial: string, sala: string | null, mapa: number, pessoaNome: string, kpi: string): Promise<void> {
+  if (!sala) return
+  const { data: sups } = await supabase.from('supervisores_tml').select('telefone').eq('filial', filial).eq('sala', sala)
+  if (!sups || sups.length === 0) return
   const primeiro = pessoaNome.trim().split(/\s+/)[0] || pessoaNome
-  await enviarGrupo(grupo, `✅ *${primeiro}* (mapa ${mapa}) já respondeu sobre *${KPI_LABEL_GATILHO[kpi] ?? kpi}* — não precisa cobrar de novo no bate-papo.`)
+  const mensagem = `✅ *${primeiro}* (mapa ${mapa}) já respondeu sobre *${KPI_LABEL_GATILHO[kpi] ?? kpi}* — não precisa cobrar de novo no bate-papo.`
+  for (const s of sups) {
+    if (!s.telefone) continue
+    await enviar(s.telefone, mensagem)
+  }
+}
+
+// Prazo de resposta: até 15h de Brasília do dia SEGUINTE ao fechamento
+// (expira_em, gravado no convite — ver prazoRespostaGatilho em
+// src/lib/fechamentoDia.ts). Passado isso, nem clique no botão nem resposta
+// em texto/áudio são mais aceitos — a pendência vira 'expirado' pra não
+// pesar no fechamento do dia seguinte.
+function pendenciaExpirada(expiraEm: string | null): boolean {
+  return !!expiraEm && new Date(expiraEm).getTime() < Date.now()
 }
 
 async function tratarGatilhoBatePapo(body: any, remetente: string): Promise<{ ok: boolean; action: string } | null> {
@@ -2711,10 +2727,15 @@ async function tratarGatilhoBatePapo(body: any, remetente: string): Promise<{ ok
     if (!pendenciaId) return { ok: true, action: 'invalid-button' }
     const { data: pend } = await supabase
       .from('fechamento_dia_gatilho_pendencias')
-      .select('id, mapa, kpi, pessoa_nome, status')
+      .select('id, mapa, kpi, pessoa_nome, status, expira_em')
       .eq('id', pendenciaId)
       .maybeSingle()
     if (!pend) return { ok: true, action: 'gatilho-pendencia-nao-encontrada' }
+    if (pendenciaExpirada(pend.expira_em)) {
+      if (pend.status !== 'respondido') await supabase.from('fechamento_dia_gatilho_pendencias').update({ status: 'expirado' }).eq('id', pend.id)
+      await enviar(remetente, 'Esse prazo já encerrou (respostas até 15h do dia seguinte ao fechamento). Sem problema — pode falar direto com seu supervisor. 🙏')
+      return { ok: true, action: 'gatilho-expirado' }
+    }
     await supabase.from('fechamento_dia_gatilho_pendencias').update({ status: 'coletando' }).eq('id', pend.id)
     await enviar(remetente,
       `Beleza! Sobre *${KPI_LABEL_GATILHO[pend.kpi] ?? pend.kpi}* (mapa ${pend.mapa}) — me conta o que rolou e, se quiser, uma ideia pra melhorar. Pode mandar em texto ou áudio. 🎙️`)
@@ -2731,12 +2752,18 @@ async function tratarGatilhoBatePapo(body: any, remetente: string): Promise<{ ok
 
   const { data: coletando } = await supabase
     .from('fechamento_dia_gatilho_pendencias')
-    .select('id, filial, mapa, kpi, pessoa_nome, pessoa_telefone, status')
+    .select('id, filial, sala, mapa, kpi, pessoa_nome, pessoa_telefone, status, expira_em')
     .eq('status', 'coletando')
     .order('criado_em', { ascending: false })
     .limit(50)
   const pend = (coletando ?? []).find((p: any) => p.pessoa_telefone && ultimosDigitos(p.pessoa_telefone) === digitos)
   if (!pend) return null
+
+  if (pendenciaExpirada(pend.expira_em)) {
+    await supabase.from('fechamento_dia_gatilho_pendencias').update({ status: 'expirado' }).eq('id', pend.id)
+    await enviar(remetente, 'Esse prazo já encerrou (respostas até 15h do dia seguinte ao fechamento). Sem problema — pode falar direto com seu supervisor. 🙏')
+    return { ok: true, action: 'gatilho-expirado' }
+  }
 
   let conteudo = textoBruto
   if (!conteudo && temAudioSemTexto(body)) {
@@ -2760,7 +2787,7 @@ async function tratarGatilhoBatePapo(body: any, remetente: string): Promise<{ ok
     .eq('id', pend.id)
 
   await enviar(remetente, 'Valeu pela resposta! Vamos tratar o problema relatado e te damos um retorno. 🙌')
-  await avisarSupervisorRespostaGatilho(pend.filial, pend.mapa, pend.pessoa_nome, pend.kpi)
+  await avisarSupervisorRespostaGatilho(pend.filial, pend.sala, pend.mapa, pend.pessoa_nome, pend.kpi)
   return { ok: true, action: 'gatilho-respondido' }
 }
 

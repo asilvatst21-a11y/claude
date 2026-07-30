@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { enviarImagemGrupo, enviarMensagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { enviarImagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import { formatarDataBR } from '../lib/utils'
 import {
@@ -17,6 +17,7 @@ import {
   diagnosticarDeslocamento, type DiagnosticoDeslocamentoDia,
   parseDevolucaoPdv, salvarDevolucoesPdv, parseMapasDia, salvarMapasDia,
   enviarConvitesGatilho, buscarStatusPendenciasPorMapa, buscarPendenciasGatilhoDoDia, type PendenciaGatilhoDetalhada, KPI_LABEL_CURTO,
+  enviarOrientacaoPorSupervisor,
 } from '../lib/fechamentoDia'
 
 const SALAS: SalaFechamento[] = ['COLORADO', 'SUB-FURIA', 'CDD']
@@ -296,8 +297,14 @@ export default function FechamentoDia() {
   async function salvarFarol() {
     if (!usuario || farolLinhas.length === 0) return
     setSalvandoFarol(true)
-    await supabase.from('fechamento_dia_farol_motoristas').delete().eq('filial', usuario.filial).eq('data', data)
-    await supabase.from('fechamento_dia_farol_motoristas').insert(
+    setErro('')
+    const { error: erroDelete } = await supabase.from('fechamento_dia_farol_motoristas').delete().eq('filial', usuario.filial).eq('data', data)
+    if (erroDelete) {
+      setErro(`Erro ao salvar o Farol: ${erroDelete.message} (confira se a migração supabase-migration-fechamento-dia-tiers.sql já foi rodada no Supabase).`)
+      setSalvandoFarol(false)
+      return
+    }
+    const { error: erroInsert } = await supabase.from('fechamento_dia_farol_motoristas').insert(
       farolLinhas.map((l) => ({
         filial: usuario.filial, data, matricula: l.matricula, nome: l.nome, sala: l.sala,
         aderencia_tier: l.aderencia.tier, aderencia_valor: l.aderencia.valor,
@@ -307,6 +314,11 @@ export default function FechamentoDia() {
         resultado: l.resultado,
       })),
     )
+    if (erroInsert) {
+      setErro(`Erro ao salvar o Farol: ${erroInsert.message} (confira se a migração supabase-migration-fechamento-dia-tiers.sql já foi rodada no Supabase).`)
+      setSalvandoFarol(false)
+      return
+    }
     setSalvandoFarol(false)
     await buscarPendencias()
   }
@@ -370,14 +382,13 @@ export default function FechamentoDia() {
         await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem: alvo.legenda, status: sucesso ? 'enviado' : 'erro', erro: erroEnvio ?? null })
       }
 
-      // Texto de orientação (destaques + bate-papo das duas salas), no mesmo grupo único.
-      const textoOrientacao = [
-        textosPorSala.COLORADO?.destaques, textosPorSala.COLORADO?.batePapo,
-        textosPorSala['SUB-FURIA']?.destaques, textosPorSala['SUB-FURIA']?.batePapo,
-      ].filter(Boolean).join('\n\n')
-      if (textoOrientacao) {
-        const { sucesso, erro: erroEnvio } = await enviarMensagemGrupo(grupo, textoOrientacao)
-        await supabase.from('disparos').insert({ filial: usuario.filial, whatsapp: grupo, mensagem: textoOrientacao, status: sucesso ? 'enviado' : 'erro', erro: erroEnvio ?? null })
+      // Texto de orientação (destaques + bate-papo) direto pro celular de cada
+      // supervisor, filtrado pela sala/matinal dele — não vai mais pro grupo.
+      const resultadoOrientacao = await enviarOrientacaoPorSupervisor(usuario.filial, formatarDataBR(data), farolLinhas, statusPendencias)
+      if (resultadoOrientacao.erro) {
+        setErro(`Erro ao enviar o texto de orientação aos supervisores: ${resultadoOrientacao.erro}`)
+      } else if (resultadoOrientacao.semTelefone > 0) {
+        setErro((atual) => atual || `${resultadoOrientacao.semTelefone} supervisor(es) sem telefone cadastrado não receberam o texto de orientação.`)
       }
 
       await supabase.from('fechamento_dia_envios').upsert({
@@ -595,6 +606,10 @@ export default function FechamentoDia() {
 
           <div className="rounded-lg border p-4 space-y-3">
             <h2 className="font-semibold text-sm">Texto de orientação (gerado a partir do Farol Motoristas)</h2>
+            <p className="text-xs text-muted-foreground">
+              Prévia do que cada supervisor recebe direto no celular, filtrado pela sala/matinal dele (cadastro em{' '}
+              <Link to="/distribuicao/tml/supervisores" className="underline">Supervisores</Link>). Não vai mais pro grupo.
+            </p>
             {farolLinhas.length === 0 ? (
               <p className="text-sm text-muted-foreground">Gere o Farol na aba "Farol Motoristas" pra montar os destaques e o bate-papo.</p>
             ) : (
@@ -611,7 +626,7 @@ export default function FechamentoDia() {
 
           <div className="flex items-center gap-3">
             <button onClick={confirmarEEnviar} disabled={enviando} className="flex items-center gap-1.5 text-sm px-4 py-2.5 rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50">
-              {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Confirmar e enviar pro grupo
+              {enviando ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Confirmar e enviar (imagens pro grupo, texto pros supervisores)
             </button>
             {envioOk && <span className="text-sm text-green-600 flex items-center gap-1"><CheckCircle2 className="h-4 w-4" /> Enviado!</span>}
           </div>
@@ -701,10 +716,11 @@ export default function FechamentoDia() {
                           <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${
                             p.status === 'respondido' ? 'bg-green-50 text-green-700'
                               : p.status === 'coletando' ? 'bg-amber-50 text-amber-700'
-                                : 'bg-gray-100 text-gray-500'
+                                : p.status === 'expirado' ? 'bg-red-50 text-red-600'
+                                  : 'bg-gray-100 text-gray-500'
                           }`}
                           >
-                            {p.status === 'respondido' ? 'Respondido' : p.status === 'coletando' ? 'Respondendo…' : 'Aguardando'}
+                            {p.status === 'respondido' ? 'Respondido' : p.status === 'coletando' ? 'Respondendo…' : p.status === 'expirado' ? 'Expirado' : 'Aguardando'}
                           </span>
                           {!p.pessoaTelefone && <div className="text-[10px] text-red-500 mt-0.5">sem telefone</div>}
                         </td>

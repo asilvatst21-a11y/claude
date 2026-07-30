@@ -2,8 +2,8 @@ import { supabase } from './supabase'
 import { valesSupabase } from './valesSupabase'
 import { buscarJornadaDoDia, SALA_JORNADA_PARA_TML, JORNADA_LIMITE_MIN, type SalaJornada } from './jornada'
 import type { SalaTML } from './tml'
-import { REGRAS_TML, horarioParaMinutos, tempoDeslocamentoMinutos } from './tml'
-import { variarTexto, enviarListaOpcoesWhatsApp, aguardarEntreEnvios } from './zapi'
+import { REGRAS_TML, SALA_TML_LABEL, horarioParaMinutos, tempoDeslocamentoMinutos, isSalaTML } from './tml'
+import { variarTexto, enviarListaOpcoesWhatsApp, enviarMensagemWhatsApp, aguardarEntreEnvios } from './zapi'
 
 export type KpiFechamento = 'devolucao_pdv' | 'jornada_liquida' | 'aderencia_raio' | 'tml' | 'rating' | 'iv_deslocamento'
 export type SalaFechamento = SalaTML | 'CDD'
@@ -754,16 +754,64 @@ export function montarTextosOrientacao(
   return { destaques: txtDestaques, batePapo: txtBatePapo }
 }
 
+// Envia o texto de orientação (destaques + bate-papo) direto pro celular de
+// CADA supervisor, filtrado pela sala/matinal dele — em vez de um só texto
+// combinado (as duas salas juntas) num grupo compartilhado. Sala sem
+// destaque nem bate-papo no dia não gera mensagem (nada pra reportar).
+export async function enviarOrientacaoPorSupervisor(
+  filial: string, dataBR: string,
+  linhasFarol: { mapa: number; nome: string | null; ajudantes: { nome: string; telefone: string | null }[]; sala: SalaFechamento; resultado: string | null }[],
+  statusPorMapa: Map<number, { total: number; respondidas: number }>,
+): Promise<{ enviados: number; semTelefone: number; falhaEnvio: number; erro: string | null }> {
+  const { data: supervisores, error } = await supabase
+    .from('supervisores_tml')
+    .select('nome, sala, telefone')
+    .eq('filial', filial)
+  if (error) return { enviados: 0, semTelefone: 0, falhaEnvio: 0, erro: error.message }
+
+  let enviados = 0
+  let semTelefone = 0
+  let falhaEnvio = 0
+  for (const sup of supervisores ?? []) {
+    if (!isSalaTML(sup.sala)) continue
+    const linhasSala = linhasFarol.filter((l) => l.sala === sup.sala)
+    const { destaques, batePapo } = montarTextosOrientacao(linhasSala, SALA_TML_LABEL[sup.sala], dataBR, statusPorMapa)
+    const corpo = [destaques, batePapo].filter(Boolean).join('\n\n')
+    if (!corpo) continue
+    if (!sup.telefone) { semTelefone++; continue }
+    const saudacao = variarTexto([
+      `Bom dia, ${sup.nome}! Segue o resumo do Farol de hoje (${dataBR}) da sua matinal:`,
+      `Oi, ${sup.nome}! Aqui está o resumo de hoje (${dataBR}) da sua sala:`,
+      `${sup.nome}, segue o fechamento de hoje (${dataBR}) da sua matinal:`,
+    ])
+    const r = await enviarMensagemWhatsApp(sup.telefone, `${saudacao}\n\n${corpo}`)
+    if (r.sucesso) enviados++
+    else falhaEnvio++
+    await aguardarEntreEnvios(5000)
+  }
+  return { enviados, semTelefone, falhaEnvio, erro: null }
+}
+
 // ── Pendências de bate-papo (gatilho) — 1 linha por (mapa, kpi, pessoa) que
 // estourou o Gatilho. Motorista sempre entra; ajudante entra em tudo,
 // EXCETO IV-Deslocamento (métrica de condução, não do ajudante).
 export interface PendenciaGatilho {
   mapa: number
+  sala: SalaTML
   kpi: KpiFechamento
   pessoaTipo: 'motorista' | 'ajudante'
   pessoaNome: string
   pessoaTelefone: string | null
   valor: number | null
+}
+
+// Prazo de resposta do colaborador: até 15h de Brasília do dia SEGUINTE ao
+// fechamento (o convite é enviado no dia X, responde até 15h do dia X+1).
+// Cálculo em UTC explícito (Brasília = UTC-3, sem horário de verão hoje)
+// pra não depender do fuso do navegador — mesmo cuidado de somarDias acima.
+export function prazoRespostaGatilho(data: string): string {
+  const [y, m, d] = data.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + 1, 18, 0, 0)).toISOString()
 }
 
 export function gerarPendenciasGatilho(linhas: LinhaFarolMotorista[]): PendenciaGatilho[] {
@@ -777,10 +825,10 @@ export function gerarPendenciasGatilho(linhas: LinhaFarolMotorista[]): Pendencia
     ]
     for (const { kpi, c, soMotorista } of criteriosMotorista) {
       if (c.tier !== 'bate_papo') continue
-      out.push({ mapa: l.mapa, kpi, pessoaTipo: 'motorista', pessoaNome: l.nome ?? `Matrícula ${l.matricula ?? '—'}`, pessoaTelefone: l.telefone, valor: c.valor })
+      out.push({ mapa: l.mapa, sala: l.sala, kpi, pessoaTipo: 'motorista', pessoaNome: l.nome ?? `Matrícula ${l.matricula ?? '—'}`, pessoaTelefone: l.telefone, valor: c.valor })
       if (soMotorista) continue
       for (const aj of l.ajudantes) {
-        out.push({ mapa: l.mapa, kpi, pessoaTipo: 'ajudante', pessoaNome: aj.nome, pessoaTelefone: aj.telefone, valor: c.valor })
+        out.push({ mapa: l.mapa, sala: l.sala, kpi, pessoaTipo: 'ajudante', pessoaNome: aj.nome, pessoaTelefone: aj.telefone, valor: c.valor })
       }
     }
   }
@@ -810,12 +858,13 @@ export async function enviarConvitesGatilho(
   const pendencias = gerarPendenciasGatilho(linhasFarol)
   if (pendencias.length === 0) return { enviados: 0, semTelefone: 0, falhaEnvio: 0, erro: null }
 
+  const expiraEm = prazoRespostaGatilho(data)
   const { data: gravadas, error } = await supabase
     .from('fechamento_dia_gatilho_pendencias')
     .upsert(
       pendencias.map((p) => ({
-        filial, data, mapa: p.mapa, kpi: p.kpi, pessoa_tipo: p.pessoaTipo, pessoa_nome: p.pessoaNome,
-        pessoa_telefone: p.pessoaTelefone, valor: p.valor,
+        filial, data, mapa: p.mapa, sala: p.sala, kpi: p.kpi, pessoa_tipo: p.pessoaTipo, pessoa_nome: p.pessoaNome,
+        pessoa_telefone: p.pessoaTelefone, valor: p.valor, expira_em: expiraEm,
       })),
       { onConflict: 'filial,data,mapa,kpi,pessoa_nome', ignoreDuplicates: false },
     )
@@ -888,7 +937,7 @@ export interface PendenciaGatilhoDetalhada {
   pessoaNome: string
   pessoaTelefone: string | null
   valor: number | null
-  status: 'aguardando' | 'coletando' | 'respondido'
+  status: 'aguardando' | 'coletando' | 'respondido' | 'expirado'
   resposta: string | null
   respondidoEm: string | null
 }
@@ -898,6 +947,18 @@ export interface PendenciaGatilhoDetalhada {
 // visibilidade de quem já respondeu, quem está no meio da conversa e quem
 // ainda nem viu o convite.
 export async function buscarPendenciasGatilhoDoDia(filial: string, data: string): Promise<PendenciaGatilhoDetalhada[]> {
+  // Sweep preguiçoso: marca como 'expirado' quem passou do prazo mas ainda
+  // não respondeu — sem isso, a tela só refletiria a expiração depois de
+  // alguém tentar interagir pelo WhatsApp (o webhook é quem checa o prazo na
+  // hora do clique/resposta).
+  await supabase
+    .from('fechamento_dia_gatilho_pendencias')
+    .update({ status: 'expirado' })
+    .eq('filial', filial)
+    .eq('data', data)
+    .in('status', ['aguardando', 'coletando'])
+    .lt('expira_em', new Date().toISOString())
+
   const { data: rows, error } = await supabase
     .from('fechamento_dia_gatilho_pendencias')
     .select('id, mapa, kpi, pessoa_tipo, pessoa_nome, pessoa_telefone, valor, status, resposta, respondido_em')
