@@ -4,7 +4,7 @@ import {
   Bar, ComposedChart, Line, XAxis, YAxis, Tooltip,
   ResponsiveContainer, CartesianGrid, Legend, LabelList,
 } from 'recharts'
-import { Timer, TrendingDown, CheckCircle2, AlertTriangle, Check, Loader2, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
+import { Timer, TrendingDown, CheckCircle2, AlertTriangle, Check, Loader2, SlidersHorizontal, ChevronDown, ChevronRight, Trash2 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import {
@@ -457,6 +457,26 @@ export default function DistribuicaoTMLDeslocamento() {
     setSalvandoMotivo(null)
   }
 
+  const [excluindo, setExcluindo] = useState<string | null>(null)
+
+  // Remove um registro de checklist_tml que não reflete a realidade (erro de
+  // digitação/leitura no import). Apagar de vez (sem flag de "oculto") — o
+  // registro some daqui, do Fechamento do Dia (IV-Deslocamento) e do Farol
+  // Motoristas, já que todos leem direto de checklist_tml.
+  async function excluirRegistro(c: LinhaChecklist) {
+    const confirmar = window.confirm(
+      `Excluir de vez o registro de ${c.nome ?? 'motorista'} em ${formatarDataBR(c.data)} ` +
+      `(deslocamento de ${c.tempo_deslocamento_minutos ?? '—'} min)?\n\n` +
+      'Essa ação não pode ser desfeita — o registro some do Deslocamento, do Fechamento do Dia e do Farol Motoristas.',
+    )
+    if (!confirmar) return
+    setExcluindo(c.id)
+    const { error } = await supabase.from('checklist_tml').delete().eq('id', c.id)
+    setExcluindo(null)
+    if (error) { alert(`Não foi possível excluir: ${error.message}`); return }
+    setChecklist((prev) => prev.filter((row) => row.id !== c.id))
+  }
+
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-6xl mx-auto">
       <div>
@@ -728,14 +748,24 @@ export default function DistribuicaoTMLDeslocamento() {
                         />
                       </td>
                       <td className="py-2 px-4">
-                        <button
-                          onClick={() => salvarMotivo(c.id)}
-                          disabled={salvandoMotivo === c.id}
-                          className="flex items-center gap-1 px-2 py-1 text-xs rounded-md border hover:bg-accent transition-colors disabled:opacity-50"
-                        >
-                          {salvandoMotivo === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
-                          Salvar
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => salvarMotivo(c.id)}
+                            disabled={salvandoMotivo === c.id}
+                            className="flex items-center gap-1 px-2 py-1 text-xs rounded-md border hover:bg-accent transition-colors disabled:opacity-50"
+                          >
+                            {salvandoMotivo === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                            Salvar
+                          </button>
+                          <button
+                            onClick={() => excluirRegistro(c)}
+                            disabled={excluindo === c.id}
+                            title="Excluir este registro (erro de digitação/leitura no import)"
+                            className="flex items-center gap-1 px-2 py-1 text-xs rounded-md border border-red-200 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
+                          >
+                            {excluindo === c.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
