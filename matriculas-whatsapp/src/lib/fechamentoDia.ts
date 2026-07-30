@@ -620,11 +620,11 @@ export async function gerarFarolAutomatico(
     buscarJornadaDoDia(filial, data),
     supabase.from('historico_tml').select('mapa, sala, horario_saida, resultado').eq('filial', filial).eq('data_saida', data),
     supabase.from('fechamento_dia_devolucoes_pdv').select('mapa, devolucoes').eq('filial', filial).eq('data', data),
-    supabase.from('mapa_equipe').select('mapa, motorista_nome, ajudante1_nome, ajudante2_nome').eq('filial', filial).eq('data', data),
+    supabase.from('mapa_equipe').select('mapa, motorista_nome, ajudante1_nome, ajudante1_matricula, ajudante2_nome, ajudante2_matricula').eq('filial', filial).eq('data', data),
     supabase.from('fechamento_dia_mapas_dia').select('mapa, entregas').eq('filial', filial).eq('data', data),
     supabase.from('checklist_tml').select('mapa, sala, horario_inicio, tempo_deslocamento_minutos').eq('filial', filial).eq('data', data),
     supabase.from('motoristas_sala_tml').select('matricula, telefone').eq('filial', filial),
-    valesSupabase.from('ajudantes').select('nome, telefone'),
+    valesSupabase.from('ajudantes').select('codigo, nome, telefone'),
   ])
   if (erroHist) console.error(`gerarFarolAutomatico (${data}) historico error:`, erroHist.message)
   if (erroDevol) console.error(`gerarFarolAutomatico (${data}) devolucoes error:`, erroDevol.message)
@@ -652,6 +652,17 @@ export async function gerarFarolAutomatico(
       .map((c) => [c.mapa as number, c.tempo_deslocamento_minutos ?? (c.horario_inicio ? tempoDeslocamentoMinutos(c.sala, c.horario_inicio) : null)]),
   )
   const telefonePorMatricula = new Map((roster ?? []).map((r) => [r.matricula as number, (r.telefone as string | null) ?? null]))
+  // Matrícula é a chave preferida pro telefone do ajudante — o nome vindo do
+  // import diário da Base às vezes é escrito diferente do cadastro oficial
+  // de Ajudantes (abreviado, sem nome do meio etc.), o que já causou
+  // ajudante "sem telefone" mesmo estando cadastrado certinho. Matrícula não
+  // sofre esse problema; nome normalizado fica só de fallback quando a
+  // matrícula não veio no import ou não bate com nenhum código cadastrado.
+  const telefonePorMatriculaAjudante = new Map(
+    (ajudantesCad ?? [])
+      .filter((a) => a.codigo != null)
+      .map((a) => [a.codigo as number, (a.telefone as string | null) ?? null]),
+  )
   const telefonePorNomeAjudante = new Map((ajudantesCad ?? []).map((a) => [normalizarNomeFarol(a.nome as string), (a.telefone as string | null) ?? null]))
 
   const resultado: LinhaFarolMotorista[] = []
@@ -675,8 +686,18 @@ export async function gerarFarolAutomatico(
     const ivDeslocamento = classificarCriterio(deslocamentoPorMapa.get(l.mapa) ?? null, pIv)
 
     const eq = equipePorMapa.get(String(l.mapa))
-    const ajudantesNomes = [eq?.ajudante1_nome, eq?.ajudante2_nome].filter((n): n is string => !!n)
-    const ajudantes = ajudantesNomes.map((nome) => ({ nome, telefone: telefonePorNomeAjudante.get(normalizarNomeFarol(nome)) ?? null }))
+    const ajudantesInfo = [
+      { nome: eq?.ajudante1_nome, matricula: eq?.ajudante1_matricula },
+      { nome: eq?.ajudante2_nome, matricula: eq?.ajudante2_matricula },
+    ].filter((a): a is { nome: string; matricula: string | null } => !!a.nome)
+    const ajudantes = ajudantesInfo.map(({ nome, matricula }) => {
+      const codigo = matricula != null ? Number(matricula) : NaN
+      const achouPorMatricula = Number.isFinite(codigo) && telefonePorMatriculaAjudante.has(codigo)
+      const telefone = achouPorMatricula
+        ? telefonePorMatriculaAjudante.get(codigo)!
+        : telefonePorNomeAjudante.get(normalizarNomeFarol(nome)) ?? null
+      return { nome, telefone }
+    })
 
     resultado.push({
       mapa: l.mapa,
