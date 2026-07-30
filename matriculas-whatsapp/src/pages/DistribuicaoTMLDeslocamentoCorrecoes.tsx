@@ -10,11 +10,13 @@ import { formatarDataBR } from '../lib/utils'
 // visível (só um link discreto na tela principal) — aqui é onde um registro
 // isolado de checklist_tml pode ser apagado de vez, quando é claramente erro
 // de leitura/digitação no import (não uma correção do dia a dia, por isso
-// fica fora da tela principal). Reimportar depois a mesma planilha com o
-// mesmo erro recria o registro (upsert por filial+mapa+data) — só some de
-// vez se a planilha de origem também for corrigida antes do próximo import.
+// fica fora da tela principal). Além de apagar a linha, grava em
+// checklist_tml_exclusoes (filial, mapa, data) — o import da planilha
+// (DistribuicaoTML.tsx) consulta essa lista e pula essas linhas mesmo que a
+// mesma planilha com o mesmo erro seja reimportada depois.
 interface LinhaChecklist {
   id: string
+  mapa: number | null
   sala: SalaTML | null
   matricula: number | null
   nome: string | null
@@ -49,7 +51,7 @@ export default function DistribuicaoTMLDeslocamentoCorrecoes() {
     setLoading(true)
     const { data } = await supabase
       .from('checklist_tml')
-      .select('id, sala, matricula, nome, data, horario_inicio, horario_final_matinal, tempo_deslocamento_minutos, motivo')
+      .select('id, mapa, sala, matricula, nome, data, horario_inicio, horario_final_matinal, tempo_deslocamento_minutos, motivo')
       .eq('filial', usuario.filial)
       .gte('data', de)
       .lte('data', ate)
@@ -72,14 +74,30 @@ export default function DistribuicaoTMLDeslocamentoCorrecoes() {
     const confirmar = window.confirm(
       `Excluir de vez o registro de ${c.nome ?? 'motorista'} em ${formatarDataBR(c.data)} ` +
       `(deslocamento de ${c.tempo_deslocamento_minutos ?? '—'} min)?\n\n` +
-      'Essa ação não pode ser desfeita — o registro some do Deslocamento, do Fechamento do Dia e do Farol Motoristas. ' +
-      'Se a planilha de origem ainda tiver esse erro, reimportar recria o registro.',
+      'Essa ação não pode ser desfeita — o registro some do Deslocamento, do Fechamento do Dia e do Farol Motoristas, ' +
+      'e fica marcado pra não voltar mesmo se essa planilha for reimportada de novo.',
     )
     if (!confirmar) return
+    if (!usuario) return
     setExcluindo(c.id)
     const { error } = await supabase.from('checklist_tml').delete().eq('id', c.id)
+    if (error) {
+      setExcluindo(null)
+      alert(`Não foi possível excluir: ${error.message}`)
+      return
+    }
+    // Sem isso, reimportar a mesma planilha (com o mesmo erro) recriaria o
+    // registro — o import faz upsert por (filial, mapa, data). Só grava a
+    // exclusão permanente quando o mapa é conhecido (mesma chave usada no
+    // upsert); linha sem mapa não tem chave estável pra bloquear.
+    if (c.mapa != null) {
+      const { error: erroExclusao } = await supabase.from('checklist_tml_exclusoes').upsert(
+        { filial: usuario.filial, mapa: c.mapa, data: c.data, excluido_por: usuario.nome ?? null },
+        { onConflict: 'filial,mapa,data' },
+      )
+      if (erroExclusao) console.error('checklist_tml_exclusoes upsert error:', erroExclusao.message)
+    }
     setExcluindo(null)
-    if (error) { alert(`Não foi possível excluir: ${error.message}`); return }
     setChecklist((prev) => prev.filter((row) => row.id !== c.id))
   }
 
@@ -92,8 +110,9 @@ export default function DistribuicaoTMLDeslocamentoCorrecoes() {
         <h1 className="text-xl sm:text-2xl font-bold mt-1">Corrigir registros de Deslocamento</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Use só pra remover um registro que é claramente erro de leitura/digitação no import (não uma correção do dia a
-          dia — pra isso, use o campo "Motivo" na tela de Deslocamento). A exclusão é definitiva e some do Deslocamento,
-          do Fechamento do Dia e do Farol Motoristas.
+          dia — pra isso, use o campo "Motivo" na tela de Deslocamento). A exclusão é definitiva, some do Deslocamento,
+          do Fechamento do Dia e do Farol Motoristas, e fica bloqueada mesmo que essa mesma planilha seja reimportada
+          depois.
         </p>
       </div>
 

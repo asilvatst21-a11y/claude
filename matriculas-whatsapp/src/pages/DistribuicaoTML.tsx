@@ -878,8 +878,19 @@ export default function DistribuicaoTML() {
       for (const linha of linhas) linhasPorMapa.set(`${linha.mapa}|${linha.data}`, linha)
       const linhasUnicas = [...linhasPorMapa.values()]
 
-      if (linhasUnicas.length > 0) {
-        const { error } = await supabase.from('checklist_tml').upsert(linhasUnicas, { onConflict: 'filial,mapa,data' })
+      // Um registro já excluído manualmente (tela "Corrigir registros de
+      // Deslocamento", erro de leitura/digitação) não deve voltar só porque
+      // a mesma planilha com o mesmo erro foi reimportada.
+      const { data: exclusoesRaw } = await supabase
+        .from('checklist_tml_exclusoes')
+        .select('mapa, data')
+        .eq('filial', usuario.filial)
+      const excluidos = new Set((exclusoesRaw ?? []).map((e) => `${e.mapa}|${e.data}`))
+      const linhasParaGravar = linhasUnicas.filter((l) => !excluidos.has(`${l.mapa}|${l.data}`))
+      const puladasPorExclusao = linhasUnicas.length - linhasParaGravar.length
+
+      if (linhasParaGravar.length > 0) {
+        const { error } = await supabase.from('checklist_tml').upsert(linhasParaGravar, { onConflict: 'filial,mapa,data' })
         if (error) throw new Error(error.message)
       }
 
@@ -928,11 +939,15 @@ export default function DistribuicaoTML() {
         ? `\n\n⚠️ ${semMapa.length} registro(s) vieram sem número de mapa no relatório — usada a sala informada direto na planilha (EQUIPE) como alternativa.`
         : ''
 
+      const avisoExclusao = puladasPorExclusao > 0
+        ? `\n\n🚫 ${puladasPorExclusao} registro(s) não foram gravados por já terem sido excluídos manualmente (tela "Corrigir registros de Deslocamento").`
+        : ''
+
       alert(
         `${checklist.length} registro(s) de checklist importado(s).\n\n` +
         `• ${semSala} sem sala identificada\n` +
         `• ${semHorario} sem horário de início do checklist` +
-        avisoMatinal + avisoSemMapa
+        avisoMatinal + avisoSemMapa + avisoExclusao
       )
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar checklist')
