@@ -535,7 +535,7 @@ export function farolDoValor(valor: number | null, p: ParametroFechamento | unde
 }
 
 function normalizarNomeFarol(s: string): string {
-  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
 export type TierFarol = 'destaque' | 'meta' | 'atencao' | 'bate_papo'
