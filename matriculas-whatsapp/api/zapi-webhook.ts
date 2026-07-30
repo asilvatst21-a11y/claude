@@ -18,7 +18,18 @@ const ANTHROPIC_MODEL   = 'claude-haiku-4-5'
 // áudio e usamos o Whisper da Groq (tier gratuito). Se GROQ_API_KEY não estiver
 // configurada, o bot pede para o motorista mandar por texto.
 const GROQ_API_KEY          = process.env.GROQ_API_KEY ?? ''
-const GROQ_TRANSCRIBE_MODEL = process.env.GROQ_TRANSCRIBE_MODEL ?? 'whisper-large-v3-turbo'
+// whisper-large-v3-turbo é mais rápido/barato, mas erra bastante em jargão de
+// logística ("expedido" virando "expirido", "PDP", "Google" etc.) em áudio de
+// WhatsApp com ruído de fundo. whisper-large-v3 (sem o "turbo") é mais lento
+// mas bem mais preciso pra esse tipo de áudio curto — vale a troca aqui.
+const GROQ_TRANSCRIBE_MODEL = process.env.GROQ_TRANSCRIBE_MODEL ?? 'whisper-large-v3'
+// "Prompt" do Whisper: não é uma instrução, é uma amostra de vocabulário pra
+// enviesar o reconhecimento — ajuda demais com termos/siglas do domínio que
+// o modelo geral erra (PDP, PDV, MPD, TML, Bees) e com o sotaque/expressões
+// mais comuns nas respostas dos motoristas.
+const GROQ_TRANSCRIBE_PROMPT =
+  'Transcrição em português do Brasil de um motorista ou ajudante de entregas falando sobre o dia de trabalho: ' +
+  'PDP, PDV, mapa, rota, entrega, devolução, expedido, cliente, motorista, ajudante, atraso, trânsito, gatilho.'
 
 const ZAPI_BASE = `https://api.z-api.io/instances/${ZAPI_INSTANCE}/token/${ZAPI_TOKEN}`
 
@@ -206,6 +217,8 @@ async function transcreverAudio(url: string): Promise<string | null> {
     form.append('model', GROQ_TRANSCRIBE_MODEL)
     form.append('language', 'pt')
     form.append('response_format', 'json')
+    form.append('temperature', '0')
+    form.append('prompt', GROQ_TRANSCRIBE_PROMPT)
 
     const resp = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
       method: 'POST',
