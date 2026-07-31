@@ -3,7 +3,7 @@ import { Building2, User, Lock, Loader2, LogOut, ClipboardCheck, ChevronLeft } f
 import { useAuth } from '../../lib/auth'
 import { supabase } from '../../lib/supabase'
 import {
-  listarAtividadesConferente, registrarAtividadeTurno, cotaDiaria, bateuMetaAtividade, formatarBRL,
+  listarAtividadesConferente, registrarAtividadeTurno, bateuMetaAtividade, formatarBRL,
   type AtividadeConferente,
 } from '../../lib/variavelTurno'
 
@@ -139,18 +139,21 @@ function TelaRegistro({ atividade, onVoltar }: { atividade: AtividadeConferente;
   const { usuario } = useAuth()
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
-  const [resultado, setResultado] = useState<{ bateu: boolean; valor: number } | null>(null)
+  const [resultado, setResultado] = useState<{ bateu: boolean; creditos: { colaboradorNome: string; valorGerado: number }[] } | null>(null)
   const hoje = hojeISO()
-  const cota = cotaDiaria(atividade.valorFinalMensal, hoje)
+  const colaboradoresAtivos = atividade.colaboradores.filter((c) => c.ativo)
 
   async function salvar(valorNumero: number | null, okNok: boolean | null) {
     if (!usuario) return
     setSalvando(true)
     setErro('')
-    const { error } = await registrarAtividadeTurno(atividade, hoje, { valorNumero, okNok }, { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login })
+    const { error, creditos } = await registrarAtividadeTurno(
+      atividade, atividade.colaboradores, hoje, { valorNumero, okNok },
+      { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login },
+    )
     setSalvando(false)
     if (error) { setErro(error); return }
-    setResultado({ bateu: bateuMetaAtividade(atividade, valorNumero, okNok), valor: cota })
+    setResultado({ bateu: bateuMetaAtividade(atividade, valorNumero, okNok), creditos })
   }
 
   const metaTexto = atividade.unidade === 'ok_nok'
@@ -164,16 +167,25 @@ function TelaRegistro({ atividade, onVoltar }: { atividade: AtividadeConferente;
         <div className="text-xs text-white/50 text-right">{atividade.turno}<br />{new Date(`${hoje}T00:00:00`).toLocaleDateString('pt-BR')}</div>
       </div>
       <h2 className="text-xl font-bold">{atividade.nome}</h2>
-      <p className="text-sm text-white/50 mt-1">{metaTexto} · responsável {atividade.colaboradorNome} · cota do dia {formatarBRL(cota)}</p>
+      <p className="text-sm text-white/50 mt-1">
+        {metaTexto} · {colaboradoresAtivos.length} colaborador{colaboradoresAtivos.length !== 1 ? 'es' : ''}: {colaboradoresAtivos.map((c) => c.colaboradorNome).join(', ') || '—'}
+      </p>
 
       {erro && <div className="bg-red-500/20 text-red-200 text-xs rounded-lg px-3 py-2 mt-4">{erro}</div>}
 
       {!resultado ? (
         <EntradaValor atividade={atividade} onSalvar={salvar} salvando={salvando} />
       ) : (
-        <div className={`mt-6 rounded-2xl px-5 py-4 flex items-center justify-between font-bold text-sm ${resultado.bateu ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
-          <span>{resultado.bateu ? '✓ bateu a meta' : '✕ não bateu a meta'}</span>
-          <span>{resultado.bateu ? `+ ${formatarBRL(resultado.valor)}` : formatarBRL(0)}</span>
+        <div className="mt-6 space-y-2">
+          <div className={`rounded-2xl px-5 py-3 font-bold text-sm ${resultado.bateu ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+            {resultado.bateu ? '✓ bateu a meta — crédito lançado pra cada colaborador' : '✕ não bateu a meta — sem RV hoje'}
+          </div>
+          {resultado.creditos.map((c) => (
+            <div key={c.colaboradorNome} className="flex items-center justify-between text-sm bg-white/5 rounded-xl px-4 py-2.5">
+              <span>{c.colaboradorNome}</span>
+              <span className={`font-bold ${c.valorGerado > 0 ? 'text-green-300' : 'text-white/40'}`}>{c.valorGerado > 0 ? `+ ${formatarBRL(c.valorGerado)}` : formatarBRL(0)}</span>
+            </div>
+          ))}
         </div>
       )}
     </div>
@@ -254,6 +266,7 @@ export default function VariavelTurnoConferente() {
                         ? `✓ já registrada · ${a.registroHoje?.okNok != null ? (a.registroHoje.okNok ? 'OK' : 'NOK') : `${a.registroHoje?.valorNumero}${unidadeSufixo(a.unidade)}`}`
                         : a.unidade === 'ok_nok' ? 'Meta: OK' : `Meta ${a.direcao === 'menor_melhor' ? '≤' : '≥'} ${a.metaValor}${unidadeSufixo(a.unidade)}`}
                     </p>
+                    <p className="text-xs text-gray-400 mt-0.5">{a.colaboradores.filter((c) => c.ativo).map((c) => c.colaboradorNome).join(', ') || 'Sem colaborador cadastrado'}</p>
                   </div>
                   <div className={`rounded-full p-3 text-white ${feita ? 'bg-green-500' : 'bg-[#b6661a]'}`}>
                     {feita ? '✓' : '›'}

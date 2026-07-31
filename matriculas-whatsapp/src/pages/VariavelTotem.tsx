@@ -361,12 +361,12 @@ function AcumuladoAtividadesSecao({ filial, cpfReal }: { filial: string; cpfReal
 
       <div className="flex flex-col gap-1.5 mt-3">
         {dados.dias.slice(0, 10).map((d, i) => (
-          <div key={i} className={`rounded-xl border px-3 py-2 flex items-center justify-between ${d.bateuMeta ? 'border-green-200 bg-green-50/60' : 'border-gray-100 bg-gray-50'}`}>
+          <div key={i} className={`rounded-xl border px-3 py-2 flex items-center justify-between ${d.valorGerado > 0 ? 'border-green-200 bg-green-50/60' : 'border-gray-100 bg-gray-50'}`}>
             <span className="text-sm">
               <span className="font-semibold">{formatarDataBR(d.data)}</span>
-              <span className="text-gray-500"> · {d.atividadeNome} ({d.okNok != null ? (d.okNok ? 'OK' : 'NOK') : d.valorNumero})</span>
+              <span className="text-gray-500"> · {d.atividadeNome}</span>
             </span>
-            <span className={`text-sm font-extrabold tabular-nums ${d.bateuMeta ? 'text-green-700' : 'text-gray-400'}`}>{formatarBRL(d.valorGerado)}</span>
+            <span className={`text-sm font-extrabold tabular-nums ${d.valorGerado > 0 ? 'text-green-700' : 'text-gray-400'}`}>{formatarBRL(d.valorGerado)}</span>
           </div>
         ))}
       </div>

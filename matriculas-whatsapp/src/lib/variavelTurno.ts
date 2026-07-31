@@ -3,16 +3,18 @@ import { formatarBRL } from './variavelArmazem'
 
 // ── RV por atividade de turno — extensão da Variável do Armazém (pontuação
 // → cluster) com um segundo mecanismo: atividades manuais com meta por
-// turno, fechadas pelo conferente no fim do expediente. O valor final
-// mensal é dividido pelos dias úteis (segunda a sábado) do mês corrente pra
-// virar a cota diária de cada atividade. ──────────────────────────────────
+// turno, fechadas pelo conferente no fim do expediente. Uma atividade pode
+// ter VÁRIOS colaboradores (ex.: EFC feita por vários ajudantes) — o
+// registro do resultado é único por dia (é uma métrica de equipe), mas o
+// valor final mensal continua individual: cada colaborador tem sua própria
+// cota, dividida pelos dias úteis (segunda a sábado) do mês. ─────────────
 
-// Colaboradores elegíveis a "responsável" de uma atividade — vem do
-// cadastro central de Colaboradores (Gente), não do cadastro específico da
-// RV por pontuação (armazem_colaboradores). Só função/cargo condizente com
-// atividade de armazém: Ajudante de Armazém ou Operador de Empilhadeira.
-// `funcao` é texto livre importado de planilha de RH, daí o ILIKE em vez de
-// um enum fixo.
+// Colaboradores elegíveis a entrar numa atividade — vem do cadastro central
+// de Colaboradores (Gente), não do cadastro específico da RV por pontuação
+// (armazem_colaboradores). Só função/cargo condizente com atividade de
+// armazém: Ajudante de Armazém ou Operador de Empilhadeira. `funcao` é
+// texto livre importado de planilha de RH, daí o ILIKE em vez de um enum
+// fixo (e o padrão solto, pra cobrir "AJUDANTE ARMAZEM" sem o "DE").
 export interface ColaboradorElegivel { id: string; nome: string; funcao: string | null }
 
 export async function listarColaboradoresElegiveis(filial: string): Promise<ColaboradorElegivel[]> {
@@ -39,11 +41,17 @@ export interface TurnoAtividade {
   unidade: TurnoUnidade
   direcao: TurnoDirecao | null
   metaValor: number | null
-  valorFinalMensal: number
-  colaboradorId: string | null
-  colaboradorNome: string | null
   conferenteUsuarioId: string | null
   conferenteNome: string | null
+  ativo: boolean
+}
+
+export interface AtividadeColaborador {
+  id: string
+  atividadeId: string
+  colaboradorId: string | null
+  colaboradorNome: string
+  valorFinalMensal: number
   ativo: boolean
 }
 
@@ -54,7 +62,6 @@ export interface TurnoRegistro {
   valorNumero: number | null
   okNok: boolean | null
   bateuMeta: boolean
-  valorGerado: number
   registradoPorNome: string | null
   registradoEm: string
 }
@@ -64,10 +71,15 @@ function linhaParaAtividade(r: any): TurnoAtividade {
     id: r.id, filial: r.filial, turno: r.turno, nome: r.nome,
     tipoRegistro: r.tipo_registro, unidade: r.unidade, direcao: r.direcao,
     metaValor: r.meta_valor != null ? Number(r.meta_valor) : null,
-    valorFinalMensal: Number(r.valor_final_mensal),
-    colaboradorId: r.colaborador_id, colaboradorNome: r.colaborador_nome,
     conferenteUsuarioId: r.conferente_usuario_id, conferenteNome: r.conferente_nome,
     ativo: r.ativo,
+  }
+}
+
+function linhaParaColaboradorAtividade(r: any): AtividadeColaborador {
+  return {
+    id: r.id, atividadeId: r.atividade_id, colaboradorId: r.colaborador_id,
+    colaboradorNome: r.colaborador_nome, valorFinalMensal: Number(r.valor_final_mensal), ativo: r.ativo,
   }
 }
 
@@ -75,7 +87,7 @@ function linhaParaRegistro(r: any): TurnoRegistro {
   return {
     id: r.id, atividadeId: r.atividade_id, data: r.data,
     valorNumero: r.valor_numero != null ? Number(r.valor_numero) : null,
-    okNok: r.ok_nok, bateuMeta: r.bateu_meta, valorGerado: Number(r.valor_gerado),
+    okNok: r.ok_nok, bateuMeta: r.bateu_meta,
     registradoPorNome: r.registrado_por_nome, registradoEm: r.registrado_em,
   }
 }
@@ -108,6 +120,16 @@ export async function listarAtividadesTurno(filial: string): Promise<TurnoAtivid
   return (data ?? []).map(linhaParaAtividade)
 }
 
+export async function listarColaboradoresDaAtividade(atividadeId: string): Promise<AtividadeColaborador[]> {
+  const { data, error } = await supabase
+    .from('variavel_turno_atividade_colaboradores')
+    .select('*')
+    .eq('atividade_id', atividadeId)
+    .order('colaborador_nome')
+  if (error) { console.error('listarColaboradoresDaAtividade error:', error.message); return [] }
+  return (data ?? []).map(linhaParaColaboradorAtividade)
+}
+
 export async function salvarAtividadeTurno(atividade: {
   id?: string
   filial: string
@@ -117,29 +139,48 @@ export async function salvarAtividadeTurno(atividade: {
   unidade: TurnoUnidade
   direcao: TurnoDirecao | null
   metaValor: number | null
-  valorFinalMensal: number
-  colaboradorId: string | null
-  colaboradorNome: string | null
   conferenteUsuarioId: string | null
   conferenteNome: string | null
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; id: string | null }> {
   const payload = {
     filial: atividade.filial, turno: atividade.turno, nome: atividade.nome,
     tipo_registro: atividade.tipoRegistro, unidade: atividade.unidade,
     direcao: atividade.unidade === 'ok_nok' ? null : atividade.direcao,
     meta_valor: atividade.unidade === 'ok_nok' ? null : atividade.metaValor,
-    valor_final_mensal: atividade.valorFinalMensal,
-    colaborador_id: atividade.colaboradorId, colaborador_nome: atividade.colaboradorNome,
     conferente_usuario_id: atividade.conferenteUsuarioId, conferente_nome: atividade.conferenteNome,
   }
-  const { error } = atividade.id
-    ? await supabase.from('variavel_turno_atividades').update(payload).eq('id', atividade.id)
-    : await supabase.from('variavel_turno_atividades').insert(payload)
-  return { error: error?.message ?? null }
+  if (atividade.id) {
+    const { error } = await supabase.from('variavel_turno_atividades').update(payload).eq('id', atividade.id)
+    return { error: error?.message ?? null, id: atividade.id }
+  }
+  const { data, error } = await supabase.from('variavel_turno_atividades').insert(payload).select('id').maybeSingle()
+  return { error: error?.message ?? null, id: data?.id ?? null }
 }
 
 export async function alternarAtivoAtividadeTurno(id: string, ativo: boolean): Promise<{ error: string | null }> {
   const { error } = await supabase.from('variavel_turno_atividades').update({ ativo }).eq('id', id)
+  return { error: error?.message ?? null }
+}
+
+export async function salvarColaboradorAtividade(colab: {
+  id?: string
+  atividadeId: string
+  colaboradorId: string
+  colaboradorNome: string
+  valorFinalMensal: number
+}): Promise<{ error: string | null }> {
+  const payload = {
+    atividade_id: colab.atividadeId, colaborador_id: colab.colaboradorId,
+    colaborador_nome: colab.colaboradorNome, valor_final_mensal: colab.valorFinalMensal,
+  }
+  const { error } = colab.id
+    ? await supabase.from('variavel_turno_atividade_colaboradores').update(payload).eq('id', colab.id)
+    : await supabase.from('variavel_turno_atividade_colaboradores').upsert(payload, { onConflict: 'atividade_id,colaborador_id' })
+  return { error: error?.message ?? null }
+}
+
+export async function alternarAtivoColaboradorAtividade(id: string, ativo: boolean): Promise<{ error: string | null }> {
+  const { error } = await supabase.from('variavel_turno_atividade_colaboradores').update({ ativo }).eq('id', id)
   return { error: error?.message ?? null }
 }
 
@@ -153,6 +194,7 @@ export function bateuMetaAtividade(atividade: TurnoAtividade, valorNumero: numbe
 }
 
 export interface AtividadeConferente extends TurnoAtividade {
+  colaboradores: AtividadeColaborador[]
   registroHoje: TurnoRegistro | null
 }
 
@@ -170,23 +212,41 @@ export async function listarAtividadesConferente(filial: string, conferenteUsuar
     .order('nome')
   if (error) { console.error('listarAtividadesConferente error:', error.message); return [] }
   const ids = (atividades ?? []).map((a) => a.id)
-  const { data: registros } = ids.length > 0
-    ? await supabase.from('variavel_turno_registros').select('*').in('atividade_id', ids).eq('data', data)
-    : { data: [] }
+  const [{ data: registros }, { data: colaboradoresRaw }] = ids.length > 0
+    ? await Promise.all([
+      supabase.from('variavel_turno_registros').select('*').in('atividade_id', ids).eq('data', data),
+      supabase.from('variavel_turno_atividade_colaboradores').select('*').in('atividade_id', ids).eq('ativo', true),
+    ])
+    : [{ data: [] }, { data: [] }]
   const registroPorAtividade = new Map((registros ?? []).map((r) => [r.atividade_id, linhaParaRegistro(r)]))
-  return (atividades ?? []).map((a) => ({ ...linhaParaAtividade(a), registroHoje: registroPorAtividade.get(a.id) ?? null }))
+  const colaboradoresPorAtividade = new Map<string, AtividadeColaborador[]>()
+  for (const c of colaboradoresRaw ?? []) {
+    const lista = colaboradoresPorAtividade.get(c.atividade_id) ?? []
+    lista.push(linhaParaColaboradorAtividade(c))
+    colaboradoresPorAtividade.set(c.atividade_id, lista)
+  }
+  return (atividades ?? []).map((a) => ({
+    ...linhaParaAtividade(a),
+    colaboradores: colaboradoresPorAtividade.get(a.id) ?? [],
+    registroHoje: registroPorAtividade.get(a.id) ?? null,
+  }))
 }
 
+// Grava o resultado do dia (1 por atividade+data — métrica de equipe) e
+// recalcula o crédito de CADA colaborador ativo da atividade (o valor final
+// é individual, não dividido: todo mundo que bate a meta ganha a própria
+// cota inteira). Reabrir e regravar o mesmo dia recalcula os créditos do
+// zero, pra refletir mudanças de colaborador/valor entre um registro e outro.
 export async function registrarAtividadeTurno(
-  atividade: TurnoAtividade, data: string,
+  atividade: TurnoAtividade, colaboradores: AtividadeColaborador[], data: string,
   entrada: { valorNumero: number | null; okNok: boolean | null },
   registradoPor: { usuarioId: string; nome: string | null },
-): Promise<{ error: string | null; registro: TurnoRegistro | null }> {
+): Promise<{ error: string | null; registro: TurnoRegistro | null; creditos: { colaboradorNome: string; valorGerado: number }[] }> {
   const bateu = bateuMetaAtividade(atividade, entrada.valorNumero, entrada.okNok)
   const payload = {
     atividade_id: atividade.id, filial: atividade.filial, data,
     valor_numero: entrada.valorNumero, ok_nok: entrada.okNok,
-    bateu_meta: bateu, valor_gerado: bateu ? cotaDiaria(atividade.valorFinalMensal, data) : 0,
+    bateu_meta: bateu,
     registrado_por_usuario_id: registradoPor.usuarioId, registrado_por_nome: registradoPor.nome,
     registrado_em: new Date().toISOString(),
   }
@@ -195,16 +255,29 @@ export async function registrarAtividadeTurno(
     .upsert(payload, { onConflict: 'atividade_id,data' })
     .select('*')
     .maybeSingle()
-  if (error) return { error: error.message, registro: null }
-  return { error: null, registro: gravado ? linhaParaRegistro(gravado) : null }
+  if (error) return { error: error.message, registro: null, creditos: [] }
+
+  const ativos = colaboradores.filter((c) => c.ativo)
+  const creditosPayload = ativos.map((c) => ({
+    atividade_id: atividade.id, registro_id: gravado?.id ?? null, colaborador_id: c.colaboradorId,
+    colaborador_nome: c.colaboradorNome, data, valor_gerado: bateu ? cotaDiaria(c.valorFinalMensal, data) : 0,
+  }))
+  if (creditosPayload.length > 0) {
+    const { error: erroCreditos } = await supabase
+      .from('variavel_turno_creditos')
+      .upsert(creditosPayload, { onConflict: 'atividade_id,colaborador_id,data' })
+    if (erroCreditos) return { error: erroCreditos.message, registro: null, creditos: [] }
+  }
+
+  return {
+    error: null, registro: gravado ? linhaParaRegistro(gravado) : null,
+    creditos: creditosPayload.map((c) => ({ colaboradorNome: c.colaborador_nome, valorGerado: c.valor_gerado })),
+  }
 }
 
 export interface AcumuladoAtividadeDia {
   data: string
   atividadeNome: string
-  valorNumero: number | null
-  okNok: boolean | null
-  bateuMeta: boolean
   valorGerado: number
 }
 
@@ -222,61 +295,66 @@ export interface AcumuladoColaboradorMes {
 // Mesma consulta, mas a partir do CPF (real, não mascarado) — é o que o
 // totem público tem em mãos depois de identificar a pessoa (via
 // armazem_colaboradores, cadastro da RV por pontuação), sem conhecer o id
-// do cadastro central de Colaboradores usado pelo "responsável" da RV por
-// turno. Compara só os dígitos — o cadastro central nem sempre guarda o CPF
-// já normalizado (sem pontuação) como o de armazem_colaboradores guarda.
+// do cadastro central de Colaboradores usado nas atividades de turno.
+// Compara só os dígitos — o cadastro central nem sempre guarda o CPF já
+// normalizado (sem pontuação) como o de armazem_colaboradores guarda.
 export async function buscarAcumuladoPorCpf(filial: string, cpfReal: string, mesISO: string): Promise<AcumuladoColaboradorMes | null> {
   const digitos = cpfReal.replace(/\D/g, '')
-  const { data: colaboradores } = await supabase
+  const { data: colaboradoresCadastro } = await supabase
     .from('colaboradores')
     .select('id, cpf')
     .eq('filial', filial)
     .not('cpf', 'is', null)
-  const encontrado = (colaboradores ?? []).find((c) => (c.cpf as string).replace(/\D/g, '') === digitos)
+  const encontrado = (colaboradoresCadastro ?? []).find((c) => (c.cpf as string).replace(/\D/g, '') === digitos)
   if (!encontrado) return null
   return buscarAcumuladoColaboradorMes(filial, encontrado.id, mesISO)
 }
 
-// Acumulado do mês de um colaborador (ajudante) flegado como responsável de
-// alguma atividade — usado na consulta pública (mesmo totem da Variável por
-// pontuação, seção extra "por atividade").
+// Acumulado do mês de um colaborador flegado em alguma atividade de turno —
+// usado na consulta pública (mesmo totem da Variável por pontuação, seção
+// extra "por atividade"). Lê os créditos já calculados (variavel_turno_
+// creditos), não recalcula nada aqui.
 export async function buscarAcumuladoColaboradorMes(filial: string, colaboradorId: string, mesISO: string): Promise<AcumuladoColaboradorMes | null> {
-  const { data: atividades } = await supabase
-    .from('variavel_turno_atividades')
-    .select('id, nome, turno, colaborador_nome, valor_final_mensal')
-    .eq('filial', filial)
+  const { data: vinculosRaw } = await supabase
+    .from('variavel_turno_atividade_colaboradores')
+    .select('atividade_id, colaborador_nome, valor_final_mensal, ativo, variavel_turno_atividades(id, nome, turno, filial)')
     .eq('colaborador_id', colaboradorId)
-    .eq('ativo', true)
-  if (!atividades || atividades.length === 0) return null
+  // Filtra pela filial no cliente — evita depender de sintaxe de filtro em
+  // tabela aninhada (variavel_turno_atividades.filial), que muda conforme a
+  // versão do PostgREST.
+  const vinculos = (vinculosRaw ?? []).filter((v: any) => v.variavel_turno_atividades?.filial === filial)
+  if (vinculos.length === 0) return null
 
-  const nomePorAtividade = new Map(atividades.map((a) => [a.id, a.nome as string]))
+  const nomePorAtividade = new Map(vinculos.map((v: any) => [v.atividade_id, v.variavel_turno_atividades.nome as string]))
+  const atividadeIds = vinculos.map((v: any) => v.atividade_id)
   const [ano, mes] = mesISO.split('-').map(Number)
   const ini = `${mesISO}-01`
   const fim = `${mesISO}-${String(new Date(Date.UTC(ano, mes, 0)).getUTCDate()).padStart(2, '0')}`
-  const { data: registros } = await supabase
-    .from('variavel_turno_registros')
-    .select('atividade_id, data, valor_numero, ok_nok, bateu_meta, valor_gerado')
-    .in('atividade_id', atividades.map((a) => a.id))
+  const { data: creditos } = await supabase
+    .from('variavel_turno_creditos')
+    .select('atividade_id, data, valor_gerado')
+    .eq('colaborador_id', colaboradorId)
+    .in('atividade_id', atividadeIds)
     .gte('data', ini)
     .lte('data', fim)
     .order('data', { ascending: false })
 
-  const dias: AcumuladoAtividadeDia[] = (registros ?? []).map((r) => ({
-    data: r.data, atividadeNome: nomePorAtividade.get(r.atividade_id) ?? '—',
-    valorNumero: r.valor_numero != null ? Number(r.valor_numero) : null,
-    okNok: r.ok_nok, bateuMeta: r.bateu_meta, valorGerado: Number(r.valor_gerado),
+  const dias: AcumuladoAtividadeDia[] = (creditos ?? []).map((c) => ({
+    data: c.data, atividadeNome: nomePorAtividade.get(c.atividade_id) ?? '—', valorGerado: Number(c.valor_gerado),
   }))
   const totalGerado = dias.reduce((acc, d) => acc + d.valorGerado, 0)
   const hoje = new Date().toISOString().slice(0, 10)
-  const cotaDiariaTotal = atividades.reduce((acc, a) => acc + cotaDiaria(Number(a.valor_final_mensal), hoje), 0)
+  const cotaDiariaTotal = vinculos
+    .filter((v: any) => v.ativo)
+    .reduce((acc: number, v: any) => acc + cotaDiaria(Number(v.valor_final_mensal), hoje), 0)
 
   return {
-    colaboradorNome: atividades[0].colaborador_nome ?? '—',
+    colaboradorNome: (vinculos[0] as any).colaborador_nome ?? '—',
     mesISO, totalGerado,
-    diasBatidos: dias.filter((d) => d.bateuMeta).length,
+    diasBatidos: dias.filter((d) => d.valorGerado > 0).length,
     diasRegistrados: new Set(dias.map((d) => d.data)).size,
     cotaDiariaTotal,
-    atividades: atividades.map((a) => ({ nome: a.nome, turno: a.turno })),
+    atividades: vinculos.map((v: any) => ({ nome: v.variavel_turno_atividades.nome, turno: v.variavel_turno_atividades.turno })),
     dias,
   }
 }

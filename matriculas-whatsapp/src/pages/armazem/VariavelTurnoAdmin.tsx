@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Plus, Power, Layers, UserCog, KeyRound } from 'lucide-react'
+import { Loader2, Plus, Power, Layers, UserCog, KeyRound, Users, X } from 'lucide-react'
 import { listarUsuarios, criarUsuario, resetarSenhaUsuario } from '../../lib/usuariosApi'
 import type { Usuario } from '../../types'
 import {
-  listarAtividadesTurno, salvarAtividadeTurno, alternarAtivoAtividadeTurno, cotaDiaria, formatarBRL,
-  listarColaboradoresElegiveis, type TurnoAtividade, type TurnoTipoRegistro, type TurnoUnidade, type TurnoDirecao,
-  type ColaboradorElegivel,
+  listarAtividadesTurno, salvarAtividadeTurno, alternarAtivoAtividadeTurno,
+  listarColaboradoresDaAtividade, salvarColaboradorAtividade, alternarAtivoColaboradorAtividade,
+  cotaDiaria, formatarBRL, listarColaboradoresElegiveis,
+  type TurnoAtividade, type TurnoTipoRegistro, type TurnoUnidade, type TurnoDirecao,
+  type ColaboradorElegivel, type AtividadeColaborador,
 } from '../../lib/variavelTurno'
 
 const UNIDADE_LABEL: Record<TurnoUnidade, string> = {
@@ -21,11 +23,10 @@ const DIRECAO_LABEL: Record<TurnoDirecao, string> = { maior_melhor: '↑ maior m
 const CARGO_CONFERENTE = 'Conferente RV'
 const SENHA_PADRAO_CONFERENTE = 'CONFERENTE123'
 
-function formVazio(filial: string) {
+function formVazio() {
   return {
     turno: '1º Turno', nome: '', tipoRegistro: 'manual' as TurnoTipoRegistro, unidade: 'percentual' as TurnoUnidade,
-    direcao: 'maior_melhor' as TurnoDirecao, metaValor: '', valorFinalMensal: '',
-    colaboradorId: '', conferenteUsuarioId: '', filial,
+    direcao: 'maior_melhor' as TurnoDirecao, metaValor: '', conferenteUsuarioId: '',
   }
 }
 
@@ -33,14 +34,104 @@ function formConferenteVazio() {
   return { login: '', nome: '', senha: '' }
 }
 
+// Uma atividade pode ter VÁRIOS colaboradores (ex.: EFC feita por vários
+// ajudantes) — cada um com o próprio valor final mensal, não dividido entre
+// o grupo. Esse painel só aparece depois que a atividade já tem id (ou seja,
+// já foi salva pelo menos uma vez).
+function ColaboradoresDaAtividade({ atividadeId, elegiveis }: { atividadeId: string; elegiveis: ColaboradorElegivel[] }) {
+  const [lista, setLista] = useState<AtividadeColaborador[]>([])
+  const [loading, setLoading] = useState(true)
+  const [colaboradorId, setColaboradorId] = useState('')
+  const [valorFinalMensal, setValorFinalMensal] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  const carregar = useCallback(async () => {
+    setLoading(true)
+    setLista(await listarColaboradoresDaAtividade(atividadeId))
+    setLoading(false)
+  }, [atividadeId])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  async function adicionar() {
+    setErro('')
+    const valor = parseFloat(valorFinalMensal.replace(',', '.'))
+    const colaborador = elegiveis.find((c) => c.id === colaboradorId)
+    if (!colaborador) { setErro('Selecione um colaborador.'); return }
+    if (!Number.isFinite(valor)) { setErro('Preencha o valor final mensal desse colaborador.'); return }
+    setSalvando(true)
+    const { error } = await salvarColaboradorAtividade({
+      atividadeId, colaboradorId: colaborador.id, colaboradorNome: colaborador.nome, valorFinalMensal: valor,
+    })
+    setSalvando(false)
+    if (error) { setErro(`Erro ao adicionar: ${error}`); return }
+    setColaboradorId('')
+    setValorFinalMensal('')
+    await carregar()
+  }
+
+  async function alternar(c: AtividadeColaborador) {
+    await alternarAtivoColaboradorAtividade(c.id, !c.ativo)
+    await carregar()
+  }
+
+  const hoje = new Date().toISOString().slice(0, 10)
+  const disponiveis = elegiveis.filter((e) => !lista.some((l) => l.colaboradorId === e.id && l.ativo))
+
+  return (
+    <div className="border rounded-lg p-3 space-y-3 bg-gray-50/50">
+      <h5 className="text-xs font-semibold flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-accent-600" /> Colaboradores desta atividade</h5>
+      {loading ? (
+        <div className="flex justify-center py-4 text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /></div>
+      ) : lista.length === 0 ? (
+        <p className="text-[11px] text-gray-400">Nenhum colaborador adicionado ainda.</p>
+      ) : (
+        <div className="divide-y border rounded-md bg-white">
+          {lista.map((c) => (
+            <div key={c.id} className={`flex items-center justify-between px-3 py-2 text-xs ${!c.ativo ? 'opacity-40' : ''}`}>
+              <span>{c.colaboradorNome}</span>
+              <span className="flex items-center gap-3">
+                <span className="font-mono text-gray-500">{formatarBRL(c.valorFinalMensal)}/mês · {formatarBRL(cotaDiaria(c.valorFinalMensal, hoje))}/dia</span>
+                <button onClick={() => alternar(c)} className="p-1 rounded hover:bg-gray-100" title={c.ativo ? 'Remover' : 'Reativar'}>
+                  {c.ativo ? <X className="h-3.5 w-3.5 text-red-500" /> : <Power className="h-3.5 w-3.5 text-green-600" />}
+                </button>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {erro && <p className="text-[11px] text-red-600">{erro}</p>}
+      <div className="grid sm:grid-cols-3 gap-2 items-end">
+        <div className="sm:col-span-2">
+          <label className="block text-[10px] font-medium text-gray-500 mb-1">Colaborador</label>
+          <select value={colaboradorId} onChange={(e) => setColaboradorId(e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs">
+            <option value="">Selecione…</option>
+            {disponiveis.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.funcao ? ` — ${c.funcao}` : ''}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[10px] font-medium text-gray-500 mb-1">Valor final (mês)</label>
+          <input value={valorFinalMensal} onChange={(e) => setValorFinalMensal(e.target.value)} placeholder="Ex.: 183,33" className="w-full border rounded px-2 py-1.5 text-xs font-mono" />
+        </div>
+      </div>
+      <button onClick={adicionar} disabled={salvando} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border hover:bg-accent disabled:opacity-50">
+        {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Adicionar colaborador
+      </button>
+    </div>
+  )
+}
+
 export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
   const [atividades, setAtividades] = useState<TurnoAtividade[]>([])
-  const [colaboradores, setColaboradores] = useState<ColaboradorElegivel[]>([])
+  const [colaboradoresPorAtividade, setColaboradoresPorAtividade] = useState<Record<string, AtividadeColaborador[]>>({})
+  const [elegiveis, setElegiveis] = useState<ColaboradorElegivel[]>([])
   const [conferentes, setConferentes] = useState<Usuario[]>([])
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
-  const [form, setForm] = useState(() => formVazio(filial))
+  const [form, setForm] = useState(() => formVazio())
   const [editandoId, setEditandoId] = useState<string | null>(null)
 
   const [formConferente, setFormConferente] = useState(formConferenteVazio())
@@ -49,14 +140,17 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
 
   const carregar = useCallback(async () => {
     setLoading(true)
-    const [ativs, colabs, usuariosDaFilial] = await Promise.all([
+    const [ativs, elegs, usuariosDaFilial] = await Promise.all([
       listarAtividadesTurno(filial),
       listarColaboradoresElegiveis(filial),
       listarUsuarios({ filial, apenasComCargo: true }).catch(() => [] as Usuario[]),
     ])
     setAtividades(ativs)
-    setColaboradores(colabs)
+    setElegiveis(elegs)
     setConferentes(usuariosDaFilial.filter((u) => u.cargo === CARGO_CONFERENTE))
+    const porAtividade: Record<string, AtividadeColaborador[]> = {}
+    await Promise.all(ativs.map(async (a) => { porAtividade[a.id] = await listarColaboradoresDaAtividade(a.id) }))
+    setColaboradoresPorAtividade(porAtividade)
     setLoading(false)
   }, [filial])
 
@@ -99,26 +193,19 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
     setForm({
       turno: a.turno, nome: a.nome, tipoRegistro: a.tipoRegistro, unidade: a.unidade,
       direcao: a.direcao ?? 'maior_melhor', metaValor: a.metaValor != null ? String(a.metaValor) : '',
-      valorFinalMensal: String(a.valorFinalMensal), colaboradorId: a.colaboradorId ?? '',
-      conferenteUsuarioId: a.conferenteUsuarioId ?? '', filial,
+      conferenteUsuarioId: a.conferenteUsuarioId ?? '',
     })
   }
 
   function cancelarEdicao() {
     setEditandoId(null)
-    setForm(formVazio(filial))
+    setForm(formVazio())
   }
 
   async function salvar() {
     setErro('')
-    const valorFinalMensal = parseFloat(form.valorFinalMensal.replace(',', '.'))
-    if (!form.nome.trim() || !Number.isFinite(valorFinalMensal)) {
-      setErro('Preencha o nome da atividade e o valor final mensal.')
-      return
-    }
-    if (!form.colaboradorId) { setErro('Selecione o colaborador responsável.'); return }
+    if (!form.nome.trim()) { setErro('Preencha o nome da atividade.'); return }
     if (!form.conferenteUsuarioId) { setErro('Selecione o conferente que fecha o turno.'); return }
-    const colaborador = colaboradores.find((c) => c.id === form.colaboradorId)
     const conferente = conferentes.find((u) => u.id === form.conferenteUsuarioId)
     const metaValor = form.unidade === 'ok_nok' ? null : parseFloat(form.metaValor.replace(',', '.'))
     if (form.unidade !== 'ok_nok' && !Number.isFinite(metaValor)) {
@@ -126,17 +213,19 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
       return
     }
     setSalvando(true)
-    const { error } = await salvarAtividadeTurno({
+    const { error, id } = await salvarAtividadeTurno({
       id: editandoId ?? undefined, filial, turno: form.turno, nome: form.nome.trim(),
       tipoRegistro: form.tipoRegistro, unidade: form.unidade, direcao: form.direcao,
-      metaValor: metaValor ?? null, valorFinalMensal,
-      colaboradorId: form.colaboradorId, colaboradorNome: colaborador?.nome ?? null,
+      metaValor: metaValor ?? null,
       conferenteUsuarioId: form.conferenteUsuarioId, conferenteNome: conferente?.nome ?? conferente?.login ?? null,
     })
     setSalvando(false)
     if (error) { setErro(`Erro ao salvar: ${error}`); return }
-    cancelarEdicao()
     await carregar()
+    // Depois de criar, entra direto em edição pra poder adicionar os
+    // colaboradores (só dá pra vincular colaborador depois que a atividade
+    // já existe).
+    if (!editandoId && id) setEditandoId(id)
   }
 
   async function alternarAtivo(a: TurnoAtividade) {
@@ -144,13 +233,13 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
     await carregar()
   }
 
-  const hoje = new Date().toISOString().slice(0, 10)
-
   return (
     <div className="space-y-4">
       <p className="text-xs text-gray-500">
         O conferente só lança as atividades <b className="text-green-700">Manuais</b> no fim do turno — as de <b>Upload</b> seguem
-        o fluxo de relatório normal, fora desse fechamento. Valor final mensal é dividido pelos dias úteis (segunda a sábado) do mês.
+        o fluxo de relatório normal, fora desse fechamento. Uma atividade pode ter vários colaboradores (ex.: EFC feita por
+        vários ajudantes) — o valor final mensal é individual, não dividido entre o grupo, e é dividido pelos dias úteis
+        (segunda a sábado) do mês pra virar a cota diária de cada um.
       </p>
 
       <div className="border rounded-lg p-4 space-y-3">
@@ -205,43 +294,44 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
                 <th className="px-3 py-2">Atividade</th>
                 <th className="px-3 py-2">Registro</th>
                 <th className="px-3 py-2">Meta</th>
-                <th className="px-3 py-2 text-right">Valor / mês</th>
-                <th className="px-3 py-2 text-right">Cota diária</th>
-                <th className="px-3 py-2">Responsável</th>
+                <th className="px-3 py-2">Colaboradores</th>
                 <th className="px-3 py-2">Conferente</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
             <tbody>
               {atividades.length === 0 && (
-                <tr><td colSpan={9} className="text-center py-8 text-gray-400">Nenhuma atividade cadastrada.</td></tr>
+                <tr><td colSpan={7} className="text-center py-8 text-gray-400">Nenhuma atividade cadastrada.</td></tr>
               )}
-              {atividades.map((a) => (
-                <tr key={a.id} className={`border-b last:border-0 ${!a.ativo ? 'opacity-40' : ''}`}>
-                  <td className="px-3 py-2 whitespace-nowrap">{a.turno}</td>
-                  <td className="px-3 py-2 font-medium">{a.nome}</td>
-                  <td className="px-3 py-2">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${a.tipoRegistro === 'manual' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                      {a.tipoRegistro === 'manual' ? 'Manual' : 'Upload'}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    {a.unidade === 'ok_nok' ? 'OK/NOK' : (
-                      <>{a.direcao === 'menor_melhor' ? '≤' : '≥'} {a.metaValor}{a.unidade === 'percentual' ? '%' : a.unidade === 'reais' ? ' R$' : ''}</>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-right font-mono">{formatarBRL(a.valorFinalMensal)}</td>
-                  <td className="px-3 py-2 text-right font-mono">{formatarBRL(cotaDiaria(a.valorFinalMensal, hoje))}</td>
-                  <td className="px-3 py-2">{a.colaboradorNome ?? '—'}</td>
-                  <td className="px-3 py-2">{a.conferenteNome ?? '—'}</td>
-                  <td className="px-3 py-2 whitespace-nowrap">
-                    <button onClick={() => editar(a)} className="text-[11px] px-2 py-1 rounded border hover:bg-accent mr-1">Editar</button>
-                    <button onClick={() => alternarAtivo(a)} className="text-[11px] px-2 py-1 rounded border hover:bg-accent inline-flex items-center gap-1">
-                      <Power className="h-3 w-3" /> {a.ativo ? 'Desativar' : 'Ativar'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {atividades.map((a) => {
+                const colabs = (colaboradoresPorAtividade[a.id] ?? []).filter((c) => c.ativo)
+                return (
+                  <tr key={a.id} className={`border-b last:border-0 align-top ${!a.ativo ? 'opacity-40' : ''}`}>
+                    <td className="px-3 py-2 whitespace-nowrap">{a.turno}</td>
+                    <td className="px-3 py-2 font-medium">{a.nome}</td>
+                    <td className="px-3 py-2">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${a.tipoRegistro === 'manual' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                        {a.tipoRegistro === 'manual' ? 'Manual' : 'Upload'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      {a.unidade === 'ok_nok' ? 'OK/NOK' : (
+                        <>{a.direcao === 'menor_melhor' ? '≤' : '≥'} {a.metaValor}{a.unidade === 'percentual' ? '%' : a.unidade === 'reais' ? ' R$' : ''}</>
+                      )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {colabs.length === 0 ? '—' : colabs.map((c) => c.colaboradorNome).join(', ')}
+                    </td>
+                    <td className="px-3 py-2">{a.conferenteNome ?? '—'}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <button onClick={() => editar(a)} className="text-[11px] px-2 py-1 rounded border hover:bg-accent mr-1">Editar</button>
+                      <button onClick={() => alternarAtivo(a)} className="text-[11px] px-2 py-1 rounded border hover:bg-accent inline-flex items-center gap-1">
+                        <Power className="h-3 w-3" /> {a.ativo ? 'Desativar' : 'Ativar'}
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>
@@ -288,23 +378,6 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
           ) : (
             <div className="sm:col-span-2 flex items-end text-[11px] text-gray-400 pb-2">Direção e valor da meta não se aplicam a OK/NOK — só considera "bateu" quando o registro é OK.</div>
           )}
-          <div>
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Valor final (mês)</label>
-            <input value={form.valorFinalMensal} onChange={(e) => setForm((f) => ({ ...f, valorFinalMensal: e.target.value }))} placeholder="Ex.: 183,33" className="w-full border rounded px-2 py-1.5 text-xs font-mono" />
-          </div>
-
-          <div className="sm:col-span-2">
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Colaborador responsável</label>
-            <select value={form.colaboradorId} onChange={(e) => setForm((f) => ({ ...f, colaboradorId: e.target.value }))} className="w-full border rounded px-2 py-1.5 text-xs">
-              <option value="">Selecione…</option>
-              {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.funcao ? ` — ${c.funcao}` : ''}</option>)}
-            </select>
-            {colaboradores.length === 0 && (
-              <p className="text-[10px] text-amber-600 mt-1">
-                Nenhum colaborador com função "Ajudante de Armazém" ou "Operador de Empilhadeira" encontrado em Gente › Colaboradores.
-              </p>
-            )}
-          </div>
           <div className="sm:col-span-2">
             <label className="block text-[11px] font-medium text-gray-500 mb-1">Conferente que fecha o turno</label>
             <select value={form.conferenteUsuarioId} onChange={(e) => setForm((f) => ({ ...f, conferenteUsuarioId: e.target.value }))} className="w-full border rounded px-2 py-1.5 text-xs">
@@ -318,8 +391,10 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
           <button onClick={salvar} disabled={salvando} className="flex items-center gap-1.5 text-xs px-3 py-2 rounded-md bg-primary text-primary-foreground disabled:opacity-50">
             {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} {editandoId ? 'Salvar alterações' : 'Cadastrar atividade'}
           </button>
-          {editandoId && <button onClick={cancelarEdicao} className="text-xs px-3 py-2 rounded-md border">Cancelar</button>}
+          {editandoId && <button onClick={cancelarEdicao} className="text-xs px-3 py-2 rounded-md border">Fechar edição</button>}
         </div>
+
+        {editandoId && <ColaboradoresDaAtividade atividadeId={editandoId} elegiveis={elegiveis} />}
       </div>
     </div>
   )
