@@ -5,13 +5,24 @@ import type { Usuario } from '../../types'
 import {
   listarAtividadesTurno, salvarAtividadeTurno, alternarAtivoAtividadeTurno,
   listarColaboradoresDaAtividade, salvarColaboradorAtividade, alternarAtivoColaboradorAtividade,
-  cotaDiaria, formatarBRL, listarColaboradoresElegiveis,
+  cotaDiaria, formatarBRL, listarColaboradoresElegiveis, minutosParaHHMM, hhmmParaMinutos,
+  listarEquipeConferente, adicionarNaEquipeConferente, alternarAtivoEquipeConferente,
   type TurnoAtividade, type TurnoTipoRegistro, type TurnoUnidade, type TurnoDirecao,
-  type ColaboradorElegivel, type AtividadeColaborador,
+  type ColaboradorElegivel, type AtividadeColaborador, type ConferenteEquipeMembro,
 } from '../../lib/variavelTurno'
 
 const UNIDADE_LABEL: Record<TurnoUnidade, string> = {
-  percentual: '% percentual', reais: 'R$', numero: 'número', ok_nok: 'OK / NOK',
+  percentual: '% percentual', reais: 'R$', numero: 'número', ok_nok: 'OK / NOK', tempo: 'Tempo (hh:mm)',
+}
+
+function formatarMetaTexto(a: TurnoAtividade): string {
+  if (a.unidade === 'ok_nok') return 'OK/NOK'
+  if (a.metaValor == null) return '—'
+  const sinal = a.direcao === 'menor_melhor' ? '≤' : '≥'
+  if (a.unidade === 'tempo') return `${sinal} ${minutosParaHHMM(a.metaValor)}`
+  if (a.unidade === 'percentual') return `${sinal} ${a.metaValor}%`
+  if (a.unidade === 'reais') return `${sinal} ${a.metaValor} R$`
+  return `${sinal} ${a.metaValor}`
 }
 const DIRECAO_LABEL: Record<TurnoDirecao, string> = { maior_melhor: '↑ maior melhor', menor_melhor: '↓ menor melhor' }
 
@@ -123,6 +134,80 @@ function ColaboradoresDaAtividade({ atividadeId, elegiveis }: { atividadeId: str
   )
 }
 
+// Lista fixa de pessoas que o conferente confere presença no fim do turno
+// — quem ele marcar "ausente" perde o dia inteiro de RV. Selecionada aqui,
+// por quem cadastra o login do conferente (não precisa coincidir com quem
+// está em cada atividade específica).
+function EquipeDoConferente({ conferenteUsuarioId, elegiveis }: { conferenteUsuarioId: string; elegiveis: ColaboradorElegivel[] }) {
+  const [lista, setLista] = useState<ConferenteEquipeMembro[]>([])
+  const [loading, setLoading] = useState(true)
+  const [colaboradorId, setColaboradorId] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  const carregar = useCallback(async () => {
+    setLoading(true)
+    setLista(await listarEquipeConferente(conferenteUsuarioId))
+    setLoading(false)
+  }, [conferenteUsuarioId])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  async function adicionar() {
+    setErro('')
+    const colaborador = elegiveis.find((c) => c.id === colaboradorId)
+    if (!colaborador) { setErro('Selecione um colaborador.'); return }
+    setSalvando(true)
+    const { error } = await adicionarNaEquipeConferente(conferenteUsuarioId, colaborador.id, colaborador.nome)
+    setSalvando(false)
+    if (error) { setErro(`Erro ao adicionar: ${error}`); return }
+    setColaboradorId('')
+    await carregar()
+  }
+
+  async function alternar(m: ConferenteEquipeMembro) {
+    await alternarAtivoEquipeConferente(m.id, !m.ativo)
+    await carregar()
+  }
+
+  const disponiveis = elegiveis.filter((e) => !lista.some((l) => l.colaboradorId === e.id && l.ativo))
+
+  return (
+    <div className="border rounded-lg p-3 space-y-3 bg-gray-50/50 mt-2">
+      <h5 className="text-xs font-semibold flex items-center gap-1.5"><Users className="h-3.5 w-3.5 text-accent-600" /> Equipe (lista de presença do turno)</h5>
+      {loading ? (
+        <div className="flex justify-center py-3 text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /></div>
+      ) : lista.length === 0 ? (
+        <p className="text-[11px] text-gray-400">Ninguém adicionado ainda — sem equipe, a tela de presença fica vazia pro conferente.</p>
+      ) : (
+        <div className="divide-y border rounded-md bg-white">
+          {lista.map((m) => (
+            <div key={m.id} className={`flex items-center justify-between px-3 py-2 text-xs ${!m.ativo ? 'opacity-40' : ''}`}>
+              <span>{m.colaboradorNome}</span>
+              <button onClick={() => alternar(m)} className="p-1 rounded hover:bg-gray-100" title={m.ativo ? 'Remover' : 'Reativar'}>
+                {m.ativo ? <X className="h-3.5 w-3.5 text-red-500" /> : <Power className="h-3.5 w-3.5 text-green-600" />}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {erro && <p className="text-[11px] text-red-600">{erro}</p>}
+      <div className="flex items-end gap-2">
+        <div className="flex-1">
+          <label className="block text-[10px] font-medium text-gray-500 mb-1">Colaborador</label>
+          <select value={colaboradorId} onChange={(e) => setColaboradorId(e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs">
+            <option value="">Selecione…</option>
+            {disponiveis.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.funcao ? ` — ${c.funcao}` : ''}</option>)}
+          </select>
+        </div>
+        <button onClick={adicionar} disabled={salvando} className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border hover:bg-accent disabled:opacity-50 whitespace-nowrap">
+          {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Adicionar
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
   const [atividades, setAtividades] = useState<TurnoAtividade[]>([])
   const [colaboradoresPorAtividade, setColaboradoresPorAtividade] = useState<Record<string, AtividadeColaborador[]>>({})
@@ -137,6 +222,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
   const [formConferente, setFormConferente] = useState(formConferenteVazio())
   const [salvandoConferente, setSalvandoConferente] = useState(false)
   const [erroConferente, setErroConferente] = useState('')
+  const [equipeExpandida, setEquipeExpandida] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -190,9 +276,10 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
 
   function editar(a: TurnoAtividade) {
     setEditandoId(a.id)
+    const metaValorTexto = a.metaValor == null ? '' : a.unidade === 'tempo' ? minutosParaHHMM(a.metaValor) : String(a.metaValor)
     setForm({
       turno: a.turno, nome: a.nome, tipoRegistro: a.tipoRegistro, unidade: a.unidade,
-      direcao: a.direcao ?? 'maior_melhor', metaValor: a.metaValor != null ? String(a.metaValor) : '',
+      direcao: a.direcao ?? 'maior_melhor', metaValor: metaValorTexto,
       conferenteUsuarioId: a.conferenteUsuarioId ?? '',
     })
   }
@@ -207,9 +294,11 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
     if (!form.nome.trim()) { setErro('Preencha o nome da atividade.'); return }
     if (!form.conferenteUsuarioId) { setErro('Selecione o conferente que fecha o turno.'); return }
     const conferente = conferentes.find((u) => u.id === form.conferenteUsuarioId)
-    const metaValor = form.unidade === 'ok_nok' ? null : parseFloat(form.metaValor.replace(',', '.'))
-    if (form.unidade !== 'ok_nok' && !Number.isFinite(metaValor)) {
-      setErro('Preencha o valor da meta (ou escolha a unidade OK/NOK).')
+    const metaValor = form.unidade === 'ok_nok' ? null
+      : form.unidade === 'tempo' ? hhmmParaMinutos(form.metaValor)
+        : parseFloat(form.metaValor.replace(',', '.'))
+    if (form.unidade !== 'ok_nok' && (metaValor == null || !Number.isFinite(metaValor))) {
+      setErro(form.unidade === 'tempo' ? 'Preencha a meta de tempo no formato hh:mm (ex.: 00:45).' : 'Preencha o valor da meta (ou escolha a unidade OK/NOK).')
       return
     }
     setSalvando(true)
@@ -251,11 +340,19 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
         {conferentes.length > 0 && (
           <div className="divide-y border rounded-md">
             {conferentes.map((c) => (
-              <div key={c.id} className="flex items-center justify-between px-3 py-2 text-xs">
-                <span><b>{c.nome ?? c.login}</b> <span className="text-gray-400 font-mono">({c.login})</span></span>
-                <button onClick={() => resetarSenhaConferente(c)} className="flex items-center gap-1 px-2 py-1 rounded border hover:bg-accent">
-                  <KeyRound className="h-3 w-3" /> Resetar senha
-                </button>
+              <div key={c.id} className="px-3 py-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span><b>{c.nome ?? c.login}</b> <span className="text-gray-400 font-mono">({c.login})</span></span>
+                  <span className="flex items-center gap-1">
+                    <button onClick={() => setEquipeExpandida((v) => (v === c.id ? null : c.id))} className="flex items-center gap-1 px-2 py-1 rounded border hover:bg-accent">
+                      <Users className="h-3 w-3" /> Equipe (presença)
+                    </button>
+                    <button onClick={() => resetarSenhaConferente(c)} className="flex items-center gap-1 px-2 py-1 rounded border hover:bg-accent">
+                      <KeyRound className="h-3 w-3" /> Resetar senha
+                    </button>
+                  </span>
+                </div>
+                {equipeExpandida === c.id && <EquipeDoConferente conferenteUsuarioId={c.id} elegiveis={elegiveis} />}
               </div>
             ))}
           </div>
@@ -314,11 +411,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
                         {a.tipoRegistro === 'manual' ? 'Manual' : 'Upload'}
                       </span>
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap">
-                      {a.unidade === 'ok_nok' ? 'OK/NOK' : (
-                        <>{a.direcao === 'menor_melhor' ? '≤' : '≥'} {a.metaValor}{a.unidade === 'percentual' ? '%' : a.unidade === 'reais' ? ' R$' : ''}</>
-                      )}
-                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">{formatarMetaTexto(a)}</td>
                     <td className="px-3 py-2">
                       {colabs.length === 0 ? '—' : colabs.map((c) => c.colaboradorNome).join(', ')}
                     </td>
@@ -372,7 +465,12 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
               </div>
               <div>
                 <label className="block text-[11px] font-medium text-gray-500 mb-1">Valor da meta</label>
-                <input value={form.metaValor} onChange={(e) => setForm((f) => ({ ...f, metaValor: e.target.value }))} className="w-full border rounded px-2 py-1.5 text-xs font-mono" />
+                <input
+                  value={form.metaValor}
+                  onChange={(e) => setForm((f) => ({ ...f, metaValor: e.target.value }))}
+                  placeholder={form.unidade === 'tempo' ? 'hh:mm (ex.: 00:45)' : undefined}
+                  className="w-full border rounded px-2 py-1.5 text-xs font-mono"
+                />
               </div>
             </>
           ) : (

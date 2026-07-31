@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Wallet, ArrowLeft, Building2, Loader2, Delete, Search, ChevronRight, ChevronLeft, TrendingUp, CalendarRange, HelpCircle, X } from 'lucide-react'
+import { Wallet, ArrowLeft, Building2, Loader2, Delete, Search, ChevronRight, ChevronLeft, ChevronUp, ChevronDown, TrendingUp, CalendarRange, HelpCircle, X } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import {
   buscarTotemCompetencia, buscarCompetenciaPorCpf, competenciaAtual, competenciaAnterior, competenciaSeguinte,
@@ -331,11 +331,14 @@ export default function VariavelTotem() {
 
 // Seção extra da RV por atividade de turno — só aparece se a pessoa
 // estiver flegada como responsável de alguma atividade (variavel_turno_
-// atividades.colaborador_id). É um mecanismo separado da RV por pontuação
-// acima (calendário do mês, não a competência 21→20).
+// atividade_colaboradores). É um mecanismo separado da RV por pontuação
+// acima (calendário do mês, não a competência 21→20). Mostra o acumulado
+// por atividade; clicar numa atividade abre os dias com o resultado que o
+// conferente lançou naquele fechamento + o valor gerado (ou "Ausente").
 function AcumuladoAtividadesSecao({ filial, cpfReal }: { filial: string; cpfReal: string }) {
   const [dados, setDados] = useState<AcumuladoColaboradorMes | null>(null)
   const [carregando, setCarregando] = useState(true)
+  const [aberta, setAberta] = useState<string | null>(null)
 
   useEffect(() => {
     setCarregando(true)
@@ -347,9 +350,11 @@ function AcumuladoAtividadesSecao({ filial, cpfReal }: { filial: string; cpfReal
 
   if (carregando || !dados) return null
 
+  const turnos = [...new Set(dados.porAtividade.map((a) => a.turno))]
+
   return (
     <div>
-      <div className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">RV por atividade — {dados.atividades.map((a) => a.turno).filter((v, i, arr) => arr.indexOf(v) === i).join(', ')}</div>
+      <div className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">RV por atividade — {turnos.join(', ')}</div>
       <div className="rounded-2xl bg-green-50 border border-green-200 p-5">
         <div className="text-center">
           <div className="text-[10px] font-bold uppercase tracking-wide text-green-700">Acumulado do mês</div>
@@ -368,15 +373,39 @@ function AcumuladoAtividadesSecao({ filial, cpfReal }: { filial: string; cpfReal
       </div>
 
       <div className="flex flex-col gap-1.5 mt-3">
-        {dados.dias.slice(0, 10).map((d, i) => (
-          <div key={i} className={`rounded-xl border px-3 py-2 flex items-center justify-between ${d.valorGerado > 0 ? 'border-green-200 bg-green-50/60' : 'border-gray-100 bg-gray-50'}`}>
-            <span className="text-sm">
-              <span className="font-semibold">{formatarDataBR(d.data)}</span>
-              <span className="text-gray-500"> · {d.atividadeNome}</span>
-            </span>
-            <span className={`text-sm font-extrabold tabular-nums ${d.valorGerado > 0 ? 'text-green-700' : 'text-gray-400'}`}>{formatarBRL(d.valorGerado)}</span>
-          </div>
-        ))}
+        {dados.porAtividade.map((a) => {
+          const abertaAgora = aberta === a.atividadeId
+          return (
+            <div key={a.atividadeId} className="rounded-xl border border-gray-200 overflow-hidden">
+              <button
+                onClick={() => setAberta(abertaAgora ? null : a.atividadeId)}
+                className="w-full flex items-center justify-between px-3 py-2.5 text-left bg-white active:bg-gray-50"
+              >
+                <span className="text-sm">
+                  <span className="font-semibold">{a.atividadeNome}</span>
+                  <span className="text-gray-500"> · {a.turno} · {a.dias.length} dia(s)</span>
+                </span>
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-extrabold tabular-nums text-green-700">{formatarBRL(a.totalGerado)}</span>
+                  {abertaAgora ? <ChevronUp className="h-4 w-4 text-gray-400" /> : <ChevronDown className="h-4 w-4 text-gray-400" />}
+                </span>
+              </button>
+              {abertaAgora && (
+                <div className="divide-y border-t border-gray-100">
+                  {a.dias.map((d, i) => (
+                    <div key={i} className="flex items-center justify-between px-3 py-2 text-xs bg-gray-50/60">
+                      <span>
+                        <span className="font-semibold">{formatarDataBR(d.data)}</span>
+                        <span className="text-gray-500"> · {d.resultadoTexto}</span>
+                      </span>
+                      <span className={`font-extrabold tabular-nums ${d.ausente ? 'text-red-500' : d.valorGerado > 0 ? 'text-green-700' : 'text-gray-400'}`}>{formatarBRL(d.valorGerado)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )

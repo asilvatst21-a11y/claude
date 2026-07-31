@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Building2, User, Lock, Loader2, LogOut, ClipboardCheck, ChevronLeft } from 'lucide-react'
+import { Building2, User, Lock, Loader2, LogOut, ClipboardCheck, ChevronLeft, CheckCircle2, Users } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
 import { supabase } from '../../lib/supabase'
 import {
-  listarAtividadesConferente, registrarAtividadeTurno, bateuMetaAtividade, formatarBRL,
-  type AtividadeConferente,
+  listarAtividadesConferente, registrarAtividadeTurno, hhmmParaMinutos, minutosParaHHMM,
+  listarEquipeConferente, buscarPresencaDoDia, registrarPresencasDoDia,
+  type AtividadeConferente, type ConferenteEquipeMembro, type PresencaDia,
 } from '../../lib/variavelTurno'
 
 function hojeISO(): string {
@@ -84,17 +85,23 @@ export function LoginConferente() {
   )
 }
 
-function unidadeSufixo(unidade: string): string {
-  if (unidade === 'percentual') return '%'
-  if (unidade === 'reais') return ' R$'
-  return ''
-}
+// Entrada do resultado — só o valor daquela atividade, sem mostrar meta,
+// colaboradores nem o que cada um vai receber (decisão explícita: o
+// conferente só registra o que aconteceu, o cálculo de RV fica invisível
+// pra ele).
+function EntradaValor({ unidade, valorInicial, onSalvar, salvando }: {
+  unidade: AtividadeConferente['unidade']
+  valorInicial: { valorNumero: number | null; okNok: boolean | null }
+  onSalvar: (valorNumero: number | null, okNok: boolean | null) => void
+  salvando: boolean
+}) {
+  const [valor, setValor] = useState(
+    unidade === 'tempo' && valorInicial.valorNumero != null ? minutosParaHHMM(valorInicial.valorNumero)
+      : valorInicial.valorNumero != null ? String(valorInicial.valorNumero) : '',
+  )
+  const [okNok, setOkNok] = useState<boolean | null>(valorInicial.okNok)
 
-function EntradaValor({ atividade, onSalvar, salvando }: { atividade: AtividadeConferente; onSalvar: (valorNumero: number | null, okNok: boolean | null) => void; salvando: boolean }) {
-  const [valor, setValor] = useState(atividade.registroHoje?.valorNumero != null ? String(atividade.registroHoje.valorNumero) : '')
-  const [okNok, setOkNok] = useState<boolean | null>(atividade.registroHoje?.okNok ?? null)
-
-  if (atividade.unidade === 'ok_nok') {
+  if (unidade === 'ok_nok') {
     return (
       <div className="flex gap-3 mt-5">
         <button onClick={() => setOkNok(true)} className={`flex-1 py-4 rounded-2xl font-bold text-sm ${okNok === true ? 'bg-green-500 text-white' : 'bg-white/10 text-white'}`}>OK</button>
@@ -110,22 +117,25 @@ function EntradaValor({ atividade, onSalvar, salvando }: { atividade: AtividadeC
     )
   }
 
-  const numero = parseFloat(valor.replace(',', '.'))
+  const numero = unidade === 'tempo' ? hhmmParaMinutos(valor) : parseFloat(valor.replace(',', '.'))
+  const valido = numero != null && Number.isFinite(numero)
+  const sufixo = unidade === 'percentual' ? '%' : unidade === 'reais' ? ' R$' : ''
+
   return (
     <div className="mt-5 space-y-3">
       <div className="bg-white/10 rounded-2xl px-5 py-6 text-center flex items-center justify-center gap-6">
         <button onClick={() => setValor((v) => v.slice(0, -1))} className="text-white/50 text-sm font-semibold px-2">⌫</button>
         <input
           value={valor}
-          onChange={(e) => setValor(e.target.value.replace(/[^0-9,.]/g, ''))}
-          inputMode="decimal"
-          placeholder="0"
+          onChange={(e) => setValor(unidade === 'tempo' ? e.target.value.replace(/[^0-9:]/g, '') : e.target.value.replace(/[^0-9,.]/g, ''))}
+          inputMode={unidade === 'tempo' ? 'numeric' : 'decimal'}
+          placeholder={unidade === 'tempo' ? 'hh:mm' : '0'}
           className="bg-transparent text-center text-4xl font-bold tabular-nums text-white outline-none w-40"
         />
-        <span className="text-white/40 text-lg font-bold">{unidadeSufixo(atividade.unidade)}</span>
+        <span className="text-white/40 text-lg font-bold">{sufixo}</span>
       </div>
       <button
-        disabled={!Number.isFinite(numero) || salvando}
+        disabled={!valido || salvando}
         onClick={() => onSalvar(numero, null)}
         className="w-full bg-[#b6661a] disabled:opacity-40 text-white font-bold text-sm py-3.5 rounded-2xl flex items-center justify-center gap-2"
       >
@@ -139,55 +149,134 @@ function TelaRegistro({ atividade, onVoltar }: { atividade: AtividadeConferente;
   const { usuario } = useAuth()
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
-  const [resultado, setResultado] = useState<{ bateu: boolean; creditos: { colaboradorNome: string; valorGerado: number }[] } | null>(null)
   const hoje = hojeISO()
-  const colaboradoresAtivos = atividade.colaboradores.filter((c) => c.ativo)
 
   async function salvar(valorNumero: number | null, okNok: boolean | null) {
     if (!usuario) return
     setSalvando(true)
     setErro('')
-    const { error, creditos } = await registrarAtividadeTurno(
+    const { error } = await registrarAtividadeTurno(
       atividade, atividade.colaboradores, hoje, { valorNumero, okNok },
       { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login },
     )
     setSalvando(false)
     if (error) { setErro(error); return }
-    setResultado({ bateu: bateuMetaAtividade(atividade, valorNumero, okNok), creditos })
+    onVoltar(true)
   }
-
-  const metaTexto = atividade.unidade === 'ok_nok'
-    ? 'Meta: precisa ser OK'
-    : `Meta ${atividade.direcao === 'menor_melhor' ? '≤' : '≥'} ${atividade.metaValor}${unidadeSufixo(atividade.unidade)}`
 
   return (
     <div className="min-h-screen bg-[#0b1f2b] text-white flex flex-col px-5 pt-8 pb-10">
       <div className="flex items-center justify-between mb-6">
-        <button onClick={() => onVoltar(!!resultado)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><ChevronLeft size={18} /></button>
-        <div className="text-xs text-white/50 text-right">{atividade.turno}<br />{new Date(`${hoje}T00:00:00`).toLocaleDateString('pt-BR')}</div>
+        <button onClick={() => onVoltar(false)} className="w-8 h-8 rounded-full bg-white/10 flex items-center justify-center"><ChevronLeft size={18} /></button>
+        <div className="text-xs text-white/50 text-right">{new Date(`${hoje}T00:00:00`).toLocaleDateString('pt-BR')}</div>
       </div>
       <h2 className="text-xl font-bold">{atividade.nome}</h2>
-      <p className="text-sm text-white/50 mt-1">
-        {metaTexto} · {colaboradoresAtivos.length} colaborador{colaboradoresAtivos.length !== 1 ? 'es' : ''}: {colaboradoresAtivos.map((c) => c.colaboradorNome).join(', ') || '—'}
-      </p>
+      <p className="text-sm text-white/50 mt-1">Registre o resultado do turno.</p>
 
       {erro && <div className="bg-red-500/20 text-red-200 text-xs rounded-lg px-3 py-2 mt-4">{erro}</div>}
 
-      {!resultado ? (
-        <EntradaValor atividade={atividade} onSalvar={salvar} salvando={salvando} />
-      ) : (
-        <div className="mt-6 space-y-2">
-          <div className={`rounded-2xl px-5 py-3 font-bold text-sm ${resultado.bateu ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
-            {resultado.bateu ? '✓ bateu a meta — crédito lançado pra cada colaborador' : '✕ não bateu a meta — sem RV hoje'}
+      <EntradaValor
+        unidade={atividade.unidade}
+        valorInicial={{ valorNumero: atividade.registroHoje?.valorNumero ?? null, okNok: atividade.registroHoje?.okNok ?? null }}
+        onSalvar={salvar}
+        salvando={salvando}
+      />
+    </div>
+  )
+}
+
+// Depois que TODAS as atividades manuais do dia estão registradas, o
+// conferente confere presença da equipe fixa dele — quem ele marcar
+// ausente perde o dia inteiro de RV, mesmo que a atividade tenha batido a
+// meta (zera os créditos do dia daquela pessoa).
+function TelaPresenca({ onConcluir }: { onConcluir: () => void }) {
+  const { usuario } = useAuth()
+  const [equipe, setEquipe] = useState<ConferenteEquipeMembro[]>([])
+  const [presencas, setPresencas] = useState<Record<string, boolean>>({})
+  const [loading, setLoading] = useState(true)
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+  const [concluido, setConcluido] = useState(false)
+  const hoje = hojeISO()
+
+  useEffect(() => {
+    if (!usuario) return
+    setLoading(true)
+    Promise.all([listarEquipeConferente(usuario.id), buscarPresencaDoDia(usuario.id, hoje)]).then(([eq, jaMarcado]) => {
+      setEquipe(eq.filter((m) => m.ativo))
+      const inicial: Record<string, boolean> = {}
+      for (const m of eq) inicial[m.id] = true
+      for (const p of jaMarcado) {
+        const membro = eq.find((m) => m.colaboradorId === p.colaboradorId)
+        if (membro) inicial[membro.id] = p.presente
+      }
+      setPresencas(inicial)
+      if (jaMarcado.length > 0) setConcluido(true)
+      setLoading(false)
+    })
+  }, [usuario, hoje])
+
+  async function confirmar() {
+    if (!usuario) return
+    setSalvando(true)
+    setErro('')
+    const lista: PresencaDia[] = equipe.map((m) => ({ colaboradorId: m.colaboradorId, colaboradorNome: m.colaboradorNome, presente: presencas[m.id] ?? true }))
+    const { error } = await registrarPresencasDoDia(usuario.id, hoje, lista)
+    setSalvando(false)
+    if (error) { setErro(error); return }
+    setConcluido(true)
+  }
+
+  if (loading) {
+    return <div className="min-h-screen bg-[#f4f6f8] flex items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-gray-400" /></div>
+  }
+
+  if (concluido) {
+    return (
+      <div className="min-h-screen bg-[#0b1f2b] text-white flex flex-col items-center justify-center px-5 text-center">
+        <CheckCircle2 className="h-14 w-14 text-green-400 mb-4" />
+        <h2 className="text-xl font-bold">Turno fechado!</h2>
+        <p className="text-white/50 text-sm mt-1">Todas as atividades e a presença de hoje já foram registradas.</p>
+        <button onClick={onConcluir} className="mt-6 text-sm px-5 py-2.5 rounded-xl bg-white/10">Voltar</button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="min-h-screen bg-[#f4f6f8] flex flex-col">
+      <header className="bg-[#0b1f2b] text-white px-5 pt-8 pb-6 rounded-b-3xl shadow-lg">
+        <div className="flex items-center gap-2">
+          <Users size={20} />
+          <div>
+            <h1 className="text-lg font-bold">Lista de presença</h1>
+            <p className="text-white/50 text-xs mt-0.5">Quem não está presente hoje perde o dia de RV.</p>
           </div>
-          {resultado.creditos.map((c) => (
-            <div key={c.colaboradorNome} className="flex items-center justify-between text-sm bg-white/5 rounded-xl px-4 py-2.5">
-              <span>{c.colaboradorNome}</span>
-              <span className={`font-bold ${c.valorGerado > 0 ? 'text-green-300' : 'text-white/40'}`}>{c.valorGerado > 0 ? `+ ${formatarBRL(c.valorGerado)}` : formatarBRL(0)}</span>
-            </div>
-          ))}
         </div>
-      )}
+      </header>
+      <main className="flex-1 px-5 py-6">
+        {erro && <p className="text-red-600 text-sm mb-3">{erro}</p>}
+        {equipe.length === 0 ? (
+          <p className="text-gray-400 text-center py-12 text-sm">Nenhuma equipe cadastrada pra você. Fale com quem gerencia o Armazém.</p>
+        ) : (
+          <div className="space-y-2">
+            {equipe.map((m) => {
+              const presente = presencas[m.id] ?? true
+              return (
+                <div key={m.id} className="bg-white rounded-2xl shadow-sm border p-4 flex items-center justify-between">
+                  <span className="font-semibold text-gray-800 text-sm">{m.colaboradorNome}</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => setPresencas((p) => ({ ...p, [m.id]: true }))} className={`text-xs font-bold px-3 py-1.5 rounded-full ${presente ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-400'}`}>Presente</button>
+                    <button onClick={() => setPresencas((p) => ({ ...p, [m.id]: false }))} className={`text-xs font-bold px-3 py-1.5 rounded-full ${!presente ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-400'}`}>Ausente</button>
+                  </div>
+                </div>
+              )
+            })}
+            <button onClick={confirmar} disabled={salvando} className="w-full mt-4 bg-[#b6661a] disabled:opacity-50 text-white font-bold text-sm py-3.5 rounded-2xl flex items-center justify-center gap-2">
+              {salvando ? <Loader2 size={16} className="animate-spin" /> : 'Confirmar presença do dia'}
+            </button>
+          </div>
+        )}
+      </main>
     </div>
   )
 }
@@ -197,6 +286,7 @@ export default function VariavelTurnoConferente() {
   const [atividades, setAtividades] = useState<AtividadeConferente[]>([])
   const [loading, setLoading] = useState(true)
   const [aberta, setAberta] = useState<AtividadeConferente | null>(null)
+  const [mostrarPresenca, setMostrarPresenca] = useState(false)
   const [erro, setErro] = useState('')
 
   const carregar = useCallback(async () => {
@@ -225,7 +315,11 @@ export default function VariavelTurnoConferente() {
     )
   }
 
-  const turnos = [...new Set(atividades.map((a) => a.turno))]
+  if (mostrarPresenca) {
+    return <TelaPresenca onConcluir={() => setMostrarPresenca(false)} />
+  }
+
+  const todasFeitas = atividades.length > 0 && atividades.every((a) => !!a.registroHoje)
 
   return (
     <div className="min-h-screen bg-[#f4f6f8] flex flex-col">
@@ -234,7 +328,7 @@ export default function VariavelTurnoConferente() {
           <div>
             <p className="text-white/60 text-sm">Olá,</p>
             <h1 className="text-2xl font-bold">{usuario.nome ?? usuario.login}</h1>
-            <p className="text-white/50 text-sm mt-0.5">Conferente{turnos.length > 0 ? ` · ${turnos.join(', ')}` : ''} · {new Date(`${hojeISO()}T00:00:00`).toLocaleDateString('pt-BR')}</p>
+            <p className="text-white/50 text-sm mt-0.5">Conferente · {new Date(`${hojeISO()}T00:00:00`).toLocaleDateString('pt-BR')}</p>
           </div>
           <button onClick={sair} className="p-2 rounded-full bg-white/10 hover:bg-white/20" title="Sair"><LogOut size={20} /></button>
         </div>
@@ -259,21 +353,21 @@ export default function VariavelTurnoConferente() {
                   onClick={() => setAberta(a)}
                   className={`w-full bg-white rounded-2xl shadow-sm border p-5 text-left flex items-center justify-between active:scale-[0.98] transition-transform ${feita ? 'opacity-55' : ''}`}
                 >
-                  <div>
-                    <p className="text-base font-bold text-gray-800">{a.nome}</p>
-                    <p className="text-sm text-gray-400 mt-0.5">
-                      {feita
-                        ? `✓ já registrada · ${a.registroHoje?.okNok != null ? (a.registroHoje.okNok ? 'OK' : 'NOK') : `${a.registroHoje?.valorNumero}${unidadeSufixo(a.unidade)}`}`
-                        : a.unidade === 'ok_nok' ? 'Meta: OK' : `Meta ${a.direcao === 'menor_melhor' ? '≤' : '≥'} ${a.metaValor}${unidadeSufixo(a.unidade)}`}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">{a.colaboradores.filter((c) => c.ativo).map((c) => c.colaboradorNome).join(', ') || 'Sem colaborador cadastrado'}</p>
-                  </div>
+                  <p className="text-base font-bold text-gray-800">{a.nome}</p>
                   <div className={`rounded-full p-3 text-white ${feita ? 'bg-green-500' : 'bg-[#b6661a]'}`}>
                     {feita ? '✓' : '›'}
                   </div>
                 </button>
               )
             })}
+            {todasFeitas && (
+              <button
+                onClick={() => setMostrarPresenca(true)}
+                className="w-full mt-2 bg-[#0b1f2b] text-white font-bold text-sm py-4 rounded-2xl flex items-center justify-center gap-2"
+              >
+                <Users className="h-4 w-4" /> Conferir presença da equipe
+              </button>
+            )}
           </div>
         )}
       </main>
