@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Loader2, Plus, Power, Layers, UserCog, KeyRound } from 'lucide-react'
-import { buscarColaboradores, type ColaboradorArmazem } from '../../lib/variavelArmazem'
 import { listarUsuarios, criarUsuario, resetarSenhaUsuario } from '../../lib/usuariosApi'
 import type { Usuario } from '../../types'
 import {
   listarAtividadesTurno, salvarAtividadeTurno, alternarAtivoAtividadeTurno, cotaDiaria, formatarBRL,
-  type TurnoAtividade, type TurnoTipoRegistro, type TurnoUnidade, type TurnoDirecao,
+  listarColaboradoresElegiveis, type TurnoAtividade, type TurnoTipoRegistro, type TurnoUnidade, type TurnoDirecao,
+  type ColaboradorElegivel,
 } from '../../lib/variavelTurno'
 
 const UNIDADE_LABEL: Record<TurnoUnidade, string> = {
@@ -35,7 +35,7 @@ function formConferenteVazio() {
 
 export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
   const [atividades, setAtividades] = useState<TurnoAtividade[]>([])
-  const [colaboradores, setColaboradores] = useState<ColaboradorArmazem[]>([])
+  const [colaboradores, setColaboradores] = useState<ColaboradorElegivel[]>([])
   const [conferentes, setConferentes] = useState<Usuario[]>([])
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
@@ -51,11 +51,11 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
     setLoading(true)
     const [ativs, colabs, usuariosDaFilial] = await Promise.all([
       listarAtividadesTurno(filial),
-      buscarColaboradores(filial),
+      listarColaboradoresElegiveis(filial),
       listarUsuarios({ filial, apenasComCargo: true }).catch(() => [] as Usuario[]),
     ])
     setAtividades(ativs)
-    setColaboradores(colabs.filter((c) => c.ativo))
+    setColaboradores(colabs)
     setConferentes(usuariosDaFilial.filter((u) => u.cargo === CARGO_CONFERENTE))
     setLoading(false)
   }, [filial])
@@ -116,7 +116,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
       setErro('Preencha o nome da atividade e o valor final mensal.')
       return
     }
-    if (!form.colaboradorId) { setErro('Selecione o ajudante responsável.'); return }
+    if (!form.colaboradorId) { setErro('Selecione o colaborador responsável.'); return }
     if (!form.conferenteUsuarioId) { setErro('Selecione o conferente que fecha o turno.'); return }
     const colaborador = colaboradores.find((c) => c.id === form.colaboradorId)
     const conferente = conferentes.find((u) => u.id === form.conferenteUsuarioId)
@@ -294,11 +294,16 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
           </div>
 
           <div className="sm:col-span-2">
-            <label className="block text-[11px] font-medium text-gray-500 mb-1">Ajudante responsável</label>
+            <label className="block text-[11px] font-medium text-gray-500 mb-1">Colaborador responsável</label>
             <select value={form.colaboradorId} onChange={(e) => setForm((f) => ({ ...f, colaboradorId: e.target.value }))} className="w-full border rounded px-2 py-1.5 text-xs">
               <option value="">Selecione…</option>
-              {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+              {colaboradores.map((c) => <option key={c.id} value={c.id}>{c.nome}{c.funcao ? ` — ${c.funcao}` : ''}</option>)}
             </select>
+            {colaboradores.length === 0 && (
+              <p className="text-[10px] text-amber-600 mt-1">
+                Nenhum colaborador com função "Ajudante de Armazém" ou "Operador de Empilhadeira" encontrado em Gente › Colaboradores.
+              </p>
+            )}
           </div>
           <div className="sm:col-span-2">
             <label className="block text-[11px] font-medium text-gray-500 mb-1">Conferente que fecha o turno</label>

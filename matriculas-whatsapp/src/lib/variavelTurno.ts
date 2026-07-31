@@ -7,6 +7,25 @@ import { formatarBRL } from './variavelArmazem'
 // mensal é dividido pelos dias úteis (segunda a sábado) do mês corrente pra
 // virar a cota diária de cada atividade. ──────────────────────────────────
 
+// Colaboradores elegíveis a "responsável" de uma atividade — vem do
+// cadastro central de Colaboradores (Gente), não do cadastro específico da
+// RV por pontuação (armazem_colaboradores). Só função/cargo condizente com
+// atividade de armazém: Ajudante de Armazém ou Operador de Empilhadeira.
+// `funcao` é texto livre importado de planilha de RH, daí o ILIKE em vez de
+// um enum fixo.
+export interface ColaboradorElegivel { id: string; nome: string; funcao: string | null }
+
+export async function listarColaboradoresElegiveis(filial: string): Promise<ColaboradorElegivel[]> {
+  const { data, error } = await supabase
+    .from('colaboradores')
+    .select('id, nome, funcao, status')
+    .eq('filial', filial)
+    .or('funcao.ilike.%ajudante de armaz%,funcao.ilike.%operador de empilhadeira%')
+    .order('nome')
+  if (error) { console.error('listarColaboradoresElegiveis error:', error.message); return [] }
+  return (data ?? []).filter((c) => c.status !== 'DESLIGADO').map((c) => ({ id: c.id, nome: c.nome, funcao: c.funcao }))
+}
+
 export type TurnoTipoRegistro = 'manual' | 'upload'
 export type TurnoUnidade = 'percentual' | 'reais' | 'numero' | 'ok_nok'
 export type TurnoDirecao = 'maior_melhor' | 'menor_melhor'
@@ -201,17 +220,21 @@ export interface AcumuladoColaboradorMes {
 }
 
 // Mesma consulta, mas a partir do CPF (real, não mascarado) — é o que o
-// totem público tem em mãos depois de identificar a pessoa, sem conhecer o
-// id interno de armazem_colaboradores.
+// totem público tem em mãos depois de identificar a pessoa (via
+// armazem_colaboradores, cadastro da RV por pontuação), sem conhecer o id
+// do cadastro central de Colaboradores usado pelo "responsável" da RV por
+// turno. Compara só os dígitos — o cadastro central nem sempre guarda o CPF
+// já normalizado (sem pontuação) como o de armazem_colaboradores guarda.
 export async function buscarAcumuladoPorCpf(filial: string, cpfReal: string, mesISO: string): Promise<AcumuladoColaboradorMes | null> {
-  const { data: colaborador } = await supabase
-    .from('armazem_colaboradores')
-    .select('id')
+  const digitos = cpfReal.replace(/\D/g, '')
+  const { data: colaboradores } = await supabase
+    .from('colaboradores')
+    .select('id, cpf')
     .eq('filial', filial)
-    .eq('cpf', cpfReal)
-    .maybeSingle()
-  if (!colaborador) return null
-  return buscarAcumuladoColaboradorMes(filial, colaborador.id, mesISO)
+    .not('cpf', 'is', null)
+  const encontrado = (colaboradores ?? []).find((c) => (c.cpf as string).replace(/\D/g, '') === digitos)
+  if (!encontrado) return null
+  return buscarAcumuladoColaboradorMes(filial, encontrado.id, mesISO)
 }
 
 // Acumulado do mês de um colaborador (ajudante) flegado como responsável de
