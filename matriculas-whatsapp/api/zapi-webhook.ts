@@ -3642,7 +3642,19 @@ async function tratarAurora(
     }
   }
 
-  if (!ehSaudacaoAurora(texto)) return null
+  if (!ehSaudacaoAurora(texto)) {
+    // Sem sessão ativa, nenhum fluxo anterior no roteamento reivindicou a
+    // mensagem, e o texto não bateu com a saudação exata (só "oi"/"olá"/
+    // "aurora"/"menu"). Sem esse fallback, qualquer abertura diferente
+    // ("bom dia", "cheguei", "preciso de ajuda" etc.) ficava sem resposta
+    // nenhuma — bug real relatado por motoristas. Mesmo padrão já existia
+    // pra áudio sem correspondência (aurora-audio-menu, acima); texto
+    // continua ignorando clique de botão de outro fluxo (rawBtn) e mensagem
+    // vazia, pra não reivindicar algo que não é abertura de conversa.
+    if (!texto.trim() || extrairBotaoResposta(body)) return null
+    await mostrarMenuCategorias(remetente, senderName || null)
+    return { ok: true, action: 'aurora-menu-fallback' }
+  }
   await mostrarMenuCategorias(remetente, senderName || null)
   return { ok: true, action: 'aurora-menu-inicial' }
 }
