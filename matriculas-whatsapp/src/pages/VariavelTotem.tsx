@@ -4,10 +4,10 @@ import { Wallet, ArrowLeft, Building2, Loader2, Delete, Search, ChevronRight, Ch
 import { supabase } from '../lib/supabase'
 import {
   buscarTotemCompetencia, buscarCompetenciaPorCpf, competenciaAtual, competenciaAnterior, competenciaSeguinte,
-  rangeCompetencia, buscarClusters, clusterDoTotal, formatarBRL,
+  rangeCompetencia, buscarClusters, clusterDoTotal, formatarBRL, agregarDiasCompetencia,
   type ResultadoTotemCompetencia, type DiaCompetencia, type Cluster,
 } from '../lib/variavelArmazem'
-import { buscarAcumuladoPorCpf, type AcumuladoColaboradorMes } from '../lib/variavelTurno'
+import { buscarAcumuladoPorCpf, buscarColaboradoresTurnoPorPrefixoCpf, type AcumuladoColaboradorMes } from '../lib/variavelTurno'
 import { formatarDataBR } from '../lib/utils'
 
 function competenciaLabel(mesRotulo: string): string {
@@ -79,7 +79,15 @@ export default function VariavelTotem() {
     if (digitos.length !== 3 || !filial) { setErro('Digite os 3 primeiros números do seu CPF.'); return }
     setErro(''); setBuscando(true); setResultadosLista(null)
     try {
-      const res = await buscarTotemCompetencia(filial, digitos, mesRotulo)
+      let res = await buscarTotemCompetencia(filial, digitos, mesRotulo)
+      if (res.length === 0) {
+        // Ninguém com pontuação lançada nessa competência — mas a pessoa
+        // pode estar flegada só na RV por atividade de turno (sem nunca ter
+        // tido pontuação). Antes de dizer "não encontramos", tenta achar
+        // por lá também.
+        const turno = await buscarColaboradoresTurnoPorPrefixoCpf(filial, digitos)
+        res = turno.map((t) => agregarDiasCompetencia(t.cpfReal, t.nome, []))
+      }
       if (res.length === 0) {
         setErro('Não encontramos sua variável nesta competência. Confira os 3 dígitos ou fale com o supervisor.')
         return

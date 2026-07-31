@@ -310,6 +310,26 @@ export async function buscarAcumuladoPorCpf(filial: string, cpfReal: string, mes
   return buscarAcumuladoColaboradorMes(filial, encontrado.id, mesISO)
 }
 
+// Fallback do totem quando a busca por pontuação (variavel_pontuacao) não
+// acha nada — a pessoa pode estar flegada só na RV por atividade de turno,
+// sem nunca ter tido pontuação lançada (nem precisa estar em
+// armazem_colaboradores pra isso). Compara pelos 3 primeiros dígitos, igual
+// a busca original, e só devolve quem realmente tem algum vínculo de
+// atividade — senão o totem "encontraria" qualquer colaborador do cadastro
+// central sem RV nenhuma pra mostrar.
+export async function buscarColaboradoresTurnoPorPrefixoCpf(filial: string, prefixo: string): Promise<{ cpfReal: string; nome: string }[]> {
+  const digitosPrefixo = prefixo.replace(/\D/g, '')
+  if (digitosPrefixo.length < 3) return []
+  const [{ data: colaboradoresCadastro }, { data: vinculos }] = await Promise.all([
+    supabase.from('colaboradores').select('id, nome, cpf').eq('filial', filial).not('cpf', 'is', null),
+    supabase.from('variavel_turno_atividade_colaboradores').select('colaborador_id').eq('ativo', true),
+  ])
+  const idsComVinculo = new Set((vinculos ?? []).map((v) => v.colaborador_id).filter(Boolean))
+  return (colaboradoresCadastro ?? [])
+    .filter((c) => idsComVinculo.has(c.id) && (c.cpf as string).replace(/\D/g, '').startsWith(digitosPrefixo))
+    .map((c) => ({ cpfReal: (c.cpf as string).replace(/\D/g, ''), nome: c.nome as string }))
+}
+
 // Acumulado do mês de um colaborador flegado em alguma atividade de turno —
 // usado na consulta pública (mesmo totem da Variável por pontuação, seção
 // extra "por atividade"). Lê os créditos já calculados (variavel_turno_

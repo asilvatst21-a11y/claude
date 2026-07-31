@@ -621,7 +621,7 @@ export interface ResultadoTotemCompetencia {
   maiorDia: DiaCompetencia | null
 }
 
-function agregarDiasCompetencia(cpfReal: string, nome: string, linhas: { data: string; total: number; valor_por_1000: number | null; valor_calculado: number; rv_dobrada?: boolean }[]): ResultadoTotemCompetencia {
+export function agregarDiasCompetencia(cpfReal: string, nome: string, linhas: { data: string; total: number; valor_por_1000: number | null; valor_calculado: number; rv_dobrada?: boolean }[]): ResultadoTotemCompetencia {
   const dias: DiaCompetencia[] = linhas.map((r) => ({
     data: r.data,
     pontuacaoTotal: Number(r.total),
