@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Plus, Power, Layers } from 'lucide-react'
-import { supabase } from '../../lib/supabase'
+import { Loader2, Plus, Power, Layers, UserCog, KeyRound } from 'lucide-react'
 import { buscarColaboradores, type ColaboradorArmazem } from '../../lib/variavelArmazem'
+import { listarUsuarios, criarUsuario, resetarSenhaUsuario } from '../../lib/usuariosApi'
+import type { Usuario } from '../../types'
 import {
   listarAtividadesTurno, salvarAtividadeTurno, alternarAtivoAtividadeTurno, cotaDiaria, formatarBRL,
   type TurnoAtividade, type TurnoTipoRegistro, type TurnoUnidade, type TurnoDirecao,
@@ -12,7 +13,13 @@ const UNIDADE_LABEL: Record<TurnoUnidade, string> = {
 }
 const DIRECAO_LABEL: Record<TurnoDirecao, string> = { maior_melhor: '↑ maior melhor', menor_melhor: '↓ menor melhor' }
 
-interface UsuarioSimples { id: string; nome: string | null; login: string }
+// Cargo usado só pra identificar o login do conferente — o acesso direto à
+// tabela `usuarios` é fechado por RLS (supabase-fechar-usuarios.sql), então
+// login/senha são criados via api/usuarios (mesmo caminho já usado pela
+// tela de Operadores do Armazém). Com cargo preenchido, um usuário não-admin
+// (o supervisor do Armazém, não o admin geral) já tem permissão de criar.
+const CARGO_CONFERENTE = 'Conferente RV'
+const SENHA_PADRAO_CONFERENTE = 'CONFERENTE123'
 
 function formVazio(filial: string) {
   return {
@@ -22,30 +29,70 @@ function formVazio(filial: string) {
   }
 }
 
+function formConferenteVazio() {
+  return { login: '', nome: '', senha: '' }
+}
+
 export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
   const [atividades, setAtividades] = useState<TurnoAtividade[]>([])
   const [colaboradores, setColaboradores] = useState<ColaboradorArmazem[]>([])
-  const [usuarios, setUsuarios] = useState<UsuarioSimples[]>([])
+  const [conferentes, setConferentes] = useState<Usuario[]>([])
   const [loading, setLoading] = useState(true)
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
   const [form, setForm] = useState(() => formVazio(filial))
   const [editandoId, setEditandoId] = useState<string | null>(null)
 
+  const [formConferente, setFormConferente] = useState(formConferenteVazio())
+  const [salvandoConferente, setSalvandoConferente] = useState(false)
+  const [erroConferente, setErroConferente] = useState('')
+
   const carregar = useCallback(async () => {
     setLoading(true)
-    const [ativs, colabs, { data: usuariosRaw }] = await Promise.all([
+    const [ativs, colabs, usuariosDaFilial] = await Promise.all([
       listarAtividadesTurno(filial),
       buscarColaboradores(filial),
-      supabase.from('usuarios').select('id, nome, login').eq('filial', filial).order('nome'),
+      listarUsuarios({ filial, apenasComCargo: true }).catch(() => [] as Usuario[]),
     ])
     setAtividades(ativs)
     setColaboradores(colabs.filter((c) => c.ativo))
-    setUsuarios((usuariosRaw ?? []) as UsuarioSimples[])
+    setConferentes(usuariosDaFilial.filter((u) => u.cargo === CARGO_CONFERENTE))
     setLoading(false)
   }, [filial])
 
   useEffect(() => { carregar() }, [carregar])
+
+  async function cadastrarConferente() {
+    setErroConferente('')
+    if (!formConferente.login.trim() || !formConferente.nome.trim()) {
+      setErroConferente('Preencha login e nome do conferente.')
+      return
+    }
+    setSalvandoConferente(true)
+    try {
+      await criarUsuario({
+        filial, login: formConferente.login.trim(), nome: formConferente.nome.trim(),
+        senha: formConferente.senha || SENHA_PADRAO_CONFERENTE,
+        cargo: CARGO_CONFERENTE, admin: false, permissoes: [],
+      })
+      setFormConferente(formConferenteVazio())
+      await carregar()
+    } catch (e) {
+      setErroConferente(e instanceof Error ? e.message : 'Erro ao cadastrar conferente.')
+    } finally {
+      setSalvandoConferente(false)
+    }
+  }
+
+  async function resetarSenhaConferente(c: Usuario) {
+    if (!confirm(`Resetar a senha de ${c.login} para "${SENHA_PADRAO_CONFERENTE}"?`)) return
+    try {
+      await resetarSenhaUsuario(c.id, SENHA_PADRAO_CONFERENTE)
+      alert(`Senha resetada para: ${SENHA_PADRAO_CONFERENTE}`)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao resetar senha.')
+    }
+  }
 
   function editar(a: TurnoAtividade) {
     setEditandoId(a.id)
@@ -72,7 +119,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
     if (!form.colaboradorId) { setErro('Selecione o ajudante responsável.'); return }
     if (!form.conferenteUsuarioId) { setErro('Selecione o conferente que fecha o turno.'); return }
     const colaborador = colaboradores.find((c) => c.id === form.colaboradorId)
-    const conferente = usuarios.find((u) => u.id === form.conferenteUsuarioId)
+    const conferente = conferentes.find((u) => u.id === form.conferenteUsuarioId)
     const metaValor = form.unidade === 'ok_nok' ? null : parseFloat(form.metaValor.replace(',', '.'))
     if (form.unidade !== 'ok_nok' && !Number.isFinite(metaValor)) {
       setErro('Preencha o valor da meta (ou escolha a unidade OK/NOK).')
@@ -105,6 +152,45 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
         O conferente só lança as atividades <b className="text-green-700">Manuais</b> no fim do turno — as de <b>Upload</b> seguem
         o fluxo de relatório normal, fora desse fechamento. Valor final mensal é dividido pelos dias úteis (segunda a sábado) do mês.
       </p>
+
+      <div className="border rounded-lg p-4 space-y-3">
+        <h4 className="text-sm font-semibold flex items-center gap-1.5"><UserCog className="h-4 w-4 text-accent-600" /> Conferentes</h4>
+        <p className="text-xs text-gray-500">
+          Login usado só pra entrar em <code>/armazem/turno</code> e fechar o turno — não dá acesso a mais nada do sistema.
+        </p>
+
+        {conferentes.length > 0 && (
+          <div className="divide-y border rounded-md">
+            {conferentes.map((c) => (
+              <div key={c.id} className="flex items-center justify-between px-3 py-2 text-xs">
+                <span><b>{c.nome ?? c.login}</b> <span className="text-gray-400 font-mono">({c.login})</span></span>
+                <button onClick={() => resetarSenhaConferente(c)} className="flex items-center gap-1 px-2 py-1 rounded border hover:bg-accent">
+                  <KeyRound className="h-3 w-3" /> Resetar senha
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {erroConferente && <p className="text-xs text-red-600">{erroConferente}</p>}
+        <div className="grid sm:grid-cols-4 gap-2 items-end">
+          <div>
+            <label className="block text-[11px] font-medium text-gray-500 mb-1">Login</label>
+            <input value={formConferente.login} onChange={(e) => setFormConferente((f) => ({ ...f, login: e.target.value }))} placeholder="ex.: lsiqueira" className="w-full border rounded px-2 py-1.5 text-xs" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-500 mb-1">Nome</label>
+            <input value={formConferente.nome} onChange={(e) => setFormConferente((f) => ({ ...f, nome: e.target.value }))} placeholder="ex.: Luana Siqueira" className="w-full border rounded px-2 py-1.5 text-xs" />
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-500 mb-1">Senha (opcional)</label>
+            <input value={formConferente.senha} onChange={(e) => setFormConferente((f) => ({ ...f, senha: e.target.value }))} placeholder={SENHA_PADRAO_CONFERENTE} className="w-full border rounded px-2 py-1.5 text-xs font-mono" />
+          </div>
+          <button onClick={cadastrarConferente} disabled={salvandoConferente} className="flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-md border hover:bg-accent disabled:opacity-50">
+            {salvandoConferente ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Cadastrar conferente
+          </button>
+        </div>
+      </div>
 
       {erro && <p className="text-sm text-red-600">{erro}</p>}
 
@@ -218,7 +304,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
             <label className="block text-[11px] font-medium text-gray-500 mb-1">Conferente que fecha o turno</label>
             <select value={form.conferenteUsuarioId} onChange={(e) => setForm((f) => ({ ...f, conferenteUsuarioId: e.target.value }))} className="w-full border rounded px-2 py-1.5 text-xs">
               <option value="">Selecione…</option>
-              {usuarios.map((u) => <option key={u.id} value={u.id}>{u.nome ?? u.login} ({u.login})</option>)}
+              {conferentes.map((u) => <option key={u.id} value={u.id}>{u.nome ?? u.login} ({u.login})</option>)}
             </select>
           </div>
         </div>
