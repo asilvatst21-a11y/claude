@@ -16,6 +16,7 @@ import {
   type ComparativoColaborador, type MigracaoColaborador,
 } from '../../lib/variavelArmazem'
 import { formatarDataBR } from '../../lib/utils'
+import VariavelTurnoAdmin from './VariavelTurnoAdmin'
 
 // A importação é sempre referente a D-1 (dia anterior); a data já vem
 // pré-selecionada em ontem.
@@ -782,6 +783,11 @@ export default function ArmazemVariavel() {
             </div>
           </div>
         )}
+      </Colapsavel>
+
+      {/* Atividades por turno — RV manual fechada pelo conferente no fim do expediente */}
+      <Colapsavel titulo="Atividades por Turno" icon={Wallet}>
+        {usuario && <VariavelTurnoAdmin filial={usuario.filial} />}
       </Colapsavel>
 
       {/* Modal de extrato do colaborador */}

@@ -58,6 +58,7 @@ import ArmazemOperadores from './pages/armazem/Operadores'
 import ArmazemDashboard from './pages/armazem/Dashboard'
 import ArmazemVariavel from './pages/armazem/Variavel'
 import ColaboradoresArmazem from './pages/armazem/ColaboradoresArmazem'
+import VariavelTurnoConferente, { LoginConferente } from './pages/armazem/VariavelTurnoConferente'
 import VariavelTotem from './pages/VariavelTotem'
 import ConsultaPendencias from './pages/ConsultaPendencias'
 
@@ -86,6 +87,17 @@ function ArmazemOperadorRoute() {
   return <ArmazemOperador />
 }
 
+// Ponto de entrada independente do conferente, igual /armazem: se não
+// estiver logado, mostra o login próprio dessa tela (sem redirecionar pro
+// login geral nem pro /armazem do operador) e, ao autenticar, fica direto
+// no fechamento de turno.
+function ArmazemTurnoRoute() {
+  const { usuario, loading } = useAuth()
+  if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-500">Carregando...</div>
+  if (!usuario) return <LoginConferente />
+  return <VariavelTurnoConferente />
+}
+
 function PublicLogin() {
   const { usuario } = useAuth()
   if (usuario) return <Navigate to={usuario.cargo ? '/armazem' : '/'} replace />
@@ -104,6 +116,7 @@ export default function App() {
           <Route path="/variavel-armazem" element={<VariavelTotem />} />
           <Route path="/consulta-pendencias" element={<ConsultaPendencias />} />
           <Route path="/armazem" element={<ArmazemOperadorRoute />} />
+          <Route path="/armazem/turno" element={<ArmazemTurnoRoute />} />
           <Route element={<ProtectedRoutes />}>
             <Route path="/" element={<Home />} />
             <Route path="/matriculas" element={<Matriculas />} />

@@ -7,6 +7,7 @@ import {
   rangeCompetencia, buscarClusters, clusterDoTotal, formatarBRL,
   type ResultadoTotemCompetencia, type DiaCompetencia, type Cluster,
 } from '../lib/variavelArmazem'
+import { buscarAcumuladoPorCpf, type AcumuladoColaboradorMes } from '../lib/variavelTurno'
 import { formatarDataBR } from '../lib/utils'
 
 function competenciaLabel(mesRotulo: string): string {
@@ -233,6 +234,8 @@ export default function VariavelTotem() {
               </div>
             </div>
           )}
+
+          <AcumuladoAtividadesSecao filial={filial} cpfReal={pessoa.cpfReal} />
         </div>
 
         {/* Rodapé fixo com os totais da competência */}
@@ -314,6 +317,59 @@ export default function VariavelTotem() {
       </div>
 
       {mostrarFaixas && <FaixasModal clusters={clusters ?? []} onClose={() => setMostrarFaixas(false)} />}
+    </div>
+  )
+}
+
+// Seção extra da RV por atividade de turno — só aparece se a pessoa
+// estiver flegada como responsável de alguma atividade (variavel_turno_
+// atividades.colaborador_id). É um mecanismo separado da RV por pontuação
+// acima (calendário do mês, não a competência 21→20).
+function AcumuladoAtividadesSecao({ filial, cpfReal }: { filial: string; cpfReal: string }) {
+  const [dados, setDados] = useState<AcumuladoColaboradorMes | null>(null)
+  const [carregando, setCarregando] = useState(true)
+
+  useEffect(() => {
+    setCarregando(true)
+    const mesAtual = new Date().toISOString().slice(0, 7)
+    buscarAcumuladoPorCpf(filial, cpfReal, mesAtual)
+      .then(setDados)
+      .finally(() => setCarregando(false))
+  }, [filial, cpfReal])
+
+  if (carregando || !dados) return null
+
+  return (
+    <div>
+      <div className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">RV por atividade — {dados.atividades.map((a) => a.turno).filter((v, i, arr) => arr.indexOf(v) === i).join(', ')}</div>
+      <div className="rounded-2xl bg-green-50 border border-green-200 p-5">
+        <div className="text-center">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-green-700">Acumulado do mês</div>
+          <div className="text-3xl font-extrabold text-green-700 tabular-nums mt-1">{formatarBRL(dados.totalGerado)}</div>
+        </div>
+        <div className="grid grid-cols-2 gap-2.5 mt-3">
+          <div className="rounded-xl bg-white/70 border border-green-100 p-2.5 text-center">
+            <div className="text-[9.5px] font-bold uppercase tracking-wide text-green-700">Dias batidos</div>
+            <div className="text-base font-extrabold text-gray-900 mt-0.5">{dados.diasBatidos} de {dados.diasRegistrados}</div>
+          </div>
+          <div className="rounded-xl bg-white/70 border border-green-100 p-2.5 text-center">
+            <div className="text-[9.5px] font-bold uppercase tracking-wide text-green-700">Cota diária total</div>
+            <div className="text-base font-extrabold text-gray-900 tabular-nums mt-0.5">{formatarBRL(dados.cotaDiariaTotal)}</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-1.5 mt-3">
+        {dados.dias.slice(0, 10).map((d, i) => (
+          <div key={i} className={`rounded-xl border px-3 py-2 flex items-center justify-between ${d.bateuMeta ? 'border-green-200 bg-green-50/60' : 'border-gray-100 bg-gray-50'}`}>
+            <span className="text-sm">
+              <span className="font-semibold">{formatarDataBR(d.data)}</span>
+              <span className="text-gray-500"> · {d.atividadeNome} ({d.okNok != null ? (d.okNok ? 'OK' : 'NOK') : d.valorNumero})</span>
+            </span>
+            <span className={`text-sm font-extrabold tabular-nums ${d.bateuMeta ? 'text-green-700' : 'text-gray-400'}`}>{formatarBRL(d.valorGerado)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
