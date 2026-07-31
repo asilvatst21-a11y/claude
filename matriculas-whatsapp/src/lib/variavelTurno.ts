@@ -28,7 +28,11 @@ export async function listarColaboradoresElegiveis(filial: string): Promise<Cola
   return (data ?? []).filter((c) => c.status !== 'DESLIGADO').map((c) => ({ id: c.id, nome: c.nome, funcao: c.funcao }))
 }
 
-export type TurnoTipoRegistro = 'manual' | 'upload'
+// 'manual' = conferente lança no fechamento do turno (kiosk); 'upload' =
+// ainda por relatório, fora dessa tela; 'manual_admin' = lançado direto no
+// painel (ex.: TMA, Eficiência de Carregamento) — diário e com suporte a
+// lançamento retroativo, sem passar pela tela do conferente.
+export type TurnoTipoRegistro = 'manual' | 'upload' | 'manual_admin'
 export type TurnoUnidade = 'percentual' | 'reais' | 'numero' | 'ok_nok' | 'tempo'
 export type TurnoDirecao = 'maior_melhor' | 'menor_melhor'
 
@@ -354,6 +358,24 @@ export async function registrarAtividadeTurno(
     error: null, registro: gravado ? linhaParaRegistro(gravado) : null,
     creditos: creditosPayload.map((c) => ({ colaboradorNome: c.colaborador_nome, valorGerado: c.valor_gerado })),
   }
+}
+
+// Registros já lançados de uma atividade num mês — pra tela de lançamento
+// retroativo (admin escolhe a atividade + o mês, vê os dias com o que já
+// foi preenchido e completa o que falta). Reaproveita registrarAtividadeTurno
+// pra gravar cada dia — ele já aceita qualquer `data`, não só hoje.
+export async function listarRegistrosDoMes(atividadeId: string, mesISO: string): Promise<Map<string, TurnoRegistro>> {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  const ini = `${mesISO}-01`
+  const fim = `${mesISO}-${String(new Date(Date.UTC(ano, mes, 0)).getUTCDate()).padStart(2, '0')}`
+  const { data, error } = await supabase
+    .from('variavel_turno_registros')
+    .select('*')
+    .eq('atividade_id', atividadeId)
+    .gte('data', ini)
+    .lte('data', fim)
+  if (error) { console.error('listarRegistrosDoMes error:', error.message); return new Map() }
+  return new Map((data ?? []).map((r) => [r.data as string, linhaParaRegistro(r)]))
 }
 
 // Formata o resultado bruto que o conferente lançou (não o valor de RV) —

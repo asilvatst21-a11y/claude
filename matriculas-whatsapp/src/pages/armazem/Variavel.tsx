@@ -96,6 +96,7 @@ function Colapsavel({
 
 export default function ArmazemVariavel() {
   const { usuario } = useAuth()
+  const [aba, setAba] = useState<'pontuacao' | 'turno'>('pontuacao')
   const [data, setData] = useState(ontemISO)
   const [resumo, setResumo] = useState<ResumoVariavel | null>(null)
   const [loading, setLoading] = useState(true)
@@ -324,13 +325,41 @@ export default function ArmazemVariavel() {
         <div>
           <p className="text-xs text-muted-foreground mb-0.5">Armazém</p>
           <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2"><Wallet className="h-5 w-5 text-accent-600" /> Variável</h1>
-          <p className="text-sm text-muted-foreground mt-1">Suba o relatório de pontuação do dia — o valor é calculado por cluster e o painel atualiza na hora.</p>
+          <p className="text-sm text-muted-foreground mt-1">
+            {aba === 'pontuacao'
+              ? 'Suba o relatório de pontuação do dia — o valor é calculado por cluster e o painel atualiza na hora.'
+              : 'Atividades com meta por turno, fechadas pelo conferente ou lançadas direto aqui — RV individual por colaborador.'}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link to="/armazem/colaboradores" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors"><Settings className="h-4 w-4" /> Colaboradores</Link>
-          <button onClick={fetchResumo} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar</button>
+          {aba === 'pontuacao' && (
+            <button onClick={fetchResumo} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar</button>
+          )}
         </div>
       </div>
+
+      <div className="flex gap-1 border-b">
+        <button
+          onClick={() => setAba('pontuacao')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'pontuacao' ? 'border-accent-600 text-accent-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          Pontuação
+        </button>
+        <button
+          onClick={() => setAba('turno')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'turno' ? 'border-accent-600 text-accent-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          Atividades por Turno
+        </button>
+      </div>
+
+      {aba === 'turno' ? (
+        <div className="space-y-4">
+          {usuario && <VariavelTurnoAdmin filial={usuario.filial} />}
+        </div>
+      ) : (
+      <>
 
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 flex items-start gap-2"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{erro}</div>}
 
@@ -784,11 +813,8 @@ export default function ArmazemVariavel() {
           </div>
         )}
       </Colapsavel>
-
-      {/* Atividades por turno — RV manual fechada pelo conferente no fim do expediente */}
-      <Colapsavel titulo="Atividades por Turno" icon={Wallet}>
-        {usuario && <VariavelTurnoAdmin filial={usuario.filial} />}
-      </Colapsavel>
+      </>
+      )}
 
       {/* Modal de extrato do colaborador */}
       {extratoAlvo && (

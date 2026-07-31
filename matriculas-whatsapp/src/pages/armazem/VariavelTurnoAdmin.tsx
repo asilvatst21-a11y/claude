@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Plus, Power, Layers, UserCog, KeyRound, Users, X } from 'lucide-react'
+import { Loader2, Plus, Power, Layers, UserCog, KeyRound, Users, X, CalendarClock, Check } from 'lucide-react'
+import { useAuth } from '../../lib/auth'
 import { listarUsuarios, criarUsuario, resetarSenhaUsuario } from '../../lib/usuariosApi'
 import type { Usuario } from '../../types'
 import {
@@ -7,8 +8,9 @@ import {
   listarColaboradoresDaAtividade, salvarColaboradorAtividade, alternarAtivoColaboradorAtividade,
   cotaDiaria, formatarBRL, listarColaboradoresElegiveis, minutosParaHHMM, hhmmParaMinutos,
   listarEquipeConferente, adicionarNaEquipeConferente, alternarAtivoEquipeConferente,
+  listarRegistrosDoMes, registrarAtividadeTurno, bateuMetaAtividade,
   type TurnoAtividade, type TurnoTipoRegistro, type TurnoUnidade, type TurnoDirecao,
-  type ColaboradorElegivel, type AtividadeColaborador, type ConferenteEquipeMembro,
+  type ColaboradorElegivel, type AtividadeColaborador, type ConferenteEquipeMembro, type TurnoRegistro,
 } from '../../lib/variavelTurno'
 
 const UNIDADE_LABEL: Record<TurnoUnidade, string> = {
@@ -204,6 +206,138 @@ function EquipeDoConferente({ conferenteUsuarioId, elegiveis }: { conferenteUsua
           {salvando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Adicionar
         </button>
       </div>
+    </div>
+  )
+}
+
+// Dias úteis (segunda a sábado, mesma régua da cota diária) de um mês
+// "yyyy-mm", mais recente primeiro.
+function diasDoMes(mesISO: string): string[] {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  const ultimoDia = new Date(Date.UTC(ano, mes, 0)).getUTCDate()
+  const dias: string[] = []
+  for (let d = 1; d <= ultimoDia; d++) {
+    if (new Date(Date.UTC(ano, mes - 1, d)).getUTCDay() !== 0) dias.push(`${mesISO}-${String(d).padStart(2, '0')}`)
+  }
+  return dias.reverse()
+}
+
+function mesAtualISO(): string {
+  return new Date().toISOString().slice(0, 7)
+}
+
+// Lançamento retroativo — pensado pras atividades "Manual diário" (TMA,
+// Eficiência de Carregamento etc.), que não passam pelo fechamento do
+// conferente. O admin escolhe a atividade + o mês e preenche/corrige
+// qualquer dia (inclusive dias já passados), sem precisar de upload.
+function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) {
+  const { usuario } = useAuth()
+  const [atividadeId, setAtividadeId] = useState('')
+  const [mes, setMes] = useState(mesAtualISO())
+  const [registros, setRegistros] = useState<Map<string, TurnoRegistro>>(new Map())
+  const [valores, setValores] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(false)
+  const [salvandoDia, setSalvandoDia] = useState<string | null>(null)
+  const [erro, setErro] = useState('')
+
+  const atividade = atividades.find((a) => a.id === atividadeId) ?? null
+
+  const carregar = useCallback(async () => {
+    if (!atividadeId) { setRegistros(new Map()); return }
+    setLoading(true)
+    const regs = await listarRegistrosDoMes(atividadeId, mes)
+    setRegistros(regs)
+    const iniciais: Record<string, string> = {}
+    for (const [data, r] of regs) {
+      if (atividade?.unidade === 'ok_nok') iniciais[data] = r.okNok == null ? '' : r.okNok ? 'OK' : 'NOK'
+      else if (atividade?.unidade === 'tempo' && r.valorNumero != null) iniciais[data] = minutosParaHHMM(r.valorNumero)
+      else iniciais[data] = r.valorNumero != null ? String(r.valorNumero) : ''
+    }
+    setValores(iniciais)
+    setLoading(false)
+  }, [atividadeId, mes, atividade?.unidade])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  async function salvarDia(data: string) {
+    if (!atividade || !usuario) return
+    setErro('')
+    const bruto = (valores[data] ?? '').trim()
+    if (!bruto) return
+    let valorNumero: number | null = null
+    let okNok: boolean | null = null
+    if (atividade.unidade === 'ok_nok') {
+      okNok = bruto.toUpperCase() === 'OK'
+    } else if (atividade.unidade === 'tempo') {
+      valorNumero = hhmmParaMinutos(bruto)
+      if (valorNumero == null) { setErro(`Valor inválido em ${data} — use hh:mm.`); return }
+    } else {
+      valorNumero = parseFloat(bruto.replace(',', '.'))
+      if (!Number.isFinite(valorNumero)) { setErro(`Valor inválido em ${data}.`); return }
+    }
+    setSalvandoDia(data)
+    const colaboradores = await listarColaboradoresDaAtividade(atividade.id)
+    const { error } = await registrarAtividadeTurno(atividade, colaboradores, data, { valorNumero, okNok }, { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login })
+    setSalvandoDia(null)
+    if (error) { setErro(`Erro ao salvar ${data}: ${error}`); return }
+    await carregar()
+  }
+
+  return (
+    <div className="border rounded-lg p-4 space-y-3">
+      <h4 className="text-sm font-semibold flex items-center gap-1.5"><CalendarClock className="h-4 w-4 text-accent-600" /> Lançamento retroativo</h4>
+      <p className="text-xs text-gray-500">Escolha a atividade e o mês pra preencher ou corrigir qualquer dia, mesmo já passado — sem precisar de upload.</p>
+      <div className="grid sm:grid-cols-3 gap-3">
+        <div className="sm:col-span-2">
+          <label className="block text-[11px] font-medium text-gray-500 mb-1">Atividade</label>
+          <select value={atividadeId} onChange={(e) => setAtividadeId(e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs">
+            <option value="">Selecione…</option>
+            {atividades.map((a) => <option key={a.id} value={a.id}>{a.turno} — {a.nome}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[11px] font-medium text-gray-500 mb-1">Mês</label>
+          <input type="month" value={mes} onChange={(e) => setMes(e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs" />
+        </div>
+      </div>
+
+      {erro && <p className="text-xs text-red-600">{erro}</p>}
+
+      {!atividade ? (
+        <p className="text-[11px] text-gray-400">Selecione uma atividade pra ver os dias do mês.</p>
+      ) : loading ? (
+        <div className="flex justify-center py-6 text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /></div>
+      ) : (
+        <div className="border rounded-md divide-y max-h-[420px] overflow-y-auto">
+          {diasDoMes(mes).map((data) => {
+            const jaTem = registros.has(data)
+            const bateu = jaTem ? bateuMetaAtividade(atividade, registros.get(data)!.valorNumero, registros.get(data)!.okNok) : null
+            return (
+              <div key={data} className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                <span className="w-20 font-mono text-gray-500">{data.slice(8, 10)}/{data.slice(5, 7)}</span>
+                {atividade.unidade === 'ok_nok' ? (
+                  <select value={valores[data] ?? ''} onChange={(e) => setValores((v) => ({ ...v, [data]: e.target.value }))} className="flex-1 border rounded px-2 py-1 text-xs">
+                    <option value="">—</option>
+                    <option value="OK">OK</option>
+                    <option value="NOK">NOK</option>
+                  </select>
+                ) : (
+                  <input
+                    value={valores[data] ?? ''}
+                    onChange={(e) => setValores((v) => ({ ...v, [data]: e.target.value }))}
+                    placeholder={atividade.unidade === 'tempo' ? 'hh:mm' : '—'}
+                    className="flex-1 border rounded px-2 py-1 text-xs font-mono"
+                  />
+                )}
+                <button onClick={() => salvarDia(data)} disabled={salvandoDia === data} className="p-1.5 rounded border hover:bg-accent disabled:opacity-50" title="Salvar">
+                  {salvandoDia === data ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 text-green-600" />}
+                </button>
+                {jaTem && <span className={`text-[10px] font-bold uppercase ${bateu ? 'text-green-600' : 'text-red-500'}`}>{bateu ? 'bateu' : 'não bateu'}</span>}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }
@@ -407,8 +541,13 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
                     <td className="px-3 py-2 whitespace-nowrap">{a.turno}</td>
                     <td className="px-3 py-2 font-medium">{a.nome}</td>
                     <td className="px-3 py-2">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${a.tipoRegistro === 'manual' ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
-                        {a.tipoRegistro === 'manual' ? 'Manual' : 'Upload'}
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        a.tipoRegistro === 'manual' ? 'bg-green-50 text-green-700'
+                          : a.tipoRegistro === 'manual_admin' ? 'bg-blue-50 text-blue-700'
+                            : 'bg-gray-100 text-gray-500'
+                      }`}
+                      >
+                        {a.tipoRegistro === 'manual' ? 'Manual (turno)' : a.tipoRegistro === 'manual_admin' ? 'Manual (painel)' : 'Upload'}
                       </span>
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{formatarMetaTexto(a)}</td>
@@ -444,7 +583,8 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
           <div>
             <label className="block text-[11px] font-medium text-gray-500 mb-1">Tipo de registro</label>
             <select value={form.tipoRegistro} onChange={(e) => setForm((f) => ({ ...f, tipoRegistro: e.target.value as TurnoTipoRegistro }))} className="w-full border rounded px-2 py-1.5 text-xs">
-              <option value="manual">Manual (conferente lança)</option>
+              <option value="manual">Manual (conferente lança no turno)</option>
+              <option value="manual_admin">Manual diário (lançado aqui no painel)</option>
               <option value="upload">Upload (fora do fechamento)</option>
             </select>
           </div>
@@ -494,6 +634,8 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
 
         {editandoId && <ColaboradoresDaAtividade atividadeId={editandoId} elegiveis={elegiveis} />}
       </div>
+
+      <LancamentoRetroativo atividades={atividades.filter((a) => a.tipoRegistro === 'manual_admin' && a.ativo)} />
     </div>
   )
 }
