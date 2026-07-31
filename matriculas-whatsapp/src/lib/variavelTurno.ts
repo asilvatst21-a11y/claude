@@ -20,7 +20,7 @@ export async function listarColaboradoresElegiveis(filial: string): Promise<Cola
     .from('colaboradores')
     .select('id, nome, funcao, status')
     .eq('filial', filial)
-    .or('funcao.ilike.%ajudante de armaz%,funcao.ilike.%operador de empilhadeira%')
+    .or('funcao.ilike.%ajudante%armaz%,funcao.ilike.%operador%empilhadeira%')
     .order('nome')
   if (error) { console.error('listarColaboradoresElegiveis error:', error.message); return [] }
   return (data ?? []).filter((c) => c.status !== 'DESLIGADO').map((c) => ({ id: c.id, nome: c.nome, funcao: c.funcao }))
