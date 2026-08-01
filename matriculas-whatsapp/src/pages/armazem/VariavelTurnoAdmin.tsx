@@ -239,24 +239,39 @@ function LancamentoManualDiario({ atividades }: { atividades: TurnoAtividade[] }
   const { usuario } = useAuth()
   const hoje = hojeISO()
   const [registrosHoje, setRegistrosHoje] = useState<Map<string, TurnoRegistro>>(new Map())
+  const [colaboradoresPorAtividade, setColaboradoresPorAtividade] = useState<Record<string, AtividadeColaborador[]>>({})
   const [valores, setValores] = useState<Record<string, string>>({})
+  const [excluidos, setExcluidos] = useState<Record<string, Set<string>>>({})
+  const [expandido, setExpandido] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [salvandoId, setSalvandoId] = useState<string | null>(null)
   const [erro, setErro] = useState('')
 
   const carregar = useCallback(async () => {
     setLoading(true)
-    const mapa = new Map<string, TurnoRegistro>()
+    const mapaRegistros = new Map<string, TurnoRegistro>()
+    const mapaColaboradores: Record<string, AtividadeColaborador[]> = {}
     await Promise.all(atividades.map(async (a) => {
-      const doMes = await listarRegistrosDoMes(a.id, hoje.slice(0, 7))
+      const [doMes, colabs] = await Promise.all([listarRegistrosDoMes(a.id, hoje.slice(0, 7)), listarColaboradoresDaAtividade(a.id)])
       const r = doMes.get(hoje)
-      if (r) mapa.set(a.id, r)
+      if (r) mapaRegistros.set(a.id, r)
+      mapaColaboradores[a.id] = colabs.filter((c) => c.ativo)
     }))
-    setRegistrosHoje(mapa)
+    setRegistrosHoje(mapaRegistros)
+    setColaboradoresPorAtividade(mapaColaboradores)
     setLoading(false)
   }, [atividades, hoje])
 
   useEffect(() => { carregar() }, [carregar])
+
+  function alternarExcluido(atividadeId: string, colaboradorId: string) {
+    setExcluidos((prev) => {
+      const atual = new Set(prev[atividadeId] ?? [])
+      if (atual.has(colaboradorId)) atual.delete(colaboradorId)
+      else atual.add(colaboradorId)
+      return { ...prev, [atividadeId]: atual }
+    })
+  }
 
   async function salvar(atividade: TurnoAtividade) {
     if (!usuario) return
@@ -275,8 +290,12 @@ function LancamentoManualDiario({ atividades }: { atividades: TurnoAtividade[] }
       if (!Number.isFinite(valorNumero)) { setErro('Valor inválido.'); return }
     }
     setSalvandoId(atividade.id)
-    const colaboradores = await listarColaboradoresDaAtividade(atividade.id)
-    const { error } = await registrarAtividadeTurno(atividade, colaboradores, hoje, { valorNumero, okNok }, { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login })
+    const colaboradores = colaboradoresPorAtividade[atividade.id] ?? await listarColaboradoresDaAtividade(atividade.id)
+    const { error } = await registrarAtividadeTurno(
+      atividade, colaboradores, hoje, { valorNumero, okNok },
+      { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login },
+      excluidos[atividade.id] ?? new Set(),
+    )
     setSalvandoId(null)
     if (error) { setErro(`Erro ao salvar: ${error}`); return }
     await carregar()
@@ -295,27 +314,51 @@ function LancamentoManualDiario({ atividades }: { atividades: TurnoAtividade[] }
         <div className="space-y-2">
           {atividades.map((a) => {
             const jaTem = registrosHoje.get(a.id)
+            const colabs = colaboradoresPorAtividade[a.id] ?? []
+            const excluidosDessaAtividade = excluidos[a.id] ?? new Set<string>()
             return (
-              <div key={a.id} className="flex items-center gap-2 border rounded-md px-3 py-2">
-                <span className="text-xs font-medium flex-1">{a.turno} — {a.nome}</span>
-                {a.unidade === 'ok_nok' ? (
-                  <select value={valores[a.id] ?? ''} onChange={(e) => setValores((v) => ({ ...v, [a.id]: e.target.value }))} className="border rounded px-2 py-1 text-xs w-28">
-                    <option value="">—</option>
-                    <option value="OK">OK</option>
-                    <option value="NOK">NOK</option>
-                  </select>
-                ) : (
-                  <input
-                    value={valores[a.id] ?? ''}
-                    onChange={(e) => setValores((v) => ({ ...v, [a.id]: e.target.value }))}
-                    placeholder={a.unidade === 'tempo' ? 'hh:mm' : 'resultado'}
-                    className="border rounded px-2 py-1 text-xs font-mono w-28"
-                  />
+              <div key={a.id} className="border rounded-md">
+                <div className="flex items-center gap-2 px-3 py-2">
+                  <span className="text-xs font-medium flex-1">{a.turno} — {a.nome}</span>
+                  {a.unidade === 'ok_nok' ? (
+                    <select value={valores[a.id] ?? ''} onChange={(e) => setValores((v) => ({ ...v, [a.id]: e.target.value }))} className="border rounded px-2 py-1 text-xs w-28">
+                      <option value="">—</option>
+                      <option value="OK">OK</option>
+                      <option value="NOK">NOK</option>
+                    </select>
+                  ) : (
+                    <input
+                      value={valores[a.id] ?? ''}
+                      onChange={(e) => setValores((v) => ({ ...v, [a.id]: e.target.value }))}
+                      placeholder={a.unidade === 'tempo' ? 'hh:mm' : 'resultado'}
+                      className="border rounded px-2 py-1 text-xs font-mono w-28"
+                    />
+                  )}
+                  {colabs.length > 0 && (
+                    <button onClick={() => setExpandido((v) => (v === a.id ? null : a.id))} className="flex items-center gap-1 text-[11px] px-2 py-1.5 rounded border hover:bg-accent whitespace-nowrap">
+                      <Users className="h-3 w-3" /> Excluir colaborador{excluidosDessaAtividade.size > 0 ? ` (${excluidosDessaAtividade.size})` : ''}
+                    </button>
+                  )}
+                  <button onClick={() => salvar(a)} disabled={salvandoId === a.id} className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border hover:bg-accent disabled:opacity-50">
+                    {salvandoId === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 text-green-600" />} Salvar
+                  </button>
+                  {jaTem && <span className="text-[10px] font-bold uppercase text-green-600 whitespace-nowrap">✓ já registrado hoje</span>}
+                </div>
+                {expandido === a.id && (
+                  <div className="border-t bg-gray-50/50 px-3 py-2 space-y-1">
+                    <p className="text-[10px] text-gray-500 mb-1">Marque quem NÃO trabalhou hoje — não recebe crédito mesmo se a meta for batida.</p>
+                    {colabs.map((c) => (
+                      <label key={c.id} className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={c.colaboradorId != null && excluidosDessaAtividade.has(c.colaboradorId)}
+                          onChange={() => c.colaboradorId && alternarExcluido(a.id, c.colaboradorId)}
+                        />
+                        {c.colaboradorNome}
+                      </label>
+                    ))}
+                  </div>
                 )}
-                <button onClick={() => salvar(a)} disabled={salvandoId === a.id} className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border hover:bg-accent disabled:opacity-50">
-                  {salvandoId === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 text-green-600" />} Salvar
-                </button>
-                {jaTem && <span className="text-[10px] font-bold uppercase text-green-600 whitespace-nowrap">✓ já registrado hoje</span>}
               </div>
             )
           })}
@@ -334,7 +377,10 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
   const [atividadeId, setAtividadeId] = useState('')
   const [mes, setMes] = useState(mesAtualISO())
   const [registros, setRegistros] = useState<Map<string, TurnoRegistro>>(new Map())
+  const [colaboradores, setColaboradores] = useState<AtividadeColaborador[]>([])
   const [valores, setValores] = useState<Record<string, string>>({})
+  const [excluidosPorDia, setExcluidosPorDia] = useState<Record<string, Set<string>>>({})
+  const [expandidoDia, setExpandidoDia] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [salvandoDia, setSalvandoDia] = useState<string | null>(null)
   const [erro, setErro] = useState('')
@@ -342,10 +388,11 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
   const atividade = atividades.find((a) => a.id === atividadeId) ?? null
 
   const carregar = useCallback(async () => {
-    if (!atividadeId) { setRegistros(new Map()); return }
+    if (!atividadeId) { setRegistros(new Map()); setColaboradores([]); return }
     setLoading(true)
-    const regs = await listarRegistrosDoMes(atividadeId, mes)
+    const [regs, colabs] = await Promise.all([listarRegistrosDoMes(atividadeId, mes), listarColaboradoresDaAtividade(atividadeId)])
     setRegistros(regs)
+    setColaboradores(colabs.filter((c) => c.ativo))
     const iniciais: Record<string, string> = {}
     for (const [data, r] of regs) {
       if (atividade?.unidade === 'ok_nok') iniciais[data] = r.okNok == null ? '' : r.okNok ? 'OK' : 'NOK'
@@ -357,6 +404,15 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
   }, [atividadeId, mes, atividade?.unidade])
 
   useEffect(() => { carregar() }, [carregar])
+
+  function alternarExcluido(data: string, colaboradorId: string) {
+    setExcluidosPorDia((prev) => {
+      const atual = new Set(prev[data] ?? [])
+      if (atual.has(colaboradorId)) atual.delete(colaboradorId)
+      else atual.add(colaboradorId)
+      return { ...prev, [data]: atual }
+    })
+  }
 
   async function salvarDia(data: string) {
     if (!atividade || !usuario) return
@@ -375,8 +431,11 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
       if (!Number.isFinite(valorNumero)) { setErro(`Valor inválido em ${data}.`); return }
     }
     setSalvandoDia(data)
-    const colaboradores = await listarColaboradoresDaAtividade(atividade.id)
-    const { error } = await registrarAtividadeTurno(atividade, colaboradores, data, { valorNumero, okNok }, { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login })
+    const { error } = await registrarAtividadeTurno(
+      atividade, colaboradores, data, { valorNumero, okNok },
+      { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login },
+      excluidosPorDia[data] ?? new Set(),
+    )
     setSalvandoDia(null)
     if (error) { setErro(`Erro ao salvar ${data}: ${error}`); return }
     await carregar()
@@ -411,27 +470,50 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
           {diasDoMes(mes).map((data) => {
             const jaTem = registros.has(data)
             const bateu = jaTem ? bateuMetaAtividade(atividade, registros.get(data)!.valorNumero, registros.get(data)!.okNok) : null
+            const excluidosDoDia = excluidosPorDia[data] ?? new Set<string>()
             return (
-              <div key={data} className="flex items-center gap-2 px-3 py-1.5 text-xs">
-                <span className="w-20 font-mono text-gray-500">{data.slice(8, 10)}/{data.slice(5, 7)}</span>
-                {atividade.unidade === 'ok_nok' ? (
-                  <select value={valores[data] ?? ''} onChange={(e) => setValores((v) => ({ ...v, [data]: e.target.value }))} className="flex-1 border rounded px-2 py-1 text-xs">
-                    <option value="">—</option>
-                    <option value="OK">OK</option>
-                    <option value="NOK">NOK</option>
-                  </select>
-                ) : (
-                  <input
-                    value={valores[data] ?? ''}
-                    onChange={(e) => setValores((v) => ({ ...v, [data]: e.target.value }))}
-                    placeholder={atividade.unidade === 'tempo' ? 'hh:mm' : '—'}
-                    className="flex-1 border rounded px-2 py-1 text-xs font-mono"
-                  />
+              <div key={data}>
+                <div className="flex items-center gap-2 px-3 py-1.5 text-xs">
+                  <span className="w-20 font-mono text-gray-500">{data.slice(8, 10)}/{data.slice(5, 7)}</span>
+                  {atividade.unidade === 'ok_nok' ? (
+                    <select value={valores[data] ?? ''} onChange={(e) => setValores((v) => ({ ...v, [data]: e.target.value }))} className="flex-1 border rounded px-2 py-1 text-xs">
+                      <option value="">—</option>
+                      <option value="OK">OK</option>
+                      <option value="NOK">NOK</option>
+                    </select>
+                  ) : (
+                    <input
+                      value={valores[data] ?? ''}
+                      onChange={(e) => setValores((v) => ({ ...v, [data]: e.target.value }))}
+                      placeholder={atividade.unidade === 'tempo' ? 'hh:mm' : '—'}
+                      className="flex-1 border rounded px-2 py-1 text-xs font-mono"
+                    />
+                  )}
+                  {colaboradores.length > 0 && (
+                    <button onClick={() => setExpandidoDia((v) => (v === data ? null : data))} className="p-1.5 rounded border hover:bg-accent" title="Excluir colaborador nesse dia">
+                      <Users className={`h-3 w-3 ${excluidosDoDia.size > 0 ? 'text-red-500' : 'text-gray-400'}`} />
+                    </button>
+                  )}
+                  <button onClick={() => salvarDia(data)} disabled={salvandoDia === data} className="p-1.5 rounded border hover:bg-accent disabled:opacity-50" title="Salvar">
+                    {salvandoDia === data ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 text-green-600" />}
+                  </button>
+                  {jaTem && <span className={`text-[10px] font-bold uppercase whitespace-nowrap ${bateu ? 'text-green-600' : 'text-red-500'}`}>{bateu ? 'bateu' : 'não bateu'}</span>}
+                </div>
+                {expandidoDia === data && (
+                  <div className="bg-gray-50/50 px-3 py-2 space-y-1 border-t">
+                    <p className="text-[10px] text-gray-500 mb-1">Marque quem NÃO trabalhou neste dia — não recebe crédito mesmo se a meta for batida.</p>
+                    {colaboradores.map((c) => (
+                      <label key={c.id} className="flex items-center gap-2 text-xs">
+                        <input
+                          type="checkbox"
+                          checked={c.colaboradorId != null && excluidosDoDia.has(c.colaboradorId)}
+                          onChange={() => c.colaboradorId && alternarExcluido(data, c.colaboradorId)}
+                        />
+                        {c.colaboradorNome}
+                      </label>
+                    ))}
+                  </div>
                 )}
-                <button onClick={() => salvarDia(data)} disabled={salvandoDia === data} className="p-1.5 rounded border hover:bg-accent disabled:opacity-50" title="Salvar">
-                  {salvandoDia === data ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 text-green-600" />}
-                </button>
-                {jaTem && <span className={`text-[10px] font-bold uppercase ${bateu ? 'text-green-600' : 'text-red-500'}`}>{bateu ? 'bateu' : 'não bateu'}</span>}
               </div>
             )
           })}

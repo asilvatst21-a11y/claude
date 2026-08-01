@@ -326,6 +326,12 @@ export async function registrarAtividadeTurno(
   atividade: TurnoAtividade, colaboradores: AtividadeColaborador[], data: string,
   entrada: { valorNumero: number | null; okNok: boolean | null },
   registradoPor: { usuarioId: string; nome: string | null },
+  // Colaboradores excluídos SÓ NESSE DIA/ATIVIDADE (não trabalhou, folga,
+  // atestado etc.) — não recebem crédito mesmo que a meta tenha sido
+  // batida. Diferente da ausência da lista de presença do conferente, que
+  // zera o dia inteiro em todas as atividades; aqui é pontual, uma
+  // atividade de cada vez.
+  excluidosHoje: Set<string> = new Set(),
 ): Promise<{ error: string | null; registro: TurnoRegistro | null; creditos: { colaboradorNome: string; valorGerado: number }[] }> {
   const bateu = bateuMetaAtividade(atividade, entrada.valorNumero, entrada.okNok)
   const payload = {
@@ -343,10 +349,15 @@ export async function registrarAtividadeTurno(
   if (error) return { error: error.message, registro: null, creditos: [] }
 
   const ativos = colaboradores.filter((c) => c.ativo)
-  const creditosPayload = ativos.map((c) => ({
-    atividade_id: atividade.id, registro_id: gravado?.id ?? null, colaborador_id: c.colaboradorId,
-    colaborador_nome: c.colaboradorNome, data, valor_gerado: bateu ? cotaDiaria(c.valorFinalMensal, data) : 0,
-  }))
+  const creditosPayload = ativos.map((c) => {
+    const excluido = c.colaboradorId != null && excluidosHoje.has(c.colaboradorId)
+    return {
+      atividade_id: atividade.id, registro_id: gravado?.id ?? null, colaborador_id: c.colaboradorId,
+      colaborador_nome: c.colaboradorNome, data,
+      valor_gerado: excluido || !bateu ? 0 : cotaDiaria(c.valorFinalMensal, data),
+      ausente: excluido,
+    }
+  })
   if (creditosPayload.length > 0) {
     const { error: erroCreditos } = await supabase
       .from('variavel_turno_creditos')
