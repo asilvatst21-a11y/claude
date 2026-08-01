@@ -226,6 +226,105 @@ function mesAtualISO(): string {
   return new Date().toISOString().slice(0, 7)
 }
 
+function hojeISO(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
+// Lançamento manual do dia — mesma função do fechamento do conferente
+// (registra o resultado de hoje e recalcula o crédito de cada colaborador
+// da atividade), só que feito aqui no painel em vez do kiosk do conferente.
+// Pensado pras atividades "Manual diário" (TMA, Eficiência de Carregamento
+// etc.), que não têm conferente responsável.
+function LancamentoManualDiario({ atividades }: { atividades: TurnoAtividade[] }) {
+  const { usuario } = useAuth()
+  const hoje = hojeISO()
+  const [registrosHoje, setRegistrosHoje] = useState<Map<string, TurnoRegistro>>(new Map())
+  const [valores, setValores] = useState<Record<string, string>>({})
+  const [loading, setLoading] = useState(true)
+  const [salvandoId, setSalvandoId] = useState<string | null>(null)
+  const [erro, setErro] = useState('')
+
+  const carregar = useCallback(async () => {
+    setLoading(true)
+    const mapa = new Map<string, TurnoRegistro>()
+    await Promise.all(atividades.map(async (a) => {
+      const doMes = await listarRegistrosDoMes(a.id, hoje.slice(0, 7))
+      const r = doMes.get(hoje)
+      if (r) mapa.set(a.id, r)
+    }))
+    setRegistrosHoje(mapa)
+    setLoading(false)
+  }, [atividades, hoje])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  async function salvar(atividade: TurnoAtividade) {
+    if (!usuario) return
+    setErro('')
+    const bruto = (valores[atividade.id] ?? '').trim()
+    if (!bruto) { setErro('Preencha o resultado antes de salvar.'); return }
+    let valorNumero: number | null = null
+    let okNok: boolean | null = null
+    if (atividade.unidade === 'ok_nok') {
+      okNok = bruto.toUpperCase() === 'OK'
+    } else if (atividade.unidade === 'tempo') {
+      valorNumero = hhmmParaMinutos(bruto)
+      if (valorNumero == null) { setErro('Valor de tempo inválido — use hh:mm.'); return }
+    } else {
+      valorNumero = parseFloat(bruto.replace(',', '.'))
+      if (!Number.isFinite(valorNumero)) { setErro('Valor inválido.'); return }
+    }
+    setSalvandoId(atividade.id)
+    const colaboradores = await listarColaboradoresDaAtividade(atividade.id)
+    const { error } = await registrarAtividadeTurno(atividade, colaboradores, hoje, { valorNumero, okNok }, { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login })
+    setSalvandoId(null)
+    if (error) { setErro(`Erro ao salvar: ${error}`); return }
+    await carregar()
+  }
+
+  if (atividades.length === 0) return null
+
+  return (
+    <div className="border rounded-lg p-4 space-y-3">
+      <h4 className="text-sm font-semibold flex items-center gap-1.5"><Check className="h-4 w-4 text-accent-600" /> Lançamento manual do dia</h4>
+      <p className="text-xs text-gray-500">Mesmo efeito do fechamento do conferente — registra o resultado de hoje e já credita cada colaborador da atividade.</p>
+      {erro && <p className="text-xs text-red-600">{erro}</p>}
+      {loading ? (
+        <div className="flex justify-center py-6 text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /></div>
+      ) : (
+        <div className="space-y-2">
+          {atividades.map((a) => {
+            const jaTem = registrosHoje.get(a.id)
+            return (
+              <div key={a.id} className="flex items-center gap-2 border rounded-md px-3 py-2">
+                <span className="text-xs font-medium flex-1">{a.turno} — {a.nome}</span>
+                {a.unidade === 'ok_nok' ? (
+                  <select value={valores[a.id] ?? ''} onChange={(e) => setValores((v) => ({ ...v, [a.id]: e.target.value }))} className="border rounded px-2 py-1 text-xs w-28">
+                    <option value="">—</option>
+                    <option value="OK">OK</option>
+                    <option value="NOK">NOK</option>
+                  </select>
+                ) : (
+                  <input
+                    value={valores[a.id] ?? ''}
+                    onChange={(e) => setValores((v) => ({ ...v, [a.id]: e.target.value }))}
+                    placeholder={a.unidade === 'tempo' ? 'hh:mm' : 'resultado'}
+                    className="border rounded px-2 py-1 text-xs font-mono w-28"
+                  />
+                )}
+                <button onClick={() => salvar(a)} disabled={salvandoId === a.id} className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border hover:bg-accent disabled:opacity-50">
+                  {salvandoId === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 text-green-600" />} Salvar
+                </button>
+                {jaTem && <span className="text-[10px] font-bold uppercase text-green-600 whitespace-nowrap">✓ já registrado hoje</span>}
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // Lançamento retroativo — pensado pras atividades "Manual diário" (TMA,
 // Eficiência de Carregamento etc.), que não passam pelo fechamento do
 // conferente. O admin escolhe a atividade + o mês e preenche/corrige
@@ -635,7 +734,8 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
         {editandoId && <ColaboradoresDaAtividade atividadeId={editandoId} elegiveis={elegiveis} />}
       </div>
 
-      <LancamentoRetroativo atividades={atividades.filter((a) => a.tipoRegistro === 'manual_admin' && a.ativo)} />
+      <LancamentoManualDiario atividades={atividades.filter((a) => a.tipoRegistro === 'manual_admin' && a.ativo)} />
+      <LancamentoRetroativo atividades={atividades.filter((a) => a.ativo)} />
     </div>
   )
 }
