@@ -5,6 +5,7 @@ import { valesSupabase } from '@/lib/valesSupabase'
 import { useAuth } from '@/lib/auth'
 import { processarFixacaoMotorista, type HistoricoTmlMotorista } from '@/lib/frota'
 import { isSalaTML } from '@/lib/tml'
+import { notificarFinanceiroWhatsApp } from '@/lib/chapaDescarga'
 
 type Fase = 'idle' | 'lendo' | 'importando' | 'ok' | 'erro'
 interface Log { tipo: 'ok' | 'erro' | 'info'; msg: string }
@@ -17,7 +18,7 @@ function dataDoNome(nome: string): string {
   return `${y.length === 2 ? `20${y}` : y}-${m}-${d}`
 }
 
-async function importarVendasDia(file: File): Promise<{ contagem: number; mensagem: string }> {
+async function importarVendasDia(file: File): Promise<{ contagem: number; mensagem: string; data: string }> {
   const texto = await file.text()
   const linhas = texto.split(/\r?\n/).filter(Boolean)
   if (linhas.length < 2) throw new Error('Arquivo CSV sem dados.')
@@ -56,6 +57,7 @@ async function importarVendasDia(file: File): Promise<{ contagem: number; mensag
   return {
     contagem: vendas.length,
     mensagem: `Data: ${data}. Disponível para confronto no painel de reposições.`,
+    data,
   }
 }
 
@@ -199,9 +201,25 @@ export default function ImportCatalogoPage() {
     setLogs([{ tipo: 'info', msg: `Lendo ${file.name}…` }])
     try {
       setFase('importando')
-      const { contagem, mensagem } = await importarVendasDia(file)
+      const { contagem, mensagem, data } = await importarVendasDia(file)
       setLogs(prev => [...prev, { tipo: 'ok', msg: `✅ ${contagem} registros importados. ${mensagem}` }])
       setFase('ok')
+
+      // Avisa o financeiro no WhatsApp quais clientes de Chapa/Descarga têm
+      // pedido na rua hoje. Não interrompe o import se o grupo não estiver
+      // configurado ou o envio falhar — só registra o motivo no log.
+      if (usuario?.filial) {
+        try {
+          const resultado = await notificarFinanceiroWhatsApp(usuario.filial, data)
+          if (resultado.enviado) {
+            setLogs(prev => [...prev, { tipo: 'ok', msg: '✅ Financeiro notificado no WhatsApp (Chapa/Descarga).' }])
+          } else if (resultado.motivo) {
+            setLogs(prev => [...prev, { tipo: 'info', msg: `Notificação ao financeiro não enviada: ${resultado.motivo}` }])
+          }
+        } catch (e) {
+          setLogs(prev => [...prev, { tipo: 'info', msg: `Notificação ao financeiro não enviada: ${String(e)}` }])
+        }
+      }
     } catch (e) {
       setLogs(prev => [...prev, { tipo: 'erro', msg: String(e) }])
       setFase('erro')

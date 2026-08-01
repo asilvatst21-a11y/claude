@@ -43,6 +43,8 @@ const financeiroItems = [
   { permKey: REPOS,        to: '/vales/catalogo',      label: 'Catálogo / Vendas', icon: FileSpreadsheet         },
   { permKey: REPOS,        to: '/vales/whatsapp',      label: 'Config. WhatsApp',  icon: MessageSquare           },
   { permKey: 'financeiro', to: '/vales/configuracoes', label: 'Config. Vales',     icon: Settings                },
+  { permKey: 'financeiro', to: '/financeiro/chapa-descarga',          label: 'Chapa / Descarga',      icon: Truck },
+  { permKey: 'financeiro', to: '/financeiro/chapa-descarga/clientes', label: 'Chapa/Descarga Clientes', icon: UserCheck },
 ]
 
 const distribuicaoItems = [

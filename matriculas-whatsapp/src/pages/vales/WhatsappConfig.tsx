@@ -6,11 +6,12 @@ import { listarGrupos, type GrupoZApi } from "@/lib/zapi";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth";
 
-type TabKey = "solicitacao" | "validacao";
+type TabKey = "solicitacao" | "validacao" | "financeiro";
 
 const TABS: { value: TabKey; label: string }[] = [
   { value: "solicitacao", label: "Grupos de Solicitação" },
   { value: "validacao", label: "Grupo de Validação" },
+  { value: "financeiro", label: "Grupo do Financeiro" },
 ];
 
 // Seletor de um grupo: lista (filtrável) vinda do Z-API + entrada manual + copiar.
@@ -104,7 +105,8 @@ export default function WhatsappConfigPage() {
   const [sol1, setSol1] = useState("");
   const [sol2, setSol2] = useState("");
   const [validacao, setValidacao] = useState("");
-  const [original, setOriginal] = useState({ sol1: "", sol2: "", validacao: "" });
+  const [financeiro, setFinanceiro] = useState("");
+  const [original, setOriginal] = useState({ sol1: "", sol2: "", validacao: "", financeiro: "" });
 
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
@@ -116,15 +118,16 @@ export default function WhatsappConfigPage() {
     setCarregando(true);
     const { data } = await supabase
       .from("filiais")
-      .select("grupo_reposicoes_whatsapp, grupo_solicitacao_2_whatsapp, grupo_validacao_whatsapp")
+      .select("grupo_reposicoes_whatsapp, grupo_solicitacao_2_whatsapp, grupo_validacao_whatsapp, grupo_financeiro_whatsapp")
       .eq("nome", filial)
       .maybeSingle();
     const v = {
       sol1: data?.grupo_reposicoes_whatsapp ?? "",
       sol2: data?.grupo_solicitacao_2_whatsapp ?? "",
       validacao: data?.grupo_validacao_whatsapp ?? "",
+      financeiro: data?.grupo_financeiro_whatsapp ?? "",
     };
-    setSol1(v.sol1); setSol2(v.sol2); setValidacao(v.validacao);
+    setSol1(v.sol1); setSol2(v.sol2); setValidacao(v.validacao); setFinanceiro(v.financeiro);
     setOriginal(v);
     setCarregando(false);
   }, [filial]);
@@ -151,9 +154,10 @@ export default function WhatsappConfigPage() {
         grupo_reposicoes_whatsapp: sol1.trim() || null,
         grupo_solicitacao_2_whatsapp: sol2.trim() || null,
         grupo_validacao_whatsapp: validacao.trim() || null,
+        grupo_financeiro_whatsapp: financeiro.trim() || null,
       })
       .eq("nome", filial);
-    setOriginal({ sol1: sol1.trim(), sol2: sol2.trim(), validacao: validacao.trim() });
+    setOriginal({ sol1: sol1.trim(), sol2: sol2.trim(), validacao: validacao.trim(), financeiro: financeiro.trim() });
     setSalvando(false);
     setSalvo(true);
     setTimeout(() => setSalvo(false), 2500);
@@ -172,7 +176,8 @@ export default function WhatsappConfigPage() {
   const alterado =
     sol1.trim() !== original.sol1 ||
     sol2.trim() !== original.sol2 ||
-    validacao.trim() !== original.validacao;
+    validacao.trim() !== original.validacao ||
+    financeiro.trim() !== original.financeiro;
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-4xl mx-auto">
@@ -241,6 +246,13 @@ export default function WhatsappConfigPage() {
               label="Grupo de Validação (controle)"
               hint="Grupo onde o controle recebe as reposições de Falta/Inversão e aprova com OK/NOK."
               value={validacao} onChange={setValidacao} grupos={grupos} onCopy={copiar} copiado={copiado}
+            />
+          )}
+          {tab === "financeiro" && (
+            <GroupPicker
+              label="Grupo do Financeiro (Chapa/Descarga)"
+              hint="Grupo que recebe o aviso automático, assim que o CSV do dia é importado em Catálogo/Vendas, com os clientes de Chapa/Descarga que têm pedido na rua hoje."
+              value={financeiro} onChange={setFinanceiro} grupos={grupos} onCopy={copiar} copiado={copiado}
             />
           )}
         </div>

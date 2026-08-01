@@ -52,6 +52,8 @@ import ReposicoesPage from './pages/vales/Reposicoes'
 import ValesConfiguracoesPage from './pages/vales/Configuracoes'
 import WhatsappConfigPage from './pages/vales/WhatsappConfig'
 import ImportCatalogoPage from './pages/vales/ImportCatalogo'
+import ChapaDescargaPage from './pages/financeiro/ChapaDescarga'
+import ChapaDescargaClientesPage from './pages/financeiro/ChapaDescargaClientes'
 import ArmazemOperador from './pages/armazem/Operador'
 import ArmazemCadastro from './pages/armazem/Cadastro'
 import ArmazemOperadores from './pages/armazem/Operadores'
@@ -171,6 +173,8 @@ export default function App() {
             <Route path="/vales/whatsapp" element={<WhatsappConfigPage />} />
             <Route path="/vales/catalogo" element={<ImportCatalogoPage />} />
             <Route path="/vales/configuracoes" element={<ValesConfiguracoesPage />} />
+            <Route path="/financeiro/chapa-descarga" element={<ChapaDescargaPage />} />
+            <Route path="/financeiro/chapa-descarga/clientes" element={<ChapaDescargaClientesPage />} />
           </Route>
         </Routes>
       </BrowserRouter>
