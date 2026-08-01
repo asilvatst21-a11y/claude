@@ -445,12 +445,17 @@ export default function ChapaDescargaPage() {
   )
 }
 
+const CAMPO_LABEL = 'text-[10px] font-bold uppercase tracking-wide text-[#7a746a]'
+const SECAO_TITULO = 'text-xs font-bold uppercase tracking-wide text-[#1a4451] border-b border-[#d9d2c4] pb-1 mb-2'
+
 function ReciboModal({ lancamento, onClose }: { lancamento: LancamentoChapaDescarga; onClose: () => void }) {
   const dataEmissao = formatarDataBR(new Date().toISOString().slice(0, 10))
   const dataLancamento = formatarDataBR(lancamento.data)
+  const tipoLabel = lancamento.tipo === 'chapa' ? 'Chapa' : 'Descarga Paletizada'
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 print:bg-white print:p-0">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-xl max-h-[90vh] overflow-y-auto print:shadow-none print:max-h-none print:rounded-none">
+      <style>{'@media print { @page { size: landscape; margin: 10mm; } }'}</style>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto print:shadow-none print:max-h-none print:rounded-none print:max-w-none">
         <div className="flex items-center justify-between px-6 py-3 border-b print:hidden">
           <h3 className="font-bold">Recibo</h3>
           <div className="flex items-center gap-2">
@@ -461,48 +466,73 @@ function ReciboModal({ lancamento, onClose }: { lancamento: LancamentoChapaDesca
           </div>
         </div>
 
-        <div className="p-8 font-serif text-sm leading-normal space-y-5" id="recibo-impressao">
-          <div className="flex items-start justify-between">
-            <p className="text-base font-bold uppercase">Recibo de {lancamento.tipo === 'chapa' ? 'Chapa' : 'Descarga'}</p>
-            <p><span className="font-bold">Valor:</span> R$ {lancamento.valor_calculado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-          </div>
-          <div className="flex items-start justify-between">
-            <p className="font-bold">Log20 Logística S/A</p>
-            <p><span className="font-bold">Data Emissão:</span> {dataEmissao}</p>
-          </div>
-
-          <div className="space-y-1.5">
-            <p className="font-bold border-b border-black/40 pb-1">1. INFORMAÇÕES DO REGISTRO</p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-              <p><span className="font-bold">Nº do Mapa:</span> {lancamento.mapa ?? '—'}</p>
-              <p><span className="font-bold">Tipo de Carga:</span> {lancamento.tipo === 'chapa' ? 'CHAPA' : 'DESCARGA PALETIZADA'}</p>
-              <p><span className="font-bold">Cliente:</span> {lancamento.cliente_codigo} - {lancamento.cliente_nome}</p>
-              <p><span className="font-bold">Quant. de {lancamento.tipo === 'chapa' ? 'Chapas' : 'Paletes'}:</span> {lancamento.quantidade_paga ?? (lancamento.tipo === 'chapa' ? '—' : lancamento.quantidade_pallets ?? '—')}</p>
-              {lancamento.tipo === 'chapa' && (
-                <p><span className="font-bold">Valor da Nota:</span> R$ {(lancamento.valor_nota ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-              )}
-              <p><span className="font-bold">Data:</span> {dataLancamento}</p>
+        <div className="font-serif text-[#23211d]" id="recibo-impressao">
+          <div className="bg-[#1a4451] text-[#f4ece0] px-10 py-5 flex items-center justify-between">
+            <div>
+              <p className="text-base font-bold tracking-wide">LOG20</p>
+              <p className="text-[11px] opacity-80">Log20 Logística S/A</p>
+            </div>
+            <div className="text-right">
+              <p className="text-lg font-bold">Recibo de {tipoLabel}</p>
+              <p className="text-xs opacity-80">Emitido em {dataEmissao}</p>
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <p className="font-bold border-b border-black/40 pb-1">2. DADOS DO TRANSPORTADOR</p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-              <p><span className="font-bold">Motorista:</span> {lancamento.motorista ?? '—'}</p>
-              <p><span className="font-bold">Placa Veículo:</span> {lancamento.placa ?? '—'}</p>
+          <div className="px-10 py-6 space-y-5">
+            <div className="flex items-center justify-between bg-[#f4ece0] border border-[#d9d2c4] rounded-md px-5 py-3">
+              <div>
+                <p className={CAMPO_LABEL}>Cliente</p>
+                <p className="text-base">{lancamento.cliente_codigo} - {lancamento.cliente_nome}</p>
+              </div>
+              <div className="text-right">
+                <p className={CAMPO_LABEL}>Valor pago</p>
+                <p className="text-2xl font-bold text-[#1a4451]">
+                  R$ {lancamento.valor_calculado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                </p>
+              </div>
             </div>
-          </div>
 
-          <div className="space-y-1.5">
-            <p className="font-bold border-b border-black/40 pb-1">3. DECLARAÇÃO DE RECEBIMENTO</p>
-            <p className="leading-relaxed">
-              Para maior clareza, firmo o presente recibo, que comprova o recebimento integral do valor
-              mencionado, concedendo quitação plena, geral e irrevogável pela quantia recebida.
-            </p>
-          </div>
+            <div className="grid grid-cols-2 gap-10">
+              <div className="space-y-5">
+                <div>
+                  <p className={SECAO_TITULO}>1. Informações do registro</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-sm">
+                    <div><p className={CAMPO_LABEL}>Nº do Mapa</p><p>{lancamento.mapa ?? '—'}</p></div>
+                    <div><p className={CAMPO_LABEL}>Data</p><p>{dataLancamento}</p></div>
+                    <div><p className={CAMPO_LABEL}>Tipo de Carga</p><p>{tipoLabel}</p></div>
+                    <div>
+                      <p className={CAMPO_LABEL}>Quant. de {lancamento.tipo === 'chapa' ? 'Chapas' : 'Paletes'}</p>
+                      <p>{lancamento.quantidade_paga ?? (lancamento.tipo === 'chapa' ? '—' : lancamento.quantidade_pallets ?? '—')}</p>
+                    </div>
+                    {lancamento.tipo === 'chapa' && (
+                      <div>
+                        <p className={CAMPO_LABEL}>Valor da Nota</p>
+                        <p>R$ {(lancamento.valor_nota ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
 
-          <div className="pt-10 text-center">
-            <p className="border-t border-black inline-block px-16 pt-1">Assinatura do Cliente / Recebedor</p>
+                <div>
+                  <p className={SECAO_TITULO}>2. Dados do transportador</p>
+                  <div className="grid grid-cols-2 gap-x-6 gap-y-2.5 text-sm">
+                    <div><p className={CAMPO_LABEL}>Motorista</p><p>{lancamento.motorista ?? '—'}</p></div>
+                    <div><p className={CAMPO_LABEL}>Placa Veículo</p><p>{lancamento.placa ?? '—'}</p></div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-col">
+                <p className={SECAO_TITULO}>3. Declaração de recebimento</p>
+                <p className="text-sm leading-relaxed text-[#4a4640]">
+                  Para maior clareza, firmo o presente recibo, que comprova o recebimento integral do valor
+                  mencionado, concedendo quitação plena, geral e irrevogável pela quantia recebida.
+                </p>
+                <div className="mt-auto pt-10 self-end text-center w-64">
+                  <p className="border-t border-black pt-1 text-xs text-[#7a746a]">Assinatura do Cliente / Recebedor</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
