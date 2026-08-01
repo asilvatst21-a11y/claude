@@ -29,6 +29,8 @@ export interface LancamentoChapaDescarga {
   tipo: TipoLancamento
   valor_nota: number | null
   quantidade_pallets: number | null
+  quantidade_paga: number | null
+  valor_unitario: number | null
   valor_calculado: number
   dentro_parametro: boolean
   confirmado_fora_parametro: boolean
@@ -44,7 +46,9 @@ export interface ClienteComMapaHoje {
 }
 
 export interface ResultadoCalculo {
-  valorCalculado: number
+  quantidade: number       // nº de chapas ou pallets sugerido pelo cálculo (editável no lançamento)
+  valorUnitario: number    // valor de cada chapa/pallet, conforme o parâmetro do cliente
+  valorCalculado: number   // quantidade × valorUnitario
   dentroParametro: boolean
   detalhe: string
 }
@@ -75,9 +79,10 @@ export function calcularChapa(
   valorPorChapa: number
 ): ResultadoCalculo {
   const numChapas = valorACadaNota > 0 ? Math.floor(valorNota / valorACadaNota) : 0
-  const valorCalculado = numChapas * valorPorChapa
   return {
-    valorCalculado,
+    quantidade: numChapas,
+    valorUnitario: valorPorChapa,
+    valorCalculado: numChapas * valorPorChapa,
     dentroParametro: numChapas >= 1,
     detalhe: `${numChapas} chapa(s) (a cada R$ ${valorACadaNota.toLocaleString('pt-BR')} em nota, 1 chapa de R$ ${valorPorChapa.toLocaleString('pt-BR')})`,
   }
@@ -90,11 +95,11 @@ export function calcularDescarga(
   minimoPallets: number,
   valorPorPallet: number
 ): ResultadoCalculo {
-  const dentroParametro = quantidadePallets > minimoPallets
-  const valorCalculado = quantidadePallets * valorPorPallet
   return {
-    valorCalculado,
-    dentroParametro,
+    quantidade: quantidadePallets,
+    valorUnitario: valorPorPallet,
+    valorCalculado: quantidadePallets * valorPorPallet,
+    dentroParametro: quantidadePallets > minimoPallets,
     detalhe: `${quantidadePallets} pallet(s) × R$ ${valorPorPallet.toLocaleString('pt-BR')} (mínimo exigido: acima de ${minimoPallets})`,
   }
 }
@@ -168,6 +173,8 @@ export async function registrarLancamento(lancamento: {
   tipo: TipoLancamento
   valor_nota: number | null
   quantidade_pallets: number | null
+  quantidade_paga: number | null
+  valor_unitario: number | null
   valor_calculado: number
   dentro_parametro: boolean
   confirmado_fora_parametro: boolean

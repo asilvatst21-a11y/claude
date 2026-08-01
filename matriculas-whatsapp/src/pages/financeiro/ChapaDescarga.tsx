@@ -25,6 +25,7 @@ interface WizardState {
   tipo: TipoLancamento | null
   valorNota: string
   quantidadePallets: string
+  quantidadePagaManual: string
   comprovanteFile: File | null
   motorista: string
   placa: string
@@ -84,6 +85,7 @@ export default function ChapaDescargaPage() {
       tipo: null,
       valorNota: '',
       quantidadePallets: '',
+      quantidadePagaManual: '',
       comprovanteFile: null,
       motorista: '',
       placa: '',
@@ -116,6 +118,9 @@ export default function ChapaDescargaPage() {
     if (!wizard?.tipo || !usuario) return
     const calculo = calculoAtual()
     if (!calculo) return
+    const qtdPaga = wizard.quantidadePagaManual.trim() ? parseInt(wizard.quantidadePagaManual) : calculo.quantidade
+    if (!Number.isFinite(qtdPaga) || qtdPaga < 0) return
+    const valor = qtdPaga * calculo.valorUnitario
     if (!calculo.dentroParametro && !confirmarFora) { setPasso('confirmacao'); return }
 
     setSalvando(true)
@@ -144,7 +149,9 @@ export default function ChapaDescargaPage() {
         tipo: wizard.tipo,
         valor_nota: wizard.tipo === 'chapa' ? parseFloat(wizard.valorNota.replace(',', '.')) : null,
         quantidade_pallets: wizard.tipo === 'descarga' ? parseInt(wizard.quantidadePallets) : null,
-        valor_calculado: calculo.valorCalculado,
+        quantidade_paga: qtdPaga,
+        valor_unitario: calculo.valorUnitario,
+        valor_calculado: valor,
         dentro_parametro: calculo.dentroParametro,
         confirmado_fora_parametro: !calculo.dentroParametro && confirmarFora,
         comprovante_url,
@@ -161,6 +168,21 @@ export default function ChapaDescargaPage() {
   }
 
   const calculo = wizard ? calculoAtual() : null
+
+  // Quantidade de chapas/pallets efetivamente paga: parte do sugerido pelo
+  // cálculo, mas o financeiro pode ajustar (ex.: negociou pagar 2 chapas numa
+  // nota que só calcularia 1) sem precisar forjar o valor da nota/contagem.
+  function quantidadePagaFinal(): number | null {
+    if (!calculo) return null
+    if (wizard?.quantidadePagaManual.trim()) {
+      const qtd = parseInt(wizard.quantidadePagaManual)
+      return Number.isFinite(qtd) && qtd >= 0 ? qtd : null
+    }
+    return calculo.quantidade
+  }
+
+  const quantidadePaga = quantidadePagaFinal()
+  const valorFinal = calculo && quantidadePaga != null ? quantidadePaga * calculo.valorUnitario : null
 
   return (
     <div className="p-4 sm:p-6 space-y-6 max-w-4xl mx-auto">
@@ -342,13 +364,28 @@ export default function ChapaDescargaPage() {
                 )}
 
                 {calculo && (
-                  <div className={`rounded-md p-3 text-sm ${calculo.dentroParametro ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'}`}>
+                  <div className={`rounded-md p-3 text-sm space-y-2 ${calculo.dentroParametro ? 'bg-green-50 text-green-800' : 'bg-amber-50 text-amber-800'}`}>
                     <p className="font-medium flex items-center gap-1.5">
                       {calculo.dentroParametro ? <CheckCircle2 className="h-4 w-4" /> : <AlertTriangle className="h-4 w-4" />}
                       {calculo.dentroParametro ? 'Dentro do parâmetro' : 'Fora do parâmetro'}
                     </p>
-                    <p className="mt-1">{calculo.detalhe}</p>
-                    <p className="mt-1 font-semibold">Valor a pagar: R$ {calculo.valorCalculado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+                    <p>{calculo.detalhe}</p>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs whitespace-nowrap">
+                        Qtd. de {wizard.tipo === 'chapa' ? 'chapas' : 'pallets'} a pagar:
+                      </label>
+                      <input
+                        value={wizard.quantidadePagaManual || String(calculo.quantidade)}
+                        onChange={e => setWizard(w => w && ({ ...w, quantidadePagaManual: e.target.value }))}
+                        className="w-16 border rounded-md px-2 py-1 text-sm bg-white"
+                      />
+                      {quantidadePaga != null && quantidadePaga !== calculo.quantidade && (
+                        <span className="text-xs">(sugerido: {calculo.quantidade})</span>
+                      )}
+                    </div>
+                    <p className="font-semibold">
+                      Valor a pagar: R$ {(valorFinal ?? calculo.valorCalculado).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                    </p>
                   </div>
                 )}
 
@@ -368,7 +405,7 @@ export default function ChapaDescargaPage() {
 
                 <button
                   onClick={confirmarLancamento}
-                  disabled={!calculo || salvando}
+                  disabled={!calculo || quantidadePaga == null || salvando}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-md font-medium disabled:opacity-50"
                 >
                   {salvando ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -382,6 +419,7 @@ export default function ChapaDescargaPage() {
                 <div className="rounded-md p-3 text-sm bg-amber-50 text-amber-800">
                   <p className="font-medium flex items-center gap-1.5"><AlertTriangle className="h-4 w-4" /> Fora do parâmetro</p>
                   <p className="mt-1">{calculo.detalhe}</p>
+                  <p className="mt-1 font-semibold">Valor a pagar: R$ {(valorFinal ?? calculo.valorCalculado).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
                   <p className="mt-2">Deseja confirmar e gerar o recibo mesmo assim?</p>
                 </div>
                 <div className="flex gap-3">
@@ -423,42 +461,41 @@ function ReciboModal({ lancamento, onClose }: { lancamento: LancamentoChapaDesca
           </div>
         </div>
 
-        <div className="p-8 font-serif text-sm space-y-6" id="recibo-impressao">
+        <div className="p-8 font-serif text-sm leading-normal space-y-5" id="recibo-impressao">
           <div className="flex items-start justify-between">
-            <h1 className="text-lg font-bold uppercase">Recibo de {lancamento.tipo === 'chapa' ? 'Chapa' : 'Descarga'}</h1>
-            <div className="text-right">
-              <p><span className="font-semibold">Valor:</span> R$ {lancamento.valor_calculado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
-            </div>
+            <p className="text-base font-bold uppercase">Recibo de {lancamento.tipo === 'chapa' ? 'Chapa' : 'Descarga'}</p>
+            <p><span className="font-bold">Valor:</span> R$ {lancamento.valor_calculado.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
           </div>
           <div className="flex items-start justify-between">
-            <p className="font-semibold">Log20 Logística S/A</p>
-            <p><span className="font-semibold">Data Emissão:</span> {dataEmissao}</p>
+            <p className="font-bold">Log20 Logística S/A</p>
+            <p><span className="font-bold">Data Emissão:</span> {dataEmissao}</p>
           </div>
 
-          <div className="space-y-2">
-            <p className="font-bold border-b pb-1">1. INFORMAÇÕES DO REGISTRO</p>
+          <div className="space-y-1.5">
+            <p className="font-bold border-b border-black/40 pb-1">1. INFORMAÇÕES DO REGISTRO</p>
             <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-              <p><span className="font-semibold">Nº do Mapa:</span> {lancamento.mapa ?? '—'}</p>
-              <p><span className="font-semibold">Tipo de Carga:</span> {lancamento.tipo === 'chapa' ? 'CHAPA' : 'DESCARGA PALETIZADA'}</p>
-              <p><span className="font-semibold">Cliente:</span> {lancamento.cliente_codigo} - {lancamento.cliente_nome}</p>
-              <p><span className="font-semibold">Quant. de Paletes/Chapas:</span> {lancamento.tipo === 'chapa'
-                ? `nota R$ ${(lancamento.valor_nota ?? 0).toLocaleString('pt-BR')}`
-                : lancamento.quantidade_pallets}</p>
-            </div>
-            <p><span className="font-semibold">Data:</span> {dataLancamento}</p>
-          </div>
-
-          <div className="space-y-2">
-            <p className="font-bold border-b pb-1">2. DADOS DO TRANSPORTADOR</p>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1">
-              <p><span className="font-semibold">Motorista:</span> {lancamento.motorista ?? '—'}</p>
-              <p><span className="font-semibold">Placa Veículo:</span> {lancamento.placa ?? '—'}</p>
+              <p><span className="font-bold">Nº do Mapa:</span> {lancamento.mapa ?? '—'}</p>
+              <p><span className="font-bold">Tipo de Carga:</span> {lancamento.tipo === 'chapa' ? 'CHAPA' : 'DESCARGA PALETIZADA'}</p>
+              <p><span className="font-bold">Cliente:</span> {lancamento.cliente_codigo} - {lancamento.cliente_nome}</p>
+              <p><span className="font-bold">Quant. de {lancamento.tipo === 'chapa' ? 'Chapas' : 'Paletes'}:</span> {lancamento.quantidade_paga ?? (lancamento.tipo === 'chapa' ? '—' : lancamento.quantidade_pallets ?? '—')}</p>
+              {lancamento.tipo === 'chapa' && (
+                <p><span className="font-bold">Valor da Nota:</span> R$ {(lancamento.valor_nota ?? 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</p>
+              )}
+              <p><span className="font-bold">Data:</span> {dataLancamento}</p>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <p className="font-bold border-b pb-1">3. DECLARAÇÃO DE RECEBIMENTO</p>
-            <p className="text-xs leading-relaxed">
+          <div className="space-y-1.5">
+            <p className="font-bold border-b border-black/40 pb-1">2. DADOS DO TRANSPORTADOR</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+              <p><span className="font-bold">Motorista:</span> {lancamento.motorista ?? '—'}</p>
+              <p><span className="font-bold">Placa Veículo:</span> {lancamento.placa ?? '—'}</p>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <p className="font-bold border-b border-black/40 pb-1">3. DECLARAÇÃO DE RECEBIMENTO</p>
+            <p className="leading-relaxed">
               Para maior clareza, firmo o presente recibo, que comprova o recebimento integral do valor
               mencionado, concedendo quitação plena, geral e irrevogável pela quantia recebida.
             </p>
