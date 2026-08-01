@@ -24,6 +24,8 @@ export interface LancamentoChapaDescarga {
   cliente_codigo: number
   cliente_nome: string
   mapa: string | null
+  motorista: string | null
+  placa: string | null
   tipo: TipoLancamento
   valor_nota: number | null
   quantidade_pallets: number | null
@@ -109,6 +111,27 @@ export async function mapasDoDia(clienteCodigo: number, data: string): Promise<s
   return mapas.sort()
 }
 
+// Motorista e placa que rodaram o mapa, vindos da aba "Base" da planilha
+// diária (mesmo import de Financeiro → Catálogo/Vendas, tabela alimentada em
+// importarBaseMapa/frota_motorista_base). Retorna null se a Base ainda não
+// foi importada para esse mapa — o campo fica em branco para preenchimento
+// manual nesse caso.
+export async function buscarMotoristaPlaca(
+  filial: string,
+  mapa: string
+): Promise<{ motorista: string | null; placa: string | null }> {
+  const mapaNum = Number(mapa)
+  if (!filial || !Number.isFinite(mapaNum)) return { motorista: null, placa: null }
+  const { data, error } = await supabase
+    .from('frota_motorista_base')
+    .select('nome, placa')
+    .eq('filial', filial)
+    .eq('mapa', mapaNum)
+    .maybeSingle()
+  if (error || !data) return { motorista: null, placa: null }
+  return { motorista: data.nome ?? null, placa: data.placa ?? null }
+}
+
 // Clientes ativos (com Chapa e/ou Descarga habilitados) que têm mapa na rua
 // no dia informado — base da notificação ao financeiro.
 export async function clientesComMapaHoje(data: string): Promise<ClienteComMapaHoje[]> {
@@ -140,6 +163,8 @@ export async function registrarLancamento(lancamento: {
   cliente_codigo: number
   cliente_nome: string
   mapa: string | null
+  motorista: string | null
+  placa: string | null
   tipo: TipoLancamento
   valor_nota: number | null
   quantidade_pallets: number | null

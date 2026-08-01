@@ -3,7 +3,7 @@ import { Truck, Package, AlertTriangle, CheckCircle2, Printer, X, Upload, Loader
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import {
-  clientesComMapaHoje, listarLancamentosDoDia, registrarLancamento, calcularChapa, calcularDescarga,
+  clientesComMapaHoje, listarLancamentosDoDia, registrarLancamento, calcularChapa, calcularDescarga, buscarMotoristaPlaca,
   type ClienteComMapaHoje, type ClienteChapaDescarga, type LancamentoChapaDescarga, type TipoLancamento,
 } from '@/lib/chapaDescarga'
 
@@ -26,6 +26,9 @@ interface WizardState {
   valorNota: string
   quantidadePallets: string
   comprovanteFile: File | null
+  motorista: string
+  placa: string
+  buscandoTransportador: boolean
 }
 
 export default function ChapaDescargaPage() {
@@ -57,6 +60,22 @@ export default function ChapaDescargaPage() {
 
   useEffect(() => { carregar() }, [data])
 
+  // Assim que o mapa é conhecido (direto, ou após a seleção no passo "mapa"),
+  // busca automaticamente motorista e placa que rodaram aquele mapa na Base
+  // do Mapa (mesmo import de Financeiro > Catálogo/Vendas). Se a Base ainda
+  // não foi importada, os campos ficam em branco para digitação manual.
+  useEffect(() => {
+    if (!wizard?.mapaSelecionado || !usuario?.filial) return
+    let cancelado = false
+    setWizard(w => w && ({ ...w, buscandoTransportador: true }))
+    buscarMotoristaPlaca(usuario.filial, wizard.mapaSelecionado).then(({ motorista, placa }) => {
+      if (cancelado) return
+      setWizard(w => w && ({ ...w, motorista: motorista ?? '', placa: placa ?? '', buscandoTransportador: false }))
+    })
+    return () => { cancelado = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wizard?.mapaSelecionado])
+
   function iniciarLancamento(item: ClienteComMapaHoje) {
     setWizard({
       cliente: item.cliente,
@@ -66,6 +85,9 @@ export default function ChapaDescargaPage() {
       valorNota: '',
       quantidadePallets: '',
       comprovanteFile: null,
+      motorista: '',
+      placa: '',
+      buscandoTransportador: false,
     })
     setPasso(item.mapas.length > 1 ? 'mapa' : 'tipo')
     setConfirmarFora(false)
@@ -117,6 +139,8 @@ export default function ChapaDescargaPage() {
         cliente_codigo: wizard.cliente.codigo,
         cliente_nome: wizard.cliente.nome,
         mapa: wizard.mapaSelecionado,
+        motorista: wizard.motorista.trim() || null,
+        placa: wizard.placa.trim() || null,
         tipo: wizard.tipo,
         valor_nota: wizard.tipo === 'chapa' ? parseFloat(wizard.valorNota.replace(',', '.')) : null,
         quantidade_pallets: wizard.tipo === 'descarga' ? parseInt(wizard.quantidadePallets) : null,
@@ -267,6 +291,31 @@ export default function ChapaDescargaPage() {
 
             {passo === 'valor' && wizard.tipo && (
               <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Motorista</label>
+                    <input
+                      value={wizard.motorista}
+                      onChange={e => setWizard(w => w && ({ ...w, motorista: e.target.value }))}
+                      placeholder={wizard.buscandoTransportador ? 'Buscando…' : 'Não encontrado na Base — digite'}
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Placa</label>
+                    <input
+                      value={wizard.placa}
+                      onChange={e => setWizard(w => w && ({ ...w, placa: e.target.value.toUpperCase() }))}
+                      placeholder={wizard.buscandoTransportador ? 'Buscando…' : 'Não encontrada na Base — digite'}
+                      className="w-full border rounded-md px-3 py-2 text-sm"
+                    />
+                  </div>
+                </div>
+                {!wizard.buscandoTransportador && !wizard.motorista && !wizard.placa && (
+                  <p className="text-xs text-amber-600">
+                    Não achei motorista/placa para o mapa {wizard.mapaSelecionado} na Base do Mapa — confira se ela já foi importada hoje, ou preencha manualmente.
+                  </p>
+                )}
                 {wizard.tipo === 'chapa' ? (
                   <div>
                     <label className="block text-sm font-medium mb-1">Valor da nota (R$)</label>
@@ -400,7 +449,15 @@ function ReciboModal({ lancamento, onClose }: { lancamento: LancamentoChapaDesca
           </div>
 
           <div className="space-y-2">
-            <p className="font-bold border-b pb-1">2. DECLARAÇÃO DE RECEBIMENTO</p>
+            <p className="font-bold border-b pb-1">2. DADOS DO TRANSPORTADOR</p>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+              <p><span className="font-semibold">Motorista:</span> {lancamento.motorista ?? '—'}</p>
+              <p><span className="font-semibold">Placa Veículo:</span> {lancamento.placa ?? '—'}</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <p className="font-bold border-b pb-1">3. DECLARAÇÃO DE RECEBIMENTO</p>
             <p className="text-xs leading-relaxed">
               Para maior clareza, firmo o presente recibo, que comprova o recebimento integral do valor
               mencionado, concedendo quitação plena, geral e irrevogável pela quantia recebida.
