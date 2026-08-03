@@ -62,6 +62,12 @@ export interface TurnoAtividade {
   metaValor: number | null
   conferenteUsuarioId: string | null
   conferenteNome: string | null
+  // Quando true, cada colaborador lança o PRÓPRIO valor do dia (ex.: Quebra
+  // TA/TB/TC — a quebra de um não tem nada a ver com a do colega), em vez de
+  // todos herdarem um valor único compartilhado do turno. Grava em
+  // variavel_turno_registros_operador, uma tabela à parte — não mexe em nada
+  // do fluxo/tabela das atividades "normais" (TMA, EFC etc.).
+  porOperador: boolean
   ativo: boolean
 }
 
@@ -91,6 +97,7 @@ function linhaParaAtividade(r: any): TurnoAtividade {
     tipoRegistro: r.tipo_registro, unidade: r.unidade, direcao: r.direcao,
     metaValor: r.meta_valor != null ? Number(r.meta_valor) : null,
     conferenteUsuarioId: r.conferente_usuario_id, conferenteNome: r.conferente_nome,
+    porOperador: r.por_operador ?? false,
     ativo: r.ativo,
   }
 }
@@ -160,6 +167,7 @@ export async function salvarAtividadeTurno(atividade: {
   metaValor: number | null
   conferenteUsuarioId: string | null
   conferenteNome: string | null
+  porOperador: boolean
 }): Promise<{ error: string | null; id: string | null }> {
   const payload = {
     filial: atividade.filial, turno: atividade.turno, nome: atividade.nome,
@@ -167,6 +175,7 @@ export async function salvarAtividadeTurno(atividade: {
     direcao: atividade.unidade === 'ok_nok' ? null : atividade.direcao,
     meta_valor: atividade.unidade === 'ok_nok' ? null : atividade.metaValor,
     conferente_usuario_id: atividade.conferenteUsuarioId, conferente_nome: atividade.conferenteNome,
+    por_operador: atividade.porOperador,
   }
   if (atividade.id) {
     const { error } = await supabase.from('variavel_turno_atividades').update(payload).eq('id', atividade.id)
@@ -369,6 +378,100 @@ export async function registrarAtividadeTurno(
     error: null, registro: gravado ? linhaParaRegistro(gravado) : null,
     creditos: creditosPayload.map((c) => ({ colaboradorNome: c.colaborador_nome, valorGerado: c.valor_gerado })),
   }
+}
+
+// ── Atividades "por operador" (ex.: Quebra TA/TB/TC) — cada colaborador
+// lança o próprio valor do dia, em vez de herdar um valor único do turno.
+// Grava numa tabela separada (variavel_turno_registros_operador), sem tocar
+// em nada do fluxo das atividades normais. ──────────────────────────────
+
+export interface RegistroOperador {
+  colaboradorId: string | null
+  valorNumero: number | null
+  okNok: boolean | null
+  bateuMeta: boolean
+}
+
+// Registros do mês de uma atividade "por operador" — Map<data, Map<colaboradorId, registro>>,
+// pra tela de lançamento retroativo pré-preencher uma coluna por pessoa.
+export async function listarRegistrosOperadorDoMes(atividadeId: string, mesISO: string): Promise<Map<string, Map<string, RegistroOperador>>> {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  const ini = `${mesISO}-01`
+  const fim = `${mesISO}-${String(new Date(Date.UTC(ano, mes, 0)).getUTCDate()).padStart(2, '0')}`
+  const { data, error } = await supabase
+    .from('variavel_turno_registros_operador')
+    .select('*')
+    .eq('atividade_id', atividadeId)
+    .gte('data', ini)
+    .lte('data', fim)
+  if (error) { console.error('listarRegistrosOperadorDoMes error:', error.message); return new Map() }
+  const porDia = new Map<string, Map<string, RegistroOperador>>()
+  for (const r of data ?? []) {
+    if (!r.colaborador_id) continue
+    if (!porDia.has(r.data)) porDia.set(r.data, new Map())
+    porDia.get(r.data)!.set(r.colaborador_id, {
+      colaboradorId: r.colaborador_id,
+      valorNumero: r.valor_numero != null ? Number(r.valor_numero) : null,
+      okNok: r.ok_nok, bateuMeta: r.bateu_meta,
+    })
+  }
+  return porDia
+}
+
+// Grava o valor de CADA colaborador nesse dia (um por pessoa, não um só
+// compartilhado) e credita cada um a partir do próprio valor — quem não
+// trabalhou (excluidosHoje) não entra, nem gera registro nem crédito.
+export async function registrarAtividadeTurnoPorOperador(
+  atividade: TurnoAtividade, colaboradores: AtividadeColaborador[], data: string,
+  valoresPorColaborador: Map<string, { valorNumero: number | null; okNok: boolean | null }>,
+  registradoPor: { usuarioId: string; nome: string | null },
+  excluidosHoje: Set<string> = new Set(),
+): Promise<{ error: string | null }> {
+  const ativos = colaboradores.filter((c) => c.ativo && c.colaboradorId)
+  const registrosPayload: any[] = []
+  const creditosPayload: any[] = []
+
+  for (const c of ativos) {
+    const colaboradorId = c.colaboradorId as string
+    const excluido = excluidosHoje.has(colaboradorId)
+    if (excluido) {
+      creditosPayload.push({
+        atividade_id: atividade.id, registro_id: null, colaborador_id: colaboradorId,
+        colaborador_nome: c.colaboradorNome, data, valor_gerado: 0, ausente: true,
+      })
+      continue
+    }
+    const entrada = valoresPorColaborador.get(colaboradorId)
+    if (!entrada || (entrada.valorNumero == null && entrada.okNok == null)) continue // sem valor lançado pra essa pessoa nesse dia — não grava nada
+
+    const bateu = bateuMetaAtividade(atividade, entrada.valorNumero, entrada.okNok)
+    registrosPayload.push({
+      atividade_id: atividade.id, filial: atividade.filial, colaborador_id: colaboradorId,
+      colaborador_nome: c.colaboradorNome, data,
+      valor_numero: entrada.valorNumero, ok_nok: entrada.okNok, bateu_meta: bateu,
+      registrado_por_usuario_id: registradoPor.usuarioId, registrado_por_nome: registradoPor.nome,
+      registrado_em: new Date().toISOString(),
+    })
+    creditosPayload.push({
+      atividade_id: atividade.id, registro_id: null, colaborador_id: colaboradorId,
+      colaborador_nome: c.colaboradorNome, data,
+      valor_gerado: bateu ? cotaDiaria(c.valorFinalMensal, data) : 0, ausente: false,
+    })
+  }
+
+  if (registrosPayload.length > 0) {
+    const { error } = await supabase
+      .from('variavel_turno_registros_operador')
+      .upsert(registrosPayload, { onConflict: 'atividade_id,colaborador_id,data' })
+    if (error) return { error: error.message }
+  }
+  if (creditosPayload.length > 0) {
+    const { error } = await supabase
+      .from('variavel_turno_creditos')
+      .upsert(creditosPayload, { onConflict: 'atividade_id,colaborador_id,data' })
+    if (error) return { error: error.message }
+  }
+  return { error: null }
 }
 
 // Registros já lançados de uma atividade num mês — pra tela de lançamento

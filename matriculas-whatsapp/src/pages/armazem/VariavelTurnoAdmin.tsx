@@ -9,8 +9,10 @@ import {
   cotaDiaria, formatarBRL, listarColaboradoresElegiveis, minutosParaHHMM, hhmmParaMinutos,
   listarEquipeConferente, adicionarNaEquipeConferente, alternarAtivoEquipeConferente,
   listarRegistrosDoMes, registrarAtividadeTurno, bateuMetaAtividade,
+  listarRegistrosOperadorDoMes, registrarAtividadeTurnoPorOperador,
   type TurnoAtividade, type TurnoTipoRegistro, type TurnoUnidade, type TurnoDirecao,
   type ColaboradorElegivel, type AtividadeColaborador, type ConferenteEquipeMembro, type TurnoRegistro,
+  type RegistroOperador,
 } from '../../lib/variavelTurno'
 
 const UNIDADE_LABEL: Record<TurnoUnidade, string> = {
@@ -39,7 +41,7 @@ const SENHA_PADRAO_CONFERENTE = 'CONFERENTE123'
 function formVazio() {
   return {
     turno: '1º Turno', nome: '', tipoRegistro: 'manual' as TurnoTipoRegistro, unidade: 'percentual' as TurnoUnidade,
-    direcao: 'maior_melhor' as TurnoDirecao, metaValor: '', conferenteUsuarioId: '',
+    direcao: 'maior_melhor' as TurnoDirecao, metaValor: '', conferenteUsuarioId: '', porOperador: false,
   }
 }
 
@@ -239,8 +241,10 @@ function LancamentoManualDiario({ atividades }: { atividades: TurnoAtividade[] }
   const { usuario } = useAuth()
   const hoje = hojeISO()
   const [registrosHoje, setRegistrosHoje] = useState<Map<string, TurnoRegistro>>(new Map())
+  const [registrosOperadorHoje, setRegistrosOperadorHoje] = useState<Record<string, Map<string, RegistroOperador>>>({})
   const [colaboradoresPorAtividade, setColaboradoresPorAtividade] = useState<Record<string, AtividadeColaborador[]>>({})
   const [valores, setValores] = useState<Record<string, string>>({})
+  const [valoresOperador, setValoresOperador] = useState<Record<string, Record<string, string>>>({})
   const [excluidos, setExcluidos] = useState<Record<string, Set<string>>>({})
   const [expandido, setExpandido] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -250,14 +254,22 @@ function LancamentoManualDiario({ atividades }: { atividades: TurnoAtividade[] }
   const carregar = useCallback(async () => {
     setLoading(true)
     const mapaRegistros = new Map<string, TurnoRegistro>()
+    const mapaRegistrosOperador: Record<string, Map<string, RegistroOperador>> = {}
     const mapaColaboradores: Record<string, AtividadeColaborador[]> = {}
     await Promise.all(atividades.map(async (a) => {
-      const [doMes, colabs] = await Promise.all([listarRegistrosDoMes(a.id, hoje.slice(0, 7)), listarColaboradoresDaAtividade(a.id)])
-      const r = doMes.get(hoje)
-      if (r) mapaRegistros.set(a.id, r)
+      const colabs = await listarColaboradoresDaAtividade(a.id)
       mapaColaboradores[a.id] = colabs.filter((c) => c.ativo)
+      if (a.porOperador) {
+        const doMes = await listarRegistrosOperadorDoMes(a.id, hoje.slice(0, 7))
+        mapaRegistrosOperador[a.id] = doMes.get(hoje) ?? new Map()
+      } else {
+        const doMes = await listarRegistrosDoMes(a.id, hoje.slice(0, 7))
+        const r = doMes.get(hoje)
+        if (r) mapaRegistros.set(a.id, r)
+      }
     }))
     setRegistrosHoje(mapaRegistros)
+    setRegistrosOperadorHoje(mapaRegistrosOperador)
     setColaboradoresPorAtividade(mapaColaboradores)
     setLoading(false)
   }, [atividades, hoje])
@@ -273,26 +285,52 @@ function LancamentoManualDiario({ atividades }: { atividades: TurnoAtividade[] }
     })
   }
 
+  function parseValor(atividade: TurnoAtividade, bruto: string): { valorNumero: number | null; okNok: boolean | null; erro?: string } {
+    if (atividade.unidade === 'ok_nok') return { valorNumero: null, okNok: bruto.toUpperCase() === 'OK' }
+    if (atividade.unidade === 'tempo') {
+      const v = hhmmParaMinutos(bruto)
+      return v == null ? { valorNumero: null, okNok: null, erro: 'Valor de tempo inválido — use hh:mm.' } : { valorNumero: v, okNok: null }
+    }
+    const v = parseFloat(bruto.replace(',', '.'))
+    return Number.isFinite(v) ? { valorNumero: v, okNok: null } : { valorNumero: null, okNok: null, erro: 'Valor inválido.' }
+  }
+
   async function salvar(atividade: TurnoAtividade) {
     if (!usuario) return
     setErro('')
     const bruto = (valores[atividade.id] ?? '').trim()
     if (!bruto) { setErro('Preencha o resultado antes de salvar.'); return }
-    let valorNumero: number | null = null
-    let okNok: boolean | null = null
-    if (atividade.unidade === 'ok_nok') {
-      okNok = bruto.toUpperCase() === 'OK'
-    } else if (atividade.unidade === 'tempo') {
-      valorNumero = hhmmParaMinutos(bruto)
-      if (valorNumero == null) { setErro('Valor de tempo inválido — use hh:mm.'); return }
-    } else {
-      valorNumero = parseFloat(bruto.replace(',', '.'))
-      if (!Number.isFinite(valorNumero)) { setErro('Valor inválido.'); return }
-    }
+    const { valorNumero, okNok, erro: erroParse } = parseValor(atividade, bruto)
+    if (erroParse) { setErro(erroParse); return }
     setSalvandoId(atividade.id)
     const colaboradores = colaboradoresPorAtividade[atividade.id] ?? await listarColaboradoresDaAtividade(atividade.id)
     const { error } = await registrarAtividadeTurno(
       atividade, colaboradores, hoje, { valorNumero, okNok },
+      { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login },
+      excluidos[atividade.id] ?? new Set(),
+    )
+    setSalvandoId(null)
+    if (error) { setErro(`Erro ao salvar: ${error}`); return }
+    await carregar()
+  }
+
+  async function salvarPorOperador(atividade: TurnoAtividade) {
+    if (!usuario) return
+    setErro('')
+    const colaboradores = colaboradoresPorAtividade[atividade.id] ?? []
+    const valoresDaAtividade = valoresOperador[atividade.id] ?? {}
+    const mapaValores = new Map<string, { valorNumero: number | null; okNok: boolean | null }>()
+    for (const c of colaboradores) {
+      if (!c.colaboradorId) continue
+      const bruto = (valoresDaAtividade[c.colaboradorId] ?? '').trim()
+      if (!bruto) continue
+      const { valorNumero, okNok, erro: erroParse } = parseValor(atividade, bruto)
+      if (erroParse) { setErro(`${c.colaboradorNome}: ${erroParse}`); return }
+      mapaValores.set(c.colaboradorId, { valorNumero, okNok })
+    }
+    setSalvandoId(atividade.id)
+    const { error } = await registrarAtividadeTurnoPorOperador(
+      atividade, colaboradores, hoje, mapaValores,
       { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login },
       excluidos[atividade.id] ?? new Set(),
     )
@@ -313,9 +351,52 @@ function LancamentoManualDiario({ atividades }: { atividades: TurnoAtividade[] }
       ) : (
         <div className="space-y-2">
           {atividades.map((a) => {
-            const jaTem = registrosHoje.get(a.id)
             const colabs = colaboradoresPorAtividade[a.id] ?? []
             const excluidosDessaAtividade = excluidos[a.id] ?? new Set<string>()
+
+            if (a.porOperador) {
+              const registrosOperador = registrosOperadorHoje[a.id] ?? new Map<string, RegistroOperador>()
+              const qtdLancados = colabs.filter((c) => c.colaboradorId && registrosOperador.has(c.colaboradorId)).length
+              return (
+                <div key={a.id} className="border rounded-md p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium flex-1">{a.turno} — {a.nome} <span className="text-[10px] text-accent-600 font-bold uppercase ml-1">por operador</span></span>
+                    <button onClick={() => salvarPorOperador(a)} disabled={salvandoId === a.id} className="flex items-center gap-1 text-xs px-2.5 py-1.5 rounded border hover:bg-accent disabled:opacity-50">
+                      {salvandoId === a.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 text-green-600" />} Salvar
+                    </button>
+                    {qtdLancados > 0 && <span className="text-[10px] font-bold uppercase text-green-600 whitespace-nowrap">✓ {qtdLancados}/{colabs.length} lançado(s) hoje</span>}
+                  </div>
+                  {colabs.length === 0 ? (
+                    <p className="text-[11px] text-gray-400">Nenhum colaborador vinculado — adicione em "Colaboradores desta atividade" na edição da atividade.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {colabs.map((c) => {
+                        const excluido = c.colaboradorId != null && excluidosDessaAtividade.has(c.colaboradorId)
+                        return (
+                          <div key={c.id} className={`border rounded-md px-2 py-1.5 ${excluido ? 'opacity-40' : ''}`}>
+                            <p className="text-[10px] text-gray-500 mb-0.5">{c.colaboradorNome}</p>
+                            <div className="flex items-center gap-1">
+                              <input
+                                disabled={excluido}
+                                value={c.colaboradorId ? (valoresOperador[a.id]?.[c.colaboradorId] ?? '') : ''}
+                                onChange={(e) => c.colaboradorId && setValoresOperador((v) => ({ ...v, [a.id]: { ...(v[a.id] ?? {}), [c.colaboradorId!]: e.target.value } }))}
+                                placeholder={a.unidade === 'tempo' ? 'hh:mm' : '0'}
+                                className="border rounded px-1.5 py-1 text-xs font-mono w-16"
+                              />
+                              <label className="flex items-center" title="Não trabalhou hoje">
+                                <input type="checkbox" checked={excluido} onChange={() => c.colaboradorId && alternarExcluido(a.id, c.colaboradorId)} className="h-3 w-3" />
+                              </label>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+              )
+            }
+
+            const jaTem = registrosHoje.get(a.id)
             return (
               <div key={a.id} className="border rounded-md">
                 <div className="flex items-center gap-2 px-3 py-2">
@@ -379,6 +460,7 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
   const [registros, setRegistros] = useState<Map<string, TurnoRegistro>>(new Map())
   const [colaboradores, setColaboradores] = useState<AtividadeColaborador[]>([])
   const [valores, setValores] = useState<Record<string, string>>({})
+  const [valoresOperador, setValoresOperador] = useState<Record<string, Record<string, string>>>({})
   const [excluidosPorDia, setExcluidosPorDia] = useState<Record<string, Set<string>>>({})
   const [expandidoDia, setExpandidoDia] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -390,18 +472,35 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
   const carregar = useCallback(async () => {
     if (!atividadeId) { setRegistros(new Map()); setColaboradores([]); return }
     setLoading(true)
-    const [regs, colabs] = await Promise.all([listarRegistrosDoMes(atividadeId, mes), listarColaboradoresDaAtividade(atividadeId)])
-    setRegistros(regs)
+    const colabs = await listarColaboradoresDaAtividade(atividadeId)
     setColaboradores(colabs.filter((c) => c.ativo))
-    const iniciais: Record<string, string> = {}
-    for (const [data, r] of regs) {
-      if (atividade?.unidade === 'ok_nok') iniciais[data] = r.okNok == null ? '' : r.okNok ? 'OK' : 'NOK'
-      else if (atividade?.unidade === 'tempo' && r.valorNumero != null) iniciais[data] = minutosParaHHMM(r.valorNumero)
-      else iniciais[data] = r.valorNumero != null ? String(r.valorNumero) : ''
+
+    if (atividade?.porOperador) {
+      const porDia = await listarRegistrosOperadorDoMes(atividadeId, mes)
+      setRegistros(new Map())
+      const iniciais: Record<string, Record<string, string>> = {}
+      for (const [data, porColaborador] of porDia) {
+        iniciais[data] = {}
+        for (const [colaboradorId, r] of porColaborador) {
+          if (atividade.unidade === 'ok_nok') iniciais[data][colaboradorId] = r.okNok == null ? '' : r.okNok ? 'OK' : 'NOK'
+          else if (atividade.unidade === 'tempo' && r.valorNumero != null) iniciais[data][colaboradorId] = minutosParaHHMM(r.valorNumero)
+          else iniciais[data][colaboradorId] = r.valorNumero != null ? String(r.valorNumero) : ''
+        }
+      }
+      setValoresOperador(iniciais)
+    } else {
+      const regs = await listarRegistrosDoMes(atividadeId, mes)
+      setRegistros(regs)
+      const iniciais: Record<string, string> = {}
+      for (const [data, r] of regs) {
+        if (atividade?.unidade === 'ok_nok') iniciais[data] = r.okNok == null ? '' : r.okNok ? 'OK' : 'NOK'
+        else if (atividade?.unidade === 'tempo' && r.valorNumero != null) iniciais[data] = minutosParaHHMM(r.valorNumero)
+        else iniciais[data] = r.valorNumero != null ? String(r.valorNumero) : ''
+      }
+      setValores(iniciais)
     }
-    setValores(iniciais)
     setLoading(false)
-  }, [atividadeId, mes, atividade?.unidade])
+  }, [atividadeId, mes, atividade?.unidade, atividade?.porOperador])
 
   useEffect(() => { carregar() }, [carregar])
 
@@ -414,25 +513,51 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
     })
   }
 
+  function parseValor(bruto: string): { valorNumero: number | null; okNok: boolean | null; erro?: string } {
+    if (!atividade) return { valorNumero: null, okNok: null, erro: 'Selecione uma atividade.' }
+    if (atividade.unidade === 'ok_nok') return { valorNumero: null, okNok: bruto.toUpperCase() === 'OK' }
+    if (atividade.unidade === 'tempo') {
+      const v = hhmmParaMinutos(bruto)
+      return v == null ? { valorNumero: null, okNok: null, erro: 'use hh:mm' } : { valorNumero: v, okNok: null }
+    }
+    const v = parseFloat(bruto.replace(',', '.'))
+    return Number.isFinite(v) ? { valorNumero: v, okNok: null } : { valorNumero: null, okNok: null, erro: 'valor inválido' }
+  }
+
   async function salvarDia(data: string) {
     if (!atividade || !usuario) return
     setErro('')
     const bruto = (valores[data] ?? '').trim()
     if (!bruto) return
-    let valorNumero: number | null = null
-    let okNok: boolean | null = null
-    if (atividade.unidade === 'ok_nok') {
-      okNok = bruto.toUpperCase() === 'OK'
-    } else if (atividade.unidade === 'tempo') {
-      valorNumero = hhmmParaMinutos(bruto)
-      if (valorNumero == null) { setErro(`Valor inválido em ${data} — use hh:mm.`); return }
-    } else {
-      valorNumero = parseFloat(bruto.replace(',', '.'))
-      if (!Number.isFinite(valorNumero)) { setErro(`Valor inválido em ${data}.`); return }
-    }
+    const { valorNumero, okNok, erro: erroParse } = parseValor(bruto)
+    if (erroParse) { setErro(`Valor inválido em ${data} — ${erroParse}.`); return }
     setSalvandoDia(data)
     const { error } = await registrarAtividadeTurno(
       atividade, colaboradores, data, { valorNumero, okNok },
+      { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login },
+      excluidosPorDia[data] ?? new Set(),
+    )
+    setSalvandoDia(null)
+    if (error) { setErro(`Erro ao salvar ${data}: ${error}`); return }
+    await carregar()
+  }
+
+  async function salvarDiaPorOperador(data: string) {
+    if (!atividade || !usuario) return
+    setErro('')
+    const valoresDoDia = valoresOperador[data] ?? {}
+    const mapaValores = new Map<string, { valorNumero: number | null; okNok: boolean | null }>()
+    for (const c of colaboradores) {
+      if (!c.colaboradorId) continue
+      const bruto = (valoresDoDia[c.colaboradorId] ?? '').trim()
+      if (!bruto) continue
+      const { valorNumero, okNok, erro: erroParse } = parseValor(bruto)
+      if (erroParse) { setErro(`${data} — ${c.colaboradorNome}: ${erroParse}.`); return }
+      mapaValores.set(c.colaboradorId, { valorNumero, okNok })
+    }
+    setSalvandoDia(data)
+    const { error } = await registrarAtividadeTurnoPorOperador(
+      atividade, colaboradores, data, mapaValores,
       { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login },
       excluidosPorDia[data] ?? new Set(),
     )
@@ -450,7 +575,7 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
           <label className="block text-[11px] font-medium text-gray-500 mb-1">Atividade</label>
           <select value={atividadeId} onChange={(e) => setAtividadeId(e.target.value)} className="w-full border rounded px-2 py-1.5 text-xs">
             <option value="">Selecione…</option>
-            {atividades.map((a) => <option key={a.id} value={a.id}>{a.turno} — {a.nome}</option>)}
+            {atividades.map((a) => <option key={a.id} value={a.id}>{a.turno} — {a.nome}{a.porOperador ? ' (por operador)' : ''}</option>)}
           </select>
         </div>
         <div>
@@ -465,6 +590,66 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
         <p className="text-[11px] text-gray-400">Selecione uma atividade pra ver os dias do mês.</p>
       ) : loading ? (
         <div className="flex justify-center py-6 text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /></div>
+      ) : atividade.porOperador ? (
+        colaboradores.length === 0 ? (
+          <p className="text-[11px] text-gray-400">Nenhum colaborador vinculado — adicione em "Colaboradores desta atividade" na edição da atividade.</p>
+        ) : (
+          <div className="border rounded-md overflow-x-auto max-h-[420px] overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-gray-50 z-10">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium text-gray-500">Dia</th>
+                  {colaboradores.map((c) => <th key={c.id} className="px-2 py-2 font-medium text-gray-500 whitespace-nowrap">{c.colaboradorNome}</th>)}
+                  <th className="px-3 py-2 font-medium text-gray-500">Total</th>
+                  <th className="px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {diasDoMes(mes).map((data) => {
+                  const excluidosDoDia = excluidosPorDia[data] ?? new Set<string>()
+                  const valoresDoDia = valoresOperador[data] ?? {}
+                  const total = colaboradores.reduce((acc, c) => {
+                    if (!c.colaboradorId || excluidosDoDia.has(c.colaboradorId)) return acc
+                    const v = parseFloat((valoresDoDia[c.colaboradorId] ?? '').replace(',', '.'))
+                    return Number.isFinite(v) ? acc + v : acc
+                  }, 0)
+                  return (
+                    <tr key={data} className="border-t">
+                      <td className="px-3 py-1.5 font-mono text-gray-500 whitespace-nowrap">{data.slice(8, 10)}/{data.slice(5, 7)}</td>
+                      {colaboradores.map((c) => {
+                        const excluido = c.colaboradorId != null && excluidosDoDia.has(c.colaboradorId)
+                        return (
+                          <td key={c.id} className="px-2 py-1.5">
+                            <div className="flex items-center gap-1">
+                              <input
+                                disabled={excluido}
+                                value={c.colaboradorId ? (valoresDoDia[c.colaboradorId] ?? '') : ''}
+                                onChange={(e) => c.colaboradorId && setValoresOperador((v) => ({ ...v, [data]: { ...(v[data] ?? {}), [c.colaboradorId!]: e.target.value } }))}
+                                placeholder={atividade.unidade === 'tempo' ? 'hh:mm' : '0'}
+                                className={`border rounded px-1.5 py-1 text-xs font-mono w-14 ${excluido ? 'opacity-40' : ''}`}
+                              />
+                              <input
+                                type="checkbox" checked={excluido} title="Não trabalhou nesse dia"
+                                onChange={() => c.colaboradorId && alternarExcluido(data, c.colaboradorId)}
+                                className="h-3 w-3"
+                              />
+                            </div>
+                          </td>
+                        )
+                      })}
+                      <td className="px-3 py-1.5 font-semibold whitespace-nowrap">{total > 0 ? total : '—'}</td>
+                      <td className="px-2 py-1.5">
+                        <button onClick={() => salvarDiaPorOperador(data)} disabled={salvandoDia === data} className="p-1.5 rounded border hover:bg-accent disabled:opacity-50" title="Salvar">
+                          {salvandoDia === data ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3 text-green-600" />}
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
       ) : (
         <div className="border rounded-md divide-y max-h-[420px] overflow-y-auto">
           {diasDoMes(mes).map((data) => {
@@ -595,7 +780,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
     setForm({
       turno: a.turno, nome: a.nome, tipoRegistro: a.tipoRegistro, unidade: a.unidade,
       direcao: a.direcao ?? 'maior_melhor', metaValor: metaValorTexto,
-      conferenteUsuarioId: a.conferenteUsuarioId ?? '',
+      conferenteUsuarioId: a.conferenteUsuarioId ?? '', porOperador: a.porOperador,
     })
   }
 
@@ -622,6 +807,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
       tipoRegistro: form.tipoRegistro, unidade: form.unidade, direcao: form.direcao,
       metaValor: metaValor ?? null,
       conferenteUsuarioId: form.conferenteUsuarioId, conferenteNome: conferente?.nome ?? conferente?.login ?? null,
+      porOperador: form.porOperador,
     })
     setSalvando(false)
     if (error) { setErro(`Erro ao salvar: ${error}`); return }
@@ -730,6 +916,9 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
                       >
                         {a.tipoRegistro === 'manual' ? 'Manual (turno)' : a.tipoRegistro === 'manual_admin' ? 'Manual (painel)' : 'Upload'}
                       </span>
+                      {a.porOperador && (
+                        <span className="ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent-100 text-accent-700">por operador</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{formatarMetaTexto(a)}</td>
                     <td className="px-3 py-2">
@@ -803,6 +992,12 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
               <option value="">Selecione…</option>
               {conferentes.map((u) => <option key={u.id} value={u.id}>{u.nome ?? u.login} ({u.login})</option>)}
             </select>
+          </div>
+          <div className="sm:col-span-2 flex items-end pb-2">
+            <label className="flex items-center gap-2 text-xs text-gray-700">
+              <input type="checkbox" checked={form.porOperador} onChange={(e) => setForm((f) => ({ ...f, porOperador: e.target.checked }))} />
+              Lançamento por operador — cada colaborador lança o próprio valor do dia (ex.: Quebra), em vez de todos herdarem um valor único do turno.
+            </label>
           </div>
         </div>
 
