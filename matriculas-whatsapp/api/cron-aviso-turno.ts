@@ -123,8 +123,20 @@ export default async function handler(req: any, res: any) {
         .eq('cargo', 'Conferente RV')
         .not('telefone', 'is', null)
 
-      if (erroConferentes) { resultado.push({ filial: h.filial, turno: h.turno, enviados: 0, erro: erroConferentes.message }); continue }
+      // Libera a trava que acabou de reivindicar — sem isso, um turno sem
+      // conferente configurado (ou com erro de consulta) ficaria marcado
+      // como "avisado" pro resto do dia, sem ninguém ter recebido nada.
+      async function liberarReivindicacao() {
+        await supabase.from('variavel_turno_avisos_enviados').delete().eq('filial', h.filial).eq('turno', h.turno).eq('data', data)
+      }
+
+      if (erroConferentes) {
+        await liberarReivindicacao()
+        resultado.push({ filial: h.filial, turno: h.turno, enviados: 0, erro: erroConferentes.message })
+        continue
+      }
       if (!conferentes || conferentes.length === 0) {
+        await liberarReivindicacao()
         resultado.push({ filial: h.filial, turno: h.turno, enviados: 0, erro: 'nenhum conferente com telefone cadastrado nesse turno' })
         continue
       }
@@ -143,6 +155,9 @@ export default async function handler(req: any, res: any) {
         if (r.sucesso) { enviados++; detalheEnvios.push(`${nome}: ok`) }
         else detalheEnvios.push(`${nome}: FALHOU — ${r.erro}`)
       }
+      // Ninguém recebeu de fato (todos os envios falharam) — libera a trava
+      // pra o próximo tick tentar de novo, em vez de desistir até amanhã.
+      if (enviados === 0) await liberarReivindicacao()
       resultado.push({ filial: h.filial, turno: h.turno, enviados, detalheEnvios })
     }
 
