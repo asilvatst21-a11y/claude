@@ -10,6 +10,11 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import type { DtoAtividade, DtoAtividadeAlias, DtoAvaliador, DtoObservacao, DtoSolicitacao, Relato } from '../types'
 import { formatarDataBR } from '../lib/utils'
+import { enviarMensagemWhatsApp, variarTexto } from '../lib/zapi'
+
+// Relatos anteriores a essa data não entram na fila de Sugestões de DTO —
+// senão a base de pendências fica grande demais logo de cara.
+const RELATOS_DTO_DESDE = '2026-08-01'
 
 // ── Seed: base de atividades (Calendarização Armazém + Oficina da planilha oficial) ──
 
@@ -193,6 +198,15 @@ const labelJanela = (meses: number[]) =>
 const LABEL_RECENTE  = labelJanela(MESES_RECENTES)
 const LABEL_ANTERIOR = labelJanela(MESES_ANTERIORES)
 
+// Mostra o botão de "Solicitar Realização" no Calendário pra quem está vencido
+// (ou nunca foi feito) ou vence em menos de 10 dias — janela mais folgada que
+// o badge "A vencer" (7d), só pra decidir quando vale a pena já cutucar o
+// responsável.
+function precisaSolicitar(l: LinhaCalc): boolean {
+  if (l.status === 'Vencido' || l.status === 'Nunca') return true
+  return l.diasRestantes != null && l.diasRestantes >= 0 && l.diasRestantes < 10
+}
+
 function ehAtoInseguro(classificacao: string | null): boolean {
   return norm(classificacao).includes('ATO INSEGURO')
 }
@@ -282,7 +296,7 @@ export default function DtoGerenciador() {
   const [vinculando, setVinculando] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [semeando, setSemeando] = useState(false)
-  const [aba, setAba] = useState<'calendario' | 'sugestoes' | 'fila' | 'responsavel' | 'cadastro' | 'apelidos'>('calendario')
+  const [aba, setAba] = useState<'calendario' | 'sugestoes' | 'fila' | 'responsavel' | 'cadastro' | 'apelidos' | 'efetividade' | 'responsaveis'>('calendario')
   const [filtroArea, setFiltroArea] = useState('Todas')
   const [filtroStatus, setFiltroStatus] = useState<'Todos' | LinhaCalc['status']>('Todos')
   const [expand, setExpand] = useState<string | null>(null)
@@ -301,6 +315,20 @@ export default function DtoGerenciador() {
     area: string; atividade: string; motivo: string; responsavel: string; data_prevista: string
   } | null>(null)
   const [salvandoSugestao, setSalvandoSugestao] = useState<string | null>(null)
+
+  // ── Solicitar Realização (Calendário) ──
+  const [solicitarAtivId, setSolicitarAtivId] = useState<string | null>(null)
+  const [respCalendario, setRespCalendario] = useState('')
+  const [enviandoCalendario, setEnviandoCalendario] = useState(false)
+
+  // ── Responsáveis (cadastro nome + telefone) ──
+  const [novoRespNome, setNovoRespNome] = useState('')
+  const [novoRespTelefone, setNovoRespTelefone] = useState('')
+  const [salvandoResp, setSalvandoResp] = useState(false)
+
+  // ── Efetividade ──
+  const [avaliandoId, setAvaliandoId] = useState<string | null>(null)
+  const [efeitoRascunho, setEfeitoRascunho] = useState<{ efeito: 'positivo' | 'negativo'; observacao: string } | null>(null)
 
   async function sincronizarDatas() {
     setSincronizando(true)
@@ -430,6 +458,46 @@ export default function DtoGerenciador() {
     setAtividades(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a))
   }
 
+  // ── Responsáveis: cadastro de nome + telefone (pra poder notificar no WhatsApp) ──
+  async function salvarNovoResp() {
+    if (!usuario || !novoRespNome.trim()) return
+    setSalvandoResp(true)
+    const { error } = await supabase.from('dto_avaliadores').insert({
+      filial: usuario.filial, nome: novoRespNome.trim(), telefone: novoRespTelefone.trim() || null,
+    })
+    setSalvandoResp(false)
+    if (error) { alert(`Não foi possível cadastrar: ${error.message}`); return }
+    setNovoRespNome(''); setNovoRespTelefone('')
+    await carregar()
+  }
+  async function atualizarResp(id: string, patch: Partial<DtoAvaliador>) {
+    await supabase.from('dto_avaliadores').update(patch).eq('id', id)
+    setAvaliadores(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a))
+  }
+  async function excluirResp(av: DtoAvaliador) {
+    if (!confirm(`Excluir "${av.nome}" da lista de responsáveis?`)) return
+    await supabase.from('dto_avaliadores').delete().eq('id', av.id)
+    await carregar()
+  }
+
+  // ── Efetividade: depois que o DTO agendado é realizado, a liderança avalia
+  // se surtiu efeito nas atividades observadas ──
+  async function marcarConcluido(s: DtoSolicitacao) {
+    setAvaliandoId(s.id)
+    setEfeitoRascunho({ efeito: 'positivo', observacao: '' })
+  }
+  async function salvarEfeito(s: DtoSolicitacao) {
+    if (!efeitoRascunho) return
+    const { error } = await supabase.from('dto_solicitacoes').update({
+      status: 'concluido', efeito: efeitoRascunho.efeito, observacao_efeito: efeitoRascunho.observacao || null,
+      atualizado_em: new Date().toISOString(),
+    }).eq('id', s.id)
+    if (error) { alert(`Não foi possível salvar: ${error.message}`); return }
+    setAvaliandoId(null)
+    setEfeitoRascunho(null)
+    await carregar()
+  }
+
   // ── Apelidos: nomes divergentes nas observações/relatos (acento, grafia) que apontam
   // para o nome oficial cadastrado em dto_atividades ──
   const aliasMap = useMemo(() => {
@@ -528,9 +596,28 @@ export default function DtoGerenciador() {
         ehAtoInseguro(r.classificacao) &&
         !!r.tarefa_seguranca?.trim() &&
         !!r.pessoa_relatada?.trim() &&
+        (r.data_ocorrencia ?? '') >= RELATOS_DTO_DESDE &&
         !relatoIdsComSolicitacao.has(r.id))
       .sort((a, b) => (b.data_ocorrencia ?? '').localeCompare(a.data_ocorrencia ?? ''))
   }, [relatos, relatoIdsComSolicitacao])
+
+  const telefonePorNome = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const av of avaliadores) if (av.telefone?.trim()) m.set(av.nome, av.telefone.trim())
+    return m
+  }, [avaliadores])
+
+  // Manda a solicitação pro WhatsApp do responsável, com texto variando a cada
+  // envio (mesmo cuidado anti-spam/banimento já usado no resto do sistema —
+  // ver aguardarEntreEnvios/variarTexto em lib/zapi.ts). Se o responsável não
+  // tiver telefone cadastrado, não envia nada, mas não impede o registro.
+  async function notificarResponsavel(nomeResponsavel: string, variantes: string[]): Promise<boolean> {
+    const telefone = telefonePorNome.get(nomeResponsavel)
+    if (!telefone) return false
+    const mensagem = variarTexto(variantes)
+    const { sucesso } = await enviarMensagemWhatsApp(telefone, mensagem)
+    return sucesso
+  }
 
   function abrirSugestao(r: Relato) {
     setEditSugestao(r.id)
@@ -546,8 +633,20 @@ export default function DtoGerenciador() {
   async function confirmarSugestao(r: Relato) {
     if (!usuario || !rascunhoSugestao) return
     setSalvandoSugestao(r.id)
+
+    let notificado = false
+    if (rascunhoSugestao.responsavel) {
+      const dataTxt = rascunhoSugestao.data_prevista ? ` até ${formatarDataBR(rascunhoSugestao.data_prevista)}` : ''
+      notificado = await notificarResponsavel(rascunhoSugestao.responsavel, [
+        `📋 *Solicitação de DTO*\nOlá, ${rascunhoSugestao.responsavel}! Peço que realize um DTO com *${r.pessoa_relatada}*${dataTxt}.\nMotivo: ${rascunhoSugestao.motivo}\nAtividade a observar: ${rascunhoSugestao.atividade || '—'}.`,
+        `🦺 *DTO solicitado*\n${rascunhoSugestao.responsavel}, precisamos de uma avaliação com *${r.pessoa_relatada}*${dataTxt}.\nMotivo: ${rascunhoSugestao.motivo}\nAtividade a observar: ${rascunhoSugestao.atividade || '—'}.`,
+        `Oi, ${rascunhoSugestao.responsavel}! Surgiu a necessidade de um DTO com *${r.pessoa_relatada}*${dataTxt}.\nMotivo: ${rascunhoSugestao.motivo}\nO que observar: ${rascunhoSugestao.atividade || '—'}.`,
+      ])
+    }
+
     const { error } = await supabase.from('dto_solicitacoes').insert({
       filial: usuario.filial,
+      origem: 'relato',
       relato_id: r.id,
       colaborador_nome: r.pessoa_relatada,
       area: rascunhoSugestao.area || null,
@@ -557,12 +656,16 @@ export default function DtoGerenciador() {
       responsavel: rascunhoSugestao.responsavel || null,
       data_prevista: rascunhoSugestao.data_prevista || null,
       status: rascunhoSugestao.responsavel ? 'agendado' : 'pendente',
+      notificado_em: notificado ? new Date().toISOString() : null,
       registrado_por: usuario.nome ?? usuario.login,
     })
     if (error) {
       alert(`Não foi possível registrar o DTO: ${error.message}`)
       setSalvandoSugestao(null)
       return
+    }
+    if (rascunhoSugestao.responsavel && !notificado) {
+      alert(`DTO registrado, mas "${rascunhoSugestao.responsavel}" não tem telefone cadastrado — avise por fora, ou cadastre o telefone em Responsáveis.`)
     }
     setEditSugestao(null)
     setRascunhoSugestao(null)
@@ -635,6 +738,43 @@ export default function DtoGerenciador() {
 
   // Fila da semana = vencidos + a vencer
   const fila = linhasOrdenadas.filter(l => l.status === 'Vencido' || l.status === 'Nunca' || l.status === 'A vencer')
+
+  // Solicita a realização do DTO de uma atividade direto do Calendário —
+  // registra em dto_solicitacoes (origem "calendario", sem colaborador
+  // específico) e avisa o responsável escolhido no WhatsApp.
+  async function enviarSolicitacaoCalendario(l: LinhaCalc) {
+    if (!usuario || !respCalendario) return
+    setEnviandoCalendario(true)
+    const statusTxt = l.status === 'Vencido'
+      ? `vencida há ${Math.abs(l.diasRestantes ?? 0)} dia(s)`
+      : l.status === 'Nunca' ? 'sem nenhum DTO registrado ainda'
+      : `com vencimento em ${l.diasRestantes} dia(s)`
+
+    const notificado = await notificarResponsavel(respCalendario, [
+      `📋 *Solicitação de DTO*\nOlá, ${respCalendario}! Peço que realize o DTO da atividade *${l.ativ.nome_atividade}* (${l.ativ.area}) — está ${statusTxt}.`,
+      `🦺 *DTO pendente*\n${respCalendario}, a atividade *${l.ativ.nome_atividade}* (${l.ativ.area}) está ${statusTxt}. Pode se organizar pra realizar o DTO?`,
+      `Oi, ${respCalendario}! Precisamos fechar o DTO de *${l.ativ.nome_atividade}* (${l.ativ.area}), que está ${statusTxt}.`,
+    ])
+
+    const { error } = await supabase.from('dto_solicitacoes').insert({
+      filial: usuario.filial,
+      origem: 'calendario',
+      dto_atividade_id: l.ativ.id,
+      area: l.ativ.area,
+      atividade: l.ativ.nome_atividade,
+      motivo: `Risco ${l.risco} — ${statusTxt}`,
+      responsavel: respCalendario,
+      status: 'agendado',
+      notificado_em: notificado ? new Date().toISOString() : null,
+      registrado_por: usuario.nome ?? usuario.login,
+    })
+    setEnviandoCalendario(false)
+    if (error) { alert(`Não foi possível registrar a solicitação: ${error.message}`); return }
+    if (!notificado) alert(`Solicitação registrada, mas "${respCalendario}" não tem telefone cadastrado — avise por fora, ou cadastre o telefone em Responsáveis.`)
+    setSolicitarAtivId(null)
+    setRespCalendario('')
+    await carregar()
+  }
 
   // Fila filtrada (usada na aba e nos exports)
   const areasNaFila = ['Todas', ...Array.from(new Set(fila.map(l => l.ativ.area)))]
@@ -736,6 +876,8 @@ export default function DtoGerenciador() {
               ['responsavel', 'Por Responsável', null],
               ['cadastro', 'Cadastro', null],
               ['apelidos', 'Equivalências de Nome', observacoesNaoReconhecidas.reduce((s, d) => s + d.qtd, 0)],
+              ['efetividade', 'Efetividade', solicitacoesDto.filter(s => s.status === 'agendado').length],
+              ['responsaveis', 'Responsáveis', null],
             ] as const).map(([id, label, badge]) => (
               <button key={id} onClick={() => setAba(id)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap flex items-center gap-1.5 ${aba === id ? 'border-accent-500 text-accent-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 {label}
@@ -743,6 +885,10 @@ export default function DtoGerenciador() {
               </button>
             ))}
           </div>
+
+          <datalist id="dto-atividades-cadastradas">
+            {nomesAtividadesAtivas.map(n => <option key={n} value={n} />)}
+          </datalist>
 
           {/* ── Sugestões de DTO: conciliação Relatos → DTO ── */}
           {aba === 'sugestoes' && (
@@ -812,8 +958,9 @@ export default function DtoGerenciador() {
                               <div>
                                 <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Atividade a observar</label>
                                 <input value={rascunhoSugestao.atividade} onChange={e => setRascunhoSugestao(v => v && ({ ...v, atividade: e.target.value }))}
+                                  list="dto-atividades-cadastradas"
                                   className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500" />
-                                <p className="text-[11px] text-gray-400 mt-0.5">Preenchido a partir da Tarefa Segurança do relato — pode trocar se o DTO precisar observar outra atividade.</p>
+                                <p className="text-[11px] text-gray-400 mt-0.5">Preenchido a partir da Tarefa Segurança do relato — escolha uma atividade já cadastrada na lista, ou digite outra.</p>
                               </div>
                               <div className="sm:col-span-2">
                                 <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Motivo</label>
@@ -984,10 +1131,11 @@ export default function DtoGerenciador() {
                         </span>
                       </th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Status</th>
+                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Ação</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {linhasFiltradas.length === 0 && <tr><td colSpan={7} className="text-center py-10 text-gray-400">Nenhuma atividade neste filtro</td></tr>}
+                    {linhasFiltradas.length === 0 && <tr><td colSpan={8} className="text-center py-10 text-gray-400">Nenhuma atividade neste filtro</td></tr>}
                     {linhasFiltradas.map(l => {
                       const isExp = expand === l.ativ.id
                       return (
@@ -1012,10 +1160,45 @@ export default function DtoGerenciador() {
                             <td className="px-3 py-2.5 text-center text-xs text-gray-600">{fmtPeriodicidade(l.periodicidade)}</td>
                             <td className="px-3 py-2.5 text-center text-xs text-gray-600">{fmtData(l.ultimoDTO)}</td>
                             <td className="px-3 py-2.5 text-center"><StatusBadge status={l.status} dias={l.diasRestantes} /></td>
+                            <td className="px-3 py-2.5 text-center" onClick={e => e.stopPropagation()}>
+                              {precisaSolicitar(l) && (
+                                <button
+                                  onClick={() => { setSolicitarAtivId(solicitarAtivId === l.ativ.id ? null : l.ativ.id); setRespCalendario('') }}
+                                  className="text-xs font-medium text-orange-700 border border-orange-300 bg-orange-50 px-2.5 py-1 rounded-lg hover:bg-orange-100 whitespace-nowrap"
+                                >
+                                  Solicitar realização
+                                </button>
+                              )}
+                            </td>
                           </tr>
+                          {solicitarAtivId === l.ativ.id && (
+                            <tr>
+                              <td colSpan={8} className="bg-orange-50/60 border-b border-orange-100 px-6 py-3" onClick={e => e.stopPropagation()}>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className="text-xs text-orange-900 font-medium">Notificar quem vai realizar o DTO:</span>
+                                  {avaliadores.length > 0 ? (
+                                    <select value={respCalendario} onChange={e => setRespCalendario(e.target.value)}
+                                      className="text-xs border border-orange-300 rounded-lg px-2 py-1 bg-white focus:outline-none focus:ring-1 focus:ring-orange-500">
+                                      <option value="">selecionar responsável...</option>
+                                      {avaliadores.map(av => <option key={av.id} value={av.nome}>{av.nome}{!av.telefone ? ' (sem telefone)' : ''}</option>)}
+                                    </select>
+                                  ) : (
+                                    <input value={respCalendario} onChange={e => setRespCalendario(e.target.value)} placeholder="Nome do responsável"
+                                      className="text-xs border border-orange-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-orange-500" />
+                                  )}
+                                  <button onClick={() => enviarSolicitacaoCalendario(l)} disabled={!respCalendario || enviandoCalendario}
+                                    className="flex items-center gap-1.5 text-xs font-medium bg-orange-600 text-white px-3 py-1.5 rounded-lg hover:bg-orange-700 disabled:opacity-50">
+                                    {enviandoCalendario ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                                    Enviar solicitação
+                                  </button>
+                                  <button onClick={() => setSolicitarAtivId(null)} className="text-xs text-orange-700 px-2 py-1 hover:underline">Cancelar</button>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
                           {isExp && (
                             <tr>
-                              <td colSpan={7} className="bg-gray-50 border-b border-gray-200 px-6 py-4">
+                              <td colSpan={8} className="bg-gray-50 border-b border-gray-200 px-6 py-4">
                                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
                                   <MemoBox titulo="DTOs realizados (total)" val={String(l.totalRealizados)} />
                                   <MemoBox titulo={`Desvios DTO ${ANO_ANTERIOR} → ${ANO_ATUAL}`} val={`${l.d25} → ${l.d26}`} trend={l.d26 - l.d25} />
@@ -1238,6 +1421,161 @@ export default function DtoGerenciador() {
                         </td>
                         <td className="px-3 py-2 text-center">
                           <input type="checkbox" checked={a.ativo} onChange={e => atualizarAtiv(a.id, { ativo: e.target.checked })} className="accent-brand-700" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── Efetividade: DTOs agendados/concluídos vindos das Sugestões e do Calendário ── */}
+          {aba === 'efetividade' && (() => {
+            const agendados = solicitacoesDto.filter(s => s.status === 'agendado')
+            const concluidos = solicitacoesDto.filter(s => s.status === 'concluido')
+            const EFEITO_CSS: Record<string, string> = {
+              positivo: 'bg-green-100 text-green-800 border-green-300',
+              negativo: 'bg-red-100 text-red-700 border-red-300',
+              pendente: 'bg-gray-100 text-gray-600 border-gray-300',
+            }
+            function LinhaSolic({ s }: { s: DtoSolicitacao }) {
+              const avaliando = avaliandoId === s.id
+              return (
+                <div className="px-4 py-3">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-gray-900">
+                        {s.colaborador_nome ?? s.atividade ?? '—'}
+                        {s.colaborador_nome && s.atividade && <span className="text-gray-400 font-normal"> · {s.atividade}</span>}
+                      </p>
+                      <p className="text-xs text-gray-400 mt-0.5">
+                        {s.area || '—'} · Responsável: {s.responsavel || 'a definir'}
+                        {s.data_prevista ? ` · previsto ${formatarDataBR(s.data_prevista)}` : ''}
+                        {s.notificado_em ? ' · avisado no WhatsApp ✓' : ' · não notificado'}
+                      </p>
+                      {s.motivo && <p className="text-xs text-gray-500 mt-1 max-w-xl">{s.motivo}</p>}
+                    </div>
+                    {s.status === 'agendado' && !avaliando && (
+                      <button onClick={() => marcarConcluido(s)} className="text-xs font-medium bg-brand-700 text-white px-3 py-1.5 rounded-lg hover:bg-brand-600 shrink-0">
+                        Marcar como realizado
+                      </button>
+                    )}
+                    {s.status === 'concluido' && (
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full border shrink-0 ${EFEITO_CSS[s.efeito]}`}>
+                        {s.efeito === 'positivo' ? 'Efeito positivo' : s.efeito === 'negativo' ? 'Sem efeito / negativo' : 'Ainda não avaliado'}
+                      </span>
+                    )}
+                  </div>
+                  {s.status === 'concluido' && s.observacao_efeito && (
+                    <p className="text-xs text-gray-500 mt-1.5 italic">"{s.observacao_efeito}"</p>
+                  )}
+                  {avaliando && efeitoRascunho && (
+                    <div className="mt-3 bg-gray-50 border border-dashed border-gray-300 rounded-lg p-3.5 space-y-2">
+                      <p className="text-xs font-semibold text-gray-600">O DTO foi realizado — surtiu efeito na atividade observada?</p>
+                      <div className="flex gap-2">
+                        <button onClick={() => setEfeitoRascunho(v => v && ({ ...v, efeito: 'positivo' }))}
+                          className={`text-xs font-medium px-3 py-1.5 rounded-lg border ${efeitoRascunho.efeito === 'positivo' ? 'bg-green-600 text-white border-green-600' : 'bg-white text-gray-600 border-gray-200'}`}>
+                          Sim, melhorou
+                        </button>
+                        <button onClick={() => setEfeitoRascunho(v => v && ({ ...v, efeito: 'negativo' }))}
+                          className={`text-xs font-medium px-3 py-1.5 rounded-lg border ${efeitoRascunho.efeito === 'negativo' ? 'bg-red-600 text-white border-red-600' : 'bg-white text-gray-600 border-gray-200'}`}>
+                          Não, continua igual
+                        </button>
+                      </div>
+                      <textarea value={efeitoRascunho.observacao} onChange={e => setEfeitoRascunho(v => v && ({ ...v, observacao: e.target.value }))}
+                        placeholder="O que foi observado (opcional)" rows={2}
+                        className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none" />
+                      <div className="flex justify-end gap-2">
+                        <button onClick={() => { setAvaliandoId(null); setEfeitoRascunho(null) }} className="text-xs text-gray-500 px-3 py-1.5 rounded-lg hover:bg-gray-100">Cancelar</button>
+                        <button onClick={() => salvarEfeito(s)} className="text-xs font-medium bg-brand-700 text-white px-3 py-1.5 rounded-lg hover:bg-brand-600">Salvar avaliação</button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            }
+            return (
+              <div className="space-y-4">
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                  <p className="text-xs text-blue-800">
+                    Depois que o responsável realiza o DTO, marque aqui como realizado e avalie se surtiu efeito nas
+                    atividades observadas — isso fica de histórico pra acompanhar se as ações estão funcionando.
+                  </p>
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200">
+                    <span className="text-sm font-semibold text-gray-700">Aguardando realização ({agendados.length})</span>
+                  </div>
+                  {agendados.length === 0
+                    ? <p className="text-center py-8 text-gray-400 text-sm">Nenhum DTO agendado no momento.</p>
+                    : <div className="divide-y divide-gray-100">{agendados.map(s => <LinhaSolic key={s.id} s={s} />)}</div>}
+                </div>
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200">
+                    <span className="text-sm font-semibold text-gray-700">Realizados ({concluidos.length})</span>
+                  </div>
+                  {concluidos.length === 0
+                    ? <p className="text-center py-8 text-gray-400 text-sm">Nenhum DTO concluído ainda.</p>
+                    : <div className="divide-y divide-gray-100">{concluidos.map(s => <LinhaSolic key={s.id} s={s} />)}</div>}
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* ── Responsáveis: cadastro de nome + telefone ── */}
+          {aba === 'responsaveis' && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                <p className="text-xs text-blue-800">
+                  Cadastre o telefone de cada responsável pra conseguir avisar direto no WhatsApp quando um DTO for
+                  solicitado — pela Fila de Sugestões ou pelo Calendário. Sem telefone cadastrado, a solicitação é
+                  registrada normalmente, mas ninguém é avisado automaticamente.
+                </p>
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 p-4 flex flex-wrap items-end gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Nome</label>
+                  <input value={novoRespNome} onChange={e => setNovoRespNome(e.target.value)} placeholder="Nome do responsável"
+                    className="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Telefone (WhatsApp)</label>
+                  <input value={novoRespTelefone} onChange={e => setNovoRespTelefone(e.target.value)} placeholder="Ex: 11987654321"
+                    className="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                </div>
+                <button onClick={salvarNovoResp} disabled={!novoRespNome.trim() || salvandoResp}
+                  className="flex items-center gap-1.5 text-sm font-medium bg-brand-700 text-white px-3.5 py-1.5 rounded-lg hover:bg-brand-600 disabled:opacity-50">
+                  {salvandoResp ? <Loader2 size={14} className="animate-spin" /> : null} Adicionar
+                </button>
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                      <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs">Nome</th>
+                      <th className="text-left px-3 py-2.5 font-medium text-gray-500 text-xs">Telefone</th>
+                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Ativo</th>
+                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {avaliadores.length === 0 && <tr><td colSpan={4} className="text-center py-10 text-gray-400">Nenhum responsável cadastrado</td></tr>}
+                    {avaliadores.map(av => (
+                      <tr key={av.id} className="border-b border-gray-50">
+                        <td className="px-4 py-2 font-medium text-gray-800">{av.nome}</td>
+                        <td className="px-3 py-2">
+                          <input type="text" defaultValue={av.telefone ?? ''} placeholder="—"
+                            onBlur={e => { const v = e.target.value.trim(); if (v !== (av.telefone ?? '')) atualizarResp(av.id, { telefone: v || null }) }}
+                            className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <input type="checkbox" checked={av.ativo} onChange={() => atualizarResp(av.id, { ativo: !av.ativo })} className="accent-brand-700" />
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <button onClick={() => excluirResp(av)} className="text-xs text-red-500 hover:text-red-700">Excluir</button>
                         </td>
                       </tr>
                     ))}

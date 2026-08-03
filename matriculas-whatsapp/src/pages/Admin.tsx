@@ -583,6 +583,7 @@ function AbaAvaliadores({
   const [modal, setModal] = useState(false)
   const [editId, setEditId] = useState<string | null>(null)
   const [nome, setNome] = useState('')
+  const [telefone, setTelefone] = useState('')
   const [loading, setLoading] = useState(false)
   const [semeando, setSemeando] = useState(false)
 
@@ -590,16 +591,16 @@ function AbaAvaliadores({
   const nomesCadastrados = new Set(lista.map(a => a.nome.toUpperCase()))
   const faltamPadrao = AVALIADORES_PADRAO.filter(n => !nomesCadastrados.has(n.toUpperCase()))
 
-  function abrirNovo() { setNome(''); setEditId(null); setModal(true) }
-  function abrirEditar(av: DtoAvaliador) { setNome(av.nome); setEditId(av.id); setModal(true) }
+  function abrirNovo() { setNome(''); setTelefone(''); setEditId(null); setModal(true) }
+  function abrirEditar(av: DtoAvaliador) { setNome(av.nome); setTelefone(av.telefone ?? ''); setEditId(av.id); setModal(true) }
 
   async function salvar() {
     if (!nome.trim()) return
     setLoading(true)
     if (editId) {
-      await supabase.from('dto_avaliadores').update({ nome: nome.trim() }).eq('id', editId)
+      await supabase.from('dto_avaliadores').update({ nome: nome.trim(), telefone: telefone.trim() || null }).eq('id', editId)
     } else {
-      await supabase.from('dto_avaliadores').insert({ filial: filialFiltro, nome: nome.trim() })
+      await supabase.from('dto_avaliadores').insert({ filial: filialFiltro, nome: nome.trim(), telefone: telefone.trim() || null })
     }
     setLoading(false); setModal(false); recarregar()
   }
@@ -663,13 +664,14 @@ function AbaAvaliadores({
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Nome</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Telefone</th>
               <th className="text-center px-4 py-3 font-medium text-gray-600">Status</th>
               <th className="text-right px-4 py-3 font-medium text-gray-600">Ações</th>
             </tr>
           </thead>
           <tbody>
             {lista.length === 0 && (
-              <tr><td colSpan={3} className="text-center py-10 text-gray-400">
+              <tr><td colSpan={4} className="text-center py-10 text-gray-400">
                 Nenhum avaliador cadastrado para esta filial.{' '}
                 <button onClick={semearPadrao} className="text-brand-600 hover:underline">Importar padrão</button>
               </td></tr>
@@ -677,6 +679,7 @@ function AbaAvaliadores({
             {lista.map(av => (
               <tr key={av.id} className={`border-b border-gray-100 hover:bg-gray-50 ${!av.ativo ? 'opacity-50' : ''}`}>
                 <td className="px-4 py-3 font-medium text-gray-800">{av.nome}</td>
+                <td className="px-4 py-3 text-gray-500">{av.telefone || '—'}</td>
                 <td className="px-4 py-3 text-center">
                   <button
                     onClick={() => toggleAtivo(av)}
@@ -718,6 +721,16 @@ function AbaAvaliadores({
                 className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
                 placeholder="Ex: NOME SOBRENOME"
                 autoFocus
+              />
+            </div>
+            <div className="mt-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Telefone (WhatsApp)</label>
+              <input
+                value={telefone}
+                onChange={e => setTelefone(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && salvar()}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                placeholder="Ex: 11987654321"
               />
             </div>
             <div className="flex justify-end gap-3 mt-6">

@@ -260,6 +260,7 @@ export interface DtoAvaliador {
   id: string
   filial: string
   nome: string
+  telefone: string | null
   ativo: boolean
   created_at: string
 }
@@ -293,8 +294,10 @@ export interface DtoAtividadeAlias {
 export interface DtoSolicitacao {
   id: string
   filial: string
+  origem: 'relato' | 'calendario'
   relato_id: string | null
-  colaborador_nome: string
+  dto_atividade_id: string | null
+  colaborador_nome: string | null
   area: string | null
   atividade: string | null
   tarefa_seguranca: string | null
@@ -302,6 +305,9 @@ export interface DtoSolicitacao {
   responsavel: string | null
   data_prevista: string | null
   status: 'pendente' | 'agendado' | 'concluido' | 'descartado'
+  notificado_em: string | null
+  efeito: 'pendente' | 'positivo' | 'negativo'
+  observacao_efeito: string | null
   registrado_por: string | null
   criado_em: string
   atualizado_em: string
