@@ -5,10 +5,11 @@ import { createClient } from '@supabase/supabase-js'
 // atividades da RV por Turno perto do horário de fechamento cadastrado
 // (VariavelTurnoAdmin.tsx > Horário de fechamento por turno). Chamado pelo
 // Vercel Cron a cada 5 minutos (ver vercel.json); cada tick verifica se
-// ALGUM turno de ALGUMA filial fecha na janela dos últimos 5 minutos e,
-// se sim e ainda não foi avisado hoje, dispara pro(s) telefone(s) daquele
-// turno. A tabela variavel_turno_avisos_enviados garante um único aviso por
-// (filial, turno, dia) mesmo com ticks repetidos.
+// ALGUM turno de ALGUMA filial já passou do horário de fechamento hoje e,
+// se sim e ainda não foi avisado, dispara pro(s) telefone(s) daquele turno.
+// A tabela variavel_turno_avisos_enviados garante um único aviso por
+// (filial, turno, dia) — não a checagem de horário, que é tolerante o
+// suficiente pra recuperar um tick perdido no mesmo dia.
 //
 // Protegido pelo cabeçalho que o próprio Vercel Cron envia automaticamente
 // (Authorization: Bearer $CRON_SECRET) — configure CRON_SECRET nas env vars
@@ -63,16 +64,18 @@ function agoraSP(): { horaMin: string; data: string } {
   return { horaMin: `${pega('hour')}:${pega('minute')}`, data: `${pega('year')}-${pega('month')}-${pega('day')}` }
 }
 
-// Janela dos últimos 5 minutos, em "HH:MM" — o horário de fechamento cai
-// dentro dela se estiver a até 5 min no passado em relação a agora (cobre
-// qualquer minuto, não só múltiplos de 5, mesmo o cron rodando a cada 5min).
-function dentroDaJanela(horarioFechamento: string, agora: string): boolean {
+// Já passou do horário de fechamento? Não exige o tick "exato" — só que o
+// horário já tenha chegado hoje. Isso é o que torna o cron resiliente a
+// falhas passageiras (ex.: uma env var errada, uma instabilidade de rede):
+// se o tick certinho falhar, o PRÓXIMO tick do dia ainda pega o aviso
+// atrasado, em vez de perder a janela e só tentar de novo amanhã. Quem
+// impede o reenvio depois que já mandou é só a trava de
+// variavel_turno_avisos_enviados (única por filial+turno+dia), não esta
+// checagem de horário.
+function jaPassouDoHorario(horarioFechamento: string, agora: string): boolean {
   const [hf, mf] = horarioFechamento.split(':').map(Number)
   const [ha, ma] = agora.split(':').map(Number)
-  const minutosFechamento = hf * 60 + mf
-  const minutosAgora = ha * 60 + ma
-  const diff = minutosAgora - minutosFechamento
-  return diff >= 0 && diff < 5
+  return ha * 60 + ma >= hf * 60 + mf
 }
 
 export default async function handler(req: any, res: any) {
@@ -88,7 +91,7 @@ export default async function handler(req: any, res: any) {
       .select('filial, turno, horario_fechamento')
     if (erroHorarios) throw new Error(erroHorarios.message)
 
-    const devidos = (horarios ?? []).filter((h) => dentroDaJanela(String(h.horario_fechamento).slice(0, 5), horaMin))
+    const devidos = (horarios ?? []).filter((h) => jaPassouDoHorario(String(h.horario_fechamento).slice(0, 5), horaMin))
 
     const resultado: { filial: string; turno: string; enviados: number; erro?: string }[] = []
 
