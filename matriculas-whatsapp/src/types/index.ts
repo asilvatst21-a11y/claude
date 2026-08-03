@@ -285,6 +285,28 @@ export interface DtoAtividadeAlias {
   created_at: string
 }
 
+// DTO sugerido a partir de um relato "Ato Inseguro" com Tarefa Segurança
+// preenchida — conciliação Relatos → DTO. Só existe uma linha aqui depois que
+// alguém confirma (já com os campos revisados/editados) ou descarta a
+// sugestão; até lá, ela só é calculada em tela. Independe do Fluxo Punitivo:
+// os dois processos coexistem para o mesmo desvio.
+export interface DtoSolicitacao {
+  id: string
+  filial: string
+  relato_id: string | null
+  colaborador_nome: string
+  area: string | null
+  atividade: string | null
+  tarefa_seguranca: string | null
+  motivo: string | null
+  responsavel: string | null
+  data_prevista: string | null
+  status: 'pendente' | 'agendado' | 'concluido' | 'descartado'
+  registrado_por: string | null
+  criado_em: string
+  atualizado_em: string
+}
+
 export interface ProntuarioSnapshot {
   id: string
   filial: string

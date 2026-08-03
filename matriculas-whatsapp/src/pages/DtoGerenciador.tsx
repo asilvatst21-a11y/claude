@@ -2,12 +2,13 @@ import { Fragment, forwardRef, useEffect, useMemo, useRef, useState } from 'reac
 import {
   Building2, RefreshCw, Loader2, CalendarClock, AlertTriangle, ListChecks,
   Users, Download, ChevronDown, ChevronUp, Database, Zap, TrendingUp, TrendingDown, Minus, Image,
+  ShieldAlert, X, Check, Info,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
 import html2canvas from 'html2canvas'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
-import type { DtoAtividade, DtoAtividadeAlias, DtoAvaliador, DtoObservacao, Relato } from '../types'
+import type { DtoAtividade, DtoAtividadeAlias, DtoAvaliador, DtoObservacao, DtoSolicitacao, Relato } from '../types'
 import { formatarDataBR } from '../lib/utils'
 
 // ── Seed: base de atividades (Calendarização Armazém + Oficina da planilha oficial) ──
@@ -224,6 +225,19 @@ function StatusBadge({ status, dias }: { status: LinhaCalc['status']; dias: numb
   return <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${map[status]}`}>{txt}</span>
 }
 
+// Tooltip "?" reaproveitado dos cabeçalhos — explica cada coluna do motor de
+// cálculo sem precisar de uma aba separada.
+function InfoTip({ texto }: { texto: string }) {
+  return (
+    <span className="group relative inline-flex">
+      <span className="w-3.5 h-3.5 rounded-full bg-gray-300 text-white text-[9px] font-bold flex items-center justify-center cursor-default leading-none">?</span>
+      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-60 rounded-lg bg-gray-800 text-white text-[11px] leading-relaxed px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg whitespace-normal text-left font-normal">
+        {texto}
+      </span>
+    </span>
+  )
+}
+
 function LinhaVincular({ nome, qtd, opcoes, vinculando, onVincular }: {
   nome: string; qtd: number; opcoes: string[]; vinculando: boolean
   onVincular: (alias: string, nomeAtividade: string) => void
@@ -268,7 +282,7 @@ export default function DtoGerenciador() {
   const [vinculando, setVinculando] = useState<string | null>(null)
   const [carregando, setCarregando] = useState(false)
   const [semeando, setSemeando] = useState(false)
-  const [aba, setAba] = useState<'calendario' | 'fila' | 'responsavel' | 'cadastro' | 'apelidos'>('calendario')
+  const [aba, setAba] = useState<'calendario' | 'sugestoes' | 'fila' | 'responsavel' | 'cadastro' | 'apelidos'>('calendario')
   const [filtroArea, setFiltroArea] = useState('Todas')
   const [filtroStatus, setFiltroStatus] = useState<'Todos' | LinhaCalc['status']>('Todos')
   const [expand, setExpand] = useState<string | null>(null)
@@ -278,6 +292,15 @@ export default function DtoGerenciador() {
   const [filtroFilaResp, setFiltroFilaResp] = useState('Todos')
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set())
   const [sincronizando, setSincronizando] = useState(false)
+
+  // ── Sugestões de DTO (conciliação Relatos → DTO) ──
+  const [solicitacoesDto, setSolicitacoesDto] = useState<DtoSolicitacao[]>([])
+  const [fluxosPorColabDia, setFluxosPorColabDia] = useState<Map<string, string>>(new Map())
+  const [editSugestao, setEditSugestao] = useState<string | null>(null)
+  const [rascunhoSugestao, setRascunhoSugestao] = useState<{
+    area: string; atividade: string; motivo: string; responsavel: string; data_prevista: string
+  } | null>(null)
+  const [salvandoSugestao, setSalvandoSugestao] = useState<string | null>(null)
 
   async function sincronizarDatas() {
     setSincronizando(true)
@@ -340,18 +363,32 @@ export default function DtoGerenciador() {
   async function carregar() {
     if (!usuario) return
     setCarregando(true)
-    const [{ data: ativ }, { data: obs }, { data: rel }, { data: av }, { data: ali }] = await Promise.all([
+    const [{ data: ativ }, { data: obs }, { data: rel }, { data: av }, { data: ali }, { data: sol }, { data: fluxos }] = await Promise.all([
       supabase.from('dto_atividades').select('*').eq('filial', usuario.filial).order('area').order('nome_atividade'),
       supabase.from('dto_observacoes').select('*').eq('filial', usuario.filial),
       supabase.from('relatos').select('*').eq('filial', usuario.filial),
       supabase.from('dto_avaliadores').select('*').eq('filial', usuario.filial).eq('ativo', true).order('nome'),
       supabase.from('dto_atividade_aliases').select('*').eq('filial', usuario.filial),
+      supabase.from('dto_solicitacoes').select('*').eq('filial', usuario.filial).order('criado_em', { ascending: false }),
+      supabase.from('fluxo_punitivo').select('colaborador_nome, data_infracao, origem, tipo_acao, status').eq('filial', usuario.filial),
     ])
     setAtividades(ativ ?? [])
     setObservacoes(obs ?? [])
     setAvaliadores(av ?? [])
     setRelatos(rel ?? [])
     setAliases(ali ?? [])
+    setSolicitacoesDto(sol ?? [])
+
+    // Só pra exibir um aviso informativo na sugestão — não bloqueia nada.
+    // Mesma chave `${colaborador}__${dia}` usada em Relatos.tsx (fluxosGsdpq).
+    const mapaFluxos = new Map<string, string>()
+    for (const f of fluxos ?? []) {
+      if (!f.colaborador_nome || !f.data_infracao) continue
+      const chave = `${f.colaborador_nome}__${String(f.data_infracao).slice(0, 10)}`
+      const rotulo = `${f.origem ?? 'Fluxo'} — ${f.tipo_acao ?? f.status}`
+      if (!mapaFluxos.has(chave)) mapaFluxos.set(chave, rotulo)
+    }
+    setFluxosPorColabDia(mapaFluxos)
     setCarregando(false)
   }
 
@@ -475,6 +512,82 @@ export default function DtoGerenciador() {
       return { ...a, qtdObs, destinoExiste }
     })
   }, [aliases, observacoes, atividades])
+
+  // ── Sugestões de DTO (Relatos → DTO) — totalmente separado do motor de risco acima,
+  // que continua calculando Crit. Inicial/Gatilho/Risco Final/Periodicidade só a partir
+  // do histórico agregado por ATIVIDADE. Aqui é por OCORRÊNCIA/COLABORADOR: todo relato
+  // "Ato Inseguro" com a Tarefa Segurança preenchida vira candidato a sugestão, mesmo que
+  // já tenha (ou não) um Fluxo Punitivo aberto pro mesmo desvio — os dois não se bloqueiam. ──
+  const relatoIdsComSolicitacao = useMemo(
+    () => new Set(solicitacoesDto.filter(s => s.relato_id).map(s => s.relato_id as string)),
+    [solicitacoesDto]
+  )
+  const sugestoesDto = useMemo(() => {
+    return relatos
+      .filter(r =>
+        ehAtoInseguro(r.classificacao) &&
+        !!r.tarefa_seguranca?.trim() &&
+        !!r.pessoa_relatada?.trim() &&
+        !relatoIdsComSolicitacao.has(r.id))
+      .sort((a, b) => (b.data_ocorrencia ?? '').localeCompare(a.data_ocorrencia ?? ''))
+  }, [relatos, relatoIdsComSolicitacao])
+
+  function abrirSugestao(r: Relato) {
+    setEditSugestao(r.id)
+    setRascunhoSugestao({
+      area: r.area ?? '',
+      atividade: r.tarefa_seguranca ?? '',
+      motivo: [r.tipo_relato, r.detalhamento].filter(Boolean).join(' — ') || (r.classificacao ?? ''),
+      responsavel: '',
+      data_prevista: '',
+    })
+  }
+
+  async function confirmarSugestao(r: Relato) {
+    if (!usuario || !rascunhoSugestao) return
+    setSalvandoSugestao(r.id)
+    const { error } = await supabase.from('dto_solicitacoes').insert({
+      filial: usuario.filial,
+      relato_id: r.id,
+      colaborador_nome: r.pessoa_relatada,
+      area: rascunhoSugestao.area || null,
+      atividade: rascunhoSugestao.atividade || null,
+      tarefa_seguranca: r.tarefa_seguranca,
+      motivo: rascunhoSugestao.motivo || null,
+      responsavel: rascunhoSugestao.responsavel || null,
+      data_prevista: rascunhoSugestao.data_prevista || null,
+      status: rascunhoSugestao.responsavel ? 'agendado' : 'pendente',
+      registrado_por: usuario.nome ?? usuario.login,
+    })
+    if (error) {
+      alert(`Não foi possível registrar o DTO: ${error.message}`)
+      setSalvandoSugestao(null)
+      return
+    }
+    setEditSugestao(null)
+    setRascunhoSugestao(null)
+    setSalvandoSugestao(null)
+    await carregar()
+  }
+
+  async function descartarSugestao(r: Relato) {
+    if (!usuario) return
+    if (!confirm(`Descartar a sugestão de DTO para ${r.pessoa_relatada}? Ela não vai aparecer de novo nesta lista.`)) return
+    setSalvandoSugestao(r.id)
+    const { error } = await supabase.from('dto_solicitacoes').insert({
+      filial: usuario.filial,
+      relato_id: r.id,
+      colaborador_nome: r.pessoa_relatada,
+      area: r.area,
+      atividade: r.tarefa_seguranca,
+      tarefa_seguranca: r.tarefa_seguranca,
+      status: 'descartado',
+      registrado_por: usuario.nome ?? usuario.login,
+    })
+    if (error) { alert(`Não foi possível descartar: ${error.message}`); setSalvandoSugestao(null); return }
+    setSalvandoSugestao(null)
+    await carregar()
+  }
 
   // ── Cálculo final por atividade ──
   const linhas = useMemo<LinhaCalc[]>(() => {
@@ -618,10 +731,11 @@ export default function DtoGerenciador() {
           <div className="flex gap-1 border-b border-gray-200 overflow-x-auto">
             {([
               ['calendario', 'Calendário', null],
+              ['sugestoes', 'Sugestões de DTO', sugestoesDto.length],
               ['fila', 'Fila da Semana', fila.length],
               ['responsavel', 'Por Responsável', null],
               ['cadastro', 'Cadastro', null],
-              ['apelidos', 'Apelidos', observacoesNaoReconhecidas.reduce((s, d) => s + d.qtd, 0)],
+              ['apelidos', 'Equivalências de Nome', observacoesNaoReconhecidas.reduce((s, d) => s + d.qtd, 0)],
             ] as const).map(([id, label, badge]) => (
               <button key={id} onClick={() => setAba(id)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap flex items-center gap-1.5 ${aba === id ? 'border-accent-500 text-accent-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>
                 {label}
@@ -629,6 +743,145 @@ export default function DtoGerenciador() {
               </button>
             ))}
           </div>
+
+          {/* ── Sugestões de DTO: conciliação Relatos → DTO ── */}
+          {aba === 'sugestoes' && (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 flex items-start gap-3">
+                <Info className="h-5 w-5 text-blue-600 mt-0.5 shrink-0" />
+                <p className="text-xs text-blue-800">
+                  Todo relato classificado como <strong>Ato Inseguro</strong> com a <strong>Tarefa Segurança</strong> preenchida
+                  vira uma sugestão de DTO para o colaborador aqui. A sugestão aparece mesmo que já exista um Fluxo Punitivo
+                  aberto pro mesmo desvio — os dois processos são independentes. Revise e edite os campos abaixo antes de
+                  confirmar; nada é salvo até você clicar em "Solicitar DTO".
+                </p>
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                {sugestoesDto.length === 0 ? (
+                  <p className="text-center py-12 text-gray-400">Nenhuma sugestão pendente. 🎉</p>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    {sugestoesDto.map(r => {
+                      const dia = r.data_ocorrencia?.slice(0, 10) ?? ''
+                      const chaveFluxo = `${r.pessoa_relatada}__${dia}`
+                      const fluxoInfo = fluxosPorColabDia.get(chaveFluxo)
+                      const editando = editSugestao === r.id
+                      return (
+                        <div key={r.id} className="px-4 py-3.5">
+                          <div className="flex items-start justify-between gap-3 flex-wrap">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-gray-900 flex items-center gap-1.5">
+                                <ShieldAlert size={14} className="text-red-500 shrink-0" /> {r.pessoa_relatada}
+                              </p>
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                {formatarDataBR(r.data_ocorrencia)} · {r.area || 'área não informada'} · Tarefa Segurança: <span className="text-gray-600">{r.tarefa_seguranca}</span>
+                              </p>
+                              {r.detalhamento && <p className="text-xs text-gray-500 mt-1 max-w-xl">{r.detalhamento}</p>}
+                              {fluxoInfo ? (
+                                <span className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-sky-700 bg-sky-50 border border-sky-200 rounded-md px-2 py-1">
+                                  <Info size={12} /> Fluxo Punitivo já aberto — {fluxoInfo} (não impede o DTO)
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-gray-500 bg-gray-50 border border-gray-200 rounded-md px-2 py-1">
+                                  Nenhum Fluxo Punitivo aberto ainda
+                                </span>
+                              )}
+                            </div>
+                            {!editando && (
+                              <div className="flex items-center gap-2 shrink-0">
+                                <button onClick={() => descartarSugestao(r)} disabled={salvandoSugestao === r.id}
+                                  className="text-xs text-gray-500 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-gray-50 disabled:opacity-50">
+                                  Descartar
+                                </button>
+                                <button onClick={() => abrirSugestao(r)}
+                                  className="flex items-center gap-1.5 text-xs font-medium bg-brand-700 text-white px-3 py-1.5 rounded-lg hover:bg-brand-600">
+                                  Revisar e solicitar DTO
+                                </button>
+                              </div>
+                            )}
+                          </div>
+
+                          {editando && rascunhoSugestao && (
+                            <div className="mt-3 bg-gray-50 border border-dashed border-gray-300 rounded-lg p-3.5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Área</label>
+                                <input value={rascunhoSugestao.area} onChange={e => setRascunhoSugestao(v => v && ({ ...v, area: e.target.value }))}
+                                  className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Atividade a observar</label>
+                                <input value={rascunhoSugestao.atividade} onChange={e => setRascunhoSugestao(v => v && ({ ...v, atividade: e.target.value }))}
+                                  className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                                <p className="text-[11px] text-gray-400 mt-0.5">Preenchido a partir da Tarefa Segurança do relato — pode trocar se o DTO precisar observar outra atividade.</p>
+                              </div>
+                              <div className="sm:col-span-2">
+                                <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Motivo</label>
+                                <textarea value={rascunhoSugestao.motivo} onChange={e => setRascunhoSugestao(v => v && ({ ...v, motivo: e.target.value }))}
+                                  rows={2} className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500 resize-none" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Responsável pela avaliação</label>
+                                {avaliadores.length > 0 ? (
+                                  <select value={rascunhoSugestao.responsavel} onChange={e => setRascunhoSugestao(v => v && ({ ...v, responsavel: e.target.value }))}
+                                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-brand-500">
+                                    <option value="">— escolher depois —</option>
+                                    {avaliadores.map(av => <option key={av.id} value={av.nome}>{av.nome}</option>)}
+                                  </select>
+                                ) : (
+                                  <input value={rascunhoSugestao.responsavel} onChange={e => setRascunhoSugestao(v => v && ({ ...v, responsavel: e.target.value }))}
+                                    placeholder="— escolher depois —"
+                                    className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                                )}
+                                <p className="text-[11px] text-gray-400 mt-0.5">Escolhido agora, de acordo com quem está disponível — não vem mais fixo do cadastro da atividade.</p>
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">Data prevista</label>
+                                <input type="date" value={rascunhoSugestao.data_prevista} onChange={e => setRascunhoSugestao(v => v && ({ ...v, data_prevista: e.target.value }))}
+                                  className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500" />
+                              </div>
+                              <div className="sm:col-span-2 flex items-center justify-end gap-2 pt-1">
+                                <button onClick={() => { setEditSugestao(null); setRascunhoSugestao(null) }}
+                                  className="flex items-center gap-1.5 text-xs text-gray-500 px-3 py-1.5 rounded-lg hover:bg-gray-100">
+                                  <X size={13} /> Cancelar
+                                </button>
+                                <button onClick={() => confirmarSugestao(r)} disabled={salvandoSugestao === r.id}
+                                  className="flex items-center gap-1.5 text-xs font-medium bg-brand-700 text-white px-3 py-1.5 rounded-lg hover:bg-brand-600 disabled:opacity-60">
+                                  {salvandoSugestao === r.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                                  Solicitar DTO
+                                </button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {solicitacoesDto.filter(s => s.status !== 'descartado').length > 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="bg-gray-50 px-4 py-2.5 border-b border-gray-200">
+                    <span className="text-sm font-semibold text-gray-700">DTOs solicitados a partir de Relatos</span>
+                  </div>
+                  <div className="divide-y divide-gray-100">
+                    {solicitacoesDto.filter(s => s.status !== 'descartado').map(s => (
+                      <div key={s.id} className="px-4 py-2.5 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm text-gray-800 truncate">{s.colaborador_nome} <span className="text-gray-400">· {s.atividade || 'atividade não informada'}</span></p>
+                          <p className="text-xs text-gray-400">{s.area || '—'} · Responsável: {s.responsavel || 'a definir'} · {s.data_prevista ? `previsto ${formatarDataBR(s.data_prevista)}` : 'sem data ainda'}</p>
+                        </div>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full border ${s.status === 'agendado' ? 'bg-blue-100 text-blue-700 border-blue-300' : s.status === 'concluido' ? 'bg-green-100 text-green-800 border-green-300' : 'bg-yellow-100 text-yellow-800 border-yellow-300'}`}>
+                          {s.status === 'pendente' ? 'Aguardando responsável' : s.status === 'agendado' ? 'Agendado' : 'Concluído'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* ── Apelidos: observações não reconhecidas + diagnóstico dos apelidos já vinculados ── */}
           {aba === 'apelidos' && (
@@ -705,11 +958,31 @@ export default function DtoGerenciador() {
                   <thead className="bg-gray-50 border-b border-gray-200">
                     <tr>
                       <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs">Atividade</th>
-                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Crit. Inicial</th>
-                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Gatilho</th>
-                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Risco Final</th>
-                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Periodic.</th>
-                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Último DTO</th>
+                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">
+                        <span className="flex items-center justify-center gap-1">Crit. Inicial
+                          <InfoTip texto="Criticidade base + desvios encontrados nos DTOs realizados: 0 desvio no ano anterior → Baixo; desvios do ano atual ≤ ano anterior → Médio; senão → Alto. Nunca fica abaixo da criticidade base." />
+                        </span>
+                      </th>
+                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">
+                        <span className="flex items-center justify-center gap-1">Gatilho
+                          <InfoTip texto="Compara os Atos Inseguros dos relatos nos últimos 2 meses com os 2 meses anteriores. Se os recentes forem maiores, o gatilho liga (S) e sobe a criticidade em 1 nível." />
+                        </span>
+                      </th>
+                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">
+                        <span className="flex items-center justify-center gap-1">Risco Final
+                          <InfoTip texto="Criticidade inicial ajustada pelo gatilho: sobe 1 nível se o gatilho ligou; desce 1 nível se as Abordagens Positivas dos últimos 2 meses igualarem ou superarem os Atos Inseguros; senão mantém." />
+                        </span>
+                      </th>
+                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">
+                        <span className="flex items-center justify-center gap-1">Periodic.
+                          <InfoTip texto="Prazo entre um DTO e o próximo, definido pelo Risco Final: Crítico 15d, Alto 30d, Médio 45d, Baixo 60d. Trivial não tem prazo fixo — só quando houver ocorrência." />
+                        </span>
+                      </th>
+                      <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">
+                        <span className="flex items-center justify-center gap-1">Último DTO
+                          <InfoTip texto="Data do DTO mais recente encontrado nas observações importadas (ou a data manual do Cadastro, quando preenchida). É a partir dela que o vencimento é calculado." />
+                        </span>
+                      </th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Status</th>
                     </tr>
                   </thead>
@@ -887,7 +1160,12 @@ export default function DtoGerenciador() {
           {aba === 'cadastro' && (
             <div className="space-y-4">
               <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 gap-4">
-                <p className="text-xs text-blue-800">Edite a criticidade base (piso), o responsável e a data do último DTO. Os cálculos atualizam automaticamente.</p>
+                <p className="text-xs text-blue-800">
+                  Edite a criticidade base (piso) e a data do último DTO — os cálculos atualizam automaticamente. O responsável
+                  aqui é só uma <strong>sugestão padrão</strong> para quando o motor gerar um DTO de rotina: cada DTO de fato
+                  agendado (seja de rotina ou vindo de um desvio na aba Sugestões) escolhe o responsável na hora, sem ficar
+                  travado neste cadastro.
+                </p>
                 <div className="flex items-center gap-2 shrink-0">
                   <button onClick={sincronizarDatas} disabled={sincronizando}
                     className="flex items-center gap-1.5 text-xs text-green-700 border border-green-300 bg-green-50 px-3 py-1.5 rounded-lg hover:bg-green-100 disabled:opacity-60">
@@ -915,7 +1193,11 @@ export default function DtoGerenciador() {
                           </span>
                         </span>
                       </th>
-                      <th className="text-left px-3 py-2.5 font-medium text-gray-500 text-xs">Responsável</th>
+                      <th className="text-left px-3 py-2.5 font-medium text-gray-500 text-xs">
+                        <span className="flex items-center gap-1">Responsável (sugestão)
+                          <InfoTip texto="Não é mais fixo: serve só de ponto de partida para DTOs de rotina. O responsável de cada DTO agendado de verdade é escolhido na hora, na aba Sugestões de DTO ou na Fila da Semana." />
+                        </span>
+                      </th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Último DTO (manual)</th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Ativo</th>
                     </tr>
