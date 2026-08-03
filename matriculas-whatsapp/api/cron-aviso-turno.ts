@@ -37,20 +37,21 @@ function variarTexto(variantes: string[]): string {
   return variantes[Math.floor(Math.random() * variantes.length)]
 }
 
-async function enviar(telefone: string, mensagem: string): Promise<{ sucesso: boolean; erro?: string }> {
+async function enviar(telefone: string, mensagem: string): Promise<{ sucesso: boolean; erro?: string; bruto?: string; telefoneEnviado?: string }> {
+  const telefoneEnviado = limparNumero(telefone)
   try {
     const resp = await fetch(`${ZAPI_BASE}/send-text`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Client-Token': ZAPI_CLIENT_TOKEN },
-      body: JSON.stringify({ phone: limparNumero(telefone), message: mensagem }),
+      body: JSON.stringify({ phone: telefoneEnviado, message: mensagem }),
     })
     const bruto = await resp.text().catch(() => '')
     let corpo: { error?: string } | null = null
     try { corpo = bruto ? JSON.parse(bruto) : null } catch { /* resposta não-JSON */ }
-    if (!resp.ok || corpo?.error) return { sucesso: false, erro: corpo?.error ?? `HTTP ${resp.status}` }
-    return { sucesso: true }
+    if (!resp.ok || corpo?.error) return { sucesso: false, erro: corpo?.error ?? `HTTP ${resp.status}`, bruto, telefoneEnviado }
+    return { sucesso: true, bruto, telefoneEnviado }
   } catch (e) {
-    return { sucesso: false, erro: String(e) }
+    return { sucesso: false, erro: String(e), telefoneEnviado }
   }
 }
 
@@ -152,8 +153,8 @@ export default async function handler(req: any, res: any) {
           `Oi, ${nome}! Lembrete do ${label}: falta lançar as atividades de hoje na RV por Turno antes de fechar.`,
         ])
         const r = await enviar(c.telefone as string, mensagem)
-        if (r.sucesso) { enviados++; detalheEnvios.push(`${nome}: ok`) }
-        else detalheEnvios.push(`${nome}: FALHOU — ${r.erro}`)
+        if (r.sucesso) { enviados++; detalheEnvios.push(`${nome} (${r.telefoneEnviado}): ok — resposta da Z-API: ${r.bruto}`) }
+        else detalheEnvios.push(`${nome} (${r.telefoneEnviado}): FALHOU — ${r.erro} — resposta bruta: ${r.bruto ?? '(sem corpo)'}`)
       }
       // Ninguém recebeu de fato (todos os envios falharam) — libera a trava
       // pra o próximo tick tentar de novo, em vez de desistir até amanhã.
