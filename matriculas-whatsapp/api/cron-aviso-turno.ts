@@ -79,9 +79,13 @@ function jaPassouDoHorario(horarioFechamento: string, agora: string): boolean {
 }
 
 export default async function handler(req: any, res: any) {
+  // O Vercel Cron chama sempre com o cabeçalho Authorization. Pra permitir
+  // também um teste manual simples (colar um link no navegador, sem
+  // terminal), aceita o mesmo segredo em ?secret= como alternativa.
   const auth = String(req.headers?.authorization ?? '')
+  const secretQuery = String(req.query?.secret ?? '')
   if (!CRON_SECRET) { res.status(503).json({ ok: false, error: 'CRON_SECRET não configurado' }); return }
-  if (auth !== `Bearer ${CRON_SECRET}`) { res.status(401).json({ ok: false, error: 'não autorizado' }); return }
+  if (auth !== `Bearer ${CRON_SECRET}` && secretQuery !== CRON_SECRET) { res.status(401).json({ ok: false, error: 'não autorizado' }); return }
 
   try {
     const { horaMin, data } = agoraSP()
