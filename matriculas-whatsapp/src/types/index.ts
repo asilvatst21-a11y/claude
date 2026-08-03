@@ -7,6 +7,11 @@ export interface Usuario {
   admin: boolean
   permissoes: string[] | null  // null = sem restrição; [] = bloqueado; ['gsdpq','dto'] = só essas
   cargo: string | null
+  // Turno do conferente da RV por Turno ('TA' | 'TB' | 'TC') e telefone pra
+  // receber o aviso de lançamento das atividades do dia — só usados por quem
+  // tem cargo 'Conferente RV'.
+  turno: string | null
+  telefone: string | null
   created_at: string
 }
 

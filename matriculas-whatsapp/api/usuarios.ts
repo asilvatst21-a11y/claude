@@ -49,7 +49,7 @@ function safeJson(s: string): any {
   try { return JSON.parse(s) } catch { return {} }
 }
 
-const CAMPOS = 'id, filial, login, nome, admin, permissoes, cargo, created_at'
+const CAMPOS = 'id, filial, login, nome, admin, permissoes, cargo, turno, telefone, created_at'
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') { res.status(405).json({ erro: 'method' }); return }
@@ -108,6 +108,8 @@ export default async function handler(req: any, res: any) {
         admin: querAdmin,
         cargo,
         permissoes: Array.isArray(body.permissoes) ? body.permissoes : (cargo ? [] : null),
+        turno: body.turno ? String(body.turno) : null,
+        telefone: body.telefone ? String(body.telefone) : null,
       }
       const { error } = await supabase.from('usuarios').insert(insert)
       if (error) throw new Error(error.message)
@@ -135,6 +137,8 @@ export default async function handler(req: any, res: any) {
       if (body.login !== undefined) payload.login = String(body.login).trim()
       if (body.nome !== undefined) payload.nome = body.nome ? String(body.nome) : null
       if (body.cargo !== undefined) payload.cargo = body.cargo ? String(body.cargo) : null
+      if (body.turno !== undefined) payload.turno = body.turno ? String(body.turno) : null
+      if (body.telefone !== undefined) payload.telefone = body.telefone ? String(body.telefone) : null
       if (body.admin !== undefined && ehAdmin) payload.admin = body.admin === true
       if (body.permissoes !== undefined && ehAdmin) payload.permissoes = body.permissoes
       if (body.senha) payload.senha = await gerarHash(String(body.senha))

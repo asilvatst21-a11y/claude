@@ -635,4 +635,35 @@ export async function buscarAcumuladoColaboradorMes(filial: string, colaboradorI
   }
 }
 
+// ── Turno do conferente + horário de fechamento — base do futuro aviso via
+// WhatsApp lembrando o conferente de lançar as atividades do dia. ──────────
+
+export const TURNOS_CONFERENTE = ['TA', 'TB', 'TC'] as const
+export type TurnoConferente = typeof TURNOS_CONFERENTE[number]
+export const TURNO_CONFERENTE_LABEL: Record<TurnoConferente, string> = { TA: 'Turno A', TB: 'Turno B', TC: 'Turno C' }
+
+export interface HorarioFechamentoTurno {
+  id: string
+  filial: string
+  turno: string
+  horarioFechamento: string // "HH:MM:SS" (coluna TIME do Postgres)
+}
+
+export async function listarHorariosFechamento(filial: string): Promise<HorarioFechamentoTurno[]> {
+  const { data, error } = await supabase
+    .from('variavel_turno_horarios')
+    .select('*')
+    .eq('filial', filial)
+    .order('turno')
+  if (error) { console.error('listarHorariosFechamento error:', error.message); return [] }
+  return (data ?? []).map((r) => ({ id: r.id, filial: r.filial, turno: r.turno, horarioFechamento: String(r.horario_fechamento).slice(0, 5) }))
+}
+
+export async function salvarHorarioFechamento(filial: string, turno: string, horarioFechamento: string): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('variavel_turno_horarios')
+    .upsert({ filial, turno, horario_fechamento: horarioFechamento }, { onConflict: 'filial,turno' })
+  return { error: error?.message ?? null }
+}
+
 export { formatarBRL }

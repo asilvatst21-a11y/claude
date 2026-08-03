@@ -37,6 +37,8 @@ export interface DadosUsuario {
   admin?: boolean
   cargo?: string | null
   permissoes?: string[] | null
+  turno?: string | null
+  telefone?: string | null
 }
 
 export async function criarUsuario(dados: DadosUsuario): Promise<void> {

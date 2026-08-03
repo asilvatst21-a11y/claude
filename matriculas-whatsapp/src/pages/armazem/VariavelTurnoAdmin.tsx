@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Loader2, Plus, Power, Layers, UserCog, KeyRound, Users, X, CalendarClock, Check } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
-import { listarUsuarios, criarUsuario, resetarSenhaUsuario } from '../../lib/usuariosApi'
+import { listarUsuarios, criarUsuario, resetarSenhaUsuario, atualizarUsuario } from '../../lib/usuariosApi'
 import type { Usuario } from '../../types'
 import {
   listarAtividadesTurno, salvarAtividadeTurno, alternarAtivoAtividadeTurno,
@@ -10,9 +10,10 @@ import {
   listarEquipeConferente, adicionarNaEquipeConferente, alternarAtivoEquipeConferente,
   listarRegistrosDoMes, registrarAtividadeTurno, bateuMetaAtividade,
   listarRegistrosOperadorDoMes, registrarAtividadeTurnoPorOperador,
+  listarHorariosFechamento, salvarHorarioFechamento, TURNOS_CONFERENTE, TURNO_CONFERENTE_LABEL,
   type TurnoAtividade, type TurnoTipoRegistro, type TurnoUnidade, type TurnoDirecao,
   type ColaboradorElegivel, type AtividadeColaborador, type ConferenteEquipeMembro, type TurnoRegistro,
-  type RegistroOperador,
+  type RegistroOperador, type HorarioFechamentoTurno,
 } from '../../lib/variavelTurno'
 
 const UNIDADE_LABEL: Record<TurnoUnidade, string> = {
@@ -46,7 +47,7 @@ function formVazio() {
 }
 
 function formConferenteVazio() {
-  return { login: '', nome: '', senha: '' }
+  return { login: '', nome: '', senha: '', turno: '', telefone: '' }
 }
 
 // Uma atividade pode ter VÁRIOS colaboradores (ex.: EFC feita por vários
@@ -708,6 +709,65 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
   )
 }
 
+// Horário de fechamento de cada turno — base do futuro aviso automático via
+// WhatsApp lembrando o conferente de lançar as atividades diárias. Editável
+// aqui; os 3 turnos já vêm semeados pela migração (13h30/21h30/5h30).
+function HorariosFechamentoTurno({ filial }: { filial: string }) {
+  const [horarios, setHorarios] = useState<HorarioFechamentoTurno[]>([])
+  const [loading, setLoading] = useState(true)
+  const [salvandoTurno, setSalvandoTurno] = useState<string | null>(null)
+
+  const carregar = useCallback(async () => {
+    setLoading(true)
+    setHorarios(await listarHorariosFechamento(filial))
+    setLoading(false)
+  }, [filial])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  function horarioDoTurno(turno: string): string {
+    return horarios.find((h) => h.turno === turno)?.horarioFechamento ?? ''
+  }
+
+  async function salvar(turno: string, valor: string) {
+    setSalvandoTurno(turno)
+    const { error } = await salvarHorarioFechamento(filial, turno, valor)
+    setSalvandoTurno(null)
+    if (error) { alert(`Erro ao salvar horário: ${error}`); return }
+    await carregar()
+  }
+
+  return (
+    <div className="border rounded-lg p-4 space-y-3">
+      <h4 className="text-sm font-semibold flex items-center gap-1.5"><CalendarClock className="h-4 w-4 text-accent-600" /> Horário de fechamento por turno</h4>
+      <p className="text-xs text-gray-500">
+        Horário em que cada turno encerra — base do aviso automático de WhatsApp que vai lembrar o conferente de lançar
+        as atividades do dia. Editável a qualquer momento.
+      </p>
+      {loading ? (
+        <div className="flex justify-center py-4 text-gray-400"><Loader2 className="h-4 w-4 animate-spin" /></div>
+      ) : (
+        <div className="grid sm:grid-cols-3 gap-3">
+          {TURNOS_CONFERENTE.map((t) => (
+            <div key={t}>
+              <label className="block text-[11px] font-medium text-gray-500 mb-1">{TURNO_CONFERENTE_LABEL[t]}</label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="time"
+                  defaultValue={horarioDoTurno(t)}
+                  onBlur={(e) => { const v = e.target.value; if (v && v !== horarioDoTurno(t)) salvar(t, v) }}
+                  className="w-full border rounded px-2 py-1.5 text-xs"
+                />
+                {salvandoTurno === t && <Loader2 className="h-3.5 w-3.5 animate-spin text-gray-400" />}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
   const [atividades, setAtividades] = useState<TurnoAtividade[]>([])
   const [colaboradoresPorAtividade, setColaboradoresPorAtividade] = useState<Record<string, AtividadeColaborador[]>>({})
@@ -754,6 +814,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
         filial, login: formConferente.login.trim(), nome: formConferente.nome.trim(),
         senha: formConferente.senha || SENHA_PADRAO_CONFERENTE,
         cargo: CARGO_CONFERENTE, admin: false, permissoes: [],
+        turno: formConferente.turno || null, telefone: formConferente.telefone.trim() || null,
       })
       setFormConferente(formConferenteVazio())
       await carregar()
@@ -761,6 +822,24 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
       setErroConferente(e instanceof Error ? e.message : 'Erro ao cadastrar conferente.')
     } finally {
       setSalvandoConferente(false)
+    }
+  }
+
+  async function atualizarTurnoConferente(c: Usuario, turno: string) {
+    try {
+      await atualizarUsuario(c.id, { turno: turno || null })
+      await carregar()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao atualizar turno.')
+    }
+  }
+
+  async function atualizarTelefoneConferente(c: Usuario, telefone: string) {
+    try {
+      await atualizarUsuario(c.id, { telefone: telefone.trim() || null })
+      await carregar()
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao atualizar telefone.')
     }
   }
 
@@ -842,13 +921,29 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
           <div className="divide-y border rounded-md">
             {conferentes.map((c) => (
               <div key={c.id} className="px-3 py-2">
-                <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center justify-between text-xs gap-2 flex-wrap">
                   <span><b>{c.nome ?? c.login}</b> <span className="text-gray-400 font-mono">({c.login})</span></span>
-                  <span className="flex items-center gap-1">
-                    <button onClick={() => setEquipeExpandida((v) => (v === c.id ? null : c.id))} className="flex items-center gap-1 px-2 py-1 rounded border hover:bg-accent">
+                  <span className="flex items-center gap-1.5">
+                    <select
+                      value={c.turno ?? ''}
+                      onChange={(e) => atualizarTurnoConferente(c, e.target.value)}
+                      className="border rounded px-1.5 py-1 text-xs bg-white"
+                      title="Turno"
+                    >
+                      <option value="">Sem turno</option>
+                      {TURNOS_CONFERENTE.map((t) => <option key={t} value={t}>{TURNO_CONFERENTE_LABEL[t]}</option>)}
+                    </select>
+                    <input
+                      defaultValue={c.telefone ?? ''}
+                      onBlur={(e) => { const v = e.target.value.trim(); if (v !== (c.telefone ?? '')) atualizarTelefoneConferente(c, v) }}
+                      placeholder="telefone p/ aviso"
+                      className="border rounded px-1.5 py-1 text-xs w-32"
+                      title="Telefone (WhatsApp)"
+                    />
+                    <button onClick={() => setEquipeExpandida((v) => (v === c.id ? null : c.id))} className="flex items-center gap-1 px-2 py-1 rounded border hover:bg-accent whitespace-nowrap">
                       <Users className="h-3 w-3" /> Equipe (presença)
                     </button>
-                    <button onClick={() => resetarSenhaConferente(c)} className="flex items-center gap-1 px-2 py-1 rounded border hover:bg-accent">
+                    <button onClick={() => resetarSenhaConferente(c)} className="flex items-center gap-1 px-2 py-1 rounded border hover:bg-accent whitespace-nowrap">
                       <KeyRound className="h-3 w-3" /> Resetar senha
                     </button>
                   </span>
@@ -860,7 +955,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
         )}
 
         {erroConferente && <p className="text-xs text-red-600">{erroConferente}</p>}
-        <div className="grid sm:grid-cols-4 gap-2 items-end">
+        <div className="grid sm:grid-cols-6 gap-2 items-end">
           <div>
             <label className="block text-[11px] font-medium text-gray-500 mb-1">Login</label>
             <input value={formConferente.login} onChange={(e) => setFormConferente((f) => ({ ...f, login: e.target.value }))} placeholder="ex.: lsiqueira" className="w-full border rounded px-2 py-1.5 text-xs" />
@@ -873,11 +968,24 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
             <label className="block text-[11px] font-medium text-gray-500 mb-1">Senha (opcional)</label>
             <input value={formConferente.senha} onChange={(e) => setFormConferente((f) => ({ ...f, senha: e.target.value }))} placeholder={SENHA_PADRAO_CONFERENTE} className="w-full border rounded px-2 py-1.5 text-xs font-mono" />
           </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-500 mb-1">Turno</label>
+            <select value={formConferente.turno} onChange={(e) => setFormConferente((f) => ({ ...f, turno: e.target.value }))} className="w-full border rounded px-2 py-1.5 text-xs bg-white">
+              <option value="">Sem turno</option>
+              {TURNOS_CONFERENTE.map((t) => <option key={t} value={t}>{TURNO_CONFERENTE_LABEL[t]}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[11px] font-medium text-gray-500 mb-1">Telefone (WhatsApp)</label>
+            <input value={formConferente.telefone} onChange={(e) => setFormConferente((f) => ({ ...f, telefone: e.target.value }))} placeholder="ex.: 24999998888" className="w-full border rounded px-2 py-1.5 text-xs" />
+          </div>
           <button onClick={cadastrarConferente} disabled={salvandoConferente} className="flex items-center justify-center gap-1.5 text-xs px-3 py-2 rounded-md border hover:bg-accent disabled:opacity-50">
             {salvandoConferente ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Plus className="h-3.5 w-3.5" />} Cadastrar conferente
           </button>
         </div>
       </div>
+
+      <HorariosFechamentoTurno filial={filial} />
 
       {erro && <p className="text-sm text-red-600">{erro}</p>}
 
