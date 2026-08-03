@@ -96,17 +96,24 @@ export default async function handler(req: any, res: any) {
     if (erroHorarios) throw new Error(erroHorarios.message)
 
     const devidos = (horarios ?? []).filter((h) => jaPassouDoHorario(String(h.horario_fechamento).slice(0, 5), horaMin))
+    const naoDevidos = (horarios ?? []).filter((h) => !jaPassouDoHorario(String(h.horario_fechamento).slice(0, 5), horaMin))
 
-    const resultado: { filial: string; turno: string; enviados: number; erro?: string }[] = []
+    const resultado: { filial: string; turno: string; enviados: number; erro?: string; detalheEnvios?: string[] }[] =
+      naoDevidos.map((h) => ({ filial: h.filial, turno: h.turno, enviados: 0, erro: `ainda não bateu o horário (fecha às ${String(h.horario_fechamento).slice(0, 5)}, agora são ${horaMin})` }))
 
     for (const h of devidos) {
       // "Reivindica" o aviso do dia — se já existir (outro tick chegou primeiro
       // ou já foi enviado), o insert falha por UNIQUE e a gente pula, sem
-      // mandar de novo.
+      // mandar de novo. Ainda assim entra no resultado (com erro explicando o
+      // motivo) — senão fica impossível diferenciar "não bateu o horário" de
+      // "já tinha sido avisado hoje" só olhando a resposta.
       const { error: erroClaim } = await supabase
         .from('variavel_turno_avisos_enviados')
         .insert({ filial: h.filial, turno: h.turno, data })
-      if (erroClaim) continue // já reivindicado antes — não duplica
+      if (erroClaim) {
+        resultado.push({ filial: h.filial, turno: h.turno, enviados: 0, erro: `já tinha sido avisado hoje (${erroClaim.message})` })
+        continue
+      }
 
       const { data: conferentes, error: erroConferentes } = await supabase
         .from('usuarios')
@@ -124,6 +131,7 @@ export default async function handler(req: any, res: any) {
 
       const label = TURNO_LABEL[h.turno] ?? h.turno
       let enviados = 0
+      const detalheEnvios: string[] = []
       for (const c of conferentes) {
         const nome = c.nome ?? c.login
         const mensagem = variarTexto([
@@ -132,10 +140,10 @@ export default async function handler(req: any, res: any) {
           `Oi, ${nome}! Lembrete do ${label}: falta lançar as atividades de hoje na RV por Turno antes de fechar.`,
         ])
         const r = await enviar(c.telefone as string, mensagem)
-        if (r.sucesso) enviados++
-        else console.error(`cron-aviso-turno: falha ao enviar pra ${nome} (${h.filial}/${h.turno}):`, r.erro)
+        if (r.sucesso) { enviados++; detalheEnvios.push(`${nome}: ok`) }
+        else detalheEnvios.push(`${nome}: FALHOU — ${r.erro}`)
       }
-      resultado.push({ filial: h.filial, turno: h.turno, enviados })
+      resultado.push({ filial: h.filial, turno: h.turno, enviados, detalheEnvios })
     }
 
     res.status(200).json({ ok: true, horaMin, data, verificados: (horarios ?? []).length, resultado })
