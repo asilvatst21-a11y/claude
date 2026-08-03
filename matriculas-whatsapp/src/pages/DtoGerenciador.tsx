@@ -241,11 +241,16 @@ function StatusBadge({ status, dias }: { status: LinhaCalc['status']; dias: numb
 
 // Tooltip "?" reaproveitado dos cabeçalhos — explica cada coluna do motor de
 // cálculo sem precisar de uma aba separada.
-function InfoTip({ texto }: { texto: string }) {
+function InfoTip({ texto, posicao = 'top' }: { texto: string; posicao?: 'top' | 'bottom' }) {
+  // Cabeçalhos que ficam colados no topo de uma tabela com overflow-hidden (ex.:
+  // Calendário, logo abaixo da barra de filtros) cortam o balão se ele abrir pra
+  // cima — por isso esses usam posicao="bottom", abrindo dentro da própria
+  // tabela em vez de escapar por trás da barra de filtros.
+  const abreParaBaixo = posicao === 'bottom'
   return (
     <span className="group relative inline-flex">
       <span className="w-3.5 h-3.5 rounded-full bg-gray-300 text-white text-[9px] font-bold flex items-center justify-center cursor-default leading-none">?</span>
-      <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 w-60 rounded-lg bg-gray-800 text-white text-[11px] leading-relaxed px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-10 shadow-lg whitespace-normal text-left font-normal">
+      <span className={`pointer-events-none absolute left-1/2 -translate-x-1/2 w-60 rounded-lg bg-gray-800 text-white text-[11px] leading-relaxed px-3 py-2 opacity-0 group-hover:opacity-100 transition-opacity z-30 shadow-lg whitespace-normal text-left font-normal ${abreParaBaixo ? 'top-full mt-1.5' : 'bottom-full mb-1.5'}`}>
         {texto}
       </span>
     </span>
@@ -1107,27 +1112,27 @@ export default function DtoGerenciador() {
                       <th className="text-left px-4 py-2.5 font-medium text-gray-500 text-xs">Atividade</th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">
                         <span className="flex items-center justify-center gap-1">Crit. Inicial
-                          <InfoTip texto="Criticidade base + desvios encontrados nos DTOs realizados: 0 desvio no ano anterior → Baixo; desvios do ano atual ≤ ano anterior → Médio; senão → Alto. Nunca fica abaixo da criticidade base." />
+                          <InfoTip texto="Criticidade base + desvios encontrados nos DTOs realizados: 0 desvio no ano anterior → Baixo; desvios do ano atual ≤ ano anterior → Médio; senão → Alto. Nunca fica abaixo da criticidade base." posicao="bottom" />
                         </span>
                       </th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">
                         <span className="flex items-center justify-center gap-1">Gatilho
-                          <InfoTip texto="Compara os Atos Inseguros dos relatos nos últimos 2 meses com os 2 meses anteriores. Se os recentes forem maiores, o gatilho liga (S) e sobe a criticidade em 1 nível." />
+                          <InfoTip texto="Compara os Atos Inseguros dos relatos nos últimos 2 meses com os 2 meses anteriores. Se os recentes forem maiores, o gatilho liga (S) e sobe a criticidade em 1 nível." posicao="bottom" />
                         </span>
                       </th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">
                         <span className="flex items-center justify-center gap-1">Risco Final
-                          <InfoTip texto="Criticidade inicial ajustada pelo gatilho: sobe 1 nível se o gatilho ligou; desce 1 nível se as Abordagens Positivas dos últimos 2 meses igualarem ou superarem os Atos Inseguros; senão mantém." />
+                          <InfoTip texto="Criticidade inicial ajustada pelo gatilho: sobe 1 nível se o gatilho ligou; desce 1 nível se as Abordagens Positivas dos últimos 2 meses igualarem ou superarem os Atos Inseguros; senão mantém." posicao="bottom" />
                         </span>
                       </th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">
                         <span className="flex items-center justify-center gap-1">Periodic.
-                          <InfoTip texto="Prazo entre um DTO e o próximo, definido pelo Risco Final: Crítico 15d, Alto 30d, Médio 45d, Baixo 60d. Trivial não tem prazo fixo — só quando houver ocorrência." />
+                          <InfoTip texto="Prazo entre um DTO e o próximo, definido pelo Risco Final: Crítico 15d, Alto 30d, Médio 45d, Baixo 60d. Trivial não tem prazo fixo — só quando houver ocorrência." posicao="bottom" />
                         </span>
                       </th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">
                         <span className="flex items-center justify-center gap-1">Último DTO
-                          <InfoTip texto="Data do DTO mais recente encontrado nas observações importadas (ou a data manual do Cadastro, quando preenchida). É a partir dela que o vencimento é calculado." />
+                          <InfoTip texto="Data do DTO mais recente encontrado nas observações importadas (ou a data manual do Cadastro, quando preenchida). É a partir dela que o vencimento é calculado." posicao="bottom" />
                         </span>
                       </th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Status</th>
@@ -1378,7 +1383,7 @@ export default function DtoGerenciador() {
                       </th>
                       <th className="text-left px-3 py-2.5 font-medium text-gray-500 text-xs">
                         <span className="flex items-center gap-1">Responsável (sugestão)
-                          <InfoTip texto="Não é mais fixo: serve só de ponto de partida para DTOs de rotina. O responsável de cada DTO agendado de verdade é escolhido na hora, na aba Sugestões de DTO ou na Fila da Semana." />
+                          <InfoTip texto="Não é mais fixo: serve só de ponto de partida para DTOs de rotina. O responsável de cada DTO agendado de verdade é escolhido na hora, na aba Sugestões de DTO ou na Fila da Semana." posicao="bottom" />
                         </span>
                       </th>
                       <th className="text-center px-3 py-2.5 font-medium text-gray-500 text-xs">Último DTO (manual)</th>
