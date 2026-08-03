@@ -9,5 +9,8 @@
   },
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }
+  ],
+  "crons": [
+    { "path": "/api/cron-aviso-turno", "schedule": "*/5 * * * *" }
   ]
 }
