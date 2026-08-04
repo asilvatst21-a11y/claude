@@ -131,8 +131,42 @@ export function diasUteisDoMes(mesISO: string): number {
   return dias
 }
 
+// Competência da RV (21→20) a que uma data pertence — mesmo conceito de
+// variavelArmazem.ts (RV por pontuação), replicado aqui pra não criar
+// dependência cruzada entre os dois módulos de Variável. Ex.: 15/07 cai na
+// competência de julho (21/06 a 20/07); 25/07 já cai na de agosto
+// (21/07 a 20/08).
+function rangeCompetenciaDeData(dataISO: string): { ini: string; fim: string } {
+  const [anoData, mesData, diaData] = dataISO.split('-').map(Number)
+  let ano = anoData, mes = mesData
+  if (diaData >= 21) { mes += 1; if (mes > 12) { mes = 1; ano += 1 } }
+  const anoIni = mes <= 1 ? ano - 1 : ano
+  const mesIni = mes <= 1 ? 12 : mes - 1
+  return { ini: `${anoIni}-${String(mesIni).padStart(2, '0')}-21`, fim: `${ano}-${String(mes).padStart(2, '0')}-20` }
+}
+
+// Dias úteis (domingo fora) dentro de um período ini→fim, inclusive —
+// usado pra dividir a cota diária pelo tamanho real da competência (21→20),
+// em vez do mês calendário, que quase nunca bate com essa janela.
+function diasUteisNoPeriodo(ini: string, fim: string): number {
+  let dias = 0
+  const cursor = new Date(`${ini}T00:00:00Z`)
+  const fimData = new Date(`${fim}T00:00:00Z`)
+  while (cursor <= fimData) {
+    if (cursor.getUTCDay() !== 0) dias++
+    cursor.setUTCDate(cursor.getUTCDate() + 1)
+  }
+  return dias
+}
+
+// Valor gerado por dia batido: valor final mensal ÷ dias úteis da
+// COMPETÊNCIA (21→20) a que a data pertence — não do mês calendário. Assim,
+// batendo a meta em todo dia útil do período, a soma fecha exatamente nos
+// 100% do valor cadastrado, do jeito que a RV por atividade é vendida pro
+// colaborador (igual ao período que a RV por pontuação já usa).
 export function cotaDiaria(valorFinalMensal: number, dataISO: string): number {
-  return valorFinalMensal / diasUteisDoMes(dataISO.slice(0, 7))
+  const { ini, fim } = rangeCompetenciaDeData(dataISO)
+  return valorFinalMensal / diasUteisNoPeriodo(ini, fim)
 }
 
 export async function listarAtividadesTurno(filial: string): Promise<TurnoAtividade[]> {
