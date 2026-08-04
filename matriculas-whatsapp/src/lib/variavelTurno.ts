@@ -190,13 +190,44 @@ export async function alternarAtivoAtividadeTurno(id: string, ativo: boolean): P
   return { error: error?.message ?? null }
 }
 
+// Preenche o crédito retroativo de um colaborador numa atividade "por
+// turno" (registro compartilhado — variavel_turno_registros, um só por
+// dia pra todo mundo da atividade) pros dias que já foram lançados ANTES
+// de ele ter sido vinculado — sem isso, o dia já teria "bateu/não bateu"
+// registrado, mas ninguém gerava crédito pra essa pessoa porque ela ainda
+// não existia na lista de colaboradores da atividade na hora do registro.
+// Não se aplica a atividades "por operador" (cada um lança o próprio
+// valor): lá não tem o que preencher retroativamente, ninguém podia ter
+// lançado o valor de alguém que ainda não estava vinculado.
+export async function preencherCreditosRetroativos(
+  atividadeId: string, colaboradorId: string, colaboradorNome: string, valorFinalMensal: number,
+): Promise<number> {
+  const [{ data: registros }, { data: creditosExistentes }] = await Promise.all([
+    supabase.from('variavel_turno_registros').select('id, data, bateu_meta').eq('atividade_id', atividadeId),
+    supabase.from('variavel_turno_creditos').select('data').eq('atividade_id', atividadeId).eq('colaborador_id', colaboradorId),
+  ])
+  if (!registros || registros.length === 0) return 0
+  const datasComCredito = new Set((creditosExistentes ?? []).map((c) => c.data))
+  const faltantes = registros.filter((r) => !datasComCredito.has(r.data))
+  if (faltantes.length === 0) return 0
+
+  const payload = faltantes.map((r) => ({
+    atividade_id: atividadeId, registro_id: r.id, colaborador_id: colaboradorId, colaborador_nome: colaboradorNome,
+    data: r.data, valor_gerado: r.bateu_meta ? cotaDiaria(valorFinalMensal, r.data) : 0, ausente: false,
+  }))
+  const { error } = await supabase.from('variavel_turno_creditos').upsert(payload, { onConflict: 'atividade_id,colaborador_id,data' })
+  if (error) { console.error('preencherCreditosRetroativos error:', error.message); return 0 }
+  return payload.length
+}
+
 export async function salvarColaboradorAtividade(colab: {
   id?: string
   atividadeId: string
   colaboradorId: string
   colaboradorNome: string
   valorFinalMensal: number
-}): Promise<{ error: string | null }> {
+}): Promise<{ error: string | null; diasPreenchidos?: number }> {
+  const ehNovoVinculo = !colab.id
   const payload = {
     atividade_id: colab.atividadeId, colaborador_id: colab.colaboradorId,
     colaborador_nome: colab.colaboradorNome, valor_final_mensal: colab.valorFinalMensal,
@@ -204,7 +235,11 @@ export async function salvarColaboradorAtividade(colab: {
   const { error } = colab.id
     ? await supabase.from('variavel_turno_atividade_colaboradores').update(payload).eq('id', colab.id)
     : await supabase.from('variavel_turno_atividade_colaboradores').upsert(payload, { onConflict: 'atividade_id,colaborador_id' })
-  return { error: error?.message ?? null }
+  if (error) return { error: error.message }
+  if (!ehNovoVinculo) return { error: null }
+
+  const diasPreenchidos = await preencherCreditosRetroativos(colab.atividadeId, colab.colaboradorId, colab.colaboradorNome, colab.valorFinalMensal)
+  return { error: null, diasPreenchidos }
 }
 
 export async function alternarAtivoColaboradorAtividade(id: string, ativo: boolean): Promise<{ error: string | null }> {

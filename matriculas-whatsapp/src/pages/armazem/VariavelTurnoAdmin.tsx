@@ -5,7 +5,7 @@ import { listarUsuarios, criarUsuario, resetarSenhaUsuario, atualizarUsuario } f
 import type { Usuario } from '../../types'
 import {
   listarAtividadesTurno, salvarAtividadeTurno, alternarAtivoAtividadeTurno,
-  listarColaboradoresDaAtividade, salvarColaboradorAtividade, alternarAtivoColaboradorAtividade,
+  listarColaboradoresDaAtividade, salvarColaboradorAtividade, alternarAtivoColaboradorAtividade, preencherCreditosRetroativos,
   cotaDiaria, formatarBRL, listarColaboradoresElegiveis, minutosParaHHMM, hhmmParaMinutos,
   listarEquipeConferente, adicionarNaEquipeConferente, alternarAtivoEquipeConferente,
   listarRegistrosDoMes, registrarAtividadeTurno, bateuMetaAtividade,
@@ -77,7 +77,7 @@ function ColaboradoresDaAtividade({ atividadeId, elegiveis }: { atividadeId: str
     if (!colaborador) { setErro('Selecione um colaborador.'); return }
     if (!Number.isFinite(valor)) { setErro('Preencha o valor final mensal desse colaborador.'); return }
     setSalvando(true)
-    const { error } = await salvarColaboradorAtividade({
+    const { error, diasPreenchidos } = await salvarColaboradorAtividade({
       atividadeId, colaboradorId: colaborador.id, colaboradorNome: colaborador.nome, valorFinalMensal: valor,
     })
     setSalvando(false)
@@ -85,10 +85,21 @@ function ColaboradoresDaAtividade({ atividadeId, elegiveis }: { atividadeId: str
     setColaboradorId('')
     setValorFinalMensal('')
     await carregar()
+    if (diasPreenchidos) alert(`${colaborador.nome} vinculado(a) — ${diasPreenchidos} dia(s) já lançados nessa atividade foram creditados retroativamente.`)
   }
 
   async function alternar(c: AtividadeColaborador) {
     await alternarAtivoColaboradorAtividade(c.id, !c.ativo)
+    await carregar()
+  }
+
+  const [preenchendoRetroativo, setPreenchendoRetroativo] = useState<string | null>(null)
+  async function preencherRetroativo(c: AtividadeColaborador) {
+    if (!c.colaboradorId) return
+    setPreenchendoRetroativo(c.id)
+    const n = await preencherCreditosRetroativos(atividadeId, c.colaboradorId, c.colaboradorNome, c.valorFinalMensal)
+    setPreenchendoRetroativo(null)
+    alert(n > 0 ? `${n} dia(s) já lançados foram creditados retroativamente pra ${c.colaboradorNome}.` : `${c.colaboradorNome} já está com todos os dias lançados creditados — nada pra preencher.`)
     await carregar()
   }
 
@@ -109,6 +120,16 @@ function ColaboradoresDaAtividade({ atividadeId, elegiveis }: { atividadeId: str
               <span>{c.colaboradorNome}</span>
               <span className="flex items-center gap-3">
                 <span className="font-mono text-gray-500">{formatarBRL(c.valorFinalMensal)}/mês · {formatarBRL(cotaDiaria(c.valorFinalMensal, hoje))}/dia</span>
+                {c.ativo && c.colaboradorId && (
+                  <button
+                    onClick={() => preencherRetroativo(c)}
+                    disabled={preenchendoRetroativo === c.id}
+                    className="px-1.5 py-0.5 rounded border border-gray-200 hover:bg-gray-50 text-[10px] text-gray-500 disabled:opacity-50 whitespace-nowrap"
+                    title="Credita dias já lançados nessa atividade antes desse vínculo existir"
+                  >
+                    {preenchendoRetroativo === c.id ? '…' : 'Preencher retroativo'}
+                  </button>
+                )}
                 <button onClick={() => alternar(c)} className="p-1 rounded hover:bg-gray-100" title={c.ativo ? 'Remover' : 'Reativar'}>
                   {c.ativo ? <X className="h-3.5 w-3.5 text-red-500" /> : <Power className="h-3.5 w-3.5 text-green-600" />}
                 </button>
