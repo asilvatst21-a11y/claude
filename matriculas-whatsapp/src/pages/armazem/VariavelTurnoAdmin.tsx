@@ -487,6 +487,7 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
   const [expandidoDia, setExpandidoDia] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [salvandoDia, setSalvandoDia] = useState<string | null>(null)
+  const [salvandoTodos, setSalvandoTodos] = useState(false)
   const [erro, setErro] = useState('')
 
   const atividade = atividades.find((a) => a.id === atividadeId) ?? null
@@ -564,6 +565,61 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
     await carregar()
   }
 
+  // Salva todos os dias preenchidos do mês de uma vez — pensado pro
+  // lançamento retroativo: a pessoa preenche vários dias e clica em salvar
+  // só uma vez, em vez de precisar confirmar linha por linha (é isso que
+  // fazia dia preenchido nunca virar registro de verdade, sobrando como
+  // "sem lançamento"/"ausente" no totem do colaborador).
+  async function salvarTodos() {
+    if (!atividade || !usuario) return
+    setErro('')
+    const diasPreenchidos = atividade.porOperador
+      ? diasDoMes(mes).filter((data) => colaboradores.some((c) => c.colaboradorId && (valoresOperador[data]?.[c.colaboradorId] ?? '').trim()))
+      : diasDoMes(mes).filter((data) => (valores[data] ?? '').trim())
+    if (diasPreenchidos.length === 0) { setErro('Nenhum dia preenchido pra salvar.'); return }
+
+    setSalvandoTodos(true)
+    const erros: string[] = []
+    for (const data of diasPreenchidos) {
+      setSalvandoDia(data)
+      if (atividade.porOperador) {
+        const valoresDoDia = valoresOperador[data] ?? {}
+        const mapaValores = new Map<string, { valorNumero: number | null; okNok: boolean | null }>()
+        let erroParseLocal: string | null = null
+        for (const c of colaboradores) {
+          if (!c.colaboradorId) continue
+          const bruto = (valoresDoDia[c.colaboradorId] ?? '').trim()
+          if (!bruto) continue
+          const { valorNumero, okNok, erro: erroParse } = parseValor(bruto)
+          if (erroParse) { erroParseLocal = `${data} — ${c.colaboradorNome}: ${erroParse}.`; break }
+          mapaValores.set(c.colaboradorId, { valorNumero, okNok })
+        }
+        if (erroParseLocal) { erros.push(erroParseLocal); continue }
+        const { error } = await registrarAtividadeTurnoPorOperador(
+          atividade, colaboradores, data, mapaValores,
+          { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login },
+          excluidosPorDia[data] ?? new Set(),
+        )
+        if (error) erros.push(`${data}: ${error}`)
+      } else {
+        const bruto = (valores[data] ?? '').trim()
+        const { valorNumero, okNok, erro: erroParse } = parseValor(bruto)
+        if (erroParse) { erros.push(`${data} — ${erroParse}.`); continue }
+        const { error } = await registrarAtividadeTurno(
+          atividade, colaboradores, data, { valorNumero, okNok },
+          { usuarioId: usuario.id, nome: usuario.nome ?? usuario.login },
+          excluidosPorDia[data] ?? new Set(),
+        )
+        if (error) erros.push(`${data}: ${error}`)
+      }
+    }
+    setSalvandoDia(null)
+    setSalvandoTodos(false)
+    await carregar()
+    if (erros.length > 0) setErro(`${diasPreenchidos.length - erros.length} de ${diasPreenchidos.length} dia(s) salvos. Falhas:\n${erros.join('\n')}`)
+    else alert(`${diasPreenchidos.length} dia(s) salvos.`)
+  }
+
   async function salvarDiaPorOperador(data: string) {
     if (!atividade || !usuario) return
     setErro('')
@@ -606,7 +662,21 @@ function LancamentoRetroativo({ atividades }: { atividades: TurnoAtividade[] }) 
         </div>
       </div>
 
-      {erro && <p className="text-xs text-red-600">{erro}</p>}
+      {atividade && !loading && (
+        <div className="flex items-center justify-between gap-2 flex-wrap bg-accent-50 border border-accent-200 rounded-md px-3 py-2">
+          <p className="text-[11px] text-accent-800">Preencha quantos dias quiser e clique aqui uma vez só — não precisa confirmar dia por dia.</p>
+          <button
+            onClick={salvarTodos}
+            disabled={salvandoTodos || salvandoDia != null}
+            className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md bg-accent-500 hover:bg-accent-600 text-white font-medium disabled:opacity-50 whitespace-nowrap"
+          >
+            {salvandoTodos ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+            {salvandoTodos && salvandoDia ? `Salvando ${salvandoDia.slice(8, 10)}/${salvandoDia.slice(5, 7)}…` : 'Salvar todos os dias preenchidos'}
+          </button>
+        </div>
+      )}
+
+      {erro && <p className="text-xs text-red-600 whitespace-pre-line">{erro}</p>}
 
       {!atividade ? (
         <p className="text-[11px] text-gray-400">Selecione uma atividade pra ver os dias do mês.</p>
