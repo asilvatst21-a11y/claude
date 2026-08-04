@@ -111,39 +111,68 @@ function weekKey(iso: string) {
 
 function sv(v: unknown) { return String(v ?? '').trim() || null }
 
+// Colunas pelo NOME do cabeçalho, não pela posição — a planilha de Relatos
+// já mudou de coluna uma vez (inserção de "DESCONSIDERADO") e quebrou o
+// import inteiro, porque antes lia por índice fixo. Assim, inserir/remover
+// uma coluna no relatório de origem não deve mais impactar o envio.
+function indiceColunas(header: unknown[]): Map<string, number> {
+  const m = new Map<string, number>()
+  header.forEach((h, i) => {
+    const nome = String(h ?? '').trim().toUpperCase()
+    if (nome) m.set(nome, i)
+  })
+  return m
+}
+
 function parseRelatos(buffer: ArrayBuffer, filial: string) {
   const wb = XLSX.read(buffer)
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { defval: '', raw: false, header: 1 }) as unknown[][]
-  return rows.slice(1).filter(r => r[0]).map(r => ({
+  if (rows.length === 0) return []
+  const col = indiceColunas(rows[0])
+  const c = (nome: string) => col.get(nome) ?? -1
+  const [
+    iId, iDataOc, iDataCad, iCdd, iEmpresa, iMatricula, iRelator, iFuncao, iEquipe, iClassificacao,
+    iTipoRelato, iArea, iAtividade, iTarefa, iAcaoImediata, iSif, iEmpresaRelatada, iPessoaRelatada,
+    iDetalhamento, iComplementacao, iOrigem, iPorqueFalhou,
+    iPq1, iPq2, iPq3, iPq4, iPq5, iMotivo1, iAcao1, iMotivo2, iAcao2, iMotivo3, iAcao3, iDataInvestigacao,
+  ] = [
+    c('ID'), c('DATA OCORRÊNCIA'), c('DATA CADASTRO'), c('CDD'), c('EMPRESA'), c('MATRICULA'), c('RELATOR'),
+    c('FUNÇÃO'), c('EQUIPE'), c('CLASSIFICAÇÃO'), c('TIPO DO RELATO'), c('AREA'), c('ATIVIDADE'),
+    c('TAREFA SEGURANÇA'), c('AÇÃO IMEDIATA'), c('SIF'), c('EMPRESA RELATADA'), c('PESSOA RELATADA'),
+    c('DETALHAMENTO'), c('COMPLEMENTAÇÃO DO RELATO'), c('ORIGEM'), c('PORQUE FALHOU?'),
+    c('PQ1'), c('PQ2'), c('PQ3'), c('PQ4'), c('PQ5'), c('MOTIVO1'), c('AÇÃO1'), c('MOTIVO2'), c('AÇÃO2'),
+    c('MOTIVO3'), c('AÇÃO3'), c('DATA INVESTIGAÇÃO'),
+  ]
+  return rows.slice(1).filter(r => r[iId]).map(r => ({
     filial,
-    external_id:      sv(r[0]),
-    data_ocorrencia:  parseDateStr(r[1]),
-    data_cadastro:    parseDateStr(r[2]),
-    cdd:              sv(r[3]),
-    empresa:          sv(r[4]),
-    matricula:        sv(r[5]),
-    relator:          sv(r[6]),
-    funcao:           sv(r[7]),
-    equipe:           sv(r[8]),
-    classificacao:    sv(r[9]),
-    tipo_relato:      sv(r[10]),
-    area:             sv(r[11]),
-    atividade:        sv(r[12]),
-    tarefa_seguranca: sv(r[13]),
-    acao_imediata:    sv(r[14]),
-    sif:              sv(r[15]),
-    empresa_relatada: sv(r[16]),
-    pessoa_relatada:  sv(r[17]),
-    detalhamento:     sv(r[18]),
-    complementacao:   sv(r[19]),
-    origem:           sv(r[22]),
-    porque_falhou:    sv(r[23]),
-    pq1: sv(r[24]), pq2: sv(r[25]), pq3: sv(r[26]), pq4: sv(r[27]), pq5: sv(r[28]),
-    motivo1: sv(r[29]), acao1: sv(r[30]),
-    motivo2: sv(r[31]), acao2: sv(r[32]),
-    motivo3: sv(r[33]), acao3: sv(r[34]),
-    data_investigacao: parseDateStr(r[35]),
+    external_id:      sv(r[iId]),
+    data_ocorrencia:  parseDateStr(r[iDataOc]),
+    data_cadastro:    parseDateStr(r[iDataCad]),
+    cdd:              sv(r[iCdd]),
+    empresa:          sv(r[iEmpresa]),
+    matricula:        sv(r[iMatricula]),
+    relator:          sv(r[iRelator]),
+    funcao:           sv(r[iFuncao]),
+    equipe:           sv(r[iEquipe]),
+    classificacao:    sv(r[iClassificacao]),
+    tipo_relato:      sv(r[iTipoRelato]),
+    area:             sv(r[iArea]),
+    atividade:        sv(r[iAtividade]),
+    tarefa_seguranca: sv(r[iTarefa]),
+    acao_imediata:    sv(r[iAcaoImediata]),
+    sif:              sv(r[iSif]),
+    empresa_relatada: sv(r[iEmpresaRelatada]),
+    pessoa_relatada:  sv(r[iPessoaRelatada]),
+    detalhamento:     sv(r[iDetalhamento]),
+    complementacao:   sv(r[iComplementacao]),
+    origem:           sv(r[iOrigem]),
+    porque_falhou:    sv(r[iPorqueFalhou]),
+    pq1: sv(r[iPq1]), pq2: sv(r[iPq2]), pq3: sv(r[iPq3]), pq4: sv(r[iPq4]), pq5: sv(r[iPq5]),
+    motivo1: sv(r[iMotivo1]), acao1: sv(r[iAcao1]),
+    motivo2: sv(r[iMotivo2]), acao2: sv(r[iAcao2]),
+    motivo3: sv(r[iMotivo3]), acao3: sv(r[iAcao3]),
+    data_investigacao: parseDateStr(r[iDataInvestigacao]),
   }))
 }
 
