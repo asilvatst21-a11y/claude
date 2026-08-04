@@ -521,7 +521,8 @@ export interface AcumuladoPorAtividade {
 
 export interface AcumuladoColaboradorMes {
   colaboradorNome: string
-  mesISO: string
+  ini: string
+  fim: string
   totalGerado: number
   diasBatidos: number
   diasRegistrados: number
@@ -535,7 +536,9 @@ export interface AcumuladoColaboradorMes {
 // do cadastro central de Colaboradores usado nas atividades de turno.
 // Compara só os dígitos — o cadastro central nem sempre guarda o CPF já
 // normalizado (sem pontuação) como o de armazem_colaboradores guarda.
-export async function buscarAcumuladoPorCpf(filial: string, cpfReal: string, mesISO: string): Promise<AcumuladoColaboradorMes | null> {
+// `ini`/`fim` é o mesmo período da competência (21→20) usada na RV por
+// pontuação — pra RV por atividade seguir a mesma janela ao trocar de mês.
+export async function buscarAcumuladoPorCpf(filial: string, cpfReal: string, ini: string, fim: string): Promise<AcumuladoColaboradorMes | null> {
   const digitos = cpfReal.replace(/\D/g, '')
   const { data: colaboradoresCadastro } = await supabase
     .from('colaboradores')
@@ -544,7 +547,7 @@ export async function buscarAcumuladoPorCpf(filial: string, cpfReal: string, mes
     .not('cpf', 'is', null)
   const encontrado = (colaboradoresCadastro ?? []).find((c) => (c.cpf as string).replace(/\D/g, '') === digitos)
   if (!encontrado) return null
-  return buscarAcumuladoColaboradorMes(filial, encontrado.id, mesISO)
+  return buscarAcumuladoColaboradorPeriodo(filial, encontrado.id, ini, fim)
 }
 
 // Fallback do totem quando a busca por pontuação (variavel_pontuacao) não
@@ -567,11 +570,14 @@ export async function buscarColaboradoresTurnoPorPrefixoCpf(filial: string, pref
     .map((c) => ({ cpfReal: (c.cpf as string).replace(/\D/g, ''), nome: c.nome as string }))
 }
 
-// Acumulado do mês de um colaborador flegado em alguma atividade de turno —
-// usado na consulta pública (mesmo totem da Variável por pontuação, seção
-// extra "por atividade"). Lê os créditos já calculados (variavel_turno_
-// creditos), não recalcula nada aqui.
-export async function buscarAcumuladoColaboradorMes(filial: string, colaboradorId: string, mesISO: string): Promise<AcumuladoColaboradorMes | null> {
+// Acumulado por atividade de turno de um colaborador, no PERÍODO informado
+// — usado na consulta pública (mesmo totem da Variável por pontuação,
+// seção extra "por atividade"). `ini`/`fim` é o mesmo período (21→20) da
+// competência selecionada ali, pra RV por atividade seguir o mesmo
+// padrão/janela da RV por pontuação em vez de ficar presa ao mês calendário
+// atual. Lê os créditos já calculados (variavel_turno_creditos), não
+// recalcula nada aqui.
+export async function buscarAcumuladoColaboradorPeriodo(filial: string, colaboradorId: string, ini: string, fim: string): Promise<AcumuladoColaboradorMes | null> {
   const { data: vinculosRaw } = await supabase
     .from('variavel_turno_atividade_colaboradores')
     .select('atividade_id, colaborador_nome, valor_final_mensal, ativo, variavel_turno_atividades(id, nome, turno, filial, unidade)')
@@ -584,9 +590,6 @@ export async function buscarAcumuladoColaboradorMes(filial: string, colaboradorI
 
   const atividadeMeta = new Map(vinculos.map((v: any) => [v.atividade_id, v.variavel_turno_atividades as { nome: string; turno: string; unidade: TurnoUnidade }]))
   const atividadeIds = vinculos.map((v: any) => v.atividade_id)
-  const [ano, mes] = mesISO.split('-').map(Number)
-  const ini = `${mesISO}-01`
-  const fim = `${mesISO}-${String(new Date(Date.UTC(ano, mes, 0)).getUTCDate()).padStart(2, '0')}`
   const [{ data: creditos }, { data: registros }] = await Promise.all([
     supabase
       .from('variavel_turno_creditos')
@@ -620,14 +623,16 @@ export async function buscarAcumuladoColaboradorMes(filial: string, colaboradorI
 
   const totalGerado = porAtividade.reduce((acc, a) => acc + a.totalGerado, 0)
   const todosDias = porAtividade.flatMap((a) => a.dias)
-  const hoje = new Date().toISOString().slice(0, 10)
+  // Cota diária de referência: mês em que a competência termina (fim da
+  // janela 21→20), não "hoje" — senão trocar pra uma competência passada
+  // continuaria mostrando a cota do mês atual.
   const cotaDiariaTotal = vinculos
     .filter((v: any) => v.ativo)
-    .reduce((acc: number, v: any) => acc + cotaDiaria(Number(v.valor_final_mensal), hoje), 0)
+    .reduce((acc: number, v: any) => acc + cotaDiaria(Number(v.valor_final_mensal), fim), 0)
 
   return {
     colaboradorNome: (vinculos[0] as any).colaborador_nome ?? '—',
-    mesISO, totalGerado,
+    ini, fim, totalGerado,
     diasBatidos: todosDias.filter((d) => d.valorGerado > 0).length,
     diasRegistrados: new Set(todosDias.map((d) => d.data)).size,
     cotaDiariaTotal,

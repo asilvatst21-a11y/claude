@@ -243,7 +243,7 @@ export default function VariavelTotem() {
             </div>
           )}
 
-          <AcumuladoAtividadesSecao filial={filial} cpfReal={pessoa.cpfReal} />
+          <AcumuladoAtividadesSecao filial={filial} cpfReal={pessoa.cpfReal} mesRotulo={mesRotulo} />
         </div>
 
         {/* Rodapé fixo com os totais da competência */}
@@ -331,24 +331,27 @@ export default function VariavelTotem() {
 
 // Seção extra da RV por atividade de turno — só aparece se a pessoa
 // estiver flegada como responsável de alguma atividade (variavel_turno_
-// atividade_colaboradores). É um mecanismo separado da RV por pontuação
-// acima (calendário do mês, não a competência 21→20). Mostra o acumulado
-// por atividade; clicar numa atividade abre os dias com o resultado que o
+// atividade_colaboradores). Segue o mesmo padrão da RV por pontuação
+// acima: mesma janela de competência (21→20), refaz a busca sempre que o
+// colaborador troca de competência lá em cima. Mostra o acumulado por
+// atividade; clicar numa atividade abre os dias com o resultado que o
 // conferente lançou naquele fechamento + o valor gerado (ou "Ausente").
-function AcumuladoAtividadesSecao({ filial, cpfReal }: { filial: string; cpfReal: string }) {
+function AcumuladoAtividadesSecao({ filial, cpfReal, mesRotulo }: { filial: string; cpfReal: string; mesRotulo: string }) {
   const [dados, setDados] = useState<AcumuladoColaboradorMes | null>(null)
   const [carregando, setCarregando] = useState(true)
   const [aberta, setAberta] = useState<string | null>(null)
 
   useEffect(() => {
     setCarregando(true)
-    const mesAtual = new Date().toISOString().slice(0, 7)
-    buscarAcumuladoPorCpf(filial, cpfReal, mesAtual)
+    setDados(null)
+    const { ini, fim } = rangeCompetencia(mesRotulo)
+    buscarAcumuladoPorCpf(filial, cpfReal, ini, fim)
       .then(setDados)
       .finally(() => setCarregando(false))
-  }, [filial, cpfReal])
+  }, [filial, cpfReal, mesRotulo])
 
-  if (carregando || !dados) return null
+  if (carregando) return null
+  if (!dados) return null
 
   const turnos = [...new Set(dados.porAtividade.map((a) => a.turno))]
 
