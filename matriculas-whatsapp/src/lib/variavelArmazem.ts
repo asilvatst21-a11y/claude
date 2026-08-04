@@ -146,6 +146,40 @@ export async function removerColaborador(id: string): Promise<void> {
   if (error) throw new Error(error.message)
 }
 
+// ── Vínculo retroativo de CPFs ───────────────────────────────────────────
+// Quando uma pontuação é importada antes de o colaborador estar cadastrado,
+// as colunas colaborador_id e cpf ficam nulas e o totem não encontra o registro.
+// Esta função varre todas as linhas sem CPF e tenta vinculá-las ao cadastro atual.
+export async function vincularCpfsPendentes(filial: string): Promise<{ atualizados: number; semVinculo: number }> {
+  const { data: pendentes } = await supabase
+    .from('variavel_pontuacao')
+    .select('id, nome_relatorio')
+    .eq('filial', filial)
+    .is('cpf', null)
+
+  if (!pendentes || pendentes.length === 0) return { atualizados: 0, semVinculo: 0 }
+
+  const cadastro = await buscarColaboradores(filial)
+
+  let atualizados = 0
+  let semVinculo = 0
+
+  for (const row of pendentes) {
+    const nomeRel = normalizarNome(row.nome_relatorio)
+    const colab =
+      cadastro.find((c) => c.nome === nomeRel) ??
+      cadastro.find((c) => c.nome.startsWith(nomeRel) || nomeRel.startsWith(c.nome))
+    if (!colab) { semVinculo++; continue }
+    await supabase
+      .from('variavel_pontuacao')
+      .update({ colaborador_id: colab.id, cpf: colab.cpf })
+      .eq('id', row.id)
+    atualizados++
+  }
+
+  return { atualizados, semVinculo }
+}
+
 // ── Import da pontuação diária ───────────────────────────────────────────
 export interface PontuacaoLinha {
   nome: string

@@ -12,6 +12,7 @@ import { useAuth } from '../../lib/auth'
 import {
   buscarResumoDia, buscarHistoricoMes, buscarRankingColaboradores, buscarExtratoColaborador,
   buscarComparativoDesempenho, buscarMigracaoClusters, mesAnteriorDe, importarPontuacao, formatarBRL,
+  vincularCpfsPendentes,
   type ResumoVariavel, type HistoricoMes, type ColaboradorRanking, type ExtratoColaborador,
   type ComparativoColaborador, type MigracaoColaborador,
 } from '../../lib/variavelArmazem'
@@ -224,6 +225,31 @@ export default function ArmazemVariavel() {
       .finally(() => setLoadingExtrato(false))
   }, [usuario, extratoAlvo, rankIni, rankFim])
 
+  const [vinculando, setVinculando] = useState(false)
+
+  async function handleVincularCpfs() {
+    if (!usuario) return
+    setVinculando(true); setErro('')
+    try {
+      const { atualizados, semVinculo } = await vincularCpfsPendentes(usuario.filial)
+      if (atualizados > 0) {
+        await fetchRanking()
+      }
+      alert(
+        atualizados > 0
+          ? `✅ ${atualizados} registro(s) vinculado(s) ao cadastro.` +
+            (semVinculo > 0 ? `\n⚠️ ${semVinculo} ainda sem cadastro correspondente.` : '')
+          : semVinculo > 0
+            ? `⚠️ Nenhum vinculado: ${semVinculo} registro(s) sem cadastro correspondente.`
+            : 'Nenhum registro pendente de vínculo encontrado.'
+      )
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao vincular CPFs.')
+    } finally {
+      setVinculando(false)
+    }
+  }
+
   async function handleImportar(file: File) {
     if (!usuario) return
     setUploading(true); setErro('')
@@ -333,6 +359,7 @@ export default function ArmazemVariavel() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link to="/armazem/colaboradores" className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors"><Settings className="h-4 w-4" /> Colaboradores</Link>
+          <button onClick={handleVincularCpfs} disabled={vinculando} title="Vincula lançamentos retroativos que ficaram sem CPF por não encontrar o colaborador no cadastro na época da importação." className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50"><UserSearch className={`h-4 w-4 ${vinculando ? 'animate-pulse' : ''}`} /> {vinculando ? 'Vinculando...' : 'Vincular CPFs'}</button>
           {aba === 'pontuacao' && (
             <button onClick={fetchResumo} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors"><RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar</button>
           )}
