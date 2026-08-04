@@ -132,6 +132,16 @@ export async function buscarColaboradores(filial: string): Promise<ColaboradorAr
   return (data ?? []).map((c) => ({ id: c.id, nome: c.nome, cpf: c.cpf, ativo: c.ativo }))
 }
 
+// Existe cadastro (RV por pontuação) pra esse CPF nessa filial? Usado no
+// totem pra decidir se mostra a aba "RV por pontuação" — independe de ter
+// lançamento na competência selecionada (o cadastro pode existir com o mês
+// vazio; a aba continua fazendo sentido, só mostra "nenhum lançamento").
+export async function existeCadastroArmazem(filial: string, cpfReal: string): Promise<boolean> {
+  const digitos = cpfReal.replace(/\D/g, '')
+  const { data } = await supabase.from('armazem_colaboradores').select('cpf').eq('filial', filial)
+  return (data ?? []).some((c) => (c.cpf as string).replace(/\D/g, '') === digitos)
+}
+
 export async function salvarColaborador(filial: string, nome: string, cpf: string, id?: string): Promise<void> {
   const payload = { filial, nome: normalizarNome(nome), cpf: apenasDigitos(cpf), ativo: true }
   if (payload.cpf.length !== 11) throw new Error('CPF inválido — informe os 11 dígitos.')

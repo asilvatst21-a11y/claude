@@ -570,6 +570,24 @@ export async function buscarColaboradoresTurnoPorPrefixoCpf(filial: string, pref
     .map((c) => ({ cpfReal: (c.cpf as string).replace(/\D/g, ''), nome: c.nome as string }))
 }
 
+// Existe vínculo ativo de RV por atividade pra esse CPF? Usado no totem pra
+// decidir se mostra a aba "RV por atividade" — independe de ter crédito na
+// competência selecionada (o vínculo pode existir com o mês sem nada
+// gerado ainda; a aba continua fazendo sentido).
+export async function temVinculoAtividadeAtivo(filial: string, cpfReal: string): Promise<boolean> {
+  const digitos = cpfReal.replace(/\D/g, '')
+  const { data: colaboradoresCadastro } = await supabase
+    .from('colaboradores').select('id, cpf').eq('filial', filial).not('cpf', 'is', null)
+  const encontrado = (colaboradoresCadastro ?? []).find((c) => (c.cpf as string).replace(/\D/g, '') === digitos)
+  if (!encontrado) return false
+  const { data: vinculos } = await supabase
+    .from('variavel_turno_atividade_colaboradores')
+    .select('ativo, variavel_turno_atividades(filial)')
+    .eq('colaborador_id', encontrado.id)
+    .eq('ativo', true)
+  return (vinculos ?? []).some((v: any) => v.variavel_turno_atividades?.filial === filial)
+}
+
 // Acumulado por atividade de turno de um colaborador, no PERÍODO informado
 // — usado na consulta pública (mesmo totem da Variável por pontuação,
 // seção extra "por atividade"). `ini`/`fim` é o mesmo período (21→20) da

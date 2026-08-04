@@ -4,10 +4,10 @@ import { Wallet, ArrowLeft, Building2, Loader2, Delete, Search, ChevronRight, Ch
 import { supabase } from '../lib/supabase'
 import {
   buscarTotemCompetencia, buscarCompetenciaPorCpf, competenciaAtual, competenciaAnterior, competenciaSeguinte,
-  rangeCompetencia, buscarClusters, clusterDoTotal, formatarBRL, agregarDiasCompetencia,
+  rangeCompetencia, buscarClusters, clusterDoTotal, formatarBRL, agregarDiasCompetencia, existeCadastroArmazem,
   type ResultadoTotemCompetencia, type DiaCompetencia, type Cluster,
 } from '../lib/variavelArmazem'
-import { buscarAcumuladoPorCpf, buscarColaboradoresTurnoPorPrefixoCpf, type AcumuladoColaboradorMes } from '../lib/variavelTurno'
+import { buscarAcumuladoPorCpf, buscarColaboradoresTurnoPorPrefixoCpf, temVinculoAtividadeAtivo, type AcumuladoColaboradorMes } from '../lib/variavelTurno'
 import { formatarDataBR } from '../lib/utils'
 
 function competenciaLabel(mesRotulo: string): string {
@@ -49,6 +49,14 @@ export default function VariavelTotem() {
   const [dadosCompetencia, setDadosCompetencia] = useState<ResultadoTotemCompetencia | null>(null)
   const [trocandoMes, setTrocandoMes] = useState(false)
 
+  // Um colaborador pode ter as duas modalidades de RV (pontuação e
+  // atividade de turno), só uma, ou nenhuma ainda apurada na competência.
+  // Quando tem as duas, ele escolhe qual ver; quando só tem uma, mostra
+  // direto — sem aba nem escolha.
+  const [temPontuacao, setTemPontuacao] = useState(false)
+  const [temAtividade, setTemAtividade] = useState(false)
+  const [modoExibicao, setModoExibicao] = useState<'pontuacao' | 'atividade'>('pontuacao')
+
   // Tabela de faixas (clusters) — pra tirar dúvida de quanto se recebe por
   // 1.000 pontos em cada faixa, acessível a qualquer momento.
   const [clusters, setClusters] = useState<Cluster[] | null>(null)
@@ -73,6 +81,7 @@ export default function VariavelTotem() {
   function reiniciar() {
     setDigitos(''); setErro(''); setResultadosLista(null); setPessoa(null); setDadosCompetencia(null)
     setMesRotulo(competenciaAtual())
+    setTemPontuacao(false); setTemAtividade(false); setModoExibicao('pontuacao')
   }
 
   async function buscar() {
@@ -111,6 +120,24 @@ export default function VariavelTotem() {
     setResultadosLista(null)
   }
 
+  // Descobre quais modalidades essa pessoa realmente tem (independe da
+  // competência selecionada) pra decidir se mostra aba de escolha, ou
+  // direto a única que existir.
+  useEffect(() => {
+    if (!pessoa || !filial) return
+    let cancelado = false
+    Promise.all([
+      existeCadastroArmazem(filial, pessoa.cpfReal),
+      temVinculoAtividadeAtivo(filial, pessoa.cpfReal),
+    ]).then(([pont, ativ]) => {
+      if (cancelado) return
+      setTemPontuacao(pont)
+      setTemAtividade(ativ)
+      setModoExibicao(pont ? 'pontuacao' : 'atividade')
+    })
+    return () => { cancelado = true }
+  }, [pessoa, filial])
+
   async function trocarCompetencia(novoMes: string) {
     if (!pessoa || !filial) return
     setMesRotulo(novoMes)
@@ -134,7 +161,7 @@ export default function VariavelTotem() {
         <div className="px-5 pt-7 pb-4 flex items-center justify-between">
           <button onClick={reiniciar} className="inline-flex items-center gap-1.5 text-brand-200 text-sm"><ArrowLeft className="h-4 w-4" /> Voltar</button>
         </div>
-        <div className="flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 pb-24 flex flex-col gap-4">
+        <div className={`flex-1 bg-white text-gray-900 rounded-t-3xl px-5 pt-6 flex flex-col gap-4 ${modoExibicao === 'pontuacao' ? 'pb-24' : 'pb-8'}`}>
           <div>
             <div className="text-xs font-bold uppercase tracking-widest text-accent-600">Colaborador</div>
             <div className="text-lg font-bold mt-0.5">{pessoa.nome}</div>
@@ -165,7 +192,24 @@ export default function VariavelTotem() {
             </div>
           </div>
 
-          {c.diasComLancamento === 0 ? (
+          {temPontuacao && temAtividade && (
+            <div className="flex rounded-xl border border-gray-200 p-1 bg-gray-50">
+              <button
+                onClick={() => setModoExibicao('pontuacao')}
+                className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${modoExibicao === 'pontuacao' ? 'bg-brand-900 text-white' : 'text-gray-500'}`}
+              >
+                RV por pontuação
+              </button>
+              <button
+                onClick={() => setModoExibicao('atividade')}
+                className={`flex-1 py-2 rounded-lg text-xs font-bold uppercase tracking-wide transition-colors ${modoExibicao === 'atividade' ? 'bg-brand-900 text-white' : 'text-gray-500'}`}
+              >
+                RV por atividade
+              </button>
+            </div>
+          )}
+
+          {modoExibicao !== 'pontuacao' ? null : c.diasComLancamento === 0 ? (
             <div className="rounded-2xl bg-amber-50 border border-amber-200 p-5 text-center text-sm text-amber-800">
               Nenhum lançamento nesta competência.
             </div>
@@ -204,6 +248,7 @@ export default function VariavelTotem() {
             </div>
           )}
 
+          {modoExibicao === 'pontuacao' && (
           <div>
             <div className="flex items-center justify-between mb-2">
               <div className="text-xs font-bold uppercase tracking-wide text-gray-500 flex items-center gap-1.5"><CalendarRange className="h-3.5 w-3.5" /> Histórico da competência</div>
@@ -232,8 +277,9 @@ export default function VariavelTotem() {
               ))}
             </div>
           </div>
+          )}
 
-          {c.diasComLancamento > 0 && (
+          {modoExibicao === 'pontuacao' && c.diasComLancamento > 0 && (
             <div>
               <div className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-2">Resumo da competência</div>
               <div className="rounded-2xl border border-gray-200 divide-y">
@@ -243,15 +289,17 @@ export default function VariavelTotem() {
             </div>
           )}
 
-          <AcumuladoAtividadesSecao filial={filial} cpfReal={pessoa.cpfReal} mesRotulo={mesRotulo} />
+          {modoExibicao === 'atividade' && <AcumuladoAtividadesSecao filial={filial} cpfReal={pessoa.cpfReal} mesRotulo={mesRotulo} />}
         </div>
 
-        {/* Rodapé fixo com os totais da competência */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-5 py-3 flex justify-around">
-          <RodapeItem k="Dias" v={String(c.diasComLancamento)} />
-          <RodapeItem k="Pontos" v={c.pontuacaoTotal.toLocaleString('pt-BR')} />
-          <RodapeItem k="Total período" v={formatarBRL(c.valorTotal)} destaque />
-        </div>
+        {/* Rodapé fixo com os totais da competência — só faz sentido na RV por pontuação */}
+        {modoExibicao === 'pontuacao' && (
+          <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-5 py-3 flex justify-around">
+            <RodapeItem k="Dias" v={String(c.diasComLancamento)} />
+            <RodapeItem k="Pontos" v={c.pontuacaoTotal.toLocaleString('pt-BR')} />
+            <RodapeItem k="Total período" v={formatarBRL(c.valorTotal)} destaque />
+          </div>
+        )}
 
         {mostrarFaixas && <FaixasModal clusters={clusters ?? []} onClose={() => setMostrarFaixas(false)} />}
       </div>
