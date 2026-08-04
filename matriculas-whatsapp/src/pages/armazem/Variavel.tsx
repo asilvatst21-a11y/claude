@@ -248,6 +248,10 @@ export default function ArmazemVariavel() {
   }
 
   const maxCluster = useMemo(() => Math.max(1, ...(resumo?.porCluster.map((c) => c.qtd) ?? [1])), [resumo])
+  const semCadastro = useMemo(
+    () => (resumo?.linhas ?? []).filter((l) => !l.temCadastro).map((l) => l.nome).sort(),
+    [resumo]
+  )
 
   const kpis = resumo ? [
     { l: 'Total a pagar (dia)', v: formatarBRL(resumo.totalPagar), s: `mês: ${formatarBRL(resumo.acumuladoMes)}`, icon: Coins, money: true },
@@ -405,6 +409,30 @@ export default function ArmazemVariavel() {
           </div>
         ))}
       </div>
+
+      {!loading && semCadastro.length > 0 && (
+        <div className="border border-amber-200 bg-amber-50 rounded-lg p-4">
+          <div className="flex items-start gap-2">
+            <UserSearch className="h-4 w-4 text-amber-700 mt-0.5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-amber-900">
+                {semCadastro.length} nome(s) do relatório sem cadastro correspondente
+              </p>
+              <p className="text-xs text-amber-800 mt-0.5">
+                O relatório de RV não traz CPF — o casamento é só pelo nome, então esses nomes provavelmente ainda
+                não foram cadastrados (ou o nome no relatório está diferente do cadastrado). Cadastre-os em{' '}
+                <Link to="/armazem/colaboradores" className="underline font-medium">Colaboradores</Link> usando
+                exatamente o nome abaixo pra bater da próxima importação.
+              </p>
+              <div className="flex flex-wrap gap-1.5 mt-2.5">
+                {semCadastro.map((nome) => (
+                  <span key={nome} className="text-xs font-medium bg-white border border-amber-200 text-amber-900 px-2 py-1 rounded-md">{nome}</span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
