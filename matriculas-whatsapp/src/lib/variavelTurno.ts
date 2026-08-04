@@ -686,7 +686,9 @@ export async function buscarAcumuladoColaboradorPeriodo(filial: string, colabora
   return {
     colaboradorNome: (vinculos[0] as any).colaborador_nome ?? '—',
     ini, fim, totalGerado,
-    diasBatidos: todosDias.filter((d) => d.valorGerado > 0).length,
+    // Conta dia (data única), não linha — quem tem 3 atividades no mesmo dia
+    // não pode contar como "3 dias batidos" só porque bateu nas 3.
+    diasBatidos: new Set(todosDias.filter((d) => d.valorGerado > 0).map((d) => d.data)).size,
     diasRegistrados: new Set(todosDias.map((d) => d.data)).size,
     cotaDiariaTotal,
     porAtividade,
