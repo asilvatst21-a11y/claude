@@ -19,8 +19,13 @@ import {
   type LinhaJornada, type SalaJornada, type SituacaoJornada, type KpisJornada, type StatusPrevisao,
 } from '../lib/jornada'
 import { formatarDataBR } from '../lib/utils'
+import { formatarBRL } from '../lib/variavelArmazem'
 import { ENVIOS_JORNADA_PAUSADOS } from '../lib/whatsappStatus'
 import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorTelefone, buscarStatusColaboradoresPorMatricula, podeEnviarPara } from '../lib/statusAtivo'
+import {
+  buscarFarol, statusEnvioFarol, registrarEnvioFarol,
+  type FarolLinha, type StatusFarol, type CategoriaWatchlist,
+} from '../lib/farolCriticos'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -486,6 +491,106 @@ const JornadaExportTemplate = forwardRef<HTMLDivElement, {
   )
 })
 
+const FAROL_STATUS_CSS: Record<StatusFarol, { bg: string; border: string; fg: string }> = {
+  pendente: { bg: '#fefce8', border: '#fde68a', fg: '#854d0e' },
+  iniciado: { bg: '#eff6ff', border: '#bfdbfe', fg: '#1d4ed8' },
+  concluido: { bg: '#f0fdf4', border: '#bbf7d0', fg: '#15803d' },
+  atencao: { bg: '#fef2f2', border: '#fecaca', fg: '#b91c1c' },
+  sem_mapa: { bg: '#f1f5f9', border: '#e2e8f0', fg: '#64748b' },
+}
+const FAROL_STATUS_ORDEM: Record<StatusFarol, number> = { atencao: 0, pendente: 1, iniciado: 2, sem_mapa: 3, concluido: 4 }
+const FAROL_CATEGORIA_CURTA: Record<CategoriaWatchlist, string> = {
+  pdv_critico: 'Crítico', mercado_sellerze: 'Seller Zé', mercado_trava: 'Trava',
+}
+
+// Imagem enviada ao grupo do Farol de Críticos a cada import do BEES —
+// quem está em Atenção/Pendente aparece primeiro, mesmo critério de
+// priorização usado nos exports de Jornada.
+const FarolExportTemplate = forwardRef<HTMLDivElement, { filial: string; data: string; linhas: FarolLinha[] }>(
+  function FarolExportTemplate({ filial, data, linhas }, ref) {
+    if (linhas.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
+
+    const ordenadas = [...linhas].sort((a, b) => FAROL_STATUS_ORDEM[a.statusFarol] - FAROL_STATUS_ORDEM[b.statusFarol])
+    const kpis: Record<StatusFarol, number> = { pendente: 0, iniciado: 0, concluido: 0, atencao: 0, sem_mapa: 0 }
+    for (const l of linhas) kpis[l.statusFarol]++
+    const concluidos = kpis.concluido
+    const pctConcluido = linhas.length > 0 ? Math.round((concluidos / linhas.length) * 100) : 0
+
+    const th: React.CSSProperties = { padding: '5px 7px', fontSize: '8px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.02em', textAlign: 'left', whiteSpace: 'nowrap' }
+    const td: React.CSSProperties = { padding: '5px 7px', fontSize: '9px', color: '#334155', verticalAlign: 'middle', whiteSpace: 'nowrap', borderTop: '1px solid #f1f5f9' }
+
+    return (
+      <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '1000px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '16px' }}>
+          <div>
+            <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Farol de Mercados e PDVs Críticos</p>
+            <h1 style={{ fontSize: '19px', fontWeight: 800, color: '#0f172a', margin: 0 }}>Status de Entrega do Dia</h1>
+          </div>
+          <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0, lineHeight: 1.5 }}>{filial}<br />{formatarDataBR(data)}</p>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+          {(['pendente', 'iniciado', 'concluido', 'atencao'] as StatusFarol[]).map((s) => {
+            const c = FAROL_STATUS_CSS[s]
+            const label = s === 'pendente' ? 'Pendente' : s === 'iniciado' ? 'Iniciado' : s === 'concluido' ? 'Concluído' : 'Atenção'
+            return (
+              <div key={s} style={{ flex: 1, borderRadius: '6px', padding: '8px 10px', border: `1px solid ${c.border}`, background: c.bg }}>
+                <p style={{ fontSize: '18px', fontWeight: 800, margin: 0, lineHeight: 1, color: c.fg }}>{kpis[s]}</p>
+                <p style={{ fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', margin: '3px 0 0', color: c.fg }}>{label}</p>
+              </div>
+            )
+          })}
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px' }}>
+          <span style={{ fontSize: '10.5px', fontWeight: 700, color: '#15803d', whiteSpace: 'nowrap' }}>{concluidos}/{linhas.length} concluídos</span>
+          <div style={{ flex: 1, height: '7px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pctConcluido}%`, background: 'linear-gradient(90deg,#16a34a,#22c55e)' }} />
+          </div>
+          <span style={{ fontSize: '10.5px', fontWeight: 700, color: '#475569' }}>{pctConcluido}%</span>
+        </div>
+
+        <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+          <thead>
+            <tr style={{ background: '#1e3a5f' }}>
+              <th style={th}>PDV</th><th style={th}>Categoria</th><th style={th}>Mapa</th><th style={th}>Motorista</th>
+              <th style={th}>Placa</th><th style={th}>Status</th><th style={{ ...th, textAlign: 'right' }}>Valor NF</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ordenadas.map((l) => {
+              const c = FAROL_STATUS_CSS[l.statusFarol]
+              return (
+                <tr key={l.watchlistId}>
+                  <td style={td}>
+                    <span style={{ fontWeight: 600, color: '#0f172a' }}>{l.nome}</span>
+                    <br /><span style={{ color: '#94a3b8', fontSize: '8px' }}>{l.codigo}</span>
+                  </td>
+                  <td style={td}>{FAROL_CATEGORIA_CURTA[l.categoria]}</td>
+                  <td style={td}>{l.mapa ?? '—'}</td>
+                  <td style={td}>{l.motorista ?? '—'}</td>
+                  <td style={td}>{l.placa ?? '—'}</td>
+                  <td style={td}>
+                    <span style={{ fontSize: '8px', fontWeight: 700, padding: '2px 7px', borderRadius: '999px', border: `1px solid ${c.border}`, background: c.bg, color: c.fg, whiteSpace: 'nowrap' }}>
+                      {l.statusLabel}
+                    </span>
+                  </td>
+                  <td style={{ ...td, textAlign: 'right' }}>{l.valorNota != null ? formatarBRL(l.valorNota) : '—'}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '9px', marginTop: '10px', borderTop: '1px solid #e2e8f0' }}>
+          <p style={{ margin: 0, fontSize: '8px', color: '#94a3b8' }}>Farol de Mercados e PDVs Críticos · atualizado a cada import do BEES</p>
+          <p style={{ margin: 0, fontSize: '8px', color: '#94a3b8' }}>Gerado automaticamente</p>
+        </div>
+      </div>
+    )
+  }
+)
+
 export default function JornadaRota() {
   const { usuario } = useAuth()
   const [dataOperacao, setDataOperacao] = useState(hojeISO)
@@ -519,6 +624,8 @@ export default function JornadaRota() {
   const [copiarTexto, setCopiarTexto] = useState('')
   const [copiarImagens, setCopiarImagens] = useState<{ titulo: string; img: string }[]>([])
   const [copiarFeedback, setCopiarFeedback] = useState<string | null>(null)
+  const farolExportRef = useRef<HTMLDivElement>(null)
+  const [farolImagemAtual, setFarolImagemAtual] = useState<FarolLinha[] | null>(null)
 
   const fetchJornada = useCallback(async () => {
     if (!usuario) return
@@ -636,6 +743,14 @@ export default function JornadaRota() {
       const errosEnvio = await enviarMensagensAutomatico()
       if (errosEnvio.length > 0) console.error('[Jornada] falhas no envio automático:', errosEnvio)
 
+      // Imagem do Farol de Mercados e PDVs Críticos — mesmo gatilho do
+      // import do BEES. Não bloqueia o import se falhar.
+      try {
+        await enviarImagemFarolCriticos()
+      } catch (e) {
+        console.error('[Jornada] falha ao enviar imagem do Farol de Críticos:', e)
+      }
+
       alert(
         `${agregados.length} mapa(s) atualizado(s) a partir do BEES. Mensagens enviadas por sala + resumo do CDD.` +
         (errosEnvio.length > 0 ? `\n\n⚠️ Falhas no envio:\n${errosEnvio.join('\n')}` : '')
@@ -700,6 +815,34 @@ export default function JornadaRota() {
 
   // Reusa os dados já calculados no estado, sem precisar buscar de novo —
   // chamado tanto pelo botão manual quanto automaticamente após o import.
+  // Gera e manda a imagem do Farol de Mercados e PDVs Críticos pro grupo
+  // configurado. Repete a cada import do BEES; para sozinha quando todos os
+  // PDVs da watchlist do dia já estiverem "Concluído" nessa mesma data.
+  async function enviarImagemFarolCriticos() {
+    if (!usuario) return
+    const { data: filialConfig } = await supabase.from('filiais').select('grupo_farol_criticos_whatsapp').eq('nome', usuario.filial).maybeSingle()
+    const grupo = filialConfig?.grupo_farol_criticos_whatsapp
+    if (!grupo) return
+
+    const { finalizado } = await statusEnvioFarol(usuario.filial, dataOperacao)
+    if (finalizado) return
+
+    const farol = await buscarFarol(usuario.filial, dataOperacao)
+    if (farol.length === 0) return
+
+    flushSync(() => setFarolImagemAtual(farol))
+    await new Promise((r) => setTimeout(r, 60))
+    if (!farolExportRef.current) return
+    const canvas = await html2canvas(farolExportRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+    const img = canvas.toDataURL('image/png')
+    setFarolImagemAtual(null)
+
+    await enviarImagemGrupo(grupo, img, `📊 Farol de Críticos — ${formatarDataBR(dataOperacao)}`)
+
+    const tudoConcluido = farol.every((l) => l.statusFarol === 'concluido')
+    await registrarEnvioFarol(usuario.filial, dataOperacao, tudoConcluido)
+  }
+
   async function enviarMensagensAutomatico(): Promise<string[]> {
     if (!usuario) return []
     if (ENVIOS_JORNADA_PAUSADOS) return []
@@ -1274,6 +1417,7 @@ export default function JornadaRota() {
         linhas={imagemAtual?.linhas ?? []}
       />
       <CartaControleExportTemplate ref={chartRef} filial={usuario?.filial ?? ''} data={dataOperacao} linhas={chartLinhas} />
+      <FarolExportTemplate ref={farolExportRef} filial={usuario?.filial ?? ''} data={dataOperacao} linhas={farolImagemAtual ?? []} />
 
       {copiarAberto && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">

@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Plus, Power, RefreshCw, Upload, TrafficCone } from 'lucide-react'
+import { Loader2, Plus, Power, RefreshCw, Search, Settings2, Upload, TrafficCone, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { supabase } from '../lib/supabase'
 import { formatarDataBR } from '../lib/utils'
 import { formatarBRL } from '../lib/variavelArmazem'
+import { listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
   buscarFarol, listarWatchlist, salvarWatchlistItem, alternarAtivoWatchlist, importarCora,
   CATEGORIA_LABEL, type FarolLinha, type WatchlistItem, type CategoriaWatchlist, type StatusFarol,
@@ -39,6 +42,53 @@ export default function DistribuicaoFarolCriticos() {
 
   const [importando, setImportando] = useState(false)
   const [msgImport, setMsgImport] = useState('')
+
+  const [configAberta, setConfigAberta] = useState(false)
+  const [grupoFarol, setGrupoFarol] = useState('')
+  const [grupoFarolOriginal, setGrupoFarolOriginal] = useState('')
+  const [grupos, setGrupos] = useState<GrupoZApi[]>([])
+  const [buscandoGrupos, setBuscandoGrupos] = useState(false)
+  const [erroGrupos, setErroGrupos] = useState<string | null>(null)
+  const [copiado, setCopiado] = useState<string | null>(null)
+  const [salvandoGrupo, setSalvandoGrupo] = useState(false)
+
+  const fetchConfig = useCallback(async () => {
+    if (!usuario) return
+    const { data: row } = await supabase.from('filiais').select('grupo_farol_criticos_whatsapp').eq('nome', usuario.filial).maybeSingle()
+    const v = row?.grupo_farol_criticos_whatsapp ?? ''
+    setGrupoFarol(v)
+    setGrupoFarolOriginal(v)
+  }, [usuario])
+
+  useEffect(() => { fetchConfig() }, [fetchConfig])
+
+  async function buscarGruposZapi() {
+    setBuscandoGrupos(true)
+    setErroGrupos(null)
+    const { grupos: gs, erro } = await listarGrupos()
+    setBuscandoGrupos(false)
+    if (erro) { setErroGrupos(erro); return }
+    if (gs.length === 0) { setErroGrupos('Nenhum grupo encontrado nesta instância Z-API.'); return }
+    setGrupos(gs.sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  async function copiarId(id: string) {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopiado(id)
+      setTimeout(() => setCopiado((c) => (c === id ? null : c)), 1500)
+    } catch { /* clipboard indisponível */ }
+  }
+
+  async function handleSalvarGrupoFarol() {
+    if (!usuario) return
+    setSalvandoGrupo(true)
+    const v = grupoFarol.trim()
+    await supabase.from('filiais').update({ grupo_farol_criticos_whatsapp: v || null }).eq('nome', usuario.filial)
+    setGrupoFarolOriginal(v)
+    setSalvandoGrupo(false)
+    alert('Configuração salva.')
+  }
 
   const carregar = useCallback(async () => {
     if (!usuario) return
@@ -106,11 +156,49 @@ export default function DistribuicaoFarolCriticos() {
         </div>
         <div className="flex items-center gap-2">
           <input type="date" value={data} onChange={(e) => setData(e.target.value)} className="px-3 py-2 text-sm border rounded-md" />
+          <button onClick={() => setConfigAberta((v) => !v)} className="flex items-center gap-2 text-sm px-3 py-2 rounded-lg border hover:bg-accent transition-colors">
+            <Settings2 size={14} /> Config. WhatsApp
+          </button>
           <button onClick={carregar} disabled={carregando} className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-700 border border-gray-200 px-3 py-2 rounded-lg hover:bg-gray-50">
             <RefreshCw size={14} className={carregando ? 'animate-spin' : ''} /> Atualizar
           </button>
         </div>
       </div>
+
+      {configAberta && (
+        <div className="border rounded-lg bg-white p-4 space-y-3">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <label className="block text-sm font-medium">Grupo de WhatsApp — imagem do Farol</label>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Enviada de novo a cada import do BEES em Jornada e Tempo em Rota. Para sozinha quando todos os
+                PDVs da watchlist do dia estiverem "Concluído".
+              </p>
+            </div>
+            <button onClick={buscarGruposZapi} disabled={buscandoGrupos}
+              className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors disabled:opacity-50 shrink-0">
+              {buscandoGrupos ? <Loader2 className="h-4 w-4 animate-spin" /> : grupos.length > 0 ? <RefreshCw className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+              {buscandoGrupos ? 'Buscando…' : grupos.length > 0 ? 'Atualizar grupos' : 'Buscar grupos (Z-API)'}
+            </button>
+          </div>
+
+          {erroGrupos && (
+            <div className="flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-md p-3">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span className="break-all">{erroGrupos}</span>
+            </div>
+          )}
+
+          <GroupPicker label="Grupo do Farol de Críticos" value={grupoFarol} onChange={setGrupoFarol} grupos={grupos} onCopy={copiarId} copiado={copiado} />
+
+          <div className="flex justify-end">
+            <button onClick={handleSalvarGrupoFarol} disabled={salvandoGrupo || grupoFarol.trim() === grupoFarolOriginal}
+              className="px-4 py-2 text-sm rounded-md bg-brand-700 text-white disabled:opacity-50">
+              {salvandoGrupo ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        </div>
+      )}
 
       {erro && <div className="text-sm text-red-700 bg-red-50 rounded-md p-3">{erro}</div>}
 

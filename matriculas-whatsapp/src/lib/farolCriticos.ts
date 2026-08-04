@@ -136,6 +136,25 @@ export async function buscarFarol(filial: string, data: string): Promise<FarolLi
   })
 }
 
+// ── Controle do envio automático ao WhatsApp (a cada import do BEES) ────
+// O disparo repete a cada import do BEES; pra de reenviar quando todos os
+// PDVs da watchlist do dia já estiverem "Concluído" — a corrida termina.
+
+export async function statusEnvioFarol(filial: string, data: string): Promise<{ finalizado: boolean }> {
+  const { data: row } = await supabase
+    .from('distribuicao_farol_envios')
+    .select('finalizado')
+    .eq('filial', filial).eq('data', data).maybeSingle()
+  return { finalizado: row?.finalizado ?? false }
+}
+
+export async function registrarEnvioFarol(filial: string, data: string, tudoConcluido: boolean): Promise<void> {
+  await supabase.from('distribuicao_farol_envios').upsert(
+    { filial, data, finalizado: tudoConcluido, ultimo_envio: new Date().toISOString() },
+    { onConflict: 'filial,data' }
+  )
+}
+
 // ── Import CORA (CSV, ponto e vírgula) — só usado pro valor da nota ─────
 
 interface LinhaCora { clienteCodigo: string; clienteNome: string | null; numeroNf: string | null; valorTotalNf: number | null }
