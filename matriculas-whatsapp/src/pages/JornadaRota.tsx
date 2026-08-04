@@ -4,7 +4,7 @@ import { Link } from 'react-router-dom'
 import html2canvas from 'html2canvas'
 import {
   Upload, Loader2, RefreshCw, Link2, CheckCircle, AlertTriangle, Clock,
-  Route, Send, Calendar, Settings2, Search, ChevronDown, ChevronRight, Image as ImageIcon, Copy, X,
+  Route, Send, Calendar, Settings2, Search, ChevronDown, ChevronRight, Image as ImageIcon, Copy, X, TrafficCone,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -626,6 +626,7 @@ export default function JornadaRota() {
   const [copiarFeedback, setCopiarFeedback] = useState<string | null>(null)
   const farolExportRef = useRef<HTMLDivElement>(null)
   const [farolImagemAtual, setFarolImagemAtual] = useState<FarolLinha[] | null>(null)
+  const [testandoFarol, setTestandoFarol] = useState(false)
 
   const fetchJornada = useCallback(async () => {
     if (!usuario) return
@@ -744,15 +745,22 @@ export default function JornadaRota() {
       if (errosEnvio.length > 0) console.error('[Jornada] falhas no envio automático:', errosEnvio)
 
       // Imagem do Farol de Mercados e PDVs Críticos — mesmo gatilho do
-      // import do BEES. Não bloqueia o import se falhar.
+      // import do BEES. Não bloqueia o import se falhar, mas avisa no alerta
+      // final (exceto motivos esperados, como já ter finalizado hoje).
+      let avisoFarol = ''
       try {
-        await enviarImagemFarolCriticos()
+        const resultado = await enviarImagemFarolCriticos()
+        if (!resultado.ok && resultado.motivo !== 'Envio já finalizado hoje (todos os PDVs já estavam concluídos).') {
+          avisoFarol = `\n\n⚠️ Farol de Críticos não enviado: ${resultado.motivo}`
+        }
       } catch (e) {
         console.error('[Jornada] falha ao enviar imagem do Farol de Críticos:', e)
+        avisoFarol = `\n\n⚠️ Farol de Críticos não enviado: ${e instanceof Error ? e.message : String(e)}`
       }
 
       alert(
         `${agregados.length} mapa(s) atualizado(s) a partir do BEES. Mensagens enviadas por sala + resumo do CDD.` +
+        avisoFarol +
         (errosEnvio.length > 0 ? `\n\n⚠️ Falhas no envio:\n${errosEnvio.join('\n')}` : '')
       )
     } catch (err) {
@@ -813,34 +821,58 @@ export default function JornadaRota() {
     }
   }
 
-  // Reusa os dados já calculados no estado, sem precisar buscar de novo —
-  // chamado tanto pelo botão manual quanto automaticamente após o import.
   // Gera e manda a imagem do Farol de Mercados e PDVs Críticos pro grupo
   // configurado. Repete a cada import do BEES; para sozinha quando todos os
   // PDVs da watchlist do dia já estiverem "Concluído" nessa mesma data.
-  async function enviarImagemFarolCriticos() {
-    if (!usuario) return
-    const { data: filialConfig } = await supabase.from('filiais').select('grupo_farol_criticos_whatsapp').eq('nome', usuario.filial).maybeSingle()
+  // Cada "saída antecipada" loga o motivo no console — sem isso, um erro
+  // aqui (migração não rodada, grupo não configurado, Z-API fora do ar)
+  // acontecia calado, sem nenhum jeito de diagnosticar.
+  async function enviarImagemFarolCriticos(): Promise<{ ok: boolean; motivo: string }> {
+    if (!usuario) return { ok: false, motivo: 'Sem usuário logado.' }
+
+    const { data: filialConfig, error: erroFilial } = await supabase
+      .from('filiais').select('grupo_farol_criticos_whatsapp').eq('nome', usuario.filial).maybeSingle()
+    if (erroFilial) {
+      console.error('[Farol Críticos] falha ao ler grupo configurado (rodou a migração?):', erroFilial.message)
+      return { ok: false, motivo: `Erro ao ler configuração: ${erroFilial.message}` }
+    }
     const grupo = filialConfig?.grupo_farol_criticos_whatsapp
-    if (!grupo) return
+    if (!grupo) {
+      console.warn('[Farol Críticos] nenhum grupo configurado — configure em Farol de Críticos → Config. WhatsApp.')
+      return { ok: false, motivo: 'Nenhum grupo de WhatsApp configurado pro Farol de Críticos.' }
+    }
 
     const { finalizado } = await statusEnvioFarol(usuario.filial, dataOperacao)
-    if (finalizado) return
+    if (finalizado) {
+      console.info('[Farol Críticos] envio já finalizado hoje (todos concluídos) — não reenvia.')
+      return { ok: false, motivo: 'Envio já finalizado hoje (todos os PDVs já estavam concluídos).' }
+    }
 
     const farol = await buscarFarol(usuario.filial, dataOperacao)
-    if (farol.length === 0) return
+    if (farol.length === 0) {
+      console.warn('[Farol Críticos] watchlist vazia ou sem itens ativos para', dataOperacao)
+      return { ok: false, motivo: 'Nenhum PDV ativo na watchlist pra essa data — cadastre em Farol de Críticos.' }
+    }
 
     flushSync(() => setFarolImagemAtual(farol))
     await new Promise((r) => setTimeout(r, 60))
-    if (!farolExportRef.current) return
+    if (!farolExportRef.current) {
+      console.error('[Farol Críticos] template de exportação não renderizou.')
+      return { ok: false, motivo: 'Falha interna ao gerar a imagem (template não renderizou).' }
+    }
     const canvas = await html2canvas(farolExportRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
     const img = canvas.toDataURL('image/png')
     setFarolImagemAtual(null)
 
-    await enviarImagemGrupo(grupo, img, `📊 Farol de Críticos — ${formatarDataBR(dataOperacao)}`)
+    const envio = await enviarImagemGrupo(grupo, img, `📊 Farol de Críticos — ${formatarDataBR(dataOperacao)}`)
+    if (!envio.sucesso) {
+      console.error('[Farol Críticos] Z-API recusou o envio da imagem:', envio.erro)
+      return { ok: false, motivo: `Z-API recusou o envio: ${envio.erro ?? 'erro desconhecido'}` }
+    }
 
     const tudoConcluido = farol.every((l) => l.statusFarol === 'concluido')
     await registrarEnvioFarol(usuario.filial, dataOperacao, tudoConcluido)
+    return { ok: true, motivo: 'Enviado.' }
   }
 
   async function enviarMensagensAutomatico(): Promise<string[]> {
@@ -1125,6 +1157,24 @@ export default function JornadaRota() {
           </button>
           <button onClick={fetchJornada} disabled={loading} className="flex items-center gap-2 px-3 py-2 rounded-md border text-sm hover:bg-accent transition-colors">
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} /> Atualizar
+          </button>
+          <button
+            onClick={async () => {
+              setTestandoFarol(true)
+              try {
+                const r = await enviarImagemFarolCriticos()
+                alert(r.ok ? '✅ Imagem do Farol de Críticos enviada.' : `⚠️ Não enviou: ${r.motivo}`)
+              } catch (e) {
+                alert(`⚠️ Erro ao testar: ${e instanceof Error ? e.message : String(e)}`)
+              }
+              setTestandoFarol(false)
+            }}
+            disabled={testandoFarol}
+            title="Dispara a imagem do Farol de Críticos agora, com o motivo na tela se não enviar — útil pra diagnosticar sem esperar o próximo import do BEES"
+            className="flex items-center gap-2 px-3 py-2 rounded-md border border-teal-300 bg-teal-50 text-teal-800 text-sm hover:bg-teal-100 transition-colors disabled:opacity-50"
+          >
+            {testandoFarol ? <Loader2 className="h-4 w-4 animate-spin" /> : <TrafficCone className="h-4 w-4" />}
+            Testar Farol de Críticos
           </button>
         </div>
       </div>
