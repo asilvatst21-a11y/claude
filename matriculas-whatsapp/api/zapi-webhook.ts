@@ -1872,7 +1872,7 @@ function resumoSaidaConfirmada(s: any): string {
 // digitado quanto quando a leitura falhou e o motorista confirmou o valor
 // (ou corrigiu) na pergunta de confirmação.
 async function finalizarSaidaFrotaLeve(
-  sess: any, grupoId: string, fotoUrl: string | null, kmFoto: number | null,
+  sess: any, grupoId: string, fotoUrl: string | null, kmFoto: number | null, notaOverride?: string,
 ): Promise<{ ok: boolean; action: string }> {
   const agora = new Date()
   const previsao = new Date(agora.getTime() + (sess.previsao_min ?? 0) * 60_000)
@@ -1886,16 +1886,16 @@ async function finalizarSaidaFrotaLeve(
     saida_registrada_em: agora.toISOString(),
     passo: null,
   }).eq('id', sess.id).select('*').single()
-  const nota = kmFoto == null
+  const nota = notaOverride ?? (kmFoto == null
     ? `\n_(não consegui ler o KM pela foto; o KM ${sess.km_saida?.toLocaleString('pt-BR')} foi confirmado por você)_`
-    : `\n✅ KM conferido pela foto.`
+    : `\n✅ KM conferido pela foto.`)
   await enviar(grupoId, resumoSaidaConfirmada(reg ?? sess) + nota)
   return { ok: true, action: 'frl-saida-confirmada' }
 }
 
 // Grava o retorno como "finalizado" — mesma ideia do helper de saída acima.
 async function finalizarRetornoFrotaLeve(
-  sess: any, grupoId: string, fotoUrl: string | null, kmFoto: number | null,
+  sess: any, grupoId: string, fotoUrl: string | null, kmFoto: number | null, notaOverride?: string,
 ): Promise<{ ok: boolean; action: string }> {
   const agora = new Date()
   const { data: reg } = await supabase.from('frota_leve_saidas').update({
@@ -1924,7 +1924,8 @@ async function finalizarRetornoFrotaLeve(
   if (rodados != null) linhas.push(`🛣️ KM rodados: *${rodados.toLocaleString('pt-BR')} km*`)
   if (tempo) linhas.push(`⌛ Tempo em rota: *${tempo}*`)
   if (r.observacoes) linhas.push(`📝 Obs: ${r.observacoes}`)
-  if (kmFoto == null) linhas.push(`_(não consegui ler o KM pela foto; o KM ${sess.km_retorno?.toLocaleString('pt-BR')} foi confirmado por você)_`)
+  if (notaOverride) linhas.push(notaOverride)
+  else if (kmFoto == null) linhas.push(`_(não consegui ler o KM pela foto; o KM ${sess.km_retorno?.toLocaleString('pt-BR')} foi confirmado por você)_`)
   await enviar(grupoId, linhas.join('\n'))
   return { ok: true, action: 'frl-finalizada' }
 }
@@ -2170,6 +2171,35 @@ async function avancarSessaoFrotaLeve(
       return { ok: true, action: 'frl-saida-confirma-km-repete' }
     }
 
+    // Foto já recebida, com KM lido, mas divergente do digitado — em vez de
+    // travar exigindo bater, deixa o motorista ESCOLHER qual valor está
+    // certo (às vezes o digitado é o certo e a foto que saiu ruim).
+    if (sess.passo === 'escolher_km_saida') {
+      const btn = norm(extrairBotaoResposta(body))
+      if (btn === 'km_foto' && sess.km_saida_foto != null) {
+        return await finalizarSaidaFrotaLeve(
+          { ...sess, km_saida: sess.km_saida_foto }, grupoId, sess.foto_saida_url, sess.km_saida_foto,
+          `\n✅ KM conferido pela foto.`
+        )
+      }
+      if (btn === 'km_digitado') {
+        return await finalizarSaidaFrotaLeve(
+          sess, grupoId, sess.foto_saida_url, sess.km_saida_foto,
+          `\n_(KM digitado confirmado por você, mesmo com a foto lendo ${sess.km_saida_foto?.toLocaleString('pt-BR')})_`
+        )
+      }
+      const kmCorr = kmDeNumeroSolto(texto)
+      if (kmCorr != null) return await finalizarSaidaFrotaLeve({ ...sess, km_saida: kmCorr }, grupoId, sess.foto_saida_url, sess.km_saida_foto)
+      await enviarBotoes(grupoId,
+        `⚠️ ${nome}, o KM digitado foi *${sess.km_saida?.toLocaleString('pt-BR')}*, mas na foto eu li *${sess.km_saida_foto?.toLocaleString('pt-BR')}*.\n` +
+        `Qual está certo? (ou envie outro número, se nenhum dos dois estiver certo)`,
+        [
+          { id: 'km_digitado', label: `Digitado: ${sess.km_saida?.toLocaleString('pt-BR')}` },
+          { id: 'km_foto', label: `Foto: ${sess.km_saida_foto?.toLocaleString('pt-BR')}` },
+        ])
+      return { ok: true, action: 'frl-saida-escolhe-km-repete' }
+    }
+
     const kmCorr = kmDeNumeroSolto(texto)
     if (kmCorr != null) {  // motorista digitou um novo KM (correção)
       await supabase.from('frota_leve_saidas').update({ km_saida: kmCorr }).eq('id', sess.id)
@@ -2183,10 +2213,14 @@ async function avancarSessaoFrotaLeve(
     }
     const kmFoto = await lerKmDaFoto(url)
     if (kmFoto != null && Math.abs(kmFoto - (sess.km_saida ?? 0)) > 2) {
-      await supabase.from('frota_leve_saidas').update({ foto_saida_url: url, km_saida_foto: kmFoto }).eq('id', sess.id)
-      await enviar(grupoId,
-        `⚠️ ${nome}, o KM que você informou foi *${sess.km_saida?.toLocaleString('pt-BR')}*, mas na foto do painel eu li *${kmFoto.toLocaleString('pt-BR')}*.\n` +
-        `Se o certo é o da foto, responda com o número *${kmFoto.toLocaleString('pt-BR')}*. Se preferir, reenvie uma foto mais nítida.`)
+      await supabase.from('frota_leve_saidas').update({ foto_saida_url: url, km_saida_foto: kmFoto, passo: 'escolher_km_saida' }).eq('id', sess.id)
+      await enviarBotoes(grupoId,
+        `⚠️ ${nome}, o KM digitado foi *${sess.km_saida?.toLocaleString('pt-BR')}*, mas na foto eu li *${kmFoto.toLocaleString('pt-BR')}*.\n` +
+        `Qual está certo? (ou envie outro número, se nenhum dos dois estiver certo)`,
+        [
+          { id: 'km_digitado', label: `Digitado: ${sess.km_saida?.toLocaleString('pt-BR')}` },
+          { id: 'km_foto', label: `Foto: ${kmFoto.toLocaleString('pt-BR')}` },
+        ])
       return { ok: true, action: 'frl-saida-km-divergente' }
     }
     if (kmFoto == null) {
@@ -2253,6 +2287,44 @@ async function avancarSessaoFrotaLeve(
       return { ok: true, action: 'frl-retorno-confirma-km-repete' }
     }
 
+    // Mesma ideia da saída: foto lida mas divergente do digitado — deixa o
+    // motorista escolher em vez de travar.
+    if (sess.passo === 'escolher_km_retorno') {
+      const btn = norm(extrairBotaoResposta(body))
+      if (btn === 'km_foto' && sess.km_retorno_foto != null) {
+        if (sess.km_saida != null && sess.km_retorno_foto < sess.km_saida) {
+          await enviar(grupoId, `⚠️ O KM da foto (${sess.km_retorno_foto.toLocaleString('pt-BR')}) está menor que o de saída. Envie o número certo.`)
+          return { ok: true, action: 'frl-retorno-km-foto-menor' }
+        }
+        return await finalizarRetornoFrotaLeve(
+          { ...sess, km_retorno: sess.km_retorno_foto }, grupoId, sess.foto_retorno_url, sess.km_retorno_foto,
+          `_✅ KM conferido pela foto._`
+        )
+      }
+      if (btn === 'km_digitado') {
+        return await finalizarRetornoFrotaLeve(
+          sess, grupoId, sess.foto_retorno_url, sess.km_retorno_foto,
+          `_(KM digitado confirmado por você, mesmo com a foto lendo ${sess.km_retorno_foto?.toLocaleString('pt-BR')})_`
+        )
+      }
+      const kmCorr = kmDeNumeroSolto(texto)
+      if (kmCorr != null) {
+        if (sess.km_saida != null && kmCorr < sess.km_saida) {
+          await enviar(grupoId, `⚠️ Esse KM (${kmCorr.toLocaleString('pt-BR')}) está menor que o de saída. Confira e envie de novo.`)
+          return { ok: true, action: 'frl-retorno-km-menor' }
+        }
+        return await finalizarRetornoFrotaLeve({ ...sess, km_retorno: kmCorr }, grupoId, sess.foto_retorno_url, sess.km_retorno_foto)
+      }
+      await enviarBotoes(grupoId,
+        `⚠️ ${nome}, o KM digitado foi *${sess.km_retorno?.toLocaleString('pt-BR')}*, mas na foto eu li *${sess.km_retorno_foto?.toLocaleString('pt-BR')}*.\n` +
+        `Qual está certo? (ou envie outro número, se nenhum dos dois estiver certo)`,
+        [
+          { id: 'km_digitado', label: `Digitado: ${sess.km_retorno?.toLocaleString('pt-BR')}` },
+          { id: 'km_foto', label: `Foto: ${sess.km_retorno_foto?.toLocaleString('pt-BR')}` },
+        ])
+      return { ok: true, action: 'frl-retorno-escolhe-km-repete' }
+    }
+
     const kmCorr = kmDeNumeroSolto(texto)
     if (kmCorr != null) {
       if (sess.km_saida != null && kmCorr < sess.km_saida) {
@@ -2270,10 +2342,14 @@ async function avancarSessaoFrotaLeve(
     }
     const kmFoto = await lerKmDaFoto(url)
     if (kmFoto != null && Math.abs(kmFoto - (sess.km_retorno ?? 0)) > 2) {
-      await supabase.from('frota_leve_saidas').update({ foto_retorno_url: url, km_retorno_foto: kmFoto }).eq('id', sess.id)
-      await enviar(grupoId,
-        `⚠️ ${nome}, você informou *${sess.km_retorno?.toLocaleString('pt-BR')}*, mas na foto eu li *${kmFoto.toLocaleString('pt-BR')}*.\n` +
-        `Se o certo é o da foto, responda com o número *${kmFoto.toLocaleString('pt-BR')}*. Ou reenvie uma foto mais nítida.`)
+      await supabase.from('frota_leve_saidas').update({ foto_retorno_url: url, km_retorno_foto: kmFoto, passo: 'escolher_km_retorno' }).eq('id', sess.id)
+      await enviarBotoes(grupoId,
+        `⚠️ ${nome}, o KM digitado foi *${sess.km_retorno?.toLocaleString('pt-BR')}*, mas na foto eu li *${kmFoto.toLocaleString('pt-BR')}*.\n` +
+        `Qual está certo? (ou envie outro número, se nenhum dos dois estiver certo)`,
+        [
+          { id: 'km_digitado', label: `Digitado: ${sess.km_retorno?.toLocaleString('pt-BR')}` },
+          { id: 'km_foto', label: `Foto: ${kmFoto.toLocaleString('pt-BR')}` },
+        ])
       return { ok: true, action: 'frl-retorno-km-divergente' }
     }
     if (kmFoto == null) {
