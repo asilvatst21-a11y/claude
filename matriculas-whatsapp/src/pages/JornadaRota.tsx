@@ -502,89 +502,97 @@ const FAROL_STATUS_ORDEM: Record<StatusFarol, number> = { atencao: 0, pendente: 
 const FAROL_CATEGORIA_CURTA: Record<CategoriaWatchlist, string> = {
   pdv_critico: 'Crítico', mercado_sellerze: 'Seller Zé', mercado_trava: 'Trava',
 }
+const FAROL_CATEGORIA_CSS: Record<CategoriaWatchlist, { bg: string; fg: string }> = {
+  pdv_critico: { bg: '#fee2e2', fg: '#b91c1c' },
+  mercado_sellerze: { bg: '#ede9fe', fg: '#6d28d9' },
+  mercado_trava: { bg: '#fef3c7', fg: '#92400e' },
+}
 
 // Imagem enviada ao grupo do Farol de Críticos a cada import do BEES —
-// quem está em Atenção/Pendente aparece primeiro, mesmo critério de
-// priorização usado nos exports de Jornada.
+// só PDVs com mapa hoje (venda do dia); quem não roda hoje só polui a
+// imagem e não diz nada sobre o dia. Quem está em Atenção/Pendente
+// aparece primeiro, mesmo critério de priorização dos exports de Jornada.
 const FarolExportTemplate = forwardRef<HTMLDivElement, { filial: string; data: string; linhas: FarolLinha[] }>(
   function FarolExportTemplate({ filial, data, linhas }, ref) {
-    if (linhas.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
+    const doDia = linhas.filter((l) => l.mapa != null)
+    if (doDia.length === 0) return <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0 }} />
 
-    const ordenadas = [...linhas].sort((a, b) => FAROL_STATUS_ORDEM[a.statusFarol] - FAROL_STATUS_ORDEM[b.statusFarol])
+    const ordenadas = [...doDia].sort((a, b) => FAROL_STATUS_ORDEM[a.statusFarol] - FAROL_STATUS_ORDEM[b.statusFarol])
     const kpis: Record<StatusFarol, number> = { pendente: 0, iniciado: 0, concluido: 0, atencao: 0, sem_mapa: 0 }
-    for (const l of linhas) kpis[l.statusFarol]++
+    for (const l of doDia) kpis[l.statusFarol]++
     const concluidos = kpis.concluido
-    const pctConcluido = linhas.length > 0 ? Math.round((concluidos / linhas.length) * 100) : 0
+    const pctConcluido = doDia.length > 0 ? Math.round((concluidos / doDia.length) * 100) : 0
 
-    const th: React.CSSProperties = { padding: '5px 7px', fontSize: '8px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.02em', textAlign: 'left', whiteSpace: 'nowrap' }
-    const td: React.CSSProperties = { padding: '5px 7px', fontSize: '9px', color: '#334155', verticalAlign: 'middle', whiteSpace: 'nowrap', borderTop: '1px solid #f1f5f9' }
+    const th: React.CSSProperties = { padding: '10px 12px', fontSize: '11px', fontWeight: 700, color: '#fff', textTransform: 'uppercase', letterSpacing: '0.03em', textAlign: 'left', whiteSpace: 'nowrap' }
+    const td: React.CSSProperties = { padding: '11px 12px', fontSize: '13px', color: '#334155', verticalAlign: 'middle', whiteSpace: 'nowrap', borderTop: '1px solid #f1f5f9' }
+    const badge = (bg: string, fg: string, border?: string): React.CSSProperties => ({
+      display: 'inline-block', fontSize: '11px', fontWeight: 700, padding: '4px 10px', borderRadius: '999px',
+      border: `1px solid ${border ?? bg}`, background: bg, color: fg, whiteSpace: 'nowrap', lineHeight: 1.3,
+    })
 
     return (
-      <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '1000px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '28px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '2px solid #1e3a5f', paddingBottom: '12px', marginBottom: '16px' }}>
+      <div ref={ref} style={{ position: 'absolute', left: '-9999px', top: 0, width: '1160px', fontFamily: 'Inter, system-ui, sans-serif', background: '#f8fafc', padding: '36px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '3px solid #1e3a5f', paddingBottom: '16px', marginBottom: '22px' }}>
           <div>
-            <p style={{ fontSize: '10px', color: '#64748b', fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 3px' }}>Farol de Mercados e PDVs Críticos</p>
-            <h1 style={{ fontSize: '19px', fontWeight: 800, color: '#0f172a', margin: 0 }}>Status de Entrega do Dia</h1>
+            <p style={{ fontSize: '13px', color: '#64748b', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', margin: '0 0 4px' }}>Farol de Mercados e PDVs Críticos</p>
+            <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#0f172a', margin: 0 }}>Status de Entrega do Dia</h1>
           </div>
-          <p style={{ fontSize: '12px', color: '#475569', textAlign: 'right', margin: 0, lineHeight: 1.5 }}>{filial}<br />{formatarDataBR(data)}</p>
+          <p style={{ fontSize: '15px', color: '#475569', textAlign: 'right', margin: 0, lineHeight: 1.5, fontWeight: 600 }}>{filial}<br />{formatarDataBR(data)}</p>
         </div>
 
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+        <div style={{ display: 'flex', gap: '12px', marginBottom: '20px' }}>
           {(['pendente', 'iniciado', 'concluido', 'atencao'] as StatusFarol[]).map((s) => {
             const c = FAROL_STATUS_CSS[s]
             const label = s === 'pendente' ? 'Pendente' : s === 'iniciado' ? 'Iniciado' : s === 'concluido' ? 'Concluído' : 'Atenção'
             return (
-              <div key={s} style={{ flex: 1, borderRadius: '6px', padding: '8px 10px', border: `1px solid ${c.border}`, background: c.bg }}>
-                <p style={{ fontSize: '18px', fontWeight: 800, margin: 0, lineHeight: 1, color: c.fg }}>{kpis[s]}</p>
-                <p style={{ fontSize: '8px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', margin: '3px 0 0', color: c.fg }}>{label}</p>
+              <div key={s} style={{ flex: 1, borderRadius: '10px', padding: '14px 16px', border: `1px solid ${c.border}`, background: c.bg }}>
+                <p style={{ fontSize: '28px', fontWeight: 800, margin: 0, lineHeight: 1, color: c.fg }}>{kpis[s]}</p>
+                <p style={{ fontSize: '11px', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.03em', margin: '5px 0 0', color: c.fg }}>{label}</p>
               </div>
             )
           })}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px' }}>
-          <span style={{ fontSize: '10.5px', fontWeight: 700, color: '#15803d', whiteSpace: 'nowrap' }}>{concluidos}/{linhas.length} concluídos</span>
-          <div style={{ flex: 1, height: '7px', background: '#e2e8f0', borderRadius: '4px', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '14px 18px', marginBottom: '20px' }}>
+          <span style={{ fontSize: '14px', fontWeight: 700, color: '#15803d', whiteSpace: 'nowrap' }}>{concluidos}/{doDia.length} concluídos</span>
+          <div style={{ flex: 1, height: '10px', background: '#e2e8f0', borderRadius: '5px', overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pctConcluido}%`, background: 'linear-gradient(90deg,#16a34a,#22c55e)' }} />
           </div>
-          <span style={{ fontSize: '10.5px', fontWeight: 700, color: '#475569' }}>{pctConcluido}%</span>
+          <span style={{ fontSize: '14px', fontWeight: 700, color: '#475569' }}>{pctConcluido}%</span>
         </div>
 
-        <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', background: '#fff', border: '1px solid #e2e8f0', borderRadius: '10px', overflow: 'hidden' }}>
           <thead>
             <tr style={{ background: '#1e3a5f' }}>
-              <th style={th}>PDV</th><th style={th}>Categoria</th><th style={th}>Mapa</th><th style={th}>Motorista</th>
-              <th style={th}>Placa</th><th style={th}>Status</th><th style={{ ...th, textAlign: 'right' }}>Valor NF</th>
+              <th style={th}>PDV</th><th style={th}>Categoria</th><th style={{ ...th, textAlign: 'center' }}>Mapa</th><th style={th}>Motorista</th>
+              <th style={{ ...th, textAlign: 'center' }}>Placa</th><th style={th}>Status</th><th style={{ ...th, textAlign: 'right' }}>Valor NF</th>
             </tr>
           </thead>
           <tbody>
-            {ordenadas.map((l) => {
+            {ordenadas.map((l, i) => {
               const c = FAROL_STATUS_CSS[l.statusFarol]
+              const cat = FAROL_CATEGORIA_CSS[l.categoria]
               return (
-                <tr key={l.watchlistId}>
+                <tr key={l.watchlistId} style={{ background: i % 2 === 1 ? '#f8fafc' : '#fff' }}>
                   <td style={td}>
-                    <span style={{ fontWeight: 600, color: '#0f172a' }}>{l.nome}</span>
-                    <br /><span style={{ color: '#94a3b8', fontSize: '8px' }}>{l.codigo}</span>
+                    <span style={{ fontWeight: 700, color: '#0f172a' }}>{l.nome}</span>
+                    <br /><span style={{ color: '#94a3b8', fontSize: '11px' }}>{l.codigo}</span>
                   </td>
-                  <td style={td}>{FAROL_CATEGORIA_CURTA[l.categoria]}</td>
-                  <td style={td}>{l.mapa ?? '—'}</td>
+                  <td style={td}><span style={badge(cat.bg, cat.fg)}>{FAROL_CATEGORIA_CURTA[l.categoria]}</span></td>
+                  <td style={{ ...td, textAlign: 'center' }}>{l.mapa}</td>
                   <td style={td}>{l.motorista ?? '—'}</td>
-                  <td style={td}>{l.placa ?? '—'}</td>
-                  <td style={td}>
-                    <span style={{ fontSize: '8px', fontWeight: 700, padding: '2px 7px', borderRadius: '999px', border: `1px solid ${c.border}`, background: c.bg, color: c.fg, whiteSpace: 'nowrap' }}>
-                      {l.statusLabel}
-                    </span>
-                  </td>
-                  <td style={{ ...td, textAlign: 'right' }}>{l.valorNota != null ? formatarBRL(l.valorNota) : '—'}</td>
+                  <td style={{ ...td, textAlign: 'center' }}>{l.placa ?? '—'}</td>
+                  <td style={td}><span style={badge(c.bg, c.fg, c.border)}>{l.statusLabel}</span></td>
+                  <td style={{ ...td, textAlign: 'right', fontWeight: 600 }}>{l.valorNota != null ? formatarBRL(l.valorNota) : '—'}</td>
                 </tr>
               )
             })}
           </tbody>
         </table>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '9px', marginTop: '10px', borderTop: '1px solid #e2e8f0' }}>
-          <p style={{ margin: 0, fontSize: '8px', color: '#94a3b8' }}>Farol de Mercados e PDVs Críticos · atualizado a cada import do BEES</p>
-          <p style={{ margin: 0, fontSize: '8px', color: '#94a3b8' }}>Gerado automaticamente</p>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: '12px', marginTop: '14px', borderTop: '1px solid #e2e8f0' }}>
+          <p style={{ margin: 0, fontSize: '11px', color: '#94a3b8' }}>Farol de Mercados e PDVs Críticos · só PDVs com mapa hoje · atualizado a cada import do BEES</p>
+          <p style={{ margin: 0, fontSize: '11px', color: '#94a3b8' }}>Gerado automaticamente</p>
         </div>
       </div>
     )
@@ -849,12 +857,17 @@ export default function JornadaRota() {
     }
 
     const farol = await buscarFarol(usuario.filial, dataOperacao)
-    if (farol.length === 0) {
-      console.warn('[Farol Críticos] watchlist vazia ou sem itens ativos para', dataOperacao)
-      return { ok: false, motivo: 'Nenhum PDV ativo na watchlist pra essa data — cadastre em Farol de Críticos.' }
+    // Só entra na imagem/no critério de "tudo concluído" quem tem mapa hoje
+    // (venda do dia) — o resto da watchlist (sem mapa) não diz nada sobre o
+    // dia e, se contasse, o envio nunca "finalizaria" (item sem mapa nunca
+    // fica concluído).
+    const farolDoDia = farol.filter((l) => l.mapa != null)
+    if (farolDoDia.length === 0) {
+      console.warn('[Farol Críticos] nenhum PDV da watchlist com mapa hoje em', dataOperacao)
+      return { ok: false, motivo: 'Nenhum PDV da watchlist com mapa hoje — nada pra mostrar.' }
     }
 
-    flushSync(() => setFarolImagemAtual(farol))
+    flushSync(() => setFarolImagemAtual(farolDoDia))
     await new Promise((r) => setTimeout(r, 60))
     if (!farolExportRef.current) {
       console.error('[Farol Críticos] template de exportação não renderizou.')
@@ -870,7 +883,7 @@ export default function JornadaRota() {
       return { ok: false, motivo: `Z-API recusou o envio: ${envio.erro ?? 'erro desconhecido'}` }
     }
 
-    const tudoConcluido = farol.every((l) => l.statusFarol === 'concluido')
+    const tudoConcluido = farolDoDia.every((l) => l.statusFarol === 'concluido')
     await registrarEnvioFarol(usuario.filial, dataOperacao, tudoConcluido)
     return { ok: true, motivo: 'Enviado.' }
   }
