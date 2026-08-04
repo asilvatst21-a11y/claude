@@ -633,12 +633,16 @@ export async function temVinculoAtividadeAtivo(filial: string, cpfReal: string):
 export async function buscarAcumuladoColaboradorPeriodo(filial: string, colaboradorId: string, ini: string, fim: string): Promise<AcumuladoColaboradorMes | null> {
   const { data: vinculosRaw } = await supabase
     .from('variavel_turno_atividade_colaboradores')
-    .select('atividade_id, colaborador_nome, valor_final_mensal, ativo, variavel_turno_atividades(id, nome, turno, filial, unidade)')
+    .select('atividade_id, colaborador_nome, valor_final_mensal, ativo, variavel_turno_atividades(id, nome, turno, filial, unidade, ativo)')
     .eq('colaborador_id', colaboradorId)
   // Filtra pela filial no cliente — evita depender de sintaxe de filtro em
   // tabela aninhada (variavel_turno_atividades.filial), que muda conforme a
-  // versão do PostgREST.
-  const vinculos = (vinculosRaw ?? []).filter((v: any) => v.variavel_turno_atividades?.filial === filial)
+  // versão do PostgREST. Também tira quem tem o VÍNCULO desativado ou a
+  // ATIVIDADE em si desativada — sem isso, uma atividade desligada
+  // continuava aparecendo (e somando) no totem com o crédito antigo.
+  const vinculos = (vinculosRaw ?? []).filter((v: any) =>
+    v.variavel_turno_atividades?.filial === filial && v.ativo && v.variavel_turno_atividades?.ativo !== false
+  )
   if (vinculos.length === 0) return null
 
   const atividadeMeta = new Map(vinculos.map((v: any) => [v.atividade_id, v.variavel_turno_atividades as { nome: string; turno: string; unidade: TurnoUnidade }]))
