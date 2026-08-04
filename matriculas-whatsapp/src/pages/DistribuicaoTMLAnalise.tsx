@@ -318,8 +318,21 @@ export default function DistribuicaoTMLAnalise() {
           : null
         const tmlFinalMin = a.tempoSaida
 
-        const movimentacaoMin = tmlFinalMin != null && matinalMin != null && deslocamentoMin != null && checklistMin != null && confMin != null
-          ? tmlFinalMin - matinalMin - deslocamentoMin - checklistMin - confMin
+        // Movimentação = saída na portaria − a última das duas etapas de
+        // preparação a terminar (checklist ou conferência). Todo mapa com
+        // checklist e/ou conferência registrados tem esse tempo — não
+        // depende dos outros 4 pedaços estarem completos, e usa o horário
+        // real de cada etapa em vez de subtrair do TML Final (que dava
+        // negativo quando havia um intervalo entre o fim do checklist e o
+        // início da conferência, tempo que não é rastreado em lugar nenhum).
+        const checklistFimHM = checklist?.horario_final ?? null
+        const confFimHM = horaCurtaISO(conferencia?.fim ?? null)
+        const referenciasFim = [checklistFimHM, confFimHM].filter((h): h is string => !!h)
+        const ultimaEtapaFim = referenciasFim.length > 0
+          ? referenciasFim.reduce((maisTarde, atual) => horarioParaMinutos(atual) > horarioParaMinutos(maisTarde) ? atual : maisTarde)
+          : null
+        const movimentacaoMin = ultimaEtapaFim && a.horarioSaida
+          ? horarioParaMinutos(a.horarioSaida) - horarioParaMinutos(ultimaEtapaFim)
           : null
 
         return {
