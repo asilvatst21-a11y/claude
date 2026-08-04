@@ -319,15 +319,17 @@ export default function DistribuicaoTMLAnalise() {
         const tmlFinalMin = a.tempoSaida
 
         // Movimentação = saída na portaria − a última das duas etapas de
-        // preparação a terminar (checklist ou conferência). Todo mapa com
-        // checklist e/ou conferência registrados tem esse tempo — não
-        // depende dos outros 4 pedaços estarem completos, e usa o horário
-        // real de cada etapa em vez de subtrair do TML Final (que dava
-        // negativo quando havia um intervalo entre o fim do checklist e o
-        // início da conferência, tempo que não é rastreado em lugar nenhum).
+        // preparação a terminar (checklist ou conferência). A conferência
+        // às vezes é finalizada só depois que o carro já saiu na portaria
+        // (registro tardio) — nesse caso ela não é confiável como marco, e
+        // usamos o fim do checklist em vez dela. Já se o PRÓPRIO checklist
+        // terminar depois da saída, mantemos assim mesmo: isso não é erro
+        // de conta, é um indicador (carro saiu antes de finalizar o
+        // checklist) que interessa pro time da frota.
         const checklistFimHM = checklist?.horario_final ?? null
         const confFimHM = horaCurtaISO(conferencia?.fim ?? null)
-        const referenciasFim = [checklistFimHM, confFimHM].filter((h): h is string => !!h)
+        const confAposSaida = confFimHM != null && a.horarioSaida != null && horarioParaMinutos(confFimHM) > horarioParaMinutos(a.horarioSaida)
+        const referenciasFim = [checklistFimHM, confAposSaida ? null : confFimHM].filter((h): h is string => !!h)
         const ultimaEtapaFim = referenciasFim.length > 0
           ? referenciasFim.reduce((maisTarde, atual) => horarioParaMinutos(atual) > horarioParaMinutos(maisTarde) ? atual : maisTarde)
           : null
