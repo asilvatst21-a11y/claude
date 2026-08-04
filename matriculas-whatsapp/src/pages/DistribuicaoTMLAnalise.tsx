@@ -12,7 +12,8 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import {
   SALA_TML_LABEL, REGRAS_TML, horarioParaMinutos, etapaIdealMinutos,
-  type SalaTML, type EtapaIdealParam,
+  metaMatinalMinutos, gatilhoEstouroMinutos, metaMovimentacaoMinutos, META_TML_TOTAL_MIN,
+  type SalaTML, type EtapaIdealParam, type MetaMatinalParam, type GatilhoEstouroParam,
 } from '../lib/tml'
 import { buscarConferenciaPorMapaPeriodo, type ConferenciaPassoMapa } from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
@@ -57,6 +58,7 @@ interface LinhaChecklistPasso {
   sala: SalaTML | null
   horario_inicio: string | null
   horario_final: string | null
+  tempo_deslocamento_minutos: number | null
 }
 
 interface LinhaMatinalPasso {
@@ -64,6 +66,7 @@ interface LinhaMatinalPasso {
   data: string | null
   horario_final: string | null
   estouro_duracao: boolean | null
+  duracao_minutos: number | null
 }
 
 // Tempo decorrido desde o horário matinal da sala até a saída real do carro.
@@ -120,6 +123,9 @@ export default function DistribuicaoTMLAnalise() {
   const [ate, setAte] = useState(hojeISO())
   const [sala, setSala] = useState<SalaTML | 'TODAS'>('TODAS')
   const [aba, setAba] = useState<'geral' | 'motivos'>('geral')
+  const [subAbaGeral, setSubAbaGeral] = useState<'consolidado' | 'abertura'>('consolidado')
+  const [verPor, setVerPor] = useState<'dia' | 'periodo'>('dia')
+  const [placaFiltro, setPlacaFiltro] = useState('')
   const [ugcFiltro, setUgcFiltro] = useState<string>('TODAS')
 
   const [historico, setHistorico] = useState<LinhaHistorico[]>([])
@@ -132,6 +138,8 @@ export default function DistribuicaoTMLAnalise() {
   const [checklistPasso, setChecklistPasso] = useState<LinhaChecklistPasso[]>([])
   const [matinaisPasso, setMatinaisPasso] = useState<LinhaMatinalPasso[]>([])
   const [etapaParams, setEtapaParams] = useState<EtapaIdealParam[]>([])
+  const [matinalMetaParams, setMatinalMetaParams] = useState<MetaMatinalParam[]>([])
+  const [gatilhoParams, setGatilhoParams] = useState<GatilhoEstouroParam[]>([])
   const [conferenciaPorMapa, setConferenciaPorMapa] = useState<Map<string, ConferenciaPassoMapa>>(new Map())
   const [passoAberto, setPassoAberto] = useState(true)
   const [detalheAberto, setDetalheAberto] = useState<string | null>(null)
@@ -139,7 +147,7 @@ export default function DistribuicaoTMLAnalise() {
   const carregar = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
-    const [{ data: hist }, { data: al }, { data: mot }, { data: chk }, { data: mat }, { data: etp }, confMapa] = await Promise.all([
+    const [{ data: hist }, { data: al }, { data: mot }, { data: chk }, { data: mat }, { data: etp }, { data: metaMat }, { data: gat }, confMapa] = await Promise.all([
       supabase
         .from('historico_tml')
         .select('mapa, placa, sala, matricula, nome, data_saida, horario_saida, atraso_minutos, resultado')
@@ -160,20 +168,28 @@ export default function DistribuicaoTMLAnalise() {
         .eq('filial', usuario.filial),
       supabase
         .from('checklist_tml')
-        .select('mapa, placa, data, sala, horario_inicio, horario_final')
+        .select('mapa, placa, data, sala, horario_inicio, horario_final, tempo_deslocamento_minutos')
         .eq('filial', usuario.filial)
         .gte('data', de)
         .lte('data', ate)
         .limit(5000),
       supabase
         .from('matinal_tml')
-        .select('sala, data, horario_final, estouro_duracao')
+        .select('sala, data, horario_final, estouro_duracao, duracao_minutos')
         .eq('filial', usuario.filial)
         .gte('data', de)
         .lte('data', ate),
       supabase
         .from('tml_etapa_ideal')
         .select('etapa, ideal_minutos, vigente_a_partir')
+        .eq('filial', usuario.filial),
+      supabase
+        .from('tml_meta_matinal')
+        .select('dia_semana, meta_minutos, vigente_a_partir')
+        .eq('filial', usuario.filial),
+      supabase
+        .from('tml_gatilho_estouro')
+        .select('deslocamento_ideal_minutos, deslocamento_estouro_minutos, vigente_a_partir')
         .eq('filial', usuario.filial),
       buscarConferenciaPorMapaPeriodo(usuario.filial, de, ate),
     ])
@@ -183,6 +199,8 @@ export default function DistribuicaoTMLAnalise() {
     setChecklistPasso(Array.isArray(chk) ? chk : [])
     setMatinaisPasso(Array.isArray(mat) ? mat : [])
     setEtapaParams(Array.isArray(etp) ? etp : [])
+    setMatinalMetaParams(Array.isArray(metaMat) ? metaMat : [])
+    setGatilhoParams(Array.isArray(gat) ? gat : [])
     setConferenciaPorMapa(confMapa)
     setLoading(false)
   }, [usuario, de, ate])
@@ -256,6 +274,88 @@ export default function DistribuicaoTMLAnalise() {
       }))
       .sort((a, b) => b.data.localeCompare(a.data) || (a.mapa ?? 0) - (b.mapa ?? 0))
   }, [historicoValido])
+
+  // ── Abertura por etapa: Matinal + Deslocamento + Checklist + Conferência
+  // + Tempo de Movimentação = TML Final (30min de meta). O Tempo de
+  // Movimentação real não vem de nenhuma tabela — é o que sobra do TML
+  // Final medido depois de tirar as outras 4 etapas, mesmo raciocínio da
+  // meta (o que sobra dos 30min vira a meta de Movimentação).
+  interface LinhaAbertura {
+    chave: string
+    mapa: number | null
+    placa: string | null
+    sala: SalaTML
+    data: string
+    matinalMin: number | null
+    deslocamentoMin: number | null
+    checklistMin: number | null
+    confMin: number | null
+    movimentacaoMin: number | null
+    tmlFinalMin: number | null
+    metaMatinal: number
+    metaDeslocamento: number
+    metaChecklist: number
+    metaConferencia: number
+    metaMovimentacao: number
+  }
+
+  const aberturaPorMapa = useMemo<LinhaAbertura[]>(() => {
+    return analisePasso
+      .filter((a) => !placaFiltro.trim() || (a.placa ?? '').toLowerCase().includes(placaFiltro.trim().toLowerCase()))
+      .map((a) => {
+        const checklist = (a.mapa != null ? checklistPorMapaData.get(`${a.mapa}|${a.data}`) : undefined)
+          ?? (a.placa ? checklistPorPlacaData.get(`${a.placa}|${a.data}`) : undefined)
+        const matinal = matinalPorSalaData.get(`${a.sala}|${a.data}`)
+        const conferencia = conferenciaPorMapa.get(`${a.mapa}|${a.data}`)
+
+        const matinalMin = matinal?.duracao_minutos ?? null
+        const deslocamentoMin = checklist?.tempo_deslocamento_minutos ?? null
+        const checklistMin = checklist?.horario_inicio && checklist?.horario_final
+          ? horarioParaMinutos(checklist.horario_final) - horarioParaMinutos(checklist.horario_inicio)
+          : null
+        const confMin = conferencia?.inicio && conferencia?.fim
+          ? Math.round((new Date(conferencia.fim).getTime() - new Date(conferencia.inicio).getTime()) / 60000)
+          : null
+        const tmlFinalMin = a.tempoSaida
+
+        const movimentacaoMin = tmlFinalMin != null && matinalMin != null && deslocamentoMin != null && checklistMin != null && confMin != null
+          ? tmlFinalMin - matinalMin - deslocamentoMin - checklistMin - confMin
+          : null
+
+        return {
+          chave: a.chave, mapa: a.mapa, placa: a.placa, sala: a.sala, data: a.data,
+          matinalMin, deslocamentoMin, checklistMin, confMin, movimentacaoMin, tmlFinalMin,
+          metaMatinal: metaMatinalMinutos(a.data, matinalMetaParams),
+          metaDeslocamento: gatilhoEstouroMinutos(a.data, gatilhoParams).ideal,
+          metaChecklist: etapaIdealMinutos('checklist', a.data, etapaParams),
+          metaConferencia: etapaIdealMinutos('conferencia', a.data, etapaParams),
+          metaMovimentacao: metaMovimentacaoMinutos(a.data, { matinal: matinalMetaParams, etapa: etapaParams, gatilho: gatilhoParams }),
+        }
+      })
+      .sort((a, b) => (b.tmlFinalMin ?? -1) - (a.tmlFinalMin ?? -1))
+  }, [analisePasso, placaFiltro, checklistPorMapaData, checklistPorPlacaData, matinalPorSalaData, conferenciaPorMapa, matinalMetaParams, gatilhoParams, etapaParams])
+
+  // Médias só sobre linhas com os 5 pedaços completos — parcial distorceria
+  // a composição do gráfico.
+  const aberturaCompleta = useMemo(() => aberturaPorMapa.filter(
+    (l) => l.matinalMin != null && l.deslocamentoMin != null && l.checklistMin != null && l.confMin != null && l.movimentacaoMin != null
+  ), [aberturaPorMapa])
+
+  function media(campo: 'matinalMin' | 'deslocamentoMin' | 'checklistMin' | 'confMin' | 'movimentacaoMin' | 'tmlFinalMin'): number {
+    if (aberturaCompleta.length === 0) return 0
+    return aberturaCompleta.reduce((acc, l) => acc + (l[campo] ?? 0), 0) / aberturaCompleta.length
+  }
+  function mediaMeta(campo: 'metaMatinal' | 'metaDeslocamento' | 'metaChecklist' | 'metaConferencia' | 'metaMovimentacao'): number {
+    if (aberturaCompleta.length === 0) return 0
+    return aberturaCompleta.reduce((acc, l) => acc + l[campo], 0) / aberturaCompleta.length
+  }
+
+  const aberturaMedias = {
+    matinal: media('matinalMin'), deslocamento: media('deslocamentoMin'), checklist: media('checklistMin'),
+    conferencia: media('confMin'), movimentacao: media('movimentacaoMin'), tmlFinal: media('tmlFinalMin'),
+    metaMatinal: mediaMeta('metaMatinal'), metaDeslocamento: mediaMeta('metaDeslocamento'), metaChecklist: mediaMeta('metaChecklist'),
+    metaConferencia: mediaMeta('metaConferencia'), metaMovimentacao: mediaMeta('metaMovimentacao'),
+  }
 
   const detalheAtual = useMemo(() => {
     if (!detalheAberto) return null
@@ -492,9 +592,202 @@ export default function DistribuicaoTMLAnalise() {
         ))}
       </div>
 
+      {aba === 'geral' && (
+        <div className="flex gap-2 flex-wrap">
+          {([
+            { valor: 'consolidado', label: 'Consolidado' },
+            { valor: 'abertura', label: 'Abertura por etapa' },
+          ] as const).map((t) => (
+            <button
+              key={t.valor}
+              onClick={() => setSubAbaGeral(t.valor)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                subAbaGeral === t.valor ? 'bg-accent-500 text-white border-accent-500' : 'bg-white text-muted-foreground border-gray-200 hover:bg-accent'
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {loading ? (
         <p className="text-sm text-muted-foreground">Carregando…</p>
-      ) : aba === 'geral' ? (
+      ) : aba === 'geral' && subAbaGeral === 'abertura' ? (
+        <>
+          <div className="flex flex-wrap items-end gap-3 border rounded-lg bg-white p-3">
+            <div>
+              <label className="block text-xs text-muted-foreground mb-1">Ver por</label>
+              <div className="flex rounded-md border overflow-hidden">
+                <button
+                  onClick={() => { setVerPor('dia'); setAte(de) }}
+                  className={`px-3 py-1.5 text-sm font-medium ${verPor === 'dia' ? 'bg-accent-500 text-white' : 'bg-white text-muted-foreground hover:bg-accent'}`}
+                >
+                  Dia
+                </button>
+                <button
+                  onClick={() => setVerPor('periodo')}
+                  className={`px-3 py-1.5 text-sm font-medium border-l ${verPor === 'periodo' ? 'bg-accent-500 text-white' : 'bg-white text-muted-foreground hover:bg-accent'}`}
+                >
+                  Período
+                </button>
+              </div>
+            </div>
+            {verPor === 'dia' ? (
+              <div>
+                <label className="block text-xs text-muted-foreground mb-1">Data</label>
+                <input type="date" value={de} onChange={(e) => { setDe(e.target.value); setAte(e.target.value) }} className="border rounded-md px-2 py-1.5 text-sm" />
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">De</label>
+                  <input type="date" value={de} onChange={(e) => setDe(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm" />
+                </div>
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Até</label>
+                  <input type="date" value={ate} onChange={(e) => setAte(e.target.value)} className="border rounded-md px-2 py-1.5 text-sm" />
+                </div>
+              </>
+            )}
+            <div className="flex-1 min-w-[200px]">
+              <label className="block text-xs text-muted-foreground mb-1">Placa</label>
+              <input
+                type="text"
+                value={placaFiltro}
+                onChange={(e) => setPlacaFiltro(e.target.value)}
+                placeholder="Todas — ou filtre por uma placa (ex: JBP9G64)"
+                className="w-full border rounded-md px-2 py-1.5 text-sm"
+              />
+            </div>
+          </div>
+
+          {verPor === 'dia' && (
+            <div className="flex items-center gap-1.5 flex-wrap bg-accent-50 border border-accent-200 rounded-lg px-3 py-2 text-xs text-accent-800">
+              📌 Meta de {formatarDataBR(de)}:
+              <b>Matinal {metaMatinalMinutos(de, matinalMetaParams)}min</b>+
+              <b>Deslocamento {gatilhoEstouroMinutos(de, gatilhoParams).ideal}min</b>+
+              <b>Checklist {etapaIdealMinutos('checklist', de, etapaParams)}min</b>+
+              <b>Conferência {etapaIdealMinutos('conferencia', de, etapaParams)}min</b>+
+              <b>Movimentação {metaMovimentacaoMinutos(de, { matinal: matinalMetaParams, etapa: etapaParams, gatilho: gatilhoParams })}min</b>=
+              <b>{META_TML_TOTAL_MIN}min</b>
+            </div>
+          )}
+          {verPor === 'periodo' && (
+            <p className="text-xs text-muted-foreground">
+              A meta de cada etapa varia por dia da semana — no período, cada mapa é comparado com a meta do
+              próprio dia em que rodou (ver coluna "Meta" da tabela).
+            </p>
+          )}
+
+          <SectionTitle title="Tempo médio por etapa" subtitle={`${aberturaCompleta.length} mapa(s) com os 5 pedaços completos, de ${aberturaPorMapa.length} no filtro`} />
+
+          <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
+            {([
+              { label: 'Matinal', v: aberturaMedias.matinal, meta: aberturaMedias.metaMatinal },
+              { label: 'Deslocamento', v: aberturaMedias.deslocamento, meta: aberturaMedias.metaDeslocamento },
+              { label: 'Checklist', v: aberturaMedias.checklist, meta: aberturaMedias.metaChecklist },
+              { label: 'Conferência', v: aberturaMedias.conferencia, meta: aberturaMedias.metaConferencia },
+              { label: 'Movimentação', v: aberturaMedias.movimentacao, meta: aberturaMedias.metaMovimentacao },
+            ] as const).map((k) => {
+              const diff = k.v - k.meta
+              const dentro = diff <= 0.5
+              return (
+                <div key={k.label} className="border rounded-xl bg-white p-3">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">{k.label}</p>
+                  <p className="text-xl font-bold leading-tight">{k.v.toFixed(0)}min</p>
+                  <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full mt-1.5 ${dentro ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                    {dentro ? '✓' : '▲'} {diff >= 0 ? '+' : ''}{diff.toFixed(0)}min (meta {k.meta.toFixed(0)})
+                  </span>
+                </div>
+              )
+            })}
+            <div className="border-2 rounded-xl bg-accent-50 border-accent-500 p-3">
+              <p className="text-[11px] font-semibold text-accent-700 uppercase tracking-wide">TML Final</p>
+              <p className="text-xl font-bold leading-tight text-accent-700">{aberturaMedias.tmlFinal.toFixed(0)}min</p>
+              <span className={`inline-flex items-center gap-1 text-[11px] font-semibold px-2 py-0.5 rounded-full mt-1.5 ${(aberturaMedias.tmlFinal - META_TML_TOTAL_MIN) <= 0.5 ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                {(aberturaMedias.tmlFinal - META_TML_TOTAL_MIN) <= 0.5 ? '✓' : '▲'} {(aberturaMedias.tmlFinal - META_TML_TOTAL_MIN) >= 0 ? '+' : ''}{(aberturaMedias.tmlFinal - META_TML_TOTAL_MIN).toFixed(0)}min (meta {META_TML_TOTAL_MIN})
+              </span>
+            </div>
+          </div>
+
+          {aberturaCompleta.length > 0 && (
+            <>
+              <SectionTitle title="Composição do tempo total" subtitle="média dos mapas com dados completos no filtro" />
+              <div className="border rounded-xl bg-white p-4">
+                <div className="flex w-full h-8 rounded-lg overflow-hidden text-[11px] font-semibold text-white">
+                  {([
+                    { v: aberturaMedias.matinal, cor: '#0d9488', label: 'Matinal' },
+                    { v: aberturaMedias.deslocamento, cor: '#38bdf8', label: 'Desloc.' },
+                    { v: aberturaMedias.checklist, cor: '#818cf8', label: 'Checklist' },
+                    { v: aberturaMedias.conferencia, cor: '#a78bfa', label: 'Conferência' },
+                    { v: aberturaMedias.movimentacao, cor: '#f59e0b', label: 'Movim.' },
+                  ] as const).map((s) => (
+                    <div key={s.label} style={{ width: `${aberturaMedias.tmlFinal > 0 ? (s.v / aberturaMedias.tmlFinal) * 100 : 0}%`, background: s.cor }} className="flex items-center justify-center overflow-hidden whitespace-nowrap">
+                      {s.v >= 2 ? `${s.label} · ${s.v.toFixed(0)}min` : ''}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex justify-between items-center mt-3 pt-2 border-t border-dashed text-sm">
+                  <span className="text-muted-foreground">Soma das etapas = Tempo TML Final</span>
+                  <span className="font-bold">
+                    {aberturaMedias.tmlFinal.toFixed(0)}min{' '}
+                    <span className={`text-xs font-semibold ${(aberturaMedias.tmlFinal - META_TML_TOTAL_MIN) > 0.5 ? 'text-red-600' : 'text-green-700'}`}>
+                      ({(aberturaMedias.tmlFinal - META_TML_TOTAL_MIN) >= 0 ? '+' : ''}{(aberturaMedias.tmlFinal - META_TML_TOTAL_MIN).toFixed(0)}min sobre a meta de {META_TML_TOTAL_MIN})
+                    </span>
+                  </span>
+                </div>
+              </div>
+            </>
+          )}
+
+          <SectionTitle title="Detalhe por mapa" subtitle="ordenado pelo TML Final, do mais lento pro mais rápido" />
+          <div className="border rounded-xl bg-white shadow-sm overflow-x-auto max-h-[520px] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-slate-50 z-10">
+                <tr className="text-left text-xs text-muted-foreground border-b">
+                  <th className="py-2 px-4">Mapa</th>
+                  <th className="py-2 px-4">Placa</th>
+                  <th className="py-2 px-4">Sala</th>
+                  <th className="py-2 px-4">Data</th>
+                  <th className="py-2 px-4 text-right">Matinal</th>
+                  <th className="py-2 px-4 text-right">Desloc.</th>
+                  <th className="py-2 px-4 text-right">Checklist</th>
+                  <th className="py-2 px-4 text-right">Conferência</th>
+                  <th className="py-2 px-4 text-right">Movimentação</th>
+                  <th className="py-2 px-4 text-right">TML Final</th>
+                </tr>
+              </thead>
+              <tbody>
+                {aberturaPorMapa.length === 0 ? (
+                  <tr><td colSpan={10} className="text-center py-8 text-muted-foreground">Nenhum mapa no filtro.</td></tr>
+                ) : aberturaPorMapa.map((l) => (
+                  <tr key={l.chave} className="border-b last:border-0 hover:bg-slate-50">
+                    <td className="py-2 px-4 font-semibold tabular-nums">{l.mapa ?? '—'}</td>
+                    <td className="py-2 px-4">{l.placa ?? '—'}</td>
+                    <td className="py-2 px-4 whitespace-nowrap">{SALA_TML_LABEL[l.sala]}</td>
+                    <td className="py-2 px-4 whitespace-nowrap">{formatarDataBR(l.data)}</td>
+                    {([
+                      { v: l.matinalMin, meta: l.metaMatinal },
+                      { v: l.deslocamentoMin, meta: l.metaDeslocamento },
+                      { v: l.checklistMin, meta: l.metaChecklist },
+                      { v: l.confMin, meta: l.metaConferencia },
+                      { v: l.movimentacaoMin, meta: l.metaMovimentacao },
+                    ] as const).map((c, i) => (
+                      <td key={i} className={`py-2 px-4 text-right tabular-nums ${c.v != null && c.v > c.meta ? 'text-red-600 font-semibold' : ''}`}>
+                        {c.v != null ? `${c.v}min` : '—'}
+                      </td>
+                    ))}
+                    <td className={`py-2 px-4 text-right tabular-nums font-bold ${l.tmlFinalMin != null && l.tmlFinalMin > META_TML_TOTAL_MIN ? 'text-red-600' : 'text-green-700'}`}>
+                      {l.tmlFinalMin != null ? `${l.tmlFinalMin}min` : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : aba === 'geral' && subAbaGeral === 'consolidado' ? (
         <>
           <SectionTitle title="TML — saída na portaria" />
 

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowLeft, Loader2, RefreshCw, Save, SlidersHorizontal, ChevronDown, ChevronRight } from 'lucide-react'
+import { ArrowLeft, Loader2, RefreshCw, Save, SlidersHorizontal, ChevronDown, ChevronRight, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { formatarDataBR } from '../lib/utils'
 import {
-  DESLOCAMENTO_IDEAL_MIN, DESLOCAMENTO_ESTOURO_MIN, CHECKLIST_IDEAL_MIN, CONFERENCIA_IDEAL_MIN,
+  DESLOCAMENTO_IDEAL_MIN, DESLOCAMENTO_ESTOURO_MIN, CHECKLIST_IDEAL_MIN, CONFERENCIA_IDEAL_MIN, META_TML_TOTAL_MIN,
   gatilhoEstouroMinutos, etapaIdealMinutos,
   type MetaMatinalParam, type GatilhoEstouroParam, type EtapaIdealParam,
 } from '../lib/tml'
@@ -397,6 +397,66 @@ export default function DistribuicaoTMLParametros() {
                     </table>
                   </div>
                 )}
+              </div>
+            )}
+          </div>
+
+          <div className="border rounded-lg bg-white">
+            <div className="px-4 py-3 border-b">
+              <h2 className="font-semibold text-sm">Tempo de Movimentação — calculado automaticamente</h2>
+              <p className="text-xs text-muted-foreground">
+                {META_TML_TOTAL_MIN}min − Matinal do dia − Deslocamento − Checklist − Conferência. Não é editável aqui:
+                muda sozinho quando você altera a Matinal por dia ou os fixos acima (ainda não salvos contam no cálculo).
+              </p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-4 py-2 font-medium text-muted-foreground">Dia</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Matinal</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Fixos</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Movimentação</th>
+                    <th className="text-right px-4 py-2 font-medium text-muted-foreground">Soma = meta TML</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {DIAS_SEMANA.map((d) => {
+                    const matinal = metasPorDia[d.dow] ?? metaPadraoFallback(d.dow)
+                    const semMatinal = matinal === 0
+                    const fixos = idealMin + checklistIdealMin + conferenciaIdealMin
+                    const movimentacao = META_TML_TOTAL_MIN - matinal - fixos
+                    return (
+                      <tr key={d.dow} className={semMatinal ? 'text-muted-foreground' : ''}>
+                        <td className="px-4 py-2">{d.label}</td>
+                        {semMatinal ? (
+                          <td colSpan={4} className="px-4 py-2 text-right">sem matinal</td>
+                        ) : (
+                          <>
+                            <td className="px-4 py-2 text-right">{matinal}min</td>
+                            <td className="px-4 py-2 text-right">{fixos}min</td>
+                            <td className={`px-4 py-2 text-right font-semibold ${movimentacao < 0 ? 'text-red-600' : 'text-green-700'}`}>
+                              {movimentacao}min
+                            </td>
+                            <td className="px-4 py-2 text-right">{matinal + fixos + movimentacao}min</td>
+                          </>
+                        )}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+            {DIAS_SEMANA.some((d) => {
+              const matinal = metasPorDia[d.dow] ?? metaPadraoFallback(d.dow)
+              return matinal > 0 && META_TML_TOTAL_MIN - matinal - (idealMin + checklistIdealMin + conferenciaIdealMin) < 0
+            }) && (
+              <div className="mx-4 mb-4 flex items-start gap-2 text-sm text-red-700 bg-red-50 rounded-md p-3">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <span>
+                  Em algum dia a Matinal + os fixos já passam de {META_TML_TOTAL_MIN}min — a meta de Movimentação
+                  daria negativa. Ajuste a Matinal daquele dia ou os tempos fixos acima.
+                </span>
               </div>
             )}
           </div>

@@ -57,7 +57,7 @@ export function tempoDeslocamentoMinutos(sala: SalaTML, horarioInicioChecklist: 
 
 // Tempo de deslocamento ideal entre o fim da matinal e o início do checklist,
 // e o limite a partir do qual é considerado um estouro de gatilho.
-export const DESLOCAMENTO_IDEAL_MIN = 4;
+export const DESLOCAMENTO_IDEAL_MIN = 5;
 export const DESLOCAMENTO_ESTOURO_MIN = 7;
 
 // Se ninguém apertar "Finalizar Matinal", a duração é limitada a este teto
@@ -149,7 +149,7 @@ export function tempoDeslocamentoComMatinalReal(horarioFinalMatinal: string, hor
 // o checklist e a conferência devem durar. Usado só pra marcar estourou/não
 // estourou cada etapa — não bloqueia nem soma em nenhuma outra conta.
 export const CHECKLIST_IDEAL_MIN = 4;
-export const CONFERENCIA_IDEAL_MIN = 10;
+export const CONFERENCIA_IDEAL_MIN = 7;
 
 export type EtapaTML = "checklist" | "conferencia";
 
@@ -169,4 +169,22 @@ export function etapaIdealMinutos(etapa: EtapaTML, data: string, params?: EtapaI
     if (vigente) return vigente.ideal_minutos;
   }
   return padrao;
+}
+
+// Meta total do TML: Matinal (varia por dia da semana) + Deslocamento +
+// Checklist + Conferência (fixos) + Tempo de Movimentação. O Tempo de
+// Movimentação (última ação do checklist/conferência até a saída na
+// portaria) não tem meta própria — é o que sobra dos 30min depois da
+// Matinal do dia e dos 3 fixos, por isso varia junto com a Matinal.
+export const META_TML_TOTAL_MIN = 30;
+
+export function metaMovimentacaoMinutos(
+  data: string,
+  params?: { matinal?: MetaMatinalParam[]; etapa?: EtapaIdealParam[]; gatilho?: GatilhoEstouroParam[] }
+): number {
+  const matinal = metaMatinalMinutos(data, params?.matinal);
+  const deslocamento = gatilhoEstouroMinutos(data, params?.gatilho).ideal;
+  const checklist = etapaIdealMinutos("checklist", data, params?.etapa);
+  const conferencia = etapaIdealMinutos("conferencia", data, params?.etapa);
+  return META_TML_TOTAL_MIN - matinal - deslocamento - checklist - conferencia;
 }
