@@ -769,11 +769,12 @@ export default function DistribuicaoTMLAnalise() {
                   <th className="py-2 px-4 text-right">Conferência</th>
                   <th className="py-2 px-4 text-right">Movimentação</th>
                   <th className="py-2 px-4 text-right">TML Final</th>
+                  <th className="py-2 px-4"></th>
                 </tr>
               </thead>
               <tbody>
                 {aberturaPorMapa.length === 0 ? (
-                  <tr><td colSpan={10} className="text-center py-8 text-muted-foreground">Nenhum mapa no filtro.</td></tr>
+                  <tr><td colSpan={11} className="text-center py-8 text-muted-foreground">Nenhum mapa no filtro.</td></tr>
                 ) : aberturaPorMapa.map((l) => (
                   <tr key={l.chave} className="border-b last:border-0 hover:bg-slate-50">
                     <td className="py-2 px-4 font-semibold tabular-nums">{l.mapa ?? '—'}</td>
@@ -793,6 +794,14 @@ export default function DistribuicaoTMLAnalise() {
                     ))}
                     <td className={`py-2 px-4 text-right tabular-nums font-bold ${l.tmlFinalMin != null && l.tmlFinalMin > META_TML_TOTAL_MIN ? 'text-red-600' : 'text-green-700'}`}>
                       {l.tmlFinalMin != null ? `${l.tmlFinalMin}min` : '—'}
+                    </td>
+                    <td className="py-2 px-4">
+                      <button
+                        onClick={() => setDetalheAberto(l.chave)}
+                        className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md border hover:bg-accent transition-colors whitespace-nowrap"
+                      >
+                        Ver horários
+                      </button>
                     </td>
                   </tr>
                 ))}
