@@ -2388,20 +2388,46 @@ export async function verificarLembretesFrotaLeve(grupoAlvo?: string): Promise<n
   return enviados
 }
 
+const MOTIVO_FINALIZACAO_AUTOMATICA_CONFERENCIA = 'Finalização automática — mapa parado há mais de 30 minutos'
+
+// Duração média (ms) dos mapas concluídos "de verdade" (nenhuma baia
+// pendente e nenhuma finalizada por esta própria rotina) — usada como
+// estimativa de horário de fechamento pros mapas parados, em vez de
+// "agora" (infla o tempo com o atraso até o cron rodar) ou do horário da
+// última baia conferida (pode ser bem antes de o mapa ter sido abandonado).
+function duracaoMediaMapasConcluidosMs(
+  listas: { status: string; iniciada_em: string | null; finalizada_em: string | null; motivo_pulada?: string | null }[][]
+): number | null {
+  let soma = 0, n = 0
+  for (const baiasDoMapa of listas) {
+    if (baiasDoMapa.some((b) => b.status === 'pendente')) continue
+    if (baiasDoMapa.some((b) => b.motivo_pulada === MOTIVO_FINALIZACAO_AUTOMATICA_CONFERENCIA)) continue
+    const inicios = baiasDoMapa.map((b) => b.iniciada_em).filter((t): t is string => !!t).map((t) => new Date(t).getTime())
+    const fins = baiasDoMapa.map((b) => b.finalizada_em).filter((t): t is string => !!t).map((t) => new Date(t).getTime())
+    if (inicios.length === 0 || fins.length === 0) continue
+    const duracao = Math.max(...fins) - Math.min(...inicios)
+    if (duracao <= 0) continue
+    soma += duracao; n++
+  }
+  return n > 0 ? soma / n : null
+}
+
 // Finalização automática de mapas parados: se a conferência de um mapa está
 // em andamento (pelo menos uma baia iniciada) há mais de 30 minutos e ainda
 // não terminou, as baias que sobraram como 'pendente' são marcadas como
 // 'pulada' (motivo automático) — não como 'conferida', já que ninguém
-// verificou os itens de fato. O horário gravado é o da ÚLTIMA baia
-// conferida do mapa (não "agora"), pra não inflar o tempo de conferência
-// registrado com o atraso até o cron rodar; sem nenhuma baia conferida
-// ainda, cai pro horário atual. Chamado só por cron (mesmo endpoint do
-// lembrete de baia parada, /api/conferencia-parada-check).
+// verificou os itens de fato. Só finaliza mapas com pelo menos 1 baia
+// CONFERIDA e um responsável (iniciado_por) registrado em alguma baia —
+// "iniciada_em" sozinho não basta, é gravado só de abrir a baia, mesmo sem
+// conferir nada e sem o ajudante ter digitado o nome. O horário gravado é
+// o início do mapa + a duração média dos mapas concluídos naturalmente
+// (nunca antes da última baia conferida do próprio mapa). Chamado só por
+// cron (mesmo endpoint do lembrete de baia parada, /api/conferencia-parada-check).
 export async function finalizarMapasParadosAutomaticamente(): Promise<number> {
   const desde = new Date(Date.now() - 3 * 86_400_000).toISOString().slice(0, 10)
   const { data: baias } = await supabase
     .from('conferencia_baias')
-    .select('id, filial, mapa, data, status, iniciada_em, finalizada_em')
+    .select('id, filial, mapa, data, status, iniciada_em, finalizada_em, iniciado_por, motivo_pulada')
     .gte('data', desde)
   if (!baias || baias.length === 0) return 0
 
@@ -2413,25 +2439,38 @@ export async function finalizarMapasParadosAutomaticamente(): Promise<number> {
     porMapa.set(chave, lista)
   }
 
+  // Duração média calculada por filial (não faz sentido misturar CDDs diferentes).
+  const filiais = new Set([...porMapa.keys()].map((k) => k.split('|')[0]))
+  const duracaoMediaPorFilial = new Map<string, number | null>()
+  for (const chaveFilial of filiais) {
+    const listasDaFilial = [...porMapa.entries()].filter(([k]) => k.startsWith(`${chaveFilial}|`)).map(([, v]) => v)
+    duracaoMediaPorFilial.set(chaveFilial, duracaoMediaMapasConcluidosMs(listasDaFilial))
+  }
+
   const limite = Date.now() - 30 * 60_000
   let mapasFinalizados = 0
-  for (const lista of porMapa.values()) {
+  for (const [chave, lista] of porMapa) {
     const pendentes = lista.filter((b) => b.status === 'pendente')
     if (pendentes.length === 0) continue // já concluído (tudo conferida/pulada)
 
+    const conferidas = lista.filter((b) => b.status === 'conferida' && b.finalizada_em)
+    if (conferidas.length === 0) continue // ninguém conferiu nenhuma baia — não finaliza
+    if (!lista.some((b) => b.iniciado_por)) continue // nenhum responsável registrado — não finaliza
+
     const inicios = lista.map((b) => b.iniciada_em).filter((t): t is string => !!t).map((t) => new Date(t).getTime())
     if (inicios.length === 0) continue // ninguém abriu nenhuma baia ainda — nada "em conferência"
-    const inicioConferencia = Math.min(...inicios)
-    if (inicioConferencia > limite) continue // ainda dentro dos 30 minutos
+    const inicioMapa = Math.min(...inicios)
+    if (inicioMapa > limite) continue // ainda dentro dos 30 minutos
 
-    const finsConferidos = lista
-      .filter((b) => b.status === 'conferida' && b.finalizada_em)
-      .map((b) => new Date(b.finalizada_em as string).getTime())
-    const horarioFinal = finsConferidos.length > 0 ? new Date(Math.max(...finsConferidos)).toISOString() : new Date().toISOString()
+    const chaveFilial = chave.split('|')[0]
+    const duracaoMediaMs = duracaoMediaPorFilial.get(chaveFilial) ?? null
+    const ultimaConferida = Math.max(...conferidas.map((b) => new Date(b.finalizada_em as string).getTime()))
+    const estimativa = duracaoMediaMs != null ? inicioMapa + duracaoMediaMs : ultimaConferida
+    const horarioFinal = new Date(Math.max(estimativa, ultimaConferida)).toISOString()
 
     const { error } = await supabase
       .from('conferencia_baias')
-      .update({ status: 'pulada', motivo_pulada: 'Finalização automática — mapa parado há mais de 30 minutos', finalizada_em: horarioFinal })
+      .update({ status: 'pulada', motivo_pulada: MOTIVO_FINALIZACAO_AUTOMATICA_CONFERENCIA, finalizada_em: horarioFinal })
       .in('id', pendentes.map((b) => b.id))
     if (!error) mapasFinalizados++
   }

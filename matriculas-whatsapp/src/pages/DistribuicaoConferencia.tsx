@@ -127,7 +127,9 @@ export default function DistribuicaoConferencia() {
     setFinalizandoParados(true)
     try {
       const n = await finalizarMapasParadosManual(usuario.filial)
-      alert(n > 0 ? `${n} mapa(s) finalizado(s) automaticamente.` : 'Nenhum mapa parado há mais de 30 minutos no momento.')
+      alert(n > 0
+        ? `${n} mapa(s) finalizado(s) automaticamente.`
+        : 'Nenhum mapa elegível agora — só finaliza quem já tem pelo menos 1 baia conferida e um responsável registrado, parado há mais de 30 minutos.')
       await Promise.all([fetchMapasParados(), fetchResumo()])
     } catch (e) {
       alert(e instanceof Error ? e.message : 'Erro ao finalizar mapas parados.')
@@ -409,7 +411,7 @@ export default function DistribuicaoConferencia() {
             <button
               onClick={handleFinalizarParados}
               disabled={finalizandoParados}
-              title="Finaliza (marca como pulada) as baias pendentes de mapas parados há mais de 30 minutos — não usa WhatsApp"
+              title="Finaliza (marca como pulada) só os mapas parados há mais de 30min que já têm pelo menos 1 baia conferida e um responsável registrado — mapa que ninguém tocou não é mexido. Não usa WhatsApp."
               className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-amber-300 text-amber-800 hover:bg-amber-50 disabled:opacity-50 whitespace-nowrap"
             >
               {finalizandoParados ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
@@ -434,6 +436,7 @@ export default function DistribuicaoConferencia() {
                     <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Baias pendentes</th>
                     <th className="text-right px-3 py-2.5 font-medium text-muted-foreground">Parado há</th>
                     <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Responsável</th>
+                    <th className="text-left px-3 py-2.5 font-medium text-muted-foreground">Finalização automática</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -444,6 +447,17 @@ export default function DistribuicaoConferencia() {
                       <td className="px-3 py-2 text-right tabular-nums">{m.baiasPendentes}/{m.totalBaias}</td>
                       <td className="px-3 py-2 text-right tabular-nums font-medium text-amber-700">{formatarMinutosParado(m.minutosParado)}</td>
                       <td className="px-3 py-2">{m.quemNome ?? <span className="text-muted-foreground">Ninguém iniciou</span>}</td>
+                      <td className="px-3 py-2">
+                        {m.elegivelFinalizacao ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-medium text-amber-700">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Elegível
+                          </span>
+                        ) : (
+                          <span className="text-xs text-muted-foreground" title="Sem nenhuma baia conferida ou sem responsável registrado — a finalização automática não mexe nesse mapa.">
+                            Não elegível
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
