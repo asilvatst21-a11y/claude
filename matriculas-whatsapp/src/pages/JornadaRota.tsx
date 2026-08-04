@@ -905,7 +905,9 @@ export default function JornadaRota() {
       buscarStatusColaboradoresPorTelefone(usuario.filial),
       buscarStatusColaboradoresPorMatricula(usuario.filial),
     ])
-    const numeroExtra = filialConfig?.numero_extra_aderencia_whatsapp || null
+    // Aceita mais de um número no mesmo campo, separados por vírgula/;/quebra de linha.
+    const numerosExtra = (filialConfig?.numero_extra_aderencia_whatsapp ?? '')
+      .split(/[,;\n]/).map((n: string) => n.trim()).filter(Boolean)
 
     for (const sala of SALAS_JORNADA) {
       const linhasSala = porSala.get(sala) ?? []
@@ -938,10 +940,11 @@ export default function JornadaRota() {
         await enviarMensagemWhatsApp(sup.telefone, msgAderencia)
         await aguardarEntreEnvios()
       }
-      // Número extra: recebe a aderência das duas salas (uma mensagem por sala).
-      if (numeroExtra) {
+      // Números extra: recebem a aderência das duas salas (uma mensagem por sala, cada um).
+      for (const numeroExtra of numerosExtra) {
         const r = await enviarMensagemWhatsApp(numeroExtra, msgAderencia)
-        if (!r.sucesso) erros.push(`Número extra (${SALA_JORNADA_LABEL[sala]}): ${r.erro ?? 'falha desconhecida'}`)
+        if (!r.sucesso) erros.push(`Número extra ${numeroExtra} (${SALA_JORNADA_LABEL[sala]}): ${r.erro ?? 'falha desconhecida'}`)
+        await aguardarEntreEnvios()
       }
     }
 
@@ -1251,17 +1254,17 @@ export default function JornadaRota() {
           />
 
           <div>
-            <label className="block text-sm font-medium">Número extra — aderência das duas salas</label>
+            <label className="block text-sm font-medium">Números extra — aderência das duas salas</label>
             <p className="text-xs text-muted-foreground mt-0.5 mb-1.5">
-              Opcional. Esse número recebe a mensagem de aderência de COLORADO e de SUB-FURIA, além dos
-              supervisores de cada sala. O grupo de monitoramento (acima) não recebe a mensagem de
-              aderência — só o resumo em imagem do CDD.
+              Opcional. Esses números recebem a mensagem de aderência de COLORADO e de SUB-FURIA, além dos
+              supervisores de cada sala. Pra adicionar mais de um, separe por vírgula. O grupo de
+              monitoramento (acima) não recebe a mensagem de aderência — só o resumo em imagem do CDD.
             </p>
             <input
               type="text"
               value={numeroExtraAderencia}
               onChange={(e) => setNumeroExtraAderencia(e.target.value)}
-              placeholder="Ex.: 5511999999999"
+              placeholder="Ex.: 5511999999999, 5511988888888"
               className="w-full border rounded-md px-3 py-2 text-sm"
             />
           </div>
