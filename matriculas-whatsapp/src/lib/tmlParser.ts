@@ -648,6 +648,49 @@ export function parseBeesBuffer(buffer: ArrayBuffer): BeesMapaAgregado[] {
   }));
 }
 
+export interface BeesVisitaPdv {
+  mapa: number;
+  pdvCodigo: string;
+  pdvNome: string | null;
+  status: string;
+}
+
+/**
+ * Mesmo export bruto do BEES (parseBeesBuffer acima), mas mantendo a linha
+ * por PDV em vez de só o agregado por mapa — usado pelo Farol de Mercados e
+ * PDVs Críticos (Distribuição), que precisa saber a etapa da visita de cada
+ * PDV, não só o total do mapa. Reparseia o mesmo arquivo (não reaproveita o
+ * agregado) pra não arriscar nada da agregação que já está em produção.
+ */
+export function parseBeesVisitasPorPdv(buffer: ArrayBuffer): BeesVisitaPdv[] {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const sheet = workbook.Sheets[workbook.SheetNames[0]];
+  const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
+  if (rows.length === 0) return [];
+
+  const header = rows[0].map(normalize);
+  const mapaIdx = header.indexOf("tour_display_id");
+  const pdvCodigoIdx = header.indexOf("poc_external_id");
+  const pdvNomeIdx = header.indexOf("poc_name");
+  const statusIdx = header.indexOf("status");
+  if (mapaIdx === -1 || pdvCodigoIdx === -1 || statusIdx === -1) return [];
+
+  const visitas: BeesVisitaPdv[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const mapa = Number(row[mapaIdx]);
+    const pdvCodigo = String(row[pdvCodigoIdx] ?? "").trim();
+    if (!mapa || isNaN(mapa) || !pdvCodigo) continue;
+    visitas.push({
+      mapa,
+      pdvCodigo,
+      pdvNome: pdvNomeIdx !== -1 ? (String(row[pdvNomeIdx] ?? "").trim() || null) : null,
+      status: String(row[statusIdx] ?? "").trim().toUpperCase(),
+    });
+  }
+  return visitas;
+}
+
 export interface RoteirizadorLinha {
   placa: string;
   tempoDirigindoMin: number | null;

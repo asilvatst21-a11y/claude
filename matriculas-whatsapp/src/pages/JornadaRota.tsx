@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
-import { parseBeesBuffer, parseRoteirizadorBuffer } from '../lib/tmlParser'
+import { parseBeesBuffer, parseBeesVisitasPorPdv, parseRoteirizadorBuffer } from '../lib/tmlParser'
 import { enviarMensagemWhatsApp, enviarImagemGrupo, listarGrupos, aguardarEntreEnvios, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import {
@@ -606,6 +606,28 @@ export default function JornadaRota() {
       }))
       const { error } = await supabase.from('jornada_bees').upsert(rows, { onConflict: 'filial,mapa,data' })
       if (error) throw new Error(error.message)
+
+      // Mesmo arquivo, mantendo a linha por PDV — alimenta o Farol de
+      // Mercados e PDVs Críticos (Distribuição). Não bloqueia o import
+      // principal se falhar: só registra no console.
+      try {
+        const visitas = parseBeesVisitasPorPdv(buffer)
+        if (visitas.length > 0) {
+          await supabase.from('distribuicao_bees_visitas').delete().eq('filial', usuario.filial).eq('data', dataOperacao)
+          const visitaRows = visitas.map((v) => ({
+            filial: usuario.filial, data: dataOperacao, mapa: v.mapa,
+            pdv_codigo: v.pdvCodigo, pdv_nome: v.pdvNome, status: v.status,
+            importado_em: agora,
+          }))
+          const BATCH = 500
+          for (let i = 0; i < visitaRows.length; i += BATCH) {
+            const { error: erroVisitas } = await supabase.from('distribuicao_bees_visitas').insert(visitaRows.slice(i, i + BATCH))
+            if (erroVisitas) { console.error('[Jornada] falha ao salvar visitas por PDV:', erroVisitas.message); break }
+          }
+        }
+      } catch (e) {
+        console.error('[Jornada] falha ao processar BEES por PDV:', e)
+      }
 
       await fetchJornada()
       await fetchUltimosImports()

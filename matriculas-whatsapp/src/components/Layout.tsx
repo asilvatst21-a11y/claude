@@ -59,6 +59,7 @@ const distribuicaoItems = [
   { permKey: 'distribuicao', to: '/distribuicao/dto',          label: 'DTO Distribuição',     icon: ShieldCheck },
   { permKey: 'distribuicao', to: '/distribuicao/jornada-rota', label: 'Jornada e Tempo em Rota', icon: Route },
   { permKey: 'distribuicao', to: '/distribuicao/conferencia', label: 'Conferência Digital', icon: ClipboardCheck },
+  { permKey: 'distribuicao', to: '/distribuicao/farol-criticos', label: 'Farol de Mercados e PDVs Críticos', icon: Flag },
 ]
 
 const frotaItems = [

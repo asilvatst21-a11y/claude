@@ -17,6 +17,7 @@ import DistribuicaoTMLWhatsappConfig from './pages/DistribuicaoTMLWhatsappConfig
 import DistribuicaoTMLParametros from './pages/DistribuicaoTMLParametros'
 import DtoDistribuicao from './pages/DtoDistribuicao'
 import JornadaRota from './pages/JornadaRota'
+import DistribuicaoFarolCriticos from './pages/DistribuicaoFarolCriticos'
 import ConferenciaDigital from './pages/ConferenciaDigital'
 import DistribuicaoConferencia from './pages/DistribuicaoConferencia'
 import Frota from './pages/Frota'
@@ -151,6 +152,7 @@ export default function App() {
             <Route path="/distribuicao/tml/parametros" element={<DistribuicaoTMLParametros />} />
             <Route path="/distribuicao/dto" element={<DtoDistribuicao />} />
             <Route path="/distribuicao/jornada-rota" element={<JornadaRota />} />
+            <Route path="/distribuicao/farol-criticos" element={<DistribuicaoFarolCriticos />} />
             <Route path="/distribuicao/conferencia" element={<DistribuicaoConferencia />} />
             <Route path="/distribuicao/treinamentos" element={<Treinamentos />} />
             <Route path="/distribuicao/fechamento-dia" element={<FechamentoDia />} />
