@@ -137,6 +137,23 @@ export async function buscarMotoristaPlaca(
   return { motorista: data.nome ?? null, placa: data.placa ?? null }
 }
 
+// Valor da nota do dia, puxado do CORA (distribuicao_cora_notas — mesmo
+// import já usado no Farol de Mercados e PDVs Críticos). Soma o valor de
+// todas as NFs do cliente na data, caso tenha mais de uma. Só sugestão pra
+// pré-preencher o campo do lançamento de Chapa; continua editável à mão.
+export async function buscarValorNotaCora(filial: string, data: string, clienteCodigo: number): Promise<number | null> {
+  if (!filial || !Number.isFinite(clienteCodigo)) return null
+  const { data: rows, error } = await supabase
+    .from('distribuicao_cora_notas')
+    .select('valor_total_nf')
+    .eq('filial', filial)
+    .eq('data', data)
+    .eq('cliente_codigo', String(clienteCodigo))
+  if (error || !rows || rows.length === 0) return null
+  const soma = rows.reduce((acc, r) => acc + (r.valor_total_nf != null ? Number(r.valor_total_nf) : 0), 0)
+  return soma > 0 ? soma : null
+}
+
 // Clientes ativos (com Chapa e/ou Descarga habilitados) que têm mapa na rua
 // no dia informado — base da notificação ao financeiro.
 export async function clientesComMapaHoje(data: string): Promise<ClienteComMapaHoje[]> {

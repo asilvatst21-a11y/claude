@@ -3,7 +3,7 @@ import { Truck, Package, AlertTriangle, CheckCircle2, Printer, X, Upload, Loader
 import { useAuth } from '@/lib/auth'
 import { supabase } from '@/lib/supabase'
 import {
-  clientesComMapaHoje, listarLancamentosDoDia, registrarLancamento, calcularChapa, calcularDescarga, buscarMotoristaPlaca,
+  clientesComMapaHoje, listarLancamentosDoDia, registrarLancamento, calcularChapa, calcularDescarga, buscarMotoristaPlaca, buscarValorNotaCora,
   type ClienteComMapaHoje, type ClienteChapaDescarga, type LancamentoChapaDescarga, type TipoLancamento,
 } from '@/lib/chapaDescarga'
 
@@ -30,6 +30,8 @@ interface WizardState {
   motorista: string
   placa: string
   buscandoTransportador: boolean
+  valorNotaOrigemCora: boolean
+  buscandoValorNota: boolean
 }
 
 export default function ChapaDescargaPage() {
@@ -77,6 +79,26 @@ export default function ChapaDescargaPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wizard?.mapaSelecionado])
 
+  // Pré-preenche o valor da nota a partir do CORA (mesmo import usado no
+  // Farol de Mercados e PDVs Críticos), assim que o wizard abre pro
+  // cliente. Continua editável — se o financeiro digitar por cima, o
+  // "puxado do CORA" some.
+  useEffect(() => {
+    if (!wizard?.cliente || !usuario?.filial) return
+    let cancelado = false
+    setWizard(w => w && ({ ...w, buscandoValorNota: true }))
+    buscarValorNotaCora(usuario.filial, data, wizard.cliente.codigo).then(valor => {
+      if (cancelado) return
+      setWizard(w => {
+        if (!w) return w
+        if (valor == null) return { ...w, buscandoValorNota: false }
+        return { ...w, valorNota: String(valor), valorNotaOrigemCora: true, buscandoValorNota: false }
+      })
+    })
+    return () => { cancelado = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wizard?.cliente.codigo])
+
   function iniciarLancamento(item: ClienteComMapaHoje) {
     setWizard({
       cliente: item.cliente,
@@ -90,6 +112,8 @@ export default function ChapaDescargaPage() {
       motorista: '',
       placa: '',
       buscandoTransportador: false,
+      valorNotaOrigemCora: false,
+      buscandoValorNota: false,
     })
     setPasso(item.mapas.length > 1 ? 'mapa' : 'tipo')
     setConfirmarFora(false)
@@ -343,12 +367,18 @@ export default function ChapaDescargaPage() {
                     <label className="block text-sm font-medium mb-1">Valor da nota (R$)</label>
                     <input
                       value={wizard.valorNota}
-                      onChange={e => setWizard(w => w && ({ ...w, valorNota: e.target.value }))}
-                      placeholder="Ex: 24500"
+                      onChange={e => setWizard(w => w && ({ ...w, valorNota: e.target.value, valorNotaOrigemCora: false }))}
+                      placeholder={wizard.buscandoValorNota ? 'Buscando no CORA…' : 'Ex: 24500'}
                       className="w-full border rounded-md px-3 py-2 text-sm"
                       autoFocus
                     />
-                    <p className="text-xs text-muted-foreground mt-1">Valor digitado manualmente pelo financeiro.</p>
+                    <p className={`text-xs mt-1 ${wizard.valorNotaOrigemCora ? 'text-green-700' : 'text-muted-foreground'}`}>
+                      {wizard.valorNotaOrigemCora
+                        ? 'Puxado do CORA — confira antes de confirmar.'
+                        : wizard.buscandoValorNota
+                          ? 'Buscando no CORA…'
+                          : 'Não achei nota do CORA pra esse cliente hoje — digite manualmente.'}
+                    </p>
                   </div>
                 ) : (
                   <div>
