@@ -5,7 +5,7 @@ import {
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
   Wallet, Menu, X, Truck, Boxes, Timer, Home, Send, SlidersHorizontal,
-  ShieldCheck, Fuel, Scale, Route, ClipboardCheck, GraduationCap, AlertTriangle,
+  ShieldCheck, Fuel, Scale, Route, ClipboardCheck, GraduationCap, AlertTriangle, MapPin,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -74,6 +74,7 @@ const armazemItems = [
   { permKey: 'armazem-supervisor', to: '/armazem/operadores', label: 'Operadores',             icon: UserCheck },
   { permKey: 'armazem-supervisor', to: '/armazem/dashboard',  label: 'Dashboard',              icon: Gauge },
   { permKey: 'armazem-supervisor', to: '/armazem/variavel',   label: 'Variável',               icon: Wallet },
+  { permKey: 'armazem-supervisor', to: '/armazem/layout-patio', label: 'Layout de Pátio',       icon: MapPin },
 ]
 
 const adminItems = [

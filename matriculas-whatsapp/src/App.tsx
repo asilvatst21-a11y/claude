@@ -60,6 +60,7 @@ import ArmazemCadastro from './pages/armazem/Cadastro'
 import ArmazemOperadores from './pages/armazem/Operadores'
 import ArmazemDashboard from './pages/armazem/Dashboard'
 import ArmazemVariavel from './pages/armazem/Variavel'
+import ArmazemLayoutPatio from './pages/armazem/LayoutPatio'
 import ColaboradoresArmazem from './pages/armazem/ColaboradoresArmazem'
 import VariavelTurnoConferente, { LoginConferente } from './pages/armazem/VariavelTurnoConferente'
 import VariavelTotem from './pages/VariavelTotem'
@@ -165,6 +166,7 @@ export default function App() {
             <Route path="/armazem/operadores" element={<ArmazemOperadores />} />
             <Route path="/armazem/dashboard" element={<ArmazemDashboard />} />
             <Route path="/armazem/variavel" element={<ArmazemVariavel />} />
+            <Route path="/armazem/layout-patio" element={<ArmazemLayoutPatio />} />
             <Route path="/armazem/colaboradores" element={<ColaboradoresArmazem />} />
             {/* Vales LOG20 */}
             <Route path="/vales" element={<ValesPage />} />
