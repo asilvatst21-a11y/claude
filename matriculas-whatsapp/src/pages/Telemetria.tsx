@@ -700,7 +700,7 @@ export default function Telemetria() {
     const [{ data: al }, { data: ac }, { data: colabs }, { data: roster }, { data: escalas }, { data: filialCfg }] = await Promise.all([
       supabase.from('telemetria_alertas').select('*').eq('filial', usuario.filial).order('data_hora', { ascending: false }),
       supabase.from('telemetria_acoes').select('*').eq('filial', usuario.filial),
-      supabase.from('colaboradores').select('nome, data_admissao, matricula, status').eq('filial', usuario.filial),
+      supabase.from('colaboradores').select('nome, data_admissao, matricula, matricula_promax, status').eq('filial', usuario.filial),
       // motoristas_sala_tml é o roster que já casa nome↔matrícula no MESMO
       // espaço de numeração usado por escalas_tml/historico_tml (é a mesma
       // fonte usada em jornada.ts) — colaboradores.matricula pode ser uma
@@ -729,11 +729,14 @@ export default function Telemetria() {
     setStatusPorNome(mapStatus)
 
     // Prioriza motoristas_sala_tml (mesmo espaço de matrícula do histórico do
-    // TML); cai pra colaboradores.matricula só se o motorista não estiver
-    // nesse roster. Os dois lados normalizados (zero à esquerda) pra bater
-    // mesmo quando uma fonte guarda "012345" e a outra 12345.
+    // TML); cai pra colaboradores.matricula_promax só se o motorista não
+    // estiver nesse roster — historico_tml/escalas_tml usam a matrícula
+    // Promax, não a matrícula LOG20 (colaboradores.matricula é outro
+    // cadastro e não bate 1:1 com esse espaço de numeração). Os dois lados
+    // normalizados (zero à esquerda) pra bater mesmo quando uma fonte guarda
+    // "012345" e a outra 12345.
     const mapMatricula = new Map<string, string>()
-    ;(colabs ?? []).forEach(c => { if (c.matricula) mapMatricula.set(normNome(c.nome), normalizarMatricula(String(c.matricula))) })
+    ;(colabs ?? []).forEach(c => { if (c.matricula_promax) mapMatricula.set(normNome(c.nome), normalizarMatricula(String(c.matricula_promax))) })
     ;(roster ?? []).forEach(r => { if (r.nome && r.matricula != null) mapMatricula.set(normNome(r.nome), normalizarMatricula(String(r.matricula))) })
     setMatriculaPorNome(mapMatricula)
 
