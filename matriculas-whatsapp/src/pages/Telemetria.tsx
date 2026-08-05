@@ -131,8 +131,16 @@ function motoristaEfetivo(a: TelemetriaAlerta): string {
   return a.motorista_identificado?.trim() || a.motorista || 'Sem Identificação'
 }
 
+// A telemetria costuma vir sem acento (ex.: "CONCEICAO"), enquanto o cadastro
+// de colaboradores mantém acento (ex.: "CONCEIÇÃO") — sem remover o acento
+// dos dois lados, o cruzamento por nome falha silenciosamente pra quem tem
+// caractere acentuado. Também colapsa espaço duplo (planilha de telemetria
+// às vezes tem espaçamento irregular entre nomes).
 function normNome(s: string): string {
-  return s.trim().toLowerCase()
+  return s
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .trim().toLowerCase()
+    .replace(/\s+/g, ' ')
 }
 
 function bucketDeMeses(meses: number): typeof BUCKETS_TEMPO_CASA[number] {
