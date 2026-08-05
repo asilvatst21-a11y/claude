@@ -8,6 +8,9 @@ import { MapContainer, TileLayer, useMap } from 'react-leaflet'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import 'leaflet.heat'
+import 'leaflet.markercluster'
+import 'leaflet.markercluster/dist/MarkerCluster.css'
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import {
   Upload, Loader2, RefreshCw, ChevronDown, ChevronUp,
   Car, User, MapPin, Clock, Plus, X, AlertTriangle, Zap, TrendingUp, Settings2,
@@ -564,6 +567,33 @@ function HeatLayer({ points }: { points: [number, number, number][] }) {
   return null
 }
 
+// Agrupa os pontos em clusters com um número visível — o heatmap "dilui" e
+// some quando a área de atendimento é grande e o zoom sai perto; o cluster
+// continua marcado (com a contagem) em qualquer nível de zoom, então é o
+// modo padrão pra enxergar onde estão as ocorrências numa área ampla.
+function ClusterLayer({ points }: { points: [number, number, number][] }) {
+  const map = useMap()
+  useEffect(() => {
+    if (points.length === 0) return
+    const grupo = L.markerClusterGroup({
+      maxClusterRadius: 60,
+      iconCreateFunction: (cluster) => {
+        const count = cluster.getChildCount()
+        const cor = count >= 20 ? '#dc2626' : count >= 8 ? '#f97316' : '#2563eb'
+        return L.divIcon({
+          html: `<div style="background:${cor};color:#fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.4)">${count}</div>`,
+          className: '',
+          iconSize: L.point(36, 36),
+        })
+      },
+    })
+    points.forEach(([lat, lon]) => L.marker([lat, lon]).addTo(grupo))
+    grupo.addTo(map)
+    return () => { map.removeLayer(grupo) }
+  }, [map, points])
+  return null
+}
+
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export default function Telemetria() {
@@ -593,6 +623,12 @@ export default function Telemetria() {
   const [copiado, setCopiado]             = useState<string | null>(null)
   const [salvandoGrupoSpike, setSalvandoGrupoSpike] = useState(false)
   const [enviandoSpike, setEnviandoSpike] = useState(false)
+
+  // Mapa geográfico: "agrupado" (clusters com contagem, visível em qualquer
+  // zoom) é o padrão porque a área de atendimento é grande e o calor sozinho
+  // dilui e some quando o zoom sai perto; "calor" é melhor pra inspecionar
+  // de perto um trecho específico.
+  const [modoMapa, setModoMapa] = useState<'agrupado' | 'calor'>('agrupado')
   const [expandedMot, setExpandedMot]     = useState<string | null>(null)
   const [expandedPlaca, setExpandedPlaca] = useState<string | null>(null)
   const [modalAcao, setModalAcao]         = useState<TelemetriaAlerta | null>(null)
@@ -1974,19 +2010,38 @@ export default function Telemetria() {
           {/* ── Mapa de Calor Tab ────────────────────────────────────────── */}
           {tab === 'mapa' && (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-              <h3 className="text-sm font-semibold text-gray-700 mb-3">Mapa de Calor Geográfico</h3>
+              <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+                <h3 className="text-sm font-semibold text-gray-700">Mapa Geográfico</h3>
+                <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
+                  <button
+                    onClick={() => setModoMapa('agrupado')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium ${modoMapa === 'agrupado' ? 'bg-white shadow text-brand-700' : 'text-gray-500'}`}
+                  >
+                    Agrupado (visão geral)
+                  </button>
+                  <button
+                    onClick={() => setModoMapa('calor')}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium ${modoMapa === 'calor' ? 'bg-white shadow text-brand-700' : 'text-gray-500'}`}
+                  >
+                    Calor (zoom de perto)
+                  </button>
+                </div>
+              </div>
               {pontosMapa.length === 0 ? (
                 <div className="text-center py-12 text-gray-400 text-sm">Nenhum evento com coordenadas no filtro atual.</div>
               ) : (
-                <div style={{ height: 520, borderRadius: 12, overflow: 'hidden' }}>
-                  <MapContainer center={centroMapa} zoom={12} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
+                <div style={{ height: 560, borderRadius: 12, overflow: 'hidden' }}>
+                  <MapContainer center={centroMapa} zoom={11} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
                     <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
-                    <HeatLayer points={pontosMapa} />
+                    {modoMapa === 'agrupado' ? <ClusterLayer points={pontosMapa} /> : <HeatLayer points={pontosMapa} />}
                   </MapContainer>
                 </div>
               )}
               <p className="text-xs text-gray-400 mt-2">
-                Concentração de eventos (curva, freada e excesso) com coordenadas, dentro do filtro atual — {pontosMapa.length} ponto(s).
+                {modoMapa === 'agrupado'
+                  ? 'Cada bolha mostra quantos eventos tem naquele agrupamento — some sozinha quando você dá zoom e os pontos se separam em bolhas menores. Vermelho = 20+, laranja = 8-19, azul = até 7.'
+                  : 'Mancha de calor — melhor pra ver a concentração exata numa rua/bairro específico, de perto.'}
+                {' '}{pontosMapa.length} ponto(s) com coordenadas no filtro atual.
               </p>
             </div>
           )}
