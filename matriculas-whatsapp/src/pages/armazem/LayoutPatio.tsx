@@ -15,7 +15,7 @@ import {
 
 type Modo = 'selecionar' | 'vaga' | 'faixa'
 
-const PERFIS: PerfilVaga[] = ['toco', 'truck', 'destino', 'outro']
+const PERFIS: PerfilVaga[] = ['toco', 'truck', 'vuc']
 
 function novoId(): string {
   return typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `id-${Date.now()}-${Math.random().toString(16).slice(2)}`

@@ -1,19 +1,19 @@
 import { supabase } from './supabase'
 
-export type PerfilVaga = 'toco' | 'truck' | 'destino' | 'outro'
+export type PerfilVaga = 'toco' | 'truck' | 'vuc'
 
 export const PERFIL_LABEL: Record<PerfilVaga, string> = {
   toco: 'Toco',
   truck: 'Truck',
-  destino: 'Destino fixo',
-  outro: 'Outro',
+  vuc: 'VUC',
 }
 
+// Mesmas cores usadas no layout original em Excel (tema Office: accent1 azul
+// pro bloco Toco/Truck, accent2 vermelho pras vagas de VUC).
 export const PERFIL_COR: Record<PerfilVaga, string> = {
-  toco: '#2f6fb0',
-  truck: '#1d4e73',
-  destino: '#c1633f',
-  outro: '#6b7280',
+  toco: '#4f81bd',
+  truck: '#2f5f8a',
+  vuc: '#c0504d',
 }
 
 export interface Ponto { x: number; y: number }
