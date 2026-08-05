@@ -691,7 +691,12 @@ export default function Telemetria() {
       supabase.from('telemetria_alertas').select('*').eq('filial', usuario.filial).order('data_hora', { ascending: false }),
       supabase.from('telemetria_acoes').select('*').eq('filial', usuario.filial),
       supabase.from('colaboradores').select('nome, data_admissao, matricula').eq('filial', usuario.filial),
-      supabase.from('escalas_tml').select('matricula, data_entrega').eq('filial', usuario.filial),
+      // historico_tml (não escalas_tml!) é quem guarda um registro por dia de
+      // verdade — escalas_tml tem UNIQUE(filial,mapa) e é sobrescrita a cada
+      // import, então nunca acumula mais de 1 dia por mapa. historico_tml usa
+      // UNIQUE(filial,mapa,data_saida), então cada dia de saída na portaria
+      // fica preservado.
+      supabase.from('historico_tml').select('matricula, data_saida').eq('filial', usuario.filial),
       supabase.from('filiais').select('grupo_telemetria_spike_whatsapp').eq('nome', usuario.filial).maybeSingle(),
     ])
     setAlertas(al ?? [])
@@ -701,11 +706,15 @@ export default function Telemetria() {
     ;(colabs ?? []).forEach(c => mapColabs.set(normNome(c.nome), { dataAdmissao: c.data_admissao ?? null, matricula: c.matricula ?? null }))
     setColaboradoresInfo(mapColabs)
 
+    // colaboradores.matricula é texto; historico_tml.matricula é inteiro —
+    // sem converter pra string dos dois lados, o Map.get() nunca bate (bug
+    // que zerava a taxa de todo mundo, mesmo com a tabela certa).
     const mapEscalas = new Map<string, Set<string>>()
     ;(escalas ?? []).forEach(e => {
-      if (!e.matricula || !e.data_entrega) return
-      if (!mapEscalas.has(e.matricula)) mapEscalas.set(e.matricula, new Set())
-      mapEscalas.get(e.matricula)!.add(e.data_entrega)
+      if (e.matricula == null || !e.data_saida) return
+      const chave = String(e.matricula)
+      if (!mapEscalas.has(chave)) mapEscalas.set(chave, new Set())
+      mapEscalas.get(chave)!.add(e.data_saida)
     })
     setEscalasDias(mapEscalas)
 
@@ -2022,12 +2031,13 @@ export default function Telemetria() {
                 <div className="p-4 pb-0">
                   <h3 className="text-sm font-semibold text-gray-700">Taxa de eventos por rota trabalhada</h3>
                   <p className="text-xs text-gray-400 mb-3">
-                    Não temos quilometragem no sistema — a taxa aqui é eventos ÷ dias de rota rodados (escala do dia em Distribuição).
+                    Não temos quilometragem no sistema — a taxa aqui é eventos ÷ dias de saída registrados na portaria
+                    (histórico de Distribuição → Carta de Controle TML, um registro por mapa+dia).
                     Só motoristas com {DIAS_MINIMOS_TAXA}+ dias no período, pra não distorcer com amostra pequena.
                   </p>
                 </div>
                 {taxaPorRota.length === 0 ? (
-                  <div className="text-center py-8 text-gray-400 text-sm">Sem dados suficientes de escala pra calcular a taxa nesse filtro.</div>
+                  <div className="text-center py-8 text-gray-400 text-sm">Sem dados suficientes de saída registrada pra calcular a taxa nesse filtro.</div>
                 ) : (
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-b border-gray-100">
