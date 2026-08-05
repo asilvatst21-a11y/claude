@@ -14,6 +14,7 @@ import 'leaflet.markercluster/dist/MarkerCluster.Default.css'
 import {
   Upload, Loader2, RefreshCw, ChevronDown, ChevronUp,
   Car, User, MapPin, Clock, Plus, X, AlertTriangle, Zap, TrendingUp, Settings2,
+  ArrowUp, ArrowDown, ArrowUpDown,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -575,6 +576,30 @@ function MotoristaDetail({
   )
 }
 
+type CampoOrdenacaoMot = 'nome' | 'total' | 'curva' | 'freada' | 'veloc' | 'velocVia' | 'taxa'
+
+function ThOrdenavel({
+  campo, atual, desc, onClick, children, className, title,
+}: {
+  campo: CampoOrdenacaoMot
+  atual: CampoOrdenacaoMot
+  desc: boolean
+  onClick: (c: CampoOrdenacaoMot) => void
+  children: React.ReactNode
+  className?: string
+  title?: string
+}) {
+  const ativo = atual === campo
+  return (
+    <th className={className} title={title}>
+      <button onClick={() => onClick(campo)} className="flex items-center gap-1 hover:text-gray-700 mx-auto">
+        {children}
+        {ativo ? (desc ? <ArrowDown size={11} /> : <ArrowUp size={11} />) : <ArrowUpDown size={11} className="opacity-30" />}
+      </button>
+    </th>
+  )
+}
+
 function HeatLayer({ points }: { points: [number, number, number][] }) {
   const map = useMap()
   useEffect(() => {
@@ -659,6 +684,8 @@ export default function Telemetria() {
   // de perto um trecho específico.
   const [modoMapa, setModoMapa] = useState<'agrupado' | 'calor'>('agrupado')
   const [expandedMot, setExpandedMot]     = useState<string | null>(null)
+  const [ordMotCampo, setOrdMotCampo]     = useState<CampoOrdenacaoMot>('total')
+  const [ordMotDesc, setOrdMotDesc]       = useState(true)
   const [expandedPlaca, setExpandedPlaca] = useState<string | null>(null)
   const [modalAcao, setModalAcao]         = useState<TelemetriaAlerta | null>(null)
   const [modalId, setModalId]             = useState<TelemetriaAlerta | null>(null)
@@ -1309,6 +1336,30 @@ export default function Telemetria() {
     return { semMatricula, poucosDias }
   }, [taxaPorRotaCompleta])
 
+  // Taxa por motorista, só quando tem amostra mínima (mesmo critério da aba
+  // Tempo de Casa) — usada na aba Motoristas ao lado do Total.
+  const taxaPorMotorista = useMemo(() => {
+    const map = new Map<string, number | null>()
+    taxaPorRotaCompleta.forEach(r => map.set(r.motorista, r.dias >= DIAS_MINIMOS_TAXA ? r.taxa : null))
+    return map
+  }, [taxaPorRotaCompleta])
+
+  const motoristasTableOrdenada = useMemo(() => {
+    const arr = motoristasTable.map(m => ({ ...m, total: m.alertas.length, taxa: taxaPorMotorista.get(m.mot) ?? null }))
+    const dir = ordMotDesc ? -1 : 1
+    return arr.sort((a, b) => {
+      if (ordMotCampo === 'nome') return a.mot.localeCompare(b.mot) * dir
+      if (ordMotCampo === 'taxa') return ((a.taxa ?? -1) - (b.taxa ?? -1)) * dir
+      return (a[ordMotCampo] - b[ordMotCampo]) * dir
+    })
+  }, [motoristasTable, taxaPorMotorista, ordMotCampo, ordMotDesc])
+
+  function alternarOrdMot(campo: CampoOrdenacaoMot) {
+    if (campo === ordMotCampo) { setOrdMotDesc(d => !d); return }
+    setOrdMotCampo(campo)
+    setOrdMotDesc(campo !== 'nome')
+  }
+
   // Alerta de spike — usa a lista inteira (não o filtro da tela), o alerta é sobre "agora".
   const spikeData = useMemo(() => calcularSpikes(alertas), [alertas])
 
@@ -1657,19 +1708,28 @@ export default function Telemetria() {
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 border-b border-gray-100">
                   <tr>
-                    <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Motorista</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Total</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-orange-600" title="Curva Brusca">Curva</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-yellow-600" title="Freada Brusca">Freada</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-rose-600" title="Excesso Velocidade">Veloc.</th>
-                    <th className="text-center px-3 py-3 text-xs font-semibold text-red-600" title="Excesso Velocidade por Via">V. Via</th>
+                    <ThOrdenavel campo="nome" atual={ordMotCampo} desc={ordMotDesc} onClick={alternarOrdMot}
+                      className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Motorista</ThOrdenavel>
+                    <ThOrdenavel campo="total" atual={ordMotCampo} desc={ordMotDesc} onClick={alternarOrdMot}
+                      className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Total</ThOrdenavel>
+                    <ThOrdenavel campo="taxa" atual={ordMotCampo} desc={ordMotDesc} onClick={alternarOrdMot}
+                      className="text-center px-3 py-3 text-xs font-semibold text-brand-700"
+                      title="Eventos ÷ dias de rota (saída na portaria) — só com 5+ dias no período">Taxa</ThOrdenavel>
+                    <ThOrdenavel campo="curva" atual={ordMotCampo} desc={ordMotDesc} onClick={alternarOrdMot}
+                      className="text-center px-3 py-3 text-xs font-semibold text-orange-600" title="Curva Brusca">Curva</ThOrdenavel>
+                    <ThOrdenavel campo="freada" atual={ordMotCampo} desc={ordMotDesc} onClick={alternarOrdMot}
+                      className="text-center px-3 py-3 text-xs font-semibold text-yellow-600" title="Freada Brusca">Freada</ThOrdenavel>
+                    <ThOrdenavel campo="veloc" atual={ordMotCampo} desc={ordMotDesc} onClick={alternarOrdMot}
+                      className="text-center px-3 py-3 text-xs font-semibold text-rose-600" title="Excesso Velocidade">Veloc.</ThOrdenavel>
+                    <ThOrdenavel campo="velocVia" atual={ordMotCampo} desc={ordMotDesc} onClick={alternarOrdMot}
+                      className="text-center px-3 py-3 text-xs font-semibold text-red-600" title="Excesso Velocidade por Via">V. Via</ThOrdenavel>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Qualif.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Sev. Méd.</th>
                     <th className="text-center px-3 py-3 text-xs font-semibold text-brand-700">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
-                  {motoristasTable.map(({ mot, alertas: al, curva, freada, veloc, velocVia, qualificados, comAcao, sevMedia }) => (
+                  {motoristasTableOrdenada.map(({ mot, alertas: al, curva, freada, veloc, velocVia, qualificados, comAcao, sevMedia, taxa }) => (
                     <Fragment key={mot}>
                       <tr
                         className="hover:bg-gray-50 cursor-pointer"
@@ -1680,6 +1740,7 @@ export default function Telemetria() {
                           <span className="truncate max-w-xs">{mot}</span>
                         </td>
                         <td className="px-3 py-3 text-center font-semibold text-gray-700">{al.length}</td>
+                        <td className="px-3 py-3 text-center font-semibold text-brand-700">{taxa !== null ? taxa : <span className="text-gray-300 font-normal">—</span>}</td>
                         <td className="px-3 py-3 text-center text-orange-700">{curva || '—'}</td>
                         <td className="px-3 py-3 text-center text-yellow-700">{freada || '—'}</td>
                         <td className="px-3 py-3 text-center text-rose-700">{veloc || '—'}</td>
@@ -1700,7 +1761,7 @@ export default function Telemetria() {
                       </tr>
                       {expandedMot === mot && (
                         <tr>
-                          <td colSpan={8} className="p-0">
+                          <td colSpan={9} className="p-0">
                             <MotoristaDetail
                               alertas={al}
                               acoes={acoes}
