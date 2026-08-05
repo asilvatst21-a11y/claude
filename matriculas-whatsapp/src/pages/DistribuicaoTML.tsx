@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal, Calendar, ChevronDown, MessageCircle, Mic, Image as ImageIcon, Copy, ShieldAlert,
+  Upload, FileSpreadsheet, Loader2, RefreshCw, Users, UserCog, AlertTriangle, CheckCircle, Clock, X, Send, BarChart2, SlidersHorizontal, Calendar, ChevronDown, MessageCircle, Mic, Image as ImageIcon, Copy,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
@@ -18,10 +18,7 @@ import type { AlertaTML, HistoricoTML, MotivoJustificativaTML, ConversaMotorista
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_TML_PAUSADOS } from '../lib/whatsappStatus'
 import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorTelefone, buscarStatusColaboradoresPorMatricula, podeEnviarPara } from '../lib/statusAtivo'
-import {
-  buscarConfigHotspot, salvarConfigHotspot, executarChecagemHotspot,
-  type ConfigHotspot, type ResultadoChecagemHotspot,
-} from '../lib/telemetriaHotspot'
+import { executarChecagemHotspot } from '../lib/telemetriaHotspot'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
@@ -226,10 +223,6 @@ export default function DistribuicaoTML() {
   const [uploadingSaida, setUploadingSaida] = useState(false)
   const [uploadingChecklist, setUploadingChecklist] = useState(false)
   const [dataOperacao, setDataOperacao] = useState(hojeISO)
-  const [cfgHotspot, setCfgHotspot] = useState<ConfigHotspot>({ ativo: false, minEventos: 8, topN: 5 })
-  const [salvandoCfgHotspot, setSalvandoCfgHotspot] = useState(false)
-  const [testandoHotspot, setTestandoHotspot] = useState(false)
-  const [resultadoHotspot, setResultadoHotspot] = useState<ResultadoChecagemHotspot | null>(null)
   const [justificando, setJustificando] = useState<AlertaTML | null>(null)
   const [motivos, setMotivos] = useState<MotivoJustificativaTML[]>([])
   const [motivoSelecionado, setMotivoSelecionado] = useState('')
@@ -360,35 +353,6 @@ export default function DistribuicaoTML() {
     [nominalCombinado, filtroNominal],
   )
 
-  useEffect(() => {
-    if (!usuario) return
-    buscarConfigHotspot(usuario.filial).then(setCfgHotspot)
-  }, [usuario])
-
-  async function salvarCfgHotspot(novaCfg: ConfigHotspot) {
-    if (!usuario) return
-    setCfgHotspot(novaCfg)
-    setSalvandoCfgHotspot(true)
-    try {
-      await salvarConfigHotspot(usuario.filial, novaCfg)
-    } finally {
-      setSalvandoCfgHotspot(false)
-    }
-  }
-
-  async function testarHotspotAgora() {
-    if (!usuario) return
-    setTestandoHotspot(true)
-    try {
-      const resultado = await executarChecagemHotspot(usuario.filial, dataOperacao || hojeISO(), true)
-      setResultadoHotspot(resultado)
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao testar rotas de risco de telemetria')
-    } finally {
-      setTestandoHotspot(false)
-    }
-  }
-
   useEffect(() => { fetchAlertas() }, [fetchAlertas])
   useEffect(() => { fetchMotivos() }, [fetchMotivos])
   useEffect(() => { fetchHistorico() }, [fetchHistorico])
@@ -449,11 +413,10 @@ export default function DistribuicaoTML() {
       await fetchPendentes()
 
       // Confere rotas de risco de telemetria pra essa mesma data — só manda
-      // WhatsApp de verdade se "Envio automático" estiver ativo (ver card
-      // "Telemetria — rotas de risco hoje"); sempre atualiza o preview.
+      // WhatsApp de verdade se "Envio automático" estiver ativo (config e
+      // preview agora ficam em Segurança → Telemetria → aba "Rotas de Risco").
       try {
-        const resultado = await executarChecagemHotspot(usuario.filial, dataEscalaDefinitiva, false)
-        setResultadoHotspot(resultado)
+        await executarChecagemHotspot(usuario.filial, dataEscalaDefinitiva, false)
       } catch (e) {
         console.error('[Telemetria Hotspot] falha ao checar rotas de risco:', e)
       }
@@ -1417,101 +1380,6 @@ export default function DistribuicaoTML() {
           onFile={handleChecklist}
           isUploading={uploadingChecklist}
         />
-      </div>
-
-      <div className="border rounded-lg bg-white p-4 space-y-3">
-        <div className="flex items-center justify-between flex-wrap gap-2">
-          <div>
-            <h2 className="font-semibold text-sm flex items-center gap-1.5">
-              <ShieldAlert className="h-4 w-4 text-amber-600" /> Telemetria — rotas de risco hoje
-            </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Cruza as cidades com mais ocorrências de telemetria (últimos 90 dias) com a escala do dia
-              (cidades da coluna "Cidades +Entregas") e avisa o motorista por WhatsApp quando bater.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={testarHotspotAgora}
-              disabled={testandoHotspot}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors disabled:opacity-50"
-            >
-              {testandoHotspot ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Testar agora ({formatarDataBR(dataOperacao || hojeISO())})
-            </button>
-            <label className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border cursor-pointer">
-              <input
-                type="checkbox"
-                checked={cfgHotspot.ativo}
-                onChange={(e) => salvarCfgHotspot({ ...cfgHotspot, ativo: e.target.checked })}
-                disabled={salvandoCfgHotspot}
-              />
-              Envio automático ativo
-            </label>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          <label className="flex items-center gap-1.5">
-            Mín. eventos p/ ser "quente":
-            <input
-              type="number" min={1} value={cfgHotspot.minEventos}
-              onChange={(e) => setCfgHotspot((c) => ({ ...c, minEventos: parseInt(e.target.value) || 1 }))}
-              onBlur={() => salvarCfgHotspot(cfgHotspot)}
-              className="w-14 border border-gray-200 rounded px-1.5 py-0.5"
-            />
-          </label>
-          <label className="flex items-center gap-1.5">
-            Top cidades:
-            <input
-              type="number" min={1} max={20} value={cfgHotspot.topN}
-              onChange={(e) => setCfgHotspot((c) => ({ ...c, topN: parseInt(e.target.value) || 1 }))}
-              onBlur={() => salvarCfgHotspot(cfgHotspot)}
-              className="w-14 border border-gray-200 rounded px-1.5 py-0.5"
-            />
-          </label>
-          {!cfgHotspot.ativo && (
-            <span className="text-amber-700">Desligado — o import da escala só mostra o preview, não manda nada ainda.</span>
-          )}
-        </div>
-
-        {resultadoHotspot && (
-          <div className="border-t pt-3 space-y-2 text-sm">
-            {resultadoHotspot.hotspots.length === 0 ? (
-              <p className="text-muted-foreground text-xs">Nenhuma cidade "quente" com esse limiar nos últimos 90 dias.</p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Cidades quentes: {resultadoHotspot.hotspots.map((h) => `${h.cidade} (${h.eventos})`).join(', ')}
-              </p>
-            )}
-            {resultadoHotspot.enviados.length === 0 ? (
-              <p className="text-xs text-green-700">Nenhuma rota de hoje bate com uma cidade quente — nada {cfgHotspot.ativo ? 'enviado' : 'a enviar'}.</p>
-            ) : (
-              <div>
-                <p className="text-xs font-semibold text-amber-700 mb-1">
-                  {resultadoHotspot.enviados.length} rota(s) {cfgHotspot.ativo ? 'avisada(s)' : 'seria(m) avisada(s) se o envio automático estivesse ativo'}:
-                </p>
-                <ul className="text-xs text-gray-700 space-y-0.5">
-                  {resultadoHotspot.enviados.map((e) => (
-                    <li key={e.mapa}>• Mapa {e.mapa} — {e.nome ?? 'sem nome no roster'} — {e.cidades}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {resultadoHotspot.semTelefone.length > 0 && (
-              <p className="text-xs text-red-600">
-                {resultadoHotspot.semTelefone.length} rota(s) bateram mas sem telefone cadastrado: {resultadoHotspot.semTelefone.map((s) => `Mapa ${s.mapa}`).join(', ')}
-              </p>
-            )}
-            {resultadoHotspot.bloqueados.length > 0 && (
-              <p className="text-xs text-red-600">
-                {resultadoHotspot.bloqueados.length} rota(s) bloqueada(s) por status do colaborador (inativo/opt-out).
-              </p>
-            )}
-            {resultadoHotspot.jaEnviadosAntes > 0 && (
-              <p className="text-xs text-muted-foreground">{resultadoHotspot.jaEnviadosAntes} rota(s) já tinham sido avisadas antes hoje — não repetido.</p>
-            )}
-          </div>
-        )}
       </div>
 
       {statusSaida && (
