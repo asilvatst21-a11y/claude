@@ -628,7 +628,9 @@ export default function Telemetria() {
   // Tempo de casa / taxa por rota rodada
   const [colaboradoresInfo, setColaboradoresInfo] = useState<Map<string, { dataAdmissao: string | null; matricula: string | null }>>(new Map())
   const [matriculaPorNome, setMatriculaPorNome] = useState<Map<string, string>>(new Map())
+  const [statusPorNome, setStatusPorNome] = useState<Map<string, string>>(new Map())
   const [escalasDias, setEscalasDias]     = useState<Map<string, Set<string>>>(new Map())
+  const [coberturaHistorico, setCoberturaHistorico] = useState<{ registros: number; matriculas: number; de: string | null; ate: string | null }>({ registros: 0, matriculas: 0, de: null, ate: null })
 
   // Reciclagem
   const [reciclagem, setReciclagem]       = useState<ReciclagemRow[]>([])
@@ -698,7 +700,7 @@ export default function Telemetria() {
     const [{ data: al }, { data: ac }, { data: colabs }, { data: roster }, { data: escalas }, { data: filialCfg }] = await Promise.all([
       supabase.from('telemetria_alertas').select('*').eq('filial', usuario.filial).order('data_hora', { ascending: false }),
       supabase.from('telemetria_acoes').select('*').eq('filial', usuario.filial),
-      supabase.from('colaboradores').select('nome, data_admissao, matricula').eq('filial', usuario.filial),
+      supabase.from('colaboradores').select('nome, data_admissao, matricula, status').eq('filial', usuario.filial),
       // motoristas_sala_tml é o roster que já casa nome↔matrícula no MESMO
       // espaço de numeração usado por escalas_tml/historico_tml (é a mesma
       // fonte usada em jornada.ts) — colaboradores.matricula pode ser uma
@@ -719,6 +721,13 @@ export default function Telemetria() {
     ;(colabs ?? []).forEach(c => mapColabs.set(normNome(c.nome), { dataAdmissao: c.data_admissao ?? null, matricula: c.matricula ?? null }))
     setColaboradoresInfo(mapColabs)
 
+    // Status por nome (TRABALHANDO/DESLIGADO/...) — usado só pra tirar
+    // desligado da tabela de Taxa por Rota (ranking de risco não faz sentido
+    // pra quem já saiu).
+    const mapStatus = new Map<string, string>()
+    ;(colabs ?? []).forEach(c => mapStatus.set(normNome(c.nome), (c.status ?? '').trim().toUpperCase()))
+    setStatusPorNome(mapStatus)
+
     // Prioriza motoristas_sala_tml (mesmo espaço de matrícula do histórico do
     // TML); cai pra colaboradores.matricula só se o motorista não estiver
     // nesse roster. Os dois lados normalizados (zero à esquerda) pra bater
@@ -729,13 +738,25 @@ export default function Telemetria() {
     setMatriculaPorNome(mapMatricula)
 
     const mapEscalas = new Map<string, Set<string>>()
+    let dataMin: string | null = null
+    let dataMax: string | null = null
     ;(escalas ?? []).forEach(e => {
       if (e.matricula == null || !e.data_saida) return
       const chave = normalizarMatricula(String(e.matricula))
       if (!mapEscalas.has(chave)) mapEscalas.set(chave, new Set())
       mapEscalas.get(chave)!.add(e.data_saida)
+      if (!dataMin || e.data_saida < dataMin) dataMin = e.data_saida
+      if (!dataMax || e.data_saida > dataMax) dataMax = e.data_saida
     })
     setEscalasDias(mapEscalas)
+    // Cobertura real do historico_tml — ajuda a distinguir "bug de nome/matrícula"
+    // de "o import de Saída na portaria não roda todo dia" (a taxa depende
+    // desse import, não do de Escala).
+    setCoberturaHistorico({
+      registros: (escalas ?? []).filter(e => e.matricula != null && e.data_saida).length,
+      matriculas: mapEscalas.size,
+      de: dataMin, ate: dataMax,
+    })
 
     const g = filialCfg?.grupo_telemetria_spike_whatsapp ?? ''
     setGrupoSpike(g)
@@ -1254,6 +1275,9 @@ export default function Telemetria() {
     filtered.forEach(a => {
       const mot = motoristaEfetivo(a)
       if (mot === 'Sem Identificação') return
+      // Desligado não entra no ranking de taxa — não faz sentido monitorar
+      // risco de quem já saiu da empresa.
+      if (statusPorNome.get(normNome(mot)) === 'DESLIGADO') return
       porMotorista[mot] ??= { eventos: 0, matricula: matriculaPorNome.get(normNome(mot)) ?? null }
       porMotorista[mot].eventos++
     })
@@ -1267,7 +1291,7 @@ export default function Telemetria() {
       }
       return { motorista: mot, eventos: v.eventos, matricula: v.matricula, dias, taxa: dias > 0 ? Math.round((v.eventos / dias) * 100) / 100 : null }
     })
-  }, [filtered, matriculaPorNome, escalasDias, filtroDataDe, filtroDataAte])
+  }, [filtered, matriculaPorNome, escalasDias, statusPorNome, filtroDataDe, filtroDataAte])
 
   const taxaPorRota = useMemo(() =>
     taxaPorRotaCompleta.filter(r => r.dias >= DIAS_MINIMOS_TAXA).sort((a, b) => (b.taxa ?? 0) - (a.taxa ?? 0)),
@@ -2061,8 +2085,13 @@ export default function Telemetria() {
                   <h3 className="text-sm font-semibold text-gray-700">Taxa de eventos por rota trabalhada</h3>
                   <p className="text-xs text-gray-400 mb-3">
                     Não temos quilometragem no sistema — a taxa aqui é eventos ÷ dias de saída registrados na portaria
-                    (histórico de Distribuição → Carta de Controle TML, um registro por mapa+dia).
+                    (histórico de Distribuição → Carta de Controle TML, um registro por mapa+dia). Desligados não entram.
                     Só motoristas com {DIAS_MINIMOS_TAXA}+ dias no período, pra não distorcer com amostra pequena.
+                  </p>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Cobertura do histórico de saída: {coberturaHistorico.registros} registro(s), {coberturaHistorico.matriculas} matrícula(s) distinta(s)
+                    {coberturaHistorico.de && coberturaHistorico.ate ? `, entre ${formatarDataBR(coberturaHistorico.de)} e ${formatarDataBR(coberturaHistorico.ate)}` : ''}.
+                    {coberturaHistorico.registros === 0 && ' Se estiver zerado, o import "2. Saída na portaria (03.11.20)" pode não estar rodando — a taxa depende dele, não do import de Escala.'}
                   </p>
                 </div>
                 {taxaPorRota.length === 0 ? (
@@ -2080,8 +2109,9 @@ export default function Telemetria() {
                     {taxaPorRotaDiag.poucosDias.length > 0 && (
                       <p>
                         {taxaPorRotaDiag.poucosDias.length} motorista(s) com matrícula encontrada mas menos de {DIAS_MINIMOS_TAXA} dias de
-                        saída registrada no período: {taxaPorRotaDiag.poucosDias.slice(0, 5).map(r => `${r.motorista} (${r.dias}d)`).join(', ')}
+                        saída registrada no período: {taxaPorRotaDiag.poucosDias.slice(0, 5).map(r => `${r.motorista} (matrícula ${r.matricula}, ${r.dias}d)`).join(', ')}
                         {taxaPorRotaDiag.poucosDias.length > 5 ? '…' : ''}
+                        {' '}— confira em Supabase se essa matrícula tem linha em <code>historico_tml</code> pra esse período.
                       </p>
                     )}
                   </div>
