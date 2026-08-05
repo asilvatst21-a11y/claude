@@ -635,6 +635,11 @@ export default function JornadaRota() {
   const farolExportRef = useRef<HTMLDivElement>(null)
   const [farolImagemAtual, setFarolImagemAtual] = useState<FarolLinha[] | null>(null)
   const [testandoFarol, setTestandoFarol] = useState(false)
+  const [gerandoCopiarFarol, setGerandoCopiarFarol] = useState(false)
+  const [copiarFarolAberto, setCopiarFarolAberto] = useState(false)
+  const [copiarFarolTexto, setCopiarFarolTexto] = useState('')
+  const [copiarFarolImagem, setCopiarFarolImagem] = useState<string | null>(null)
+  const [copiarFarolFeedback, setCopiarFarolFeedback] = useState<string | null>(null)
 
   const fetchJornada = useCallback(async () => {
     if (!usuario) return
@@ -886,6 +891,75 @@ export default function JornadaRota() {
     const tudoConcluido = farolDoDia.every((l) => l.statusFarol === 'concluido')
     await registrarEnvioFarol(usuario.filial, dataOperacao, tudoConcluido)
     return { ok: true, motivo: 'Enviado.' }
+  }
+
+  // Monta a mesma imagem/texto do Farol de Críticos, mas sem chamar a
+  // Z-API — pra copiar e mandar manualmente no grupo enquanto o bot (ou a
+  // Z-API) está fora do ar, igual já existe pra Jornada/CDD acima.
+  async function handleGerarFarolParaCopiar() {
+    if (!usuario) return
+    setGerandoCopiarFarol(true)
+    setErro('')
+    try {
+      const farol = await buscarFarol(usuario.filial, dataOperacao)
+      const farolDoDia = farol.filter((l) => l.mapa != null)
+      if (farolDoDia.length === 0) {
+        setErro('Nenhum PDV da watchlist com mapa hoje — nada pra gerar no Farol de Críticos.')
+        return
+      }
+
+      const kpis: Record<StatusFarol, number> = { pendente: 0, iniciado: 0, concluido: 0, atencao: 0, sem_mapa: 0 }
+      for (const l of farolDoDia) kpis[l.statusFarol]++
+      const pctConcluido = Math.round((kpis.concluido / farolDoDia.length) * 100)
+      const ordenadas = [...farolDoDia].sort((a, b) => FAROL_STATUS_ORDEM[a.statusFarol] - FAROL_STATUS_ORDEM[b.statusFarol])
+
+      let texto = `📊 *Farol de Críticos — ${usuario.filial} — ${formatarDataBR(dataOperacao)}*\n\n`
+      texto += `✅ ${kpis.concluido}/${farolDoDia.length} concluídos (${pctConcluido}%)\n`
+      texto += `Pendente: ${kpis.pendente} · Iniciado: ${kpis.iniciado} · Atenção: ${kpis.atencao}\n\n`
+      for (const l of ordenadas) {
+        texto += `• ${l.nome} (${l.codigo}) — Mapa ${l.mapa} — ${l.statusLabel}`
+        texto += `${l.motorista ? ` — ${l.motorista}` : ''}${l.placa ? ` — ${l.placa}` : ''}\n`
+      }
+      setCopiarFarolTexto(texto.trim())
+
+      flushSync(() => setFarolImagemAtual(farolDoDia))
+      await new Promise((r) => setTimeout(r, 60))
+      if (farolExportRef.current) {
+        const canvas = await html2canvas(farolExportRef.current, { scale: 1.5, backgroundColor: '#f8fafc', useCORS: true, logging: false })
+        setCopiarFarolImagem(canvas.toDataURL('image/png'))
+      }
+      setFarolImagemAtual(null)
+
+      setCopiarFarolFeedback(null)
+      setCopiarFarolAberto(true)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao gerar imagem/texto do Farol de Críticos')
+    } finally {
+      setGerandoCopiarFarol(false)
+    }
+  }
+
+  async function handleCopiarTextoFarol() {
+    try {
+      await navigator.clipboard.writeText(copiarFarolTexto)
+      setCopiarFarolFeedback('Texto copiado!')
+    } catch {
+      setCopiarFarolFeedback('Não foi possível copiar — selecione o texto manualmente.')
+    }
+    setTimeout(() => setCopiarFarolFeedback(null), 2500)
+  }
+
+  async function handleCopiarImagemFarol() {
+    if (!copiarFarolImagem) return
+    try {
+      const resp = await fetch(copiarFarolImagem)
+      const blob = await resp.blob()
+      await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })])
+      setCopiarFarolFeedback('Imagem copiada!')
+    } catch {
+      setCopiarFarolFeedback('Não foi possível copiar a imagem — use "Baixar imagem".')
+    }
+    setTimeout(() => setCopiarFarolFeedback(null), 2500)
   }
 
   async function enviarMensagensAutomatico(): Promise<string[]> {
@@ -1191,6 +1265,15 @@ export default function JornadaRota() {
           >
             {testandoFarol ? <Loader2 className="h-4 w-4 animate-spin" /> : <TrafficCone className="h-4 w-4" />}
             Testar Farol de Críticos
+          </button>
+          <button
+            onClick={handleGerarFarolParaCopiar}
+            disabled={gerandoCopiarFarol}
+            title="Gera a imagem/texto do Farol de Críticos pra você mandar manualmente, sem depender do envio automático (Z-API/bot fora do ar)"
+            className="flex items-center gap-2 px-3 py-2 rounded-md border border-amber-300 bg-amber-50 text-amber-800 text-sm hover:bg-amber-100 transition-colors disabled:opacity-50"
+          >
+            {gerandoCopiarFarol ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+            Gerar imagem e texto do Farol p/ copiar
           </button>
         </div>
       </div>
@@ -1526,6 +1609,50 @@ export default function JornadaRota() {
             </div>
             <div className="flex justify-end gap-2 px-5 py-4 border-t">
               <button onClick={() => setCopiarAberto(false)} className="px-4 py-2 rounded-lg text-sm border hover:bg-accent transition-colors">Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {copiarFarolAberto && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-5 py-4 border-b">
+              <h2 className="font-semibold">Farol de Críticos — copiar e enviar manualmente</h2>
+              <button onClick={() => setCopiarFarolAberto(false)} className="p-1 rounded hover:bg-accent"><X className="h-4 w-4" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-sm font-medium text-gray-700">Texto</label>
+                  <button onClick={handleCopiarTextoFarol} className="flex items-center gap-1 text-xs px-2 py-1 rounded border hover:bg-accent">
+                    <Copy className="h-3.5 w-3.5" /> Copiar texto
+                  </button>
+                </div>
+                <textarea readOnly value={copiarFarolTexto} rows={12} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-xs font-mono" />
+              </div>
+              {!copiarFarolImagem ? (
+                <p className="text-xs text-muted-foreground">Sem imagem gerada.</p>
+              ) : (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-sm font-medium text-gray-700">Imagem</label>
+                    <div className="flex items-center gap-2">
+                      <button onClick={handleCopiarImagemFarol} className="flex items-center gap-1 text-xs px-2 py-1 rounded border hover:bg-accent">
+                        <Copy className="h-3.5 w-3.5" /> Copiar imagem
+                      </button>
+                      <a href={copiarFarolImagem} download={`farol-criticos-${dataOperacao}.png`} className="flex items-center gap-1 text-xs px-2 py-1 rounded border hover:bg-accent">
+                        Baixar imagem
+                      </a>
+                    </div>
+                  </div>
+                  <img src={copiarFarolImagem} alt="Farol de Críticos" className="w-full border rounded-lg" />
+                </div>
+              )}
+              {copiarFarolFeedback && <p className="text-xs text-green-600">{copiarFarolFeedback}</p>}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-4 border-t">
+              <button onClick={() => setCopiarFarolAberto(false)} className="px-4 py-2 rounded-lg text-sm border hover:bg-accent transition-colors">Fechar</button>
             </div>
           </div>
         </div>
