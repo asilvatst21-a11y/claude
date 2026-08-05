@@ -136,6 +136,13 @@ function motoristaEfetivo(a: TelemetriaAlerta): string {
 // dos dois lados, o cruzamento por nome falha silenciosamente pra quem tem
 // caractere acentuado. Também colapsa espaço duplo (planilha de telemetria
 // às vezes tem espaçamento irregular entre nomes).
+// Mesma normalização usada em jornada.ts pra casar matrícula (número) entre
+// cadastros que guardam ela como texto (zeros à esquerda variam de fonte
+// pra fonte — ex.: "012345" em Colaboradores vs 12345 no histórico do TML).
+function normalizarMatricula(s: string): string {
+  return s.trim().replace(/^0+/, '') || '0'
+}
+
 function normNome(s: string): string {
   return s
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -620,6 +627,7 @@ export default function Telemetria() {
 
   // Tempo de casa / taxa por rota rodada
   const [colaboradoresInfo, setColaboradoresInfo] = useState<Map<string, { dataAdmissao: string | null; matricula: string | null }>>(new Map())
+  const [matriculaPorNome, setMatriculaPorNome] = useState<Map<string, string>>(new Map())
   const [escalasDias, setEscalasDias]     = useState<Map<string, Set<string>>>(new Map())
 
   // Reciclagem
@@ -687,10 +695,15 @@ export default function Telemetria() {
   async function loadData() {
     if (!usuario) return
     setLoading(true)
-    const [{ data: al }, { data: ac }, { data: colabs }, { data: escalas }, { data: filialCfg }] = await Promise.all([
+    const [{ data: al }, { data: ac }, { data: colabs }, { data: roster }, { data: escalas }, { data: filialCfg }] = await Promise.all([
       supabase.from('telemetria_alertas').select('*').eq('filial', usuario.filial).order('data_hora', { ascending: false }),
       supabase.from('telemetria_acoes').select('*').eq('filial', usuario.filial),
       supabase.from('colaboradores').select('nome, data_admissao, matricula').eq('filial', usuario.filial),
+      // motoristas_sala_tml é o roster que já casa nome↔matrícula no MESMO
+      // espaço de numeração usado por escalas_tml/historico_tml (é a mesma
+      // fonte usada em jornada.ts) — colaboradores.matricula pode ser uma
+      // matrícula de outro cadastro (LOG20) e não bater 1:1 com essa.
+      supabase.from('motoristas_sala_tml').select('nome, matricula').eq('filial', usuario.filial),
       // historico_tml (não escalas_tml!) é quem guarda um registro por dia de
       // verdade — escalas_tml tem UNIQUE(filial,mapa) e é sobrescrita a cada
       // import, então nunca acumula mais de 1 dia por mapa. historico_tml usa
@@ -706,13 +719,19 @@ export default function Telemetria() {
     ;(colabs ?? []).forEach(c => mapColabs.set(normNome(c.nome), { dataAdmissao: c.data_admissao ?? null, matricula: c.matricula ?? null }))
     setColaboradoresInfo(mapColabs)
 
-    // colaboradores.matricula é texto; historico_tml.matricula é inteiro —
-    // sem converter pra string dos dois lados, o Map.get() nunca bate (bug
-    // que zerava a taxa de todo mundo, mesmo com a tabela certa).
+    // Prioriza motoristas_sala_tml (mesmo espaço de matrícula do histórico do
+    // TML); cai pra colaboradores.matricula só se o motorista não estiver
+    // nesse roster. Os dois lados normalizados (zero à esquerda) pra bater
+    // mesmo quando uma fonte guarda "012345" e a outra 12345.
+    const mapMatricula = new Map<string, string>()
+    ;(colabs ?? []).forEach(c => { if (c.matricula) mapMatricula.set(normNome(c.nome), normalizarMatricula(String(c.matricula))) })
+    ;(roster ?? []).forEach(r => { if (r.nome && r.matricula != null) mapMatricula.set(normNome(r.nome), normalizarMatricula(String(r.matricula))) })
+    setMatriculaPorNome(mapMatricula)
+
     const mapEscalas = new Map<string, Set<string>>()
     ;(escalas ?? []).forEach(e => {
       if (e.matricula == null || !e.data_saida) return
-      const chave = String(e.matricula)
+      const chave = normalizarMatricula(String(e.matricula))
       if (!mapEscalas.has(chave)) mapEscalas.set(chave, new Set())
       mapEscalas.get(chave)!.add(e.data_saida)
     })
@@ -1228,30 +1247,40 @@ export default function Telemetria() {
   }, [filtered, colaboradoresInfo])
 
   // Taxa de eventos por rota/dia rodado — não temos km, então o denominador é
-  // dias distintos de escala (mapa) rodados pela matrícula do motorista no
-  // mesmo período do filtro.
-  const taxaPorRota = useMemo(() => {
+  // dias distintos de saída registrados na portaria pela matrícula do
+  // motorista no mesmo período do filtro.
+  const taxaPorRotaCompleta = useMemo(() => {
     const porMotorista: Record<string, { eventos: number; matricula: string | null }> = {}
     filtered.forEach(a => {
       const mot = motoristaEfetivo(a)
       if (mot === 'Sem Identificação') return
-      porMotorista[mot] ??= { eventos: 0, matricula: colaboradoresInfo.get(normNome(mot))?.matricula ?? null }
+      porMotorista[mot] ??= { eventos: 0, matricula: matriculaPorNome.get(normNome(mot)) ?? null }
       porMotorista[mot].eventos++
     })
     const de = filtroDataDe || null
     const ate = filtroDataAte || null
-    return Object.entries(porMotorista)
-      .map(([mot, v]) => {
-        let dias = 0
-        if (v.matricula) {
-          const datas = escalasDias.get(v.matricula)
-          if (datas) dias = [...datas].filter(d => (!de || d >= de) && (!ate || d <= ate)).length
-        }
-        return { motorista: mot, eventos: v.eventos, dias, taxa: dias > 0 ? Math.round((v.eventos / dias) * 100) / 100 : null }
-      })
-      .filter(r => r.dias >= DIAS_MINIMOS_TAXA)
-      .sort((a, b) => (b.taxa ?? 0) - (a.taxa ?? 0))
-  }, [filtered, colaboradoresInfo, escalasDias, filtroDataDe, filtroDataAte])
+    return Object.entries(porMotorista).map(([mot, v]) => {
+      let dias = 0
+      if (v.matricula) {
+        const datas = escalasDias.get(v.matricula)
+        if (datas) dias = [...datas].filter(d => (!de || d >= de) && (!ate || d <= ate)).length
+      }
+      return { motorista: mot, eventos: v.eventos, matricula: v.matricula, dias, taxa: dias > 0 ? Math.round((v.eventos / dias) * 100) / 100 : null }
+    })
+  }, [filtered, matriculaPorNome, escalasDias, filtroDataDe, filtroDataAte])
+
+  const taxaPorRota = useMemo(() =>
+    taxaPorRotaCompleta.filter(r => r.dias >= DIAS_MINIMOS_TAXA).sort((a, b) => (b.taxa ?? 0) - (a.taxa ?? 0)),
+  [taxaPorRotaCompleta])
+
+  // Diagnóstico: por que um motorista não aparece na tabela — sem matrícula
+  // encontrada (nome não bate com motoristas_sala_tml/colaboradores) ou com
+  // matrícula mas poucos dias de saída registrados na portaria.
+  const taxaPorRotaDiag = useMemo(() => {
+    const semMatricula = taxaPorRotaCompleta.filter(r => !r.matricula)
+    const poucosDias = taxaPorRotaCompleta.filter(r => r.matricula && r.dias < DIAS_MINIMOS_TAXA)
+    return { semMatricula, poucosDias }
+  }, [taxaPorRotaCompleta])
 
   // Alerta de spike — usa a lista inteira (não o filtro da tela), o alerta é sobre "agora".
   const spikeData = useMemo(() => calcularSpikes(alertas), [alertas])
@@ -2038,7 +2067,26 @@ export default function Telemetria() {
                 </div>
                 {taxaPorRota.length === 0 ? (
                   <div className="text-center py-8 text-gray-400 text-sm">Sem dados suficientes de saída registrada pra calcular a taxa nesse filtro.</div>
-                ) : (
+                ) : null}
+                {(taxaPorRotaDiag.semMatricula.length > 0 || taxaPorRotaDiag.poucosDias.length > 0) && (
+                  <div className="px-4 py-3 border-t border-gray-100 text-xs text-gray-500 space-y-1">
+                    {taxaPorRotaDiag.semMatricula.length > 0 && (
+                      <p>
+                        {taxaPorRotaDiag.semMatricula.length} motorista(s) sem matrícula encontrada (nome não bate com
+                        Motoristas/Colaboradores): {taxaPorRotaDiag.semMatricula.slice(0, 5).map(r => r.motorista).join(', ')}
+                        {taxaPorRotaDiag.semMatricula.length > 5 ? '…' : ''}
+                      </p>
+                    )}
+                    {taxaPorRotaDiag.poucosDias.length > 0 && (
+                      <p>
+                        {taxaPorRotaDiag.poucosDias.length} motorista(s) com matrícula encontrada mas menos de {DIAS_MINIMOS_TAXA} dias de
+                        saída registrada no período: {taxaPorRotaDiag.poucosDias.slice(0, 5).map(r => `${r.motorista} (${r.dias}d)`).join(', ')}
+                        {taxaPorRotaDiag.poucosDias.length > 5 ? '…' : ''}
+                      </p>
+                    )}
+                  </div>
+                )}
+                {taxaPorRota.length > 0 && (
                   <table className="w-full text-sm">
                     <thead className="bg-gray-50 border-b border-gray-100">
                       <tr>
