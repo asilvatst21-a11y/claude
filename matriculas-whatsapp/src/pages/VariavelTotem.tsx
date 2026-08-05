@@ -435,6 +435,11 @@ function AcumuladoAtividadesSecao({ filial, cpfReal, mesRotulo }: { filial: stri
                 <span className="text-sm">
                   <span className="font-semibold">{a.atividadeNome}</span>
                   <span className="text-gray-500"> · {a.turno} · {a.dias.length} dia(s)</span>
+                  {a.metaAcumulada && (
+                    <span className={`ml-1.5 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${a.totalGerado > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                      {a.totalGerado > 0 ? 'meta batida' : 'meta não batida'}
+                    </span>
+                  )}
                 </span>
                 <span className="flex items-center gap-2">
                   <span className="text-sm font-extrabold tabular-nums text-green-700">{formatarBRL(a.totalGerado)}</span>
@@ -443,13 +448,23 @@ function AcumuladoAtividadesSecao({ filial, cpfReal, mesRotulo }: { filial: stri
               </button>
               {abertaAgora && (
                 <div className="divide-y border-t border-gray-100">
+                  {a.metaAcumulada && (
+                    <div className="px-3 py-2 text-[11px] text-gray-500 bg-gray-50/60">
+                      Meta pelo acumulado do período — o valor não varia por dia. Cada linha é só o indicador do dia, em
+                      vermelho quando aquele dia não bateu a meta.
+                    </div>
+                  )}
                   {a.dias.map((d, i) => (
                     <div key={i} className="flex items-center justify-between px-3 py-2 text-xs bg-gray-50/60">
                       <span>
                         <span className="font-semibold">{formatarDataBR(d.data)}</span>
-                        <span className="text-gray-500"> · {d.resultadoTexto}</span>
+                        {!a.metaAcumulada && <span className="text-gray-500"> · {d.resultadoTexto}</span>}
                       </span>
-                      <span className={`font-extrabold tabular-nums ${d.ausente ? 'text-red-500' : d.valorGerado > 0 ? 'text-green-700' : 'text-gray-400'}`}>{formatarBRL(d.valorGerado)}</span>
+                      {a.metaAcumulada ? (
+                        <span className={`font-extrabold tabular-nums ${d.bateuDia ? 'text-green-700' : 'text-red-500'}`}>{d.resultadoTexto}</span>
+                      ) : (
+                        <span className={`font-extrabold tabular-nums ${d.ausente ? 'text-red-500' : d.valorGerado > 0 ? 'text-green-700' : 'text-gray-400'}`}>{formatarBRL(d.valorGerado)}</span>
+                      )}
                     </div>
                   ))}
                 </div>

@@ -68,6 +68,12 @@ export interface TurnoAtividade {
   // variavel_turno_registros_operador, uma tabela à parte — não mexe em nada
   // do fluxo/tabela das atividades "normais" (TMA, EFC etc.).
   porOperador: boolean
+  // Quando true, não paga por dia batido — paga o valor final mensal CHEIO
+  // se a MÉDIA da competência inteira (21→20) estiver dentro da meta, ou
+  // ZERO se não estiver (ex.: TMA com meta 01:28: bate a média do período,
+  // leva tudo; não bate, perde tudo). O crédito passa a ser um só por
+  // competência (variavel_turno_creditos_acumulados), não mais por dia.
+  metaAcumulada: boolean
   ativo: boolean
 }
 
@@ -98,6 +104,7 @@ function linhaParaAtividade(r: any): TurnoAtividade {
     metaValor: r.meta_valor != null ? Number(r.meta_valor) : null,
     conferenteUsuarioId: r.conferente_usuario_id, conferenteNome: r.conferente_nome,
     porOperador: r.por_operador ?? false,
+    metaAcumulada: r.meta_acumulada ?? false,
     ativo: r.ativo,
   }
 }
@@ -169,6 +176,98 @@ export function cotaDiaria(valorFinalMensal: number, dataISO: string): number {
   return valorFinalMensal / diasUteisNoPeriodo(ini, fim)
 }
 
+// Agrupa itens com `data` pela competência (21→20) a que cada um pertence —
+// usado pra recalcular o crédito de meta acumulada de uma vez só pra TODAS
+// as competências já lançadas de uma atividade (histórico incluso), não só
+// a do dia que acabou de ser gravado.
+function agruparPorCompetencia<T extends { data: string }>(itens: T[]): Map<string, { ini: string; fim: string; itens: T[] }> {
+  const grupos = new Map<string, { ini: string; fim: string; itens: T[] }>()
+  for (const item of itens) {
+    const { ini, fim } = rangeCompetenciaDeData(item.data)
+    const grupo = grupos.get(ini) ?? { ini, fim, itens: [] }
+    grupo.itens.push(item)
+    grupos.set(ini, grupo)
+  }
+  return grupos
+}
+
+// Meta acumulada: compara a MÉDIA dos resultados do período com a meta da
+// atividade (mesma direção maior/menor melhor da meta diária). OK/NOK não
+// tem média — a meta acumulada de um OK/NOK exige que TODOS os dias do
+// período tenham sido OK.
+export function bateuMetaAcumulada(atividade: TurnoAtividade, registros: { valorNumero: number | null; okNok: boolean | null }[]): boolean {
+  if (registros.length === 0) return false
+  if (atividade.unidade === 'ok_nok') return registros.every((r) => r.okNok === true)
+  const validos = registros.map((r) => r.valorNumero).filter((v): v is number => v != null)
+  if (validos.length === 0 || atividade.metaValor == null) return false
+  const media = validos.reduce((acc, v) => acc + v, 0) / validos.length
+  return atividade.direcao === 'menor_melhor' ? media <= atividade.metaValor : media >= atividade.metaValor
+}
+
+// Recalcula o crédito de TODAS as competências já lançadas de uma atividade
+// de meta acumulada — chamado toda vez que um dia é (re)lançado ou um
+// colaborador é vinculado/desvinculado, porque a média (e portanto o
+// bateu/não bateu) do período pode mudar com qualquer dado novo. Grava um
+// crédito só por colaborador por competência (cheio ou zero), substituindo
+// a cota diária de variavel_turno_creditos.
+export async function recalcularAcumuladoAtividade(atividade: TurnoAtividade): Promise<void> {
+  if (!atividade.metaAcumulada) return
+  const colaboradores = await listarColaboradoresDaAtividade(atividade.id)
+  if (colaboradores.length === 0) return
+
+  const payload: any[] = []
+
+  if (atividade.porOperador) {
+    const { data: registros } = await supabase
+      .from('variavel_turno_registros_operador')
+      .select('colaborador_id, data, valor_numero, ok_nok')
+      .eq('atividade_id', atividade.id)
+    const porColaborador = new Map<string, { data: string; valorNumero: number | null; okNok: boolean | null }[]>()
+    for (const r of registros ?? []) {
+      if (!r.colaborador_id) continue
+      const lista = porColaborador.get(r.colaborador_id) ?? []
+      lista.push({ data: r.data, valorNumero: r.valor_numero != null ? Number(r.valor_numero) : null, okNok: r.ok_nok })
+      porColaborador.set(r.colaborador_id, lista)
+    }
+    for (const c of colaboradores) {
+      if (!c.colaboradorId) continue
+      const porCompetencia = agruparPorCompetencia(porColaborador.get(c.colaboradorId) ?? [])
+      for (const { ini, fim, itens } of porCompetencia.values()) {
+        const bateu = bateuMetaAcumulada(atividade, itens)
+        payload.push({
+          atividade_id: atividade.id, colaborador_id: c.colaboradorId, colaborador_nome: c.colaboradorNome,
+          competencia_ini: ini, competencia_fim: fim, bateu, valor_gerado: bateu ? c.valorFinalMensal : 0,
+          atualizado_em: new Date().toISOString(),
+        })
+      }
+    }
+  } else {
+    const { data: registros } = await supabase
+      .from('variavel_turno_registros')
+      .select('data, valor_numero, ok_nok')
+      .eq('atividade_id', atividade.id)
+    const itens = (registros ?? []).map((r) => ({
+      data: r.data as string, valorNumero: r.valor_numero != null ? Number(r.valor_numero) : null, okNok: r.ok_nok as boolean | null,
+    }))
+    const porCompetencia = agruparPorCompetencia(itens)
+    for (const { ini, fim, itens: itensDaCompetencia } of porCompetencia.values()) {
+      const bateu = bateuMetaAcumulada(atividade, itensDaCompetencia)
+      for (const c of colaboradores) {
+        payload.push({
+          atividade_id: atividade.id, colaborador_id: c.colaboradorId, colaborador_nome: c.colaboradorNome,
+          competencia_ini: ini, competencia_fim: fim, bateu, valor_gerado: bateu ? c.valorFinalMensal : 0,
+          atualizado_em: new Date().toISOString(),
+        })
+      }
+    }
+  }
+
+  if (payload.length > 0) {
+    const { error } = await supabase.from('variavel_turno_creditos_acumulados').upsert(payload, { onConflict: 'atividade_id,colaborador_id,competencia_ini' })
+    if (error) console.error('recalcularAcumuladoAtividade error:', error.message)
+  }
+}
+
 export async function listarAtividadesTurno(filial: string): Promise<TurnoAtividade[]> {
   const { data, error } = await supabase
     .from('variavel_turno_atividades')
@@ -202,6 +301,7 @@ export async function salvarAtividadeTurno(atividade: {
   conferenteUsuarioId: string | null
   conferenteNome: string | null
   porOperador: boolean
+  metaAcumulada: boolean
 }): Promise<{ error: string | null; id: string | null }> {
   const payload = {
     filial: atividade.filial, turno: atividade.turno, nome: atividade.nome,
@@ -210,6 +310,7 @@ export async function salvarAtividadeTurno(atividade: {
     meta_valor: atividade.unidade === 'ok_nok' ? null : atividade.metaValor,
     conferente_usuario_id: atividade.conferenteUsuarioId, conferente_nome: atividade.conferenteNome,
     por_operador: atividade.porOperador,
+    meta_acumulada: atividade.metaAcumulada,
   }
   if (atividade.id) {
     const { error } = await supabase.from('variavel_turno_atividades').update(payload).eq('id', atividade.id)
@@ -236,6 +337,15 @@ export async function alternarAtivoAtividadeTurno(id: string, ativo: boolean): P
 export async function preencherCreditosRetroativos(
   atividadeId: string, colaboradorId: string, colaboradorNome: string, valorFinalMensal: number,
 ): Promise<number> {
+  const { data: ativRow } = await supabase.from('variavel_turno_atividades').select('*').eq('id', atividadeId).maybeSingle()
+  if (ativRow?.meta_acumulada) {
+    // Meta acumulada não tem "dia preenchido retroativamente" — o vínculo
+    // novo entra direto no recálculo da média de todas as competências já
+    // lançadas dessa atividade.
+    await recalcularAcumuladoAtividade(linhaParaAtividade(ativRow))
+    return 0
+  }
+
   const [{ data: registros }, { data: creditosExistentes }] = await Promise.all([
     supabase.from('variavel_turno_registros').select('id, data, bateu_meta').eq('atividade_id', atividadeId),
     supabase.from('variavel_turno_creditos').select('data').eq('atividade_id', atividadeId).eq('colaborador_id', colaboradorId),
@@ -426,6 +536,11 @@ export async function registrarAtividadeTurno(
     .maybeSingle()
   if (error) return { error: error.message, registro: null, creditos: [] }
 
+  if (atividade.metaAcumulada) {
+    await recalcularAcumuladoAtividade(atividade)
+    return { error: null, registro: gravado ? linhaParaRegistro(gravado) : null, creditos: [] }
+  }
+
   const ativos = colaboradores.filter((c) => c.ativo)
   const creditosPayload = ativos.map((c) => {
     const excluido = c.colaboradorId != null && excluidosHoje.has(c.colaboradorId)
@@ -504,10 +619,12 @@ export async function registrarAtividadeTurnoPorOperador(
     const colaboradorId = c.colaboradorId as string
     const excluido = excluidosHoje.has(colaboradorId)
     if (excluido) {
-      creditosPayload.push({
-        atividade_id: atividade.id, registro_id: null, colaborador_id: colaboradorId,
-        colaborador_nome: c.colaboradorNome, data, valor_gerado: 0, ausente: true,
-      })
+      if (!atividade.metaAcumulada) {
+        creditosPayload.push({
+          atividade_id: atividade.id, registro_id: null, colaborador_id: colaboradorId,
+          colaborador_nome: c.colaboradorNome, data, valor_gerado: 0, ausente: true,
+        })
+      }
       continue
     }
     const entrada = valoresPorColaborador.get(colaboradorId)
@@ -521,11 +638,13 @@ export async function registrarAtividadeTurnoPorOperador(
       registrado_por_usuario_id: registradoPor.usuarioId, registrado_por_nome: registradoPor.nome,
       registrado_em: new Date().toISOString(),
     })
-    creditosPayload.push({
-      atividade_id: atividade.id, registro_id: null, colaborador_id: colaboradorId,
-      colaborador_nome: c.colaboradorNome, data,
-      valor_gerado: bateu ? cotaDiaria(c.valorFinalMensal, data) : 0, ausente: false,
-    })
+    if (!atividade.metaAcumulada) {
+      creditosPayload.push({
+        atividade_id: atividade.id, registro_id: null, colaborador_id: colaboradorId,
+        colaborador_nome: c.colaboradorNome, data,
+        valor_gerado: bateu ? cotaDiaria(c.valorFinalMensal, data) : 0, ausente: false,
+      })
+    }
   }
 
   if (registrosPayload.length > 0) {
@@ -533,6 +652,10 @@ export async function registrarAtividadeTurnoPorOperador(
       .from('variavel_turno_registros_operador')
       .upsert(registrosPayload, { onConflict: 'atividade_id,colaborador_id,data' })
     if (error) return { error: error.message }
+  }
+  if (atividade.metaAcumulada) {
+    await recalcularAcumuladoAtividade(atividade)
+    return { error: null }
   }
   if (creditosPayload.length > 0) {
     const { error } = await supabase
@@ -578,12 +701,17 @@ export interface AcumuladoAtividadeDia {
   resultadoTexto: string
   valorGerado: number
   ausente: boolean
+  // Bateu a meta NAQUELE dia — usado pra colorir vermelho/verde o indicador
+  // diário, independente de valorGerado (que em meta acumulada é sempre 0,
+  // já que o pagamento não varia dia a dia).
+  bateuDia: boolean
 }
 
 export interface AcumuladoPorAtividade {
   atividadeId: string
   atividadeNome: string
   turno: string
+  metaAcumulada: boolean
   totalGerado: number
   dias: AcumuladoAtividadeDia[]
 }
@@ -667,7 +795,7 @@ export async function temVinculoAtividadeAtivo(filial: string, cpfReal: string):
 export async function buscarAcumuladoColaboradorPeriodo(filial: string, colaboradorId: string, ini: string, fim: string): Promise<AcumuladoColaboradorMes | null> {
   const { data: vinculosRaw } = await supabase
     .from('variavel_turno_atividade_colaboradores')
-    .select('atividade_id, colaborador_nome, valor_final_mensal, ativo, variavel_turno_atividades(id, nome, turno, filial, unidade, ativo)')
+    .select('atividade_id, colaborador_nome, valor_final_mensal, ativo, variavel_turno_atividades(id, nome, turno, filial, unidade, ativo, meta_valor, direcao, meta_acumulada, por_operador)')
     .eq('colaborador_id', colaboradorId)
   // Filtra pela filial no cliente — evita depender de sintaxe de filtro em
   // tabela aninhada (variavel_turno_atividades.filial), que muda conforme a
@@ -679,46 +807,95 @@ export async function buscarAcumuladoColaboradorPeriodo(filial: string, colabora
   )
   if (vinculos.length === 0) return null
 
-  const atividadeMeta = new Map(vinculos.map((v: any) => [v.atividade_id, v.variavel_turno_atividades as { nome: string; turno: string; unidade: TurnoUnidade }]))
+  type MetaAtividade = { nome: string; turno: string; unidade: TurnoUnidade; metaValor: number | null; direcao: TurnoDirecao | null; metaAcumulada: boolean; porOperador: boolean }
+  const atividadeMeta = new Map<string, MetaAtividade>(vinculos.map((v: any) => {
+    const raw = v.variavel_turno_atividades
+    return [v.atividade_id, {
+      nome: raw?.nome, turno: raw?.turno, unidade: raw?.unidade,
+      metaValor: raw?.meta_valor != null ? Number(raw.meta_valor) : null,
+      direcao: raw?.direcao ?? null,
+      metaAcumulada: raw?.meta_acumulada ?? false,
+      porOperador: raw?.por_operador ?? false,
+    } as MetaAtividade]
+  }))
   const atividadeIds = vinculos.map((v: any) => v.atividade_id)
-  const [{ data: creditos }, { data: registros }] = await Promise.all([
-    supabase
-      .from('variavel_turno_creditos')
-      .select('atividade_id, data, valor_gerado, ausente')
-      .eq('colaborador_id', colaboradorId)
-      .in('atividade_id', atividadeIds)
-      .gte('data', ini)
-      .lte('data', fim)
-      .order('data', { ascending: false }),
-    supabase
-      .from('variavel_turno_registros')
-      .select('atividade_id, data, valor_numero, ok_nok')
-      .in('atividade_id', atividadeIds)
-      .gte('data', ini)
-      .lte('data', fim),
+  const idsNormais = atividadeIds.filter((id) => !atividadeMeta.get(id)?.metaAcumulada)
+  const idsAcumulados = atividadeIds.filter((id) => atividadeMeta.get(id)?.metaAcumulada)
+  const idsAcumuladosOperador = idsAcumulados.filter((id) => atividadeMeta.get(id)?.porOperador)
+
+  const [{ data: creditos }, { data: registrosEquipe }, { data: registrosOperador }, { data: creditosAcumulados }] = await Promise.all([
+    idsNormais.length > 0
+      ? supabase.from('variavel_turno_creditos').select('atividade_id, data, valor_gerado, ausente')
+        .eq('colaborador_id', colaboradorId).in('atividade_id', idsNormais).gte('data', ini).lte('data', fim).order('data', { ascending: false })
+      : Promise.resolve({ data: [] as any[] }),
+    atividadeIds.length > 0
+      ? supabase.from('variavel_turno_registros').select('atividade_id, data, valor_numero, ok_nok')
+        .in('atividade_id', atividadeIds).gte('data', ini).lte('data', fim)
+      : Promise.resolve({ data: [] as any[] }),
+    idsAcumuladosOperador.length > 0
+      ? supabase.from('variavel_turno_registros_operador').select('atividade_id, data, valor_numero, ok_nok')
+        .eq('colaborador_id', colaboradorId).in('atividade_id', idsAcumuladosOperador).gte('data', ini).lte('data', fim)
+      : Promise.resolve({ data: [] as any[] }),
+    idsAcumulados.length > 0
+      ? supabase.from('variavel_turno_creditos_acumulados').select('atividade_id, bateu, valor_gerado')
+        .eq('colaborador_id', colaboradorId).in('atividade_id', idsAcumulados).eq('competencia_ini', ini)
+      : Promise.resolve({ data: [] as any[] }),
   ])
-  const registroPorChave = new Map((registros ?? []).map((r) => [`${r.atividade_id}|${r.data}`, r]))
+  const registroPorChave = new Map((registrosEquipe ?? []).map((r) => [`${r.atividade_id}|${r.data}`, r]))
+  const creditoAcumuladoPorAtividade = new Map((creditosAcumulados ?? []).map((c: any) => [c.atividade_id, c]))
 
   const porAtividadeMap = new Map<string, AcumuladoPorAtividade>()
+
+  // Atividades normais — crédito por dia já calculado (cota diária).
   for (const c of creditos ?? []) {
     const meta = atividadeMeta.get(c.atividade_id)
     if (!meta) continue
-    const entry: AcumuladoPorAtividade = porAtividadeMap.get(c.atividade_id) ?? { atividadeId: c.atividade_id, atividadeNome: meta.nome, turno: meta.turno, totalGerado: 0, dias: [] }
+    const entry: AcumuladoPorAtividade = porAtividadeMap.get(c.atividade_id) ?? { atividadeId: c.atividade_id, atividadeNome: meta.nome, turno: meta.turno, metaAcumulada: false, totalGerado: 0, dias: [] }
     const registro = registroPorChave.get(`${c.atividade_id}|${c.data}`)
     const resultadoTexto = c.ausente ? 'Ausente' : formatarResultadoAtividade(meta.unidade, registro?.valor_numero != null ? Number(registro.valor_numero) : null, registro?.ok_nok ?? null)
-    entry.dias.push({ data: c.data, resultadoTexto, valorGerado: Number(c.valor_gerado), ausente: c.ausente })
+    entry.dias.push({ data: c.data, resultadoTexto, valorGerado: Number(c.valor_gerado), ausente: c.ausente, bateuDia: !c.ausente && Number(c.valor_gerado) > 0 })
     entry.totalGerado += Number(c.valor_gerado)
     porAtividadeMap.set(c.atividade_id, entry)
   }
+
+  // Atividades de meta acumulada — um valor só (cheio ou zero) pra
+  // competência inteira; cada dia só mostra o indicador (vermelho se
+  // aquele dia específico não bateu a própria meta), sem R$ que varie.
+  for (const atividadeId of idsAcumulados) {
+    const meta = atividadeMeta.get(atividadeId)
+    if (!meta) continue
+    const registrosDaAtividade = meta.porOperador
+      ? (registrosOperador ?? []).filter((r) => r.atividade_id === atividadeId)
+      : (registrosEquipe ?? []).filter((r) => r.atividade_id === atividadeId)
+    if (registrosDaAtividade.length === 0) continue
+    const creditoAcumulado = creditoAcumuladoPorAtividade.get(atividadeId)
+    const metaComoAtividade = { unidade: meta.unidade, metaValor: meta.metaValor, direcao: meta.direcao } as TurnoAtividade
+    porAtividadeMap.set(atividadeId, {
+      atividadeId, atividadeNome: meta.nome, turno: meta.turno, metaAcumulada: true,
+      totalGerado: creditoAcumulado ? Number(creditoAcumulado.valor_gerado) : 0,
+      dias: registrosDaAtividade
+        .slice()
+        .sort((a, b) => (a.data < b.data ? 1 : -1))
+        .map((r) => {
+          const valorNumero = r.valor_numero != null ? Number(r.valor_numero) : null
+          return {
+            data: r.data, resultadoTexto: formatarResultadoAtividade(meta.unidade, valorNumero, r.ok_nok),
+            valorGerado: 0, ausente: false, bateuDia: bateuMetaAtividade(metaComoAtividade, valorNumero, r.ok_nok),
+          }
+        }),
+    })
+  }
+
   const porAtividade = [...porAtividadeMap.values()].sort((a, b) => a.atividadeNome.localeCompare(b.atividadeNome))
 
   const totalGerado = porAtividade.reduce((acc, a) => acc + a.totalGerado, 0)
   const todosDias = porAtividade.flatMap((a) => a.dias)
   // Cota diária de referência: mês em que a competência termina (fim da
   // janela 21→20), não "hoje" — senão trocar pra uma competência passada
-  // continuaria mostrando a cota do mês atual.
+  // continuaria mostrando a cota do mês atual. Não se aplica a meta
+  // acumulada (não tem cota diária — é tudo ou nada no período).
   const cotaDiariaTotal = vinculos
-    .filter((v: any) => v.ativo)
+    .filter((v: any) => v.ativo && !atividadeMeta.get(v.atividade_id)?.metaAcumulada)
     .reduce((acc: number, v: any) => acc + cotaDiaria(Number(v.valor_final_mensal), fim), 0)
 
   return {
@@ -726,7 +903,7 @@ export async function buscarAcumuladoColaboradorPeriodo(filial: string, colabora
     ini, fim, totalGerado,
     // Conta dia (data única), não linha — quem tem 3 atividades no mesmo dia
     // não pode contar como "3 dias batidos" só porque bateu nas 3.
-    diasBatidos: new Set(todosDias.filter((d) => d.valorGerado > 0).map((d) => d.data)).size,
+    diasBatidos: new Set(todosDias.filter((d) => d.bateuDia).map((d) => d.data)).size,
     diasRegistrados: new Set(todosDias.map((d) => d.data)).size,
     cotaDiariaTotal,
     porAtividade,
@@ -762,6 +939,66 @@ export async function salvarHorarioFechamento(filial: string, turno: string, hor
     .from('variavel_turno_horarios')
     .upsert({ filial, turno, horario_fechamento: horarioFechamento }, { onConflict: 'filial,turno' })
   return { error: error?.message ?? null }
+}
+
+// Recalcula TODO o histórico já lançado de RV por atividade de uma filial
+// com a cota diária corrigida (dias úteis da COMPETÊNCIA 21→20, não do mês
+// calendário — ver cotaDiaria acima). Sem isso, créditos gravados antes do
+// ajuste continuam com a conta antiga (mês calendário) pra sempre, já que
+// o cálculo só entra em vigor pra lançamentos NOVOS. Não mexe em créditos
+// marcados como ausente (ficam 0, correto do jeito que estão), nem em
+// atividades de meta acumulada (o crédito delas é recalculado à parte, por
+// competência inteira, via recalcularAcumuladoAtividade).
+export async function recalcularCreditosHistorico(filial: string): Promise<{ atividadesProcessadas: number; creditosAtualizados: number }> {
+  const atividades = await listarAtividadesTurno(filial)
+  let creditosAtualizados = 0
+
+  for (const atividade of atividades) {
+    if (atividade.metaAcumulada) { await recalcularAcumuladoAtividade(atividade); continue }
+
+    // Inclui colaboradores inativos — créditos históricos deles também
+    // precisam da correção, mesmo que já não recebam mais hoje.
+    const colaboradores = await listarColaboradoresDaAtividade(atividade.id)
+    const colabPorId = new Map(colaboradores.filter((c) => c.colaboradorId).map((c) => [c.colaboradorId as string, c]))
+    if (colabPorId.size === 0) continue
+
+    const { data: creditos } = await supabase
+      .from('variavel_turno_creditos')
+      .select('id, colaborador_id, data, valor_gerado, ausente')
+      .eq('atividade_id', atividade.id)
+    if (!creditos || creditos.length === 0) continue
+
+    let bateuPorChave: Map<string, boolean>
+    if (atividade.porOperador) {
+      const { data: registros } = await supabase
+        .from('variavel_turno_registros_operador')
+        .select('colaborador_id, data, bateu_meta')
+        .eq('atividade_id', atividade.id)
+      bateuPorChave = new Map((registros ?? []).map((r) => [`${r.colaborador_id}|${r.data}`, r.bateu_meta]))
+    } else {
+      const { data: registros } = await supabase
+        .from('variavel_turno_registros')
+        .select('data, bateu_meta')
+        .eq('atividade_id', atividade.id)
+      const bateuPorData = new Map((registros ?? []).map((r) => [r.data as string, r.bateu_meta as boolean]))
+      bateuPorChave = new Map((creditos).map((c) => [`${c.colaborador_id}|${c.data}`, bateuPorData.get(c.data) ?? false]))
+    }
+
+    for (const c of creditos) {
+      if (c.ausente) continue
+      const colab = c.colaborador_id ? colabPorId.get(c.colaborador_id) : null
+      if (!colab) continue
+      const chave = atividade.porOperador ? `${c.colaborador_id}|${c.data}` : `${c.colaborador_id}|${c.data}`
+      const bateu = bateuPorChave.get(chave) ?? false
+      const novoValor = bateu ? cotaDiaria(colab.valorFinalMensal, c.data) : 0
+      if (Math.abs(novoValor - Number(c.valor_gerado)) > 0.005) {
+        const { error } = await supabase.from('variavel_turno_creditos').update({ valor_gerado: novoValor }).eq('id', c.id)
+        if (!error) creditosAtualizados++
+      }
+    }
+  }
+
+  return { atividadesProcessadas: atividades.length, creditosAtualizados }
 }
 
 export { formatarBRL }

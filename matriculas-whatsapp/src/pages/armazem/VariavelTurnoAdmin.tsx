@@ -11,6 +11,7 @@ import {
   listarRegistrosDoMes, registrarAtividadeTurno, bateuMetaAtividade,
   listarRegistrosOperadorDoMes, registrarAtividadeTurnoPorOperador,
   listarHorariosFechamento, salvarHorarioFechamento, TURNOS_CONFERENTE, TURNO_CONFERENTE_LABEL,
+  recalcularCreditosHistorico,
   type TurnoAtividade, type TurnoTipoRegistro, type TurnoUnidade, type TurnoDirecao,
   type ColaboradorElegivel, type AtividadeColaborador, type ConferenteEquipeMembro, type TurnoRegistro,
   type RegistroOperador, type HorarioFechamentoTurno,
@@ -42,7 +43,7 @@ const SENHA_PADRAO_CONFERENTE = 'CONFERENTE123'
 function formVazio() {
   return {
     turno: '1º Turno', nome: '', tipoRegistro: 'manual' as TurnoTipoRegistro, unidade: 'percentual' as TurnoUnidade,
-    direcao: 'maior_melhor' as TurnoDirecao, metaValor: '', conferenteUsuarioId: '', porOperador: false,
+    direcao: 'maior_melhor' as TurnoDirecao, metaValor: '', conferenteUsuarioId: '', porOperador: false, metaAcumulada: false,
   }
 }
 
@@ -874,6 +875,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
   const [salvandoConferente, setSalvandoConferente] = useState(false)
   const [erroConferente, setErroConferente] = useState('')
   const [equipeExpandida, setEquipeExpandida] = useState<string | null>(null)
+  const [recalculando, setRecalculando] = useState(false)
 
   const carregar = useCallback(async () => {
     setLoading(true)
@@ -950,7 +952,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
     setForm({
       turno: a.turno, nome: a.nome, tipoRegistro: a.tipoRegistro, unidade: a.unidade,
       direcao: a.direcao ?? 'maior_melhor', metaValor: metaValorTexto,
-      conferenteUsuarioId: a.conferenteUsuarioId ?? '', porOperador: a.porOperador,
+      conferenteUsuarioId: a.conferenteUsuarioId ?? '', porOperador: a.porOperador, metaAcumulada: a.metaAcumulada,
     })
   }
 
@@ -977,7 +979,7 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
       tipoRegistro: form.tipoRegistro, unidade: form.unidade, direcao: form.direcao,
       metaValor: metaValor ?? null,
       conferenteUsuarioId: form.conferenteUsuarioId, conferenteNome: conferente?.nome ?? conferente?.login ?? null,
-      porOperador: form.porOperador,
+      porOperador: form.porOperador, metaAcumulada: form.metaAcumulada,
     })
     setSalvando(false)
     if (error) { setErro(`Erro ao salvar: ${error}`); return }
@@ -993,14 +995,42 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
     await carregar()
   }
 
+  async function recalcularHistorico() {
+    if (!confirm('Recalcular TODO o histórico de créditos de RV por atividade dessa filial com a conta corrigida (dias úteis da competência 21→20)? Isso pode levar alguns instantes.')) return
+    setRecalculando(true)
+    try {
+      const { atividadesProcessadas, creditosAtualizados } = await recalcularCreditosHistorico(filial)
+      alert(`Histórico recalculado: ${atividadesProcessadas} atividade(s) verificada(s), ${creditosAtualizados} crédito(s) corrigido(s).`)
+    } catch (e) {
+      alert(e instanceof Error ? e.message : 'Erro ao recalcular histórico.')
+    } finally {
+      setRecalculando(false)
+    }
+  }
+
   return (
     <div className="space-y-4">
       <p className="text-xs text-gray-500">
         O conferente só lança as atividades <b className="text-green-700">Manuais</b> no fim do turno — as de <b>Upload</b> seguem
         o fluxo de relatório normal, fora desse fechamento. Uma atividade pode ter vários colaboradores (ex.: EFC feita por
         vários ajudantes) — o valor final mensal é individual, não dividido entre o grupo, e é dividido pelos dias úteis
-        (segunda a sábado) do mês pra virar a cota diária de cada um.
+        da competência (21→20) pra virar a cota diária de cada um — a não ser que a atividade seja de <b>meta acumulada</b>,
+        que paga o valor cheio ou zero conforme a média do período inteiro.
       </p>
+
+      <div className="flex items-center justify-between gap-2 border rounded-lg p-3 bg-gray-50/50">
+        <p className="text-[11px] text-gray-500">
+          Créditos gravados antes do ajuste da cota diária pra competência (21→20) ficaram com a conta antiga (mês
+          calendário). Use aqui pra corrigir o histórico já lançado dessa filial.
+        </p>
+        <button
+          onClick={recalcularHistorico}
+          disabled={recalculando}
+          className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border hover:bg-accent disabled:opacity-50 whitespace-nowrap"
+        >
+          {recalculando ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />} Recalcular histórico
+        </button>
+      </div>
 
       <div className="border rounded-lg p-4 space-y-3">
         <h4 className="text-sm font-semibold flex items-center gap-1.5"><UserCog className="h-4 w-4 text-accent-600" /> Conferentes</h4>
@@ -1118,6 +1148,9 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
                       {a.porOperador && (
                         <span className="ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-accent-100 text-accent-700">por operador</span>
                       )}
+                      {a.metaAcumulada && (
+                        <span className="ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">meta acumulada</span>
+                      )}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap">{formatarMetaTexto(a)}</td>
                     <td className="px-3 py-2">
@@ -1196,6 +1229,12 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
             <label className="flex items-center gap-2 text-xs text-gray-700">
               <input type="checkbox" checked={form.porOperador} onChange={(e) => setForm((f) => ({ ...f, porOperador: e.target.checked }))} />
               Lançamento por operador — cada colaborador lança o próprio valor do dia (ex.: Quebra), em vez de todos herdarem um valor único do turno.
+            </label>
+          </div>
+          <div className="sm:col-span-2 flex items-end pb-2">
+            <label className="flex items-center gap-2 text-xs text-gray-700">
+              <input type="checkbox" checked={form.metaAcumulada} onChange={(e) => setForm((f) => ({ ...f, metaAcumulada: e.target.checked }))} />
+              Meta acumulada — paga o valor final CHEIO se a média da competência inteira (21→20) bater a meta, ou ZERO se não bater, em vez de cota por dia batido (ex.: TMA).
             </label>
           </div>
         </div>
