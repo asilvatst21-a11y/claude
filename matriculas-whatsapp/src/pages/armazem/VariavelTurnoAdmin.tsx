@@ -11,7 +11,7 @@ import {
   listarRegistrosDoMes, registrarAtividadeTurno, bateuMetaAtividade,
   listarRegistrosOperadorDoMes, registrarAtividadeTurnoPorOperador,
   listarHorariosFechamento, salvarHorarioFechamento, TURNOS_CONFERENTE, TURNO_CONFERENTE_LABEL,
-  recalcularCreditosHistorico,
+  recalcularCreditosHistorico, recalcularAcumuladoAtividade,
   type TurnoAtividade, type TurnoTipoRegistro, type TurnoUnidade, type TurnoDirecao,
   type ColaboradorElegivel, type AtividadeColaborador, type ConferenteEquipeMembro, type TurnoRegistro,
   type RegistroOperador, type HorarioFechamentoTurno,
@@ -983,6 +983,21 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
     })
     setSalvando(false)
     if (error) { setErro(`Erro ao salvar: ${error}`); return }
+
+    // Ligar "meta acumulada" numa atividade que já tinha dias lançados não
+    // muda nada sozinho — o recálculo só rodava no próximo dia lançado ou
+    // vínculo novo. Recalcula na hora aqui, com os dias que já existem.
+    const atividadeId = editandoId ?? id
+    if (form.metaAcumulada && atividadeId) {
+      await recalcularAcumuladoAtividade({
+        id: atividadeId, filial, turno: form.turno, nome: form.nome.trim(),
+        tipoRegistro: form.tipoRegistro, unidade: form.unidade,
+        direcao: form.unidade === 'ok_nok' ? null : form.direcao, metaValor: metaValor ?? null,
+        conferenteUsuarioId: form.conferenteUsuarioId, conferenteNome: conferente?.nome ?? conferente?.login ?? null,
+        porOperador: form.porOperador, metaAcumulada: true, ativo: true,
+      })
+    }
+
     await carregar()
     // Depois de criar, entra direto em edição pra poder adicionar os
     // colaboradores (só dá pra vincular colaborador depois que a atividade
