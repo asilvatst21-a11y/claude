@@ -4,7 +4,19 @@ import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { parseColaboradores, importarColaboradores } from '../lib/colaboradores'
 import { FiltroMulti } from '../components/FiltroMulti'
+import { formatarDataBR } from '../lib/utils'
+import { mesesDeEmpresa } from '../lib/gsdpqVencimento'
 import type { Colaborador } from '../types'
+
+function tempoDeCasaLabel(dataAdmissao: string | null): string {
+  if (!dataAdmissao) return '—'
+  const meses = mesesDeEmpresa(dataAdmissao, new Date())
+  if (meses < 0) return '—'
+  if (meses < 12) return `${meses}m`
+  const anos = Math.floor(meses / 12)
+  const resto = meses % 12
+  return resto === 0 ? `${anos}a` : `${anos}a ${resto}m`
+}
 
 // Campos que hoje são mantidos em duplicidade em outras telas (GSD, TML,
 // Armazém) — aqui viram a fonte única. Ver supabase-migration-colaboradores-central.sql.
@@ -336,6 +348,7 @@ export default function Colaboradores() {
                   </th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">Telefone</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">CPF</th>
+                  <th className="text-left px-4 py-3 font-medium text-muted-foreground">Tempo de casa</th>
                   <th className="text-left px-4 py-3 font-medium text-muted-foreground">
                     <button onClick={() => alternarOrdenacao('status')} className="flex items-center gap-1 hover:text-foreground">Status <IconeOrdenacao campo="status" /></button>
                   </th>
@@ -375,6 +388,9 @@ export default function Colaboradores() {
                         disabled={salvandoId === c.id}
                         className="w-28 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
                       />
+                    </td>
+                    <td className="px-4 py-2.5 text-xs text-muted-foreground" title={c.data_admissao ? formatarDataBR(c.data_admissao) : undefined}>
+                      {tempoDeCasaLabel(c.data_admissao ?? null)}
                     </td>
                     <td className="px-4 py-2.5 text-xs text-muted-foreground">{c.status ?? '—'}</td>
                     <td className="px-4 py-2.5 text-right">

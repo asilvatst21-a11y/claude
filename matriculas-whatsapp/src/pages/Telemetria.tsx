@@ -4,15 +4,37 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   LineChart, Line, CartesianGrid,
 } from 'recharts'
+import { MapContainer, TileLayer, useMap } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
+import 'leaflet.heat'
 import {
   Upload, Loader2, RefreshCw, ChevronDown, ChevronUp,
-  Car, User, MapPin, Clock, Plus, X, AlertTriangle, Zap, TrendingUp,
+  Car, User, MapPin, Clock, Plus, X, AlertTriangle, Zap, TrendingUp, Settings2,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
+import { mesesDeEmpresa } from '../lib/gsdpqVencimento'
+import { enviarMensagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import type { TelemetriaAlerta, TelemetriaAcao } from '../types'
 import { formatarDataBR } from '../lib/utils'
+
+interface ReciclagemRow {
+  id: string
+  filial: string
+  motorista: string
+  mes: string
+  eventos_no_mes: number
+  feito: boolean
+  feito_em: string | null
+  feito_por: string | null
+}
+
+const LIMIAR_RECICLAGEM_MES = 10
+const BUCKETS_TEMPO_CASA = ['0-3m', '3-6m', '6-12m', '1-2a', '2a+'] as const
+const DIAS_MINIMOS_TAXA = 5
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -100,6 +122,61 @@ function semId(motorista: string | null): boolean {
 
 function motoristaEfetivo(a: TelemetriaAlerta): string {
   return a.motorista_identificado?.trim() || a.motorista || 'Sem Identificação'
+}
+
+function normNome(s: string): string {
+  return s.trim().toLowerCase()
+}
+
+function bucketDeMeses(meses: number): typeof BUCKETS_TEMPO_CASA[number] {
+  if (meses < 3) return '0-3m'
+  if (meses < 6) return '3-6m'
+  if (meses < 12) return '6-12m'
+  if (meses < 24) return '1-2a'
+  return '2a+'
+}
+
+function formatarMesLabel(mes: string): string {
+  const [ano, m] = mes.split('-')
+  const idx = parseInt(m, 10) - 1
+  return `${MESES_LABEL[idx] ?? m}/${ano}`
+}
+
+// Semana "chave" simplificada (não é ISO 8601 estrito, mas é consistente pra
+// comparar a semana atual do motorista com o próprio histórico de semanas).
+function semanaChave(dataISO: string): string {
+  const d = new Date(dataISO.slice(0, 10) + 'T00:00:00')
+  const onejan = new Date(d.getFullYear(), 0, 1)
+  const semana = Math.ceil((((d.getTime() - onejan.getTime()) / 86_400_000) + onejan.getDay() + 1) / 7)
+  return `${d.getFullYear()}-W${String(semana).padStart(2, '0')}`
+}
+
+// Motorista com 3+ eventos na semana atual E bem acima (1.5x) da própria
+// média histórica de eventos por semana — usa a lista inteira (não o filtro
+// de data da tela), porque o alerta é sobre "agora", não sobre o recorte
+// que o usuário está analisando.
+function calcularSpikes(lista: TelemetriaAlerta[]): { motorista: string; semanaAtual: number; mediaHistorica: number }[] {
+  const porMotoristaSemana: Record<string, Record<string, number>> = {}
+  lista.forEach(a => {
+    if (!a.data_hora) return
+    const mot = motoristaEfetivo(a)
+    if (mot === 'Sem Identificação') return
+    const semana = semanaChave(a.data_hora)
+    porMotoristaSemana[mot] ??= {}
+    porMotoristaSemana[mot][semana] = (porMotoristaSemana[mot][semana] ?? 0) + 1
+  })
+  const semanaAtualChave = semanaChave(new Date().toISOString())
+  const resultado: { motorista: string; semanaAtual: number; mediaHistorica: number }[] = []
+  Object.entries(porMotoristaSemana).forEach(([mot, semanas]) => {
+    const atual = semanas[semanaAtualChave] ?? 0
+    const historicas = Object.entries(semanas).filter(([s]) => s !== semanaAtualChave).map(([, v]) => v)
+    if (historicas.length < 2) return
+    const media = historicas.reduce((s, v) => s + v, 0) / historicas.length
+    if (atual >= 3 && atual > media * 1.5) {
+      resultado.push({ motorista: mot, semanaAtual: atual, mediaHistorica: Math.round(media * 10) / 10 })
+    }
+  })
+  return resultado.sort((a, b) => b.semanaAtual - a.semanaAtual)
 }
 
 async function parseCsv(file: File): Promise<Omit<TelemetriaAlerta, 'id' | 'filial' | 'created_at' | 'motorista_identificado'>[]> {
@@ -476,6 +553,17 @@ function MotoristaDetail({
   )
 }
 
+function HeatLayer({ points }: { points: [number, number, number][] }) {
+  const map = useMap()
+  useEffect(() => {
+    if (points.length === 0) return
+    const layer = L.heatLayer(points, { radius: 22, blur: 18, maxZoom: 17 })
+    layer.addTo(map)
+    return () => { map.removeLayer(layer) }
+  }, [map, points])
+  return null
+}
+
 // ─── Main component ────────────────────────────────────────────────────────────
 
 export default function Telemetria() {
@@ -486,7 +574,25 @@ export default function Telemetria() {
   const [loading, setLoading]             = useState(true)
   const [detalheViaAberto, setDetalheViaAberto] = useState(true)
   const [uploading, setUploading]         = useState(false)
-  const [tab, setTab]                     = useState<'dash' | 'motoristas' | 'veiculos' | 'via' | 'semid' | 'reincidencia' | 'score' | 'serie'>('dash')
+  const [tab, setTab]                     = useState<'dash' | 'motoristas' | 'veiculos' | 'via' | 'semid' | 'reincidencia' | 'score' | 'serie' | 'tempocasa' | 'mapa' | 'reciclagem'>('dash')
+
+  // Tempo de casa / taxa por rota rodada
+  const [colaboradoresInfo, setColaboradoresInfo] = useState<Map<string, { dataAdmissao: string | null; matricula: string | null }>>(new Map())
+  const [escalasDias, setEscalasDias]     = useState<Map<string, Set<string>>>(new Map())
+
+  // Reciclagem
+  const [reciclagem, setReciclagem]       = useState<ReciclagemRow[]>([])
+
+  // Alerta de spike — config do grupo de WhatsApp
+  const [grupoSpike, setGrupoSpike]               = useState('')
+  const [grupoSpikeOriginal, setGrupoSpikeOriginal] = useState('')
+  const [configSpikeAberta, setConfigSpikeAberta]   = useState(false)
+  const [grupos, setGrupos]               = useState<GrupoZApi[]>([])
+  const [buscandoGrupos, setBuscandoGrupos] = useState(false)
+  const [erroGrupos, setErroGrupos]       = useState<string | null>(null)
+  const [copiado, setCopiado]             = useState<string | null>(null)
+  const [salvandoGrupoSpike, setSalvandoGrupoSpike] = useState(false)
+  const [enviandoSpike, setEnviandoSpike] = useState(false)
   const [expandedMot, setExpandedMot]     = useState<string | null>(null)
   const [expandedPlaca, setExpandedPlaca] = useState<string | null>(null)
   const [modalAcao, setModalAcao]         = useState<TelemetriaAlerta | null>(null)
@@ -500,19 +606,123 @@ export default function Telemetria() {
 
   // ── Load data ──────────────────────────────────────────────────────────────
 
+  // Insere (sem nunca sobrescrever) as pendências de reciclagem de quem
+  // ultrapassou o limiar mensal de eventos. Só aponta — não mexe em nada do
+  // módulo de Treinamentos.
+  async function atualizarPendenciasReciclagem(lista: TelemetriaAlerta[], filial: string) {
+    const porMes: Record<string, Record<string, number>> = {}
+    lista.forEach(a => {
+      if (!a.data_hora) return
+      const mot = motoristaEfetivo(a)
+      if (mot === 'Sem Identificação') return
+      const mes = a.data_hora.slice(0, 7)
+      porMes[mes] ??= {}
+      porMes[mes][mot] = (porMes[mes][mot] ?? 0) + 1
+    })
+    const candidatos: { filial: string; motorista: string; mes: string; eventos_no_mes: number }[] = []
+    Object.entries(porMes).forEach(([mes, porMotorista]) => {
+      Object.entries(porMotorista).forEach(([motorista, eventos]) => {
+        if (eventos >= LIMIAR_RECICLAGEM_MES) candidatos.push({ filial, motorista, mes, eventos_no_mes: eventos })
+      })
+    })
+    if (candidatos.length === 0) return
+    await supabase.from('telemetria_reciclagem').upsert(candidatos, { onConflict: 'filial,motorista,mes', ignoreDuplicates: true })
+  }
+
   async function loadData() {
     if (!usuario) return
     setLoading(true)
-    const [{ data: al }, { data: ac }] = await Promise.all([
+    const [{ data: al }, { data: ac }, { data: colabs }, { data: escalas }, { data: filialCfg }] = await Promise.all([
       supabase.from('telemetria_alertas').select('*').eq('filial', usuario.filial).order('data_hora', { ascending: false }),
       supabase.from('telemetria_acoes').select('*').eq('filial', usuario.filial),
+      supabase.from('colaboradores').select('nome, data_admissao, matricula').eq('filial', usuario.filial),
+      supabase.from('escalas_tml').select('matricula, data_entrega').eq('filial', usuario.filial),
+      supabase.from('filiais').select('grupo_telemetria_spike_whatsapp').eq('nome', usuario.filial).maybeSingle(),
     ])
     setAlertas(al ?? [])
     setAcoes(ac ?? [])
+
+    const mapColabs = new Map<string, { dataAdmissao: string | null; matricula: string | null }>()
+    ;(colabs ?? []).forEach(c => mapColabs.set(normNome(c.nome), { dataAdmissao: c.data_admissao ?? null, matricula: c.matricula ?? null }))
+    setColaboradoresInfo(mapColabs)
+
+    const mapEscalas = new Map<string, Set<string>>()
+    ;(escalas ?? []).forEach(e => {
+      if (!e.matricula || !e.data_entrega) return
+      if (!mapEscalas.has(e.matricula)) mapEscalas.set(e.matricula, new Set())
+      mapEscalas.get(e.matricula)!.add(e.data_entrega)
+    })
+    setEscalasDias(mapEscalas)
+
+    const g = filialCfg?.grupo_telemetria_spike_whatsapp ?? ''
+    setGrupoSpike(g)
+    setGrupoSpikeOriginal(g)
+
+    if (al && al.length > 0) {
+      await atualizarPendenciasReciclagem(al, usuario.filial)
+    }
+    const { data: recic } = await supabase.from('telemetria_reciclagem').select('*').eq('filial', usuario.filial).order('mes', { ascending: false })
+    setReciclagem(recic ?? [])
+
     setLoading(false)
   }
 
   useEffect(() => { loadData() }, [usuario])
+
+  // ── Config. WhatsApp do alerta de spike ────────────────────────────────────
+
+  async function buscarGruposZapi() {
+    setBuscandoGrupos(true)
+    setErroGrupos(null)
+    const { grupos: gs, erro } = await listarGrupos()
+    setBuscandoGrupos(false)
+    if (erro) { setErroGrupos(erro); return }
+    if (gs.length === 0) { setErroGrupos('Nenhum grupo encontrado nesta instância Z-API.'); return }
+    setGrupos(gs.sort((a, b) => a.name.localeCompare(b.name)))
+  }
+
+  async function copiarId(id: string) {
+    try {
+      await navigator.clipboard.writeText(id)
+      setCopiado(id)
+      setTimeout(() => setCopiado(c => (c === id ? null : c)), 1500)
+    } catch {
+      /* clipboard indisponível */
+    }
+  }
+
+  async function salvarGrupoSpike() {
+    if (!usuario) return
+    setSalvandoGrupoSpike(true)
+    try {
+      await supabase.from('filiais').update({ grupo_telemetria_spike_whatsapp: grupoSpike || null }).eq('nome', usuario.filial)
+      setGrupoSpikeOriginal(grupoSpike)
+    } finally {
+      setSalvandoGrupoSpike(false)
+    }
+  }
+
+  async function enviarAlertaSpike(lista: { motorista: string; semanaAtual: number; mediaHistorica: number }[]) {
+    if (!grupoSpike || lista.length === 0) return
+    setEnviandoSpike(true)
+    try {
+      const linhas = lista.map(s => `• ${s.motorista}: ${s.semanaAtual} eventos essa semana (média própria: ${s.mediaHistorica})`).join('\n')
+      const texto = `⚠️ *Telemetria — salto de eventos*\n\nMotorista(s) com eventos bem acima da própria média histórica nesta semana:\n\n${linhas}\n\nVale um acompanhamento de perto.`
+      const r = await enviarMensagemGrupo(grupoSpike, texto)
+      if (!r.sucesso) alert(`Não foi possível enviar: ${r.erro ?? 'erro desconhecido'}`)
+      else alert('Alerta enviado ao grupo.')
+    } finally {
+      setEnviandoSpike(false)
+    }
+  }
+
+  async function marcarReciclagem(row: ReciclagemRow, feito: boolean) {
+    if (!usuario) return
+    const feito_em = feito ? new Date().toISOString() : null
+    const feito_por = feito ? (usuario.nome ?? usuario.login) : null
+    await supabase.from('telemetria_reciclagem').update({ feito, feito_em, feito_por }).eq('id', row.id)
+    setReciclagem(prev => prev.map(r => (r.id === row.id ? { ...r, feito, feito_em, feito_por } : r)))
+  }
 
   // ── Upload CSV ─────────────────────────────────────────────────────────────
 
@@ -532,6 +742,21 @@ export default function Telemetria() {
           .upsert(inserts.slice(i, i + CHUNK), { onConflict: 'filial,placa,data_hora,tipo' })
       }
       await loadData()
+
+      // Checa salto de eventos com os dados já atualizados e, se tiver grupo
+      // configurado, avisa automaticamente — sem depender do usuário abrir a
+      // aba de Dashboard e clicar em "Enviar agora".
+      const { data: freshAlertas } = await supabase.from('telemetria_alertas').select('*').eq('filial', usuario.filial)
+      const { data: filialCfg } = await supabase.from('filiais').select('grupo_telemetria_spike_whatsapp').eq('nome', usuario.filial).maybeSingle()
+      const grupo = filialCfg?.grupo_telemetria_spike_whatsapp
+      if (grupo && freshAlertas) {
+        const spikes = calcularSpikes(freshAlertas)
+        if (spikes.length > 0) {
+          const linhas = spikes.map(s => `• ${s.motorista}: ${s.semanaAtual} eventos essa semana (média própria: ${s.mediaHistorica})`).join('\n')
+          const texto = `⚠️ *Telemetria — salto de eventos*\n\nMotorista(s) com eventos bem acima da própria média histórica nesta semana:\n\n${linhas}\n\nVale um acompanhamento de perto.`
+          await enviarMensagemGrupo(grupo, texto)
+        }
+      }
     } finally {
       setUploading(false)
     }
@@ -874,6 +1099,86 @@ export default function Telemetria() {
       .sort((a, b) => b.eventos.length - a.eventos.length || b.data.localeCompare(a.data))
   }, [filtered])
 
+  // Eventos × Tempo de Casa
+  const tenureData = useMemo(() => {
+    const porMotorista: Record<string, { eventos: number; meses: number }> = {}
+    filtered.forEach(a => {
+      const mot = motoristaEfetivo(a)
+      const info = colaboradoresInfo.get(normNome(mot))
+      if (!info?.dataAdmissao) return
+      const meses = mesesDeEmpresa(info.dataAdmissao, new Date())
+      if (meses < 0) return
+      porMotorista[mot] ??= { eventos: 0, meses }
+      porMotorista[mot].eventos++
+    })
+    const buckets: Record<string, { eventos: number; motoristas: number }> = {}
+    BUCKETS_TEMPO_CASA.forEach(b => { buckets[b] = { eventos: 0, motoristas: 0 } })
+    Object.values(porMotorista).forEach(({ eventos, meses }) => {
+      const b = bucketDeMeses(meses)
+      buckets[b].eventos += eventos
+      buckets[b].motoristas += 1
+    })
+    return BUCKETS_TEMPO_CASA.map(b => ({
+      bucket: b,
+      eventos: buckets[b].eventos,
+      motoristas: buckets[b].motoristas,
+      media: buckets[b].motoristas > 0 ? Math.round((buckets[b].eventos / buckets[b].motoristas) * 10) / 10 : 0,
+    }))
+  }, [filtered, colaboradoresInfo])
+
+  const semTempoCasa = useMemo(() => {
+    const nomes = new Set<string>()
+    filtered.forEach(a => {
+      const mot = motoristaEfetivo(a)
+      if (mot === 'Sem Identificação') return
+      if (!colaboradoresInfo.get(normNome(mot))?.dataAdmissao) nomes.add(mot)
+    })
+    return [...nomes].sort((a, b) => a.localeCompare(b))
+  }, [filtered, colaboradoresInfo])
+
+  // Taxa de eventos por rota/dia rodado — não temos km, então o denominador é
+  // dias distintos de escala (mapa) rodados pela matrícula do motorista no
+  // mesmo período do filtro.
+  const taxaPorRota = useMemo(() => {
+    const porMotorista: Record<string, { eventos: number; matricula: string | null }> = {}
+    filtered.forEach(a => {
+      const mot = motoristaEfetivo(a)
+      if (mot === 'Sem Identificação') return
+      porMotorista[mot] ??= { eventos: 0, matricula: colaboradoresInfo.get(normNome(mot))?.matricula ?? null }
+      porMotorista[mot].eventos++
+    })
+    const de = filtroDataDe || null
+    const ate = filtroDataAte || null
+    return Object.entries(porMotorista)
+      .map(([mot, v]) => {
+        let dias = 0
+        if (v.matricula) {
+          const datas = escalasDias.get(v.matricula)
+          if (datas) dias = [...datas].filter(d => (!de || d >= de) && (!ate || d <= ate)).length
+        }
+        return { motorista: mot, eventos: v.eventos, dias, taxa: dias > 0 ? Math.round((v.eventos / dias) * 100) / 100 : null }
+      })
+      .filter(r => r.dias >= DIAS_MINIMOS_TAXA)
+      .sort((a, b) => (b.taxa ?? 0) - (a.taxa ?? 0))
+  }, [filtered, colaboradoresInfo, escalasDias, filtroDataDe, filtroDataAte])
+
+  // Alerta de spike — usa a lista inteira (não o filtro da tela), o alerta é sobre "agora".
+  const spikeData = useMemo(() => calcularSpikes(alertas), [alertas])
+
+  // Mapa de calor geográfico
+  const pontosMapa = useMemo<[number, number, number][]>(() =>
+    filtered
+      .filter((a): a is TelemetriaAlerta & { latitude: number; longitude: number } => a.latitude != null && a.longitude != null)
+      .map(a => [a.latitude, a.longitude, 1]),
+  [filtered])
+
+  const centroMapa = useMemo<[number, number]>(() => {
+    if (pontosMapa.length === 0) return [-23.5505, -46.6333]
+    const lat = pontosMapa.reduce((s, p) => s + p[0], 0) / pontosMapa.length
+    const lon = pontosMapa.reduce((s, p) => s + p[1], 0) / pontosMapa.length
+    return [lat, lon]
+  }, [pontosMapa])
+
   const maxHora = Math.max(...horaData.map(d => d.total), 1)
   const maxDia  = Math.max(...diaSemanaData.map(d => d.total), 1)
 
@@ -942,6 +1247,9 @@ export default function Telemetria() {
               ['reincidencia',  'Reincidência'],
               ['score',         'Score de Risco'],
               ['serie',         'Eventos em Série'],
+              ['tempocasa',     'Tempo de Casa'],
+              ['mapa',          'Mapa de Calor'],
+              ['reciclagem',    `Reciclagem${reciclagem.filter(r => !r.feito).length > 0 ? ` (${reciclagem.filter(r => !r.feito).length})` : ''}`],
               ['semid',         `Sem Identificação${semIdAlertas.length > 0 ? ` (${semIdAlertas.length})` : ''}`],
             ] as [string, string][]).map(([k, l]) => (
               <button key={k} onClick={() => setTab(k as typeof tab)}
@@ -956,6 +1264,52 @@ export default function Telemetria() {
           {/* ── Dashboard Tab ────────────────────────────────────────────── */}
           {tab === 'dash' && (
             <div className="space-y-6">
+              {/* Alerta de salto (spike) */}
+              {spikeData.length > 0 && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                  <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+                    <h3 className="text-sm font-semibold text-red-700 flex items-center gap-1.5">
+                      <AlertTriangle size={15} /> Alerta de salto — {spikeData.length} motorista(s) essa semana
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setConfigSpikeAberta(v => !v)} className="flex items-center gap-1 text-xs px-2 py-1 rounded border border-red-200 hover:bg-white">
+                        <Settings2 size={12} /> Config. WhatsApp
+                      </button>
+                      <button
+                        onClick={() => enviarAlertaSpike(spikeData)}
+                        disabled={!grupoSpike || enviandoSpike}
+                        className="flex items-center gap-1 text-xs px-2 py-1 rounded bg-red-600 text-white disabled:opacity-40"
+                      >
+                        {enviandoSpike ? <Loader2 size={12} className="animate-spin" /> : null} Enviar agora
+                      </button>
+                    </div>
+                  </div>
+                  <ul className="text-xs text-red-700 space-y-0.5">
+                    {spikeData.map(s => (
+                      <li key={s.motorista}>• {s.motorista}: {s.semanaAtual} eventos essa semana (média própria: {s.mediaHistorica})</li>
+                    ))}
+                  </ul>
+                  {configSpikeAberta && (
+                    <div className="mt-3 pt-3 border-t border-red-200 space-y-2">
+                      <div className="flex gap-2 items-center flex-wrap">
+                        <button onClick={buscarGruposZapi} disabled={buscandoGrupos} className="text-xs px-2 py-1 rounded border hover:bg-white">
+                          {buscandoGrupos ? 'Buscando…' : 'Buscar grupos Z-API'}
+                        </button>
+                        {grupoSpike !== grupoSpikeOriginal && (
+                          <button onClick={salvarGrupoSpike} disabled={salvandoGrupoSpike} className="text-xs px-2 py-1 rounded bg-brand-600 text-white">
+                            {salvandoGrupoSpike ? 'Salvando…' : 'Salvar grupo'}
+                          </button>
+                        )}
+                      </div>
+                      {erroGrupos && <p className="text-xs text-red-600">{erroGrupos}</p>}
+                      {grupos.length > 0 && (
+                        <GroupPicker label="Grupo pro alerta de salto" value={grupoSpike} onChange={setGrupoSpike} grupos={grupos} onCopy={copiarId} copiado={copiado} />
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* KPIs */}
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
                 {[
@@ -1552,6 +1906,137 @@ export default function Telemetria() {
                   </table>
                 )
               }
+            </div>
+          )}
+          {/* ── Tempo de Casa Tab ────────────────────────────────────────── */}
+          {tab === 'tempocasa' && (
+            <div className="space-y-6">
+              <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
+                <h3 className="text-sm font-semibold text-gray-700 mb-1">Eventos × Tempo de Casa</h3>
+                <p className="text-xs text-gray-400 mb-3">Média de eventos por motorista em cada faixa de tempo de casa.</p>
+                {tenureData.every(d => d.motoristas === 0) ? (
+                  <div className="text-center py-8 text-gray-400 text-sm">
+                    Nenhum motorista do filtro tem data de admissão cadastrada ainda. Reimporte a planilha em Gente → Colaboradores.
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height={220}>
+                    <BarChart data={tenureData} barSize={36} margin={{ left: -10, right: 10 }}>
+                      <XAxis dataKey="bucket" tick={{ fontSize: 11 }} />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <Tooltip formatter={(v: number) => [v, 'Média de eventos/motorista']} labelFormatter={(l) => `Tempo de casa: ${l}`} />
+                      <Bar dataKey="media" radius={[4, 4, 0, 0]} fill="#1a4451" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                )}
+                {semTempoCasa.length > 0 && (
+                  <p className="text-xs text-amber-600 mt-2">
+                    {semTempoCasa.length} motorista(s) com evento(s) mas sem data de admissão encontrada: {semTempoCasa.slice(0, 5).join(', ')}{semTempoCasa.length > 5 ? '…' : ''}
+                  </p>
+                )}
+              </div>
+
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="p-4 pb-0">
+                  <h3 className="text-sm font-semibold text-gray-700">Taxa de eventos por rota trabalhada</h3>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Não temos quilometragem no sistema — a taxa aqui é eventos ÷ dias de rota rodados (escala do dia em Distribuição).
+                    Só motoristas com {DIAS_MINIMOS_TAXA}+ dias no período, pra não distorcer com amostra pequena.
+                  </p>
+                </div>
+                {taxaPorRota.length === 0 ? (
+                  <div className="text-center py-8 text-gray-400 text-sm">Sem dados suficientes de escala pra calcular a taxa nesse filtro.</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Motorista</th>
+                        <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Eventos</th>
+                        <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Dias de rota</th>
+                        <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Taxa (evt/dia)</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {taxaPorRota.map(r => (
+                        <tr key={r.motorista} className="hover:bg-gray-50">
+                          <td className="px-4 py-2.5 font-medium text-gray-800 max-w-xs truncate">{r.motorista}</td>
+                          <td className="px-3 py-2.5 text-center text-gray-600">{r.eventos}</td>
+                          <td className="px-3 py-2.5 text-center text-gray-600">{r.dias}</td>
+                          <td className="px-3 py-2.5 text-center font-bold text-gray-800">{r.taxa}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Mapa de Calor Tab ────────────────────────────────────────── */}
+          {tab === 'mapa' && (
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+              <h3 className="text-sm font-semibold text-gray-700 mb-3">Mapa de Calor Geográfico</h3>
+              {pontosMapa.length === 0 ? (
+                <div className="text-center py-12 text-gray-400 text-sm">Nenhum evento com coordenadas no filtro atual.</div>
+              ) : (
+                <div style={{ height: 520, borderRadius: 12, overflow: 'hidden' }}>
+                  <MapContainer center={centroMapa} zoom={12} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
+                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
+                    <HeatLayer points={pontosMapa} />
+                  </MapContainer>
+                </div>
+              )}
+              <p className="text-xs text-gray-400 mt-2">
+                Concentração de eventos (curva, freada e excesso) com coordenadas, dentro do filtro atual — {pontosMapa.length} ponto(s).
+              </p>
+            </div>
+          )}
+
+          {/* ── Reciclagem Tab ───────────────────────────────────────────── */}
+          {tab === 'reciclagem' && (
+            <div className="space-y-3">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700">
+                Motorista que ultrapassa {LIMIAR_RECICLAGEM_MES} eventos no mês entra aqui automaticamente. Isso não dispara nada no
+                módulo de Treinamentos — é só um apontamento pra acompanhar se a reciclagem foi feita.
+              </div>
+              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                {reciclagem.length === 0 ? (
+                  <div className="text-center py-12 text-gray-400 text-sm">Nenhuma pendência de reciclagem até agora.</div>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 border-b border-gray-100">
+                      <tr>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Motorista</th>
+                        <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Mês</th>
+                        <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Eventos no mês</th>
+                        <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Reciclagem</th>
+                        <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Marcado por</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {reciclagem.map(r => (
+                        <tr key={r.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-2.5 font-medium text-gray-800 max-w-xs truncate">{r.motorista}</td>
+                          <td className="px-3 py-2.5 text-center text-gray-600">{formatarMesLabel(r.mes)}</td>
+                          <td className="px-3 py-2.5 text-center font-bold text-amber-700">{r.eventos_no_mes}</td>
+                          <td className="px-3 py-2.5 text-center">
+                            <button
+                              onClick={() => marcarReciclagem(r, !r.feito)}
+                              className={`text-xs px-2 py-1 rounded border font-medium ${r.feito
+                                ? 'bg-green-100 text-green-700 border-green-300'
+                                : 'bg-gray-100 text-gray-600 border-gray-300'}`}
+                            >
+                              {r.feito ? 'Feita' : 'Pendente'}
+                            </button>
+                          </td>
+                          <td className="px-4 py-2.5 text-xs text-gray-500">
+                            {r.feito_em ? `${formatarDataBR(r.feito_em)}${r.feito_por ? ` · ${r.feito_por}` : ''}` : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
             </div>
           )}
         </>

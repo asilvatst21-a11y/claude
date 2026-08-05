@@ -22,6 +22,22 @@ export function isColaboradoresFile(wb: XLSX.WorkBook): boolean {
 // linha é varrida numa janela de colunas ao redor de onde eles deveriam
 // estar, e o conteúdo é classificado pelo formato (telefone = só dígitos,
 // 10 a 13 caracteres; e-mail = contém "@"; datas são ignoradas).
+// Aceita 'yyyy-mm-dd...' (serial de data já convertido pelo XLSX) ou
+// 'dd/mm/aaaa' / 'dd/mm/aa'. Mesma lógica usada no import de GSDPQ
+// (src/pages/Gsdpq.tsx) — mantida aqui separada porque um é import de
+// planilha bruta (header por índice) e o outro por objeto.
+function parseDataAdmissao(s: string): string | null {
+  const v = (s ?? '').trim()
+  if (!v) return null
+  if (/^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10)
+  const m = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+  if (m) {
+    const ano = m[3].length === 2 ? `20${m[3]}` : m[3]
+    return `${ano}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`
+  }
+  return null
+}
+
 function extrairTelefoneEmail(row: unknown[], centroAprox: number): { telefone: string | null; email: string | null } {
   let telefone: string | null = null
   let email: string | null = null
@@ -51,6 +67,7 @@ export function parseColaboradores(buffer: ArrayBuffer, filial: string): Colabor
   const iEq = col('EQUIPE'), iCargo = col('CARGO AMBEV'), iCpf = col('CPF')
   // "TELEFONE" é o ponto de referência da janela de busca (ver comentário acima).
   const iTelRef = col('TELEFONE')
+  const iAdmissao = [col('DATA_ADMISSAO'), col('DATA ADMISSAO'), col('DT ADMISSAO'), col('ADMISSAO')].find(i => i >= 0) ?? -1
 
   const seen = new Set<string>()
   const out: ColaboradorImportado[] = []
@@ -73,6 +90,7 @@ export function parseColaboradores(buffer: ArrayBuffer, filial: string): Colabor
       equipe:     val(iEq),
       cargo:      val(iCargo),
       cpf:        val(iCpf),
+      data_admissao: iAdmissao >= 0 ? parseDataAdmissao(String(r[iAdmissao] ?? '')) : null,
       telefone,
       email,
     })
@@ -99,7 +117,7 @@ export async function importarColaboradores(
 ): Promise<ResultadoImportacaoColaboradores> {
   const { data: existentes, error: eExistentes } = await supabase
     .from('colaboradores')
-    .select('id, nome_norm, status')
+    .select('id, nome_norm, status, data_admissao')
     .eq('filial', filial)
   if (eExistentes) throw new Error(eExistentes.message)
 
@@ -108,6 +126,18 @@ export async function importarColaboradores(
   const nomesNaPlanilha = new Set(rows.map((r) => normalizarNome(r.nome)))
 
   const novos = rows.filter((r) => !nomesExistentes.has(normalizarNome(r.nome)))
+
+  // Quem já está cadastrado mas ainda não tem data de admissão registrada
+  // recebe o valor da planilha agora — só preenche o que está vazio, nunca
+  // sobrescreve uma data já existente (evita mexer em ajuste manual feito na tela).
+  const porNome = new Map(rows.map((r) => [normalizarNome(r.nome), r]))
+  const semAdmissao = (existentes ?? []).filter((c) => !c.data_admissao && porNome.get(c.nome_norm)?.data_admissao)
+  for (const c of semAdmissao) {
+    const { error } = await supabase.from('colaboradores')
+      .update({ data_admissao: porNome.get(c.nome_norm)!.data_admissao })
+      .eq('id', c.id)
+    if (error) throw new Error(error.message)
+  }
   const CHUNK = 100
   for (let i = 0; i < novos.length; i += CHUNK) {
     const lote = novos.slice(i, i + CHUNK).map(({ email: _email, ...resto }) => resto)
