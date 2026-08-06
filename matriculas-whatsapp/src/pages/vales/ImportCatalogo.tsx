@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { Upload, CheckCircle2, AlertTriangle, Loader2, ShoppingCart, PackageSearch, Users, HelpCircle } from 'lucide-react'
+import { Upload, CheckCircle2, AlertTriangle, Loader2, ShoppingCart, PackageSearch, Users, HelpCircle, PackagePlus } from 'lucide-react'
 import { valesSupabase } from '@/lib/valesSupabase'
 import { useAuth } from '@/lib/auth'
 import { processarFixacaoMotorista, type HistoricoTmlMotorista } from '@/lib/frota'
@@ -187,6 +187,42 @@ async function importarBaseMapa(file: File, filial: string): Promise<{ contagem:
   return { contagem: equipe.length, mensagem: `Data: ${data}. Motorista e ajudantes aparecerão na confirmação; território e fixação de motorista atualizados na Frota.` }
 }
 
+interface DiffProduto { codigo: number; descricaoAtual: string | null; descricaoNova: string }
+
+// Lê um CSV de estoque/catálogo (ex.: exportação "Estoque Consolidado" do
+// Promax) e extrai código + descrição pelas colunas de cabeçalho "Item" e
+// "Descrição" — não depende de posição fixa de coluna, então funciona tanto
+// nesse relatório quanto em outros exports com layout parecido.
+function parseCatalogoCsv(texto: string): { codigo: number; descricao: string }[] {
+  const linhas = texto.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim())
+  if (linhas.length < 2) throw new Error('Arquivo CSV sem dados.')
+  const delim = linhas[0].includes(';') ? ';' : ','
+  const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+  const hdr = linhas[0].split(delim).map(h => semAcento(h.trim().toLowerCase()))
+  const iItem = hdr.findIndex(h => h === 'item' || h === 'codigo' || h === 'código')
+  const iDesc = hdr.findIndex(h => h.startsWith('descri'))
+  if (iItem < 0 || iDesc < 0) {
+    throw new Error('Não encontrei as colunas "Item" e "Descrição" no cabeçalho do CSV. Confira se é o arquivo certo.')
+  }
+  const porCodigo = new Map<number, string>()
+  for (const linha of linhas.slice(1)) {
+    const cols = linha.split(delim)
+    const codigo = parseInt((cols[iItem] ?? '').trim())
+    const descricao = (cols[iDesc] ?? '').trim()
+    if (!codigo || !descricao) continue
+    porCodigo.set(codigo, descricao) // último ganha se o código repetir (ex.: vários lotes)
+  }
+  return [...porCodigo.entries()].map(([codigo, descricao]) => ({ codigo, descricao }))
+}
+
+// Descrições de estoque às vezes vêm cortadas num campo de largura fixa
+// (ex.: "...GFA VD 75" em vez de "...GFA VD 750 ML") — sinaliza pra revisão
+// manual em vez de aplicar sozinho e arriscar piorar uma descrição boa que
+// já existe no catálogo.
+function pareceTruncado(s: string): boolean {
+  return s.trim().length >= 48
+}
+
 export default function ImportCatalogoPage() {
   const { usuario } = useAuth()
   const ref = useRef<HTMLInputElement>(null)
@@ -195,6 +231,13 @@ export default function ImportCatalogoPage() {
   const [logs, setLogs] = useState<Log[]>([])
   const [faseBase, setFaseBase] = useState<Fase>('idle')
   const [logsBase, setLogsBase] = useState<Log[]>([])
+  const refCatalogo = useRef<HTMLInputElement>(null)
+  const [catalogoFase, setCatalogoFase] = useState<'idle' | 'lendo' | 'pronto' | 'aplicando' | 'ok' | 'erro'>('idle')
+  const [catalogoErro, setCatalogoErro] = useState('')
+  const [catalogoNovos, setCatalogoNovos] = useState<DiffProduto[]>([])
+  const [catalogoDivergentes, setCatalogoDivergentes] = useState<DiffProduto[]>([])
+  const [catalogoSelecionados, setCatalogoSelecionados] = useState<Set<number>>(new Set())
+  const [catalogoResultado, setCatalogoResultado] = useState('')
 
   async function handleFile(file: File) {
     setFase('lendo')
@@ -243,6 +286,76 @@ export default function ImportCatalogoPage() {
     } catch (e) {
       setLogsBase(prev => [...prev, { tipo: 'erro', msg: String(e) }])
       setFaseBase('erro')
+    }
+  }
+
+  async function handleCatalogoFile(file: File) {
+    setCatalogoFase('lendo')
+    setCatalogoErro('')
+    setCatalogoResultado('')
+    setCatalogoNovos([])
+    setCatalogoDivergentes([])
+    setCatalogoSelecionados(new Set())
+    try {
+      const texto = await file.text()
+      const linhas = parseCatalogoCsv(texto)
+      if (linhas.length === 0) throw new Error('Nenhuma linha com código e descrição encontrada no arquivo.')
+
+      const codigos = linhas.map(l => l.codigo)
+      const { data: existentes, error } = await valesSupabase.from('produtos').select('codigo, descricao').in('codigo', codigos)
+      if (error) throw new Error(error.message)
+      const atualPorCodigo = new Map((existentes ?? []).map(p => [p.codigo, p.descricao as string]))
+
+      const novos: DiffProduto[] = []
+      const divergentes: DiffProduto[] = []
+      for (const { codigo, descricao } of linhas) {
+        const atual = atualPorCodigo.get(codigo)
+        if (atual === undefined) novos.push({ codigo, descricaoAtual: null, descricaoNova: descricao })
+        else if (atual !== descricao) divergentes.push({ codigo, descricaoAtual: atual, descricaoNova: descricao })
+      }
+      setCatalogoNovos(novos.sort((a, b) => a.codigo - b.codigo))
+      setCatalogoDivergentes(divergentes.sort((a, b) => a.codigo - b.codigo))
+      setCatalogoFase('pronto')
+    } catch (e) {
+      setCatalogoErro(e instanceof Error ? e.message : String(e))
+      setCatalogoFase('erro')
+    }
+  }
+
+  function alternarSelecionado(codigo: number) {
+    setCatalogoSelecionados(prev => {
+      const novo = new Set(prev)
+      if (novo.has(codigo)) novo.delete(codigo)
+      else novo.add(codigo)
+      return novo
+    })
+  }
+
+  async function aplicarAtualizacaoCatalogo() {
+    setCatalogoFase('aplicando')
+    setCatalogoErro('')
+    try {
+      const aplicar = [
+        ...catalogoNovos,
+        ...catalogoDivergentes.filter(d => catalogoSelecionados.has(d.codigo)),
+      ].map(d => ({ codigo: d.codigo, descricao: d.descricaoNova }))
+
+      if (aplicar.length === 0) throw new Error('Nada selecionado pra aplicar.')
+
+      const BATCH = 500
+      for (let i = 0; i < aplicar.length; i += BATCH) {
+        const { error } = await valesSupabase.from('produtos').upsert(aplicar.slice(i, i + BATCH), { onConflict: 'codigo' })
+        if (error) throw new Error(error.message)
+      }
+
+      setCatalogoResultado(`✅ ${aplicar.length} produto(s) atualizado(s)/adicionado(s) no catálogo.`)
+      setCatalogoFase('ok')
+      setCatalogoNovos([])
+      setCatalogoDivergentes([])
+      setCatalogoSelecionados(new Set())
+    } catch (e) {
+      setCatalogoErro(e instanceof Error ? e.message : String(e))
+      setCatalogoFase('erro')
     }
   }
 
@@ -374,13 +487,102 @@ export default function ImportCatalogoPage() {
         )}
       </div>
 
-      <div className="rounded-lg border border-dashed p-4 text-sm space-y-1">
-        <p className="font-medium">Catálogo de produtos e PDVs</p>
-        <p className="text-muted-foreground text-xs">
-          Os dados do catálogo (produtos e PDVs) foram carregados diretamente durante a configuração do sistema
-          e não precisam ser reimportados. Caso precise atualizar o catálogo (ex: novos produtos), use o
-          script <code className="bg-muted px-1 rounded">scripts/seed-catalogo.mjs</code> disponível no repositório.
-        </p>
+      <div className="rounded-lg border p-4 space-y-3">
+        <div className="flex items-start gap-3">
+          <PackagePlus className="h-5 w-5 text-primary mt-0.5 shrink-0" />
+          <div>
+            <h2 className="font-semibold">Atualizar catálogo de produtos</h2>
+            <p className="text-sm text-muted-foreground">
+              Suba um CSV com as colunas <strong>Item</strong> (código) e <strong>Descrição</strong> — por exemplo, o
+              relatório de Estoque Consolidado do Promax. O sistema mostra o que vai mudar antes de aplicar:
+              produtos novos entram automaticamente; produtos que já existem com descrição diferente ficam
+              marcados pra você revisar e escolher quais aplicar (a descrição de estoque às vezes vem cortada,
+              então não aplicamos essas por padrão).
+            </p>
+          </div>
+        </div>
+
+        <input ref={refCatalogo} type="file" accept=".csv,.txt" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleCatalogoFile(f); e.target.value = '' }} />
+
+        <button
+          onClick={() => refCatalogo.current?.click()}
+          disabled={catalogoFase === 'lendo' || catalogoFase === 'aplicando'}
+          className="flex items-center gap-2 px-4 py-2 text-sm rounded-md border hover:bg-accent transition-colors disabled:opacity-50"
+        >
+          {catalogoFase === 'lendo' || catalogoFase === 'aplicando'
+            ? <Loader2 className="h-4 w-4 animate-spin" />
+            : <Upload className="h-4 w-4" />}
+          {catalogoFase === 'lendo' ? 'Lendo…' : catalogoFase === 'aplicando' ? 'Aplicando…' : 'Selecionar CSV'}
+        </button>
+
+        {catalogoErro && (
+          <div className="flex items-start gap-2 text-xs rounded px-2 py-1.5 bg-red-50 text-red-700">
+            <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span className="break-all">{catalogoErro}</span>
+          </div>
+        )}
+        {catalogoResultado && (
+          <div className="flex items-start gap-2 text-xs rounded px-2 py-1.5 bg-green-50 text-green-700">
+            <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>{catalogoResultado}</span>
+          </div>
+        )}
+
+        {catalogoFase === 'pronto' && (
+          <div className="space-y-3">
+            {catalogoNovos.length === 0 && catalogoDivergentes.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nenhuma novidade — o catálogo já bate com esse arquivo.</p>
+            ) : (
+              <>
+                {catalogoNovos.length > 0 && (
+                  <div className="rounded border border-green-200 bg-green-50 p-3 text-xs">
+                    <p className="font-medium text-green-800 mb-1">{catalogoNovos.length} produto(s) novo(s) — serão adicionados</p>
+                    <div className="max-h-32 overflow-y-auto space-y-0.5 text-green-900">
+                      {catalogoNovos.slice(0, 30).map(p => (
+                        <p key={p.codigo}>{p.codigo} — {p.descricaoNova}</p>
+                      ))}
+                      {catalogoNovos.length > 30 && <p className="text-green-700">…e mais {catalogoNovos.length - 30}.</p>}
+                    </div>
+                  </div>
+                )}
+                {catalogoDivergentes.length > 0 && (
+                  <div className="rounded border border-amber-200 bg-amber-50 p-3 text-xs space-y-2">
+                    <p className="font-medium text-amber-800">
+                      {catalogoDivergentes.length} produto(s) já existe(m) com descrição diferente — marque os que quer atualizar
+                    </p>
+                    <div className="max-h-64 overflow-y-auto space-y-2">
+                      {catalogoDivergentes.map(p => (
+                        <label key={p.codigo} className="flex items-start gap-2 bg-white/60 rounded px-2 py-1.5 cursor-pointer">
+                          <input type="checkbox" className="mt-0.5" checked={catalogoSelecionados.has(p.codigo)}
+                            onChange={() => alternarSelecionado(p.codigo)} />
+                          <span className="flex-1">
+                            <span className="font-medium">{p.codigo}</span>
+                            <br />
+                            <span className="text-red-600 line-through">{p.descricaoAtual}</span>
+                            <br />
+                            <span className="text-green-700">→ {p.descricaoNova}</span>
+                            {pareceTruncado(p.descricaoNova) && (
+                              <span className="ml-1 text-amber-700">⚠️ pode estar cortada — confira antes de marcar</span>
+                            )}
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <button
+                  onClick={aplicarAtualizacaoCatalogo}
+                  disabled={catalogoFase !== 'pronto' || (catalogoNovos.length === 0 && catalogoSelecionados.size === 0)}
+                  className="flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  <CheckCircle2 className="h-4 w-4" />
+                  Aplicar {catalogoNovos.length + catalogoSelecionados.size} atualização(ões)
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )
