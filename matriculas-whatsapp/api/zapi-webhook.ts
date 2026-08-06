@@ -429,7 +429,17 @@ async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<V
   const casa = (palavra: string, h: string) => expandirSinonimos(palavra).some(syn => h.includes(syn))
 
   let matches = vendidos.filter(v => {
-    if (codTermo && v.codigo === codTermo) return true
+    if (codTermo && v.codigo === codTermo) {
+      // O código bateu, mas se o motorista também escreveu palavras da
+      // descrição, elas precisam concordar com o que o catálogo diz pra esse
+      // código — senão o código pode estar reaproveitado/desatualizado no
+      // catálogo (ex.: "0034770 - ...Pomelo" batendo num 34770 cadastrado
+      // como "Melancia" no `produtos`/`vendas_dia`). Cravar esse match sem
+      // checar o texto manda reposição do produto errado sem avisar ninguém
+      // (bug real: ver conversa de 06/08/2026, pedido do PDV 20170).
+      if (palavras.length > 0 && !palavras.some(p => casa(p, hay(v)))) return false
+      return true
+    }
     if (palavras.length === 0) return false
     const h = hay(v)
     return palavras.every(p => casa(p, h))

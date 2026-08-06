@@ -115,7 +115,15 @@ async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<V
   const casa = (palavra: string, h: string) => expandirSinonimos(palavra).some((syn) => h.includes(syn))
 
   let matches = vendidos.filter((v) => {
-    if (codTermo && v.codigo === codTermo) return true
+    if (codTermo && v.codigo === codTermo) {
+      // Mesma checagem de src/../api/zapi-webhook.ts::avaliarVendas — o
+      // código bateu, mas se veio texto de descrição junto ele precisa
+      // concordar com o catálogo pra esse código, senão pode ser um código
+      // reaproveitado/desatualizado (bug real: PDV 20170, produto 34770
+      // digitado como "Pomelo Sugar Free" batendo num cadastro de "Melancia").
+      if (palavras.length > 0 && !palavras.some((p) => casa(p, hay(v)))) return false
+      return true
+    }
     if (palavras.length === 0) return false
     const h = hay(v)
     return palavras.every((p) => casa(p, h))
