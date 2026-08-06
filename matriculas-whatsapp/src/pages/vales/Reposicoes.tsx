@@ -367,25 +367,51 @@ function VendasConfronto({ rep }: { rep: Reposicao }) {
 // Seletor de produto reutilizável: atalho dos mais vendidos + busca por
 // nome/código. Usado na conferência para corrigir o produto solicitado e
 // para informar o produto correto numa inversão.
+//
+// A busca vai direto no Supabase (com debounce) em vez de filtrar uma lista
+// carregada inteira em memória — o catálogo já passa de 16 mil produtos e o
+// select sem `.limit()` batia no teto padrão de linhas do PostgREST (~1000),
+// então um produto cuja descrição caía depois desse corte (ex.: começando
+// com "R" de "RED BULL...", ordenado alfabeticamente) nunca aparecia na
+// busca mesmo já existindo certinho no catálogo.
 function SeletorProduto({
-  value, onChange, produtos, topProdutos, placeholder,
+  value, onChange, topProdutos, placeholder,
 }: {
   value: string;
   onChange: (v: string) => void;
-  produtos: Produto[];
   topProdutos: Produto[];
   placeholder?: string;
 }) {
   const [mostrarTop, setMostrarTop] = useState(false);
   const [busca, setBusca] = useState("");
+  const [filtrados, setFiltrados] = useState<Produto[]>([]);
+  const [buscando, setBuscando] = useState(false);
 
-  const filtrados = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    if (!termo) return [];
-    return produtos
-      .filter((p) => p.descricao.toLowerCase().includes(termo) || String(p.codigo).includes(termo))
-      .slice(0, 30);
-  }, [produtos, busca]);
+  useEffect(() => {
+    const termo = busca.trim();
+    if (!termo) { setFiltrados([]); setBuscando(false); return; }
+    setBuscando(true);
+    const timer = setTimeout(async () => {
+      const codigoExato = /^\d+$/.test(termo) ? parseInt(termo, 10) : null;
+      const [{ data: porDescricao }, { data: porCodigo }] = await Promise.all([
+        valesSupabase.from("produtos").select("codigo, descricao")
+          .ilike("descricao", `%${termo}%`).order("descricao").limit(30),
+        codigoExato != null
+          ? valesSupabase.from("produtos").select("codigo, descricao").eq("codigo", codigoExato).limit(1)
+          : Promise.resolve({ data: [] as Produto[] }),
+      ]);
+      const vistos = new Set<number>();
+      const combinado: Produto[] = [];
+      for (const p of [...(porCodigo ?? []), ...(porDescricao ?? [])]) {
+        if (vistos.has(p.codigo)) continue;
+        vistos.add(p.codigo);
+        combinado.push(p);
+      }
+      setFiltrados(combinado.slice(0, 30));
+      setBuscando(false);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [busca]);
 
   function selecionar(p: Produto) {
     onChange(`${p.codigo} - ${p.descricao}`);
@@ -442,6 +468,10 @@ function SeletorProduto({
         placeholder={placeholder ?? "Buscar produto por nome ou código..."}
         className="w-full border rounded-md px-3 py-2 text-sm"
       />
+      {buscando && <p className="text-xs text-muted-foreground">Buscando…</p>}
+      {!buscando && busca.trim() && filtrados.length === 0 && (
+        <p className="text-xs text-muted-foreground">Nenhum produto encontrado pra "{busca.trim()}".</p>
+      )}
       {filtrados.length > 0 && (
         <div className="border rounded-md max-h-44 overflow-y-auto divide-y">
           {filtrados.map((p) => (
@@ -514,15 +544,9 @@ export default function ReposicoesPage() {
   const [confProdutoInvertido, setConfProdutoInvertido] = useState("");
   const [confEnviando, setConfEnviando] = useState(false);
   const [confErro, setConfErro] = useState<string | null>(null);
-  const [produtos, setProdutos] = useState<Produto[]>([]);
   const [topProdutos, setTopProdutos] = useState<Produto[]>([]);
 
   useEffect(() => {
-    valesSupabase
-      .from("produtos")
-      .select("codigo, descricao")
-      .order("descricao")
-      .then(({ data }) => setProdutos(Array.isArray(data) ? data : []));
     valesSupabase
       .rpc("top_produtos_vendidos", { dias: 30, limite: 20 })
       .then(({ data }) => {
@@ -1232,7 +1256,6 @@ export default function ReposicoesPage() {
               <SeletorProduto
                 value={confProduto}
                 onChange={setConfProduto}
-                produtos={produtos}
                 topProdutos={topProdutos}
                 placeholder="Corrigir produto solicitado..."
               />
@@ -1270,7 +1293,6 @@ export default function ReposicoesPage() {
                 <SeletorProduto
                   value={confProdutoInvertido}
                   onChange={setConfProdutoInvertido}
-                  produtos={produtos}
                   topProdutos={topProdutos}
                 />
               </div>
@@ -1444,7 +1466,6 @@ export default function ReposicoesPage() {
                   <SeletorProduto
                     value={manualCampos.produto}
                     onChange={(v) => setManualCampos({ ...manualCampos, produto: v })}
-                    produtos={produtos}
                     topProdutos={topProdutos}
                     placeholder="Corrigir produto..."
                   />
