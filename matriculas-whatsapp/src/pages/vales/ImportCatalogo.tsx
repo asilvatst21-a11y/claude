@@ -236,6 +236,7 @@ export default function ImportCatalogoPage() {
   const [catalogoErro, setCatalogoErro] = useState('')
   const [catalogoNovos, setCatalogoNovos] = useState<DiffProduto[]>([])
   const [catalogoDivergentes, setCatalogoDivergentes] = useState<DiffProduto[]>([])
+  const [catalogoIguaisCount, setCatalogoIguaisCount] = useState(0)
   const [catalogoSelecionados, setCatalogoSelecionados] = useState<Set<number>>(new Set())
   const [catalogoResultado, setCatalogoResultado] = useState('')
 
@@ -308,13 +309,16 @@ export default function ImportCatalogoPage() {
 
       const novos: DiffProduto[] = []
       const divergentes: DiffProduto[] = []
+      let iguais = 0
       for (const { codigo, descricao } of linhas) {
         const atual = atualPorCodigo.get(codigo)
         if (atual === undefined) novos.push({ codigo, descricaoAtual: null, descricaoNova: descricao })
         else if (atual !== descricao) divergentes.push({ codigo, descricaoAtual: atual, descricaoNova: descricao })
+        else iguais++
       }
       setCatalogoNovos(novos.sort((a, b) => a.codigo - b.codigo))
       setCatalogoDivergentes(divergentes.sort((a, b) => a.codigo - b.codigo))
+      setCatalogoIguaisCount(iguais)
       setCatalogoFase('pronto')
     } catch (e) {
       setCatalogoErro(e instanceof Error ? e.message : String(e))
@@ -531,6 +535,9 @@ export default function ImportCatalogoPage() {
 
         {catalogoFase === 'pronto' && (
           <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              {catalogoNovos.length} novo(s), {catalogoDivergentes.length} divergente(s), {catalogoIguaisCount} já igual(is) ao catálogo — de {catalogoNovos.length + catalogoDivergentes.length + catalogoIguaisCount} linha(s) lidas do arquivo.
+            </p>
             {catalogoNovos.length === 0 && catalogoDivergentes.length === 0 ? (
               <p className="text-xs text-muted-foreground">Nenhuma novidade — o catálogo já bate com esse arquivo.</p>
             ) : (

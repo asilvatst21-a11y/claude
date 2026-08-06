@@ -393,9 +393,17 @@ function SeletorProduto({
     setBuscando(true);
     const timer = setTimeout(async () => {
       const codigoExato = /^\d+$/.test(termo) ? parseInt(termo, 10) : null;
+      // Cada palavra digitada precisa aparecer na descrição, mas não precisa
+      // ser um trecho contínuo — "red bull pomelo" tem que achar "RED BULL
+      // SUGAR FREE POMELO...", que não contém "red bull pomelo" como
+      // substring única. Um .ilike() encadeado por palavra vira AND na URL do
+      // PostgREST, então funciona igual à checagem "toda palavra bate" que
+      // já existe no bot (api/zapi-webhook.ts::avaliarVendas).
+      const palavras = termo.split(/\s+/).filter(Boolean);
+      let queryDescricao = valesSupabase.from("produtos").select("codigo, descricao").order("descricao").limit(30);
+      for (const palavra of palavras) queryDescricao = queryDescricao.ilike("descricao", `%${palavra}%`);
       const [{ data: porDescricao }, { data: porCodigo }] = await Promise.all([
-        valesSupabase.from("produtos").select("codigo, descricao")
-          .ilike("descricao", `%${termo}%`).order("descricao").limit(30),
+        queryDescricao,
         codigoExato != null
           ? valesSupabase.from("produtos").select("codigo, descricao").eq("codigo", codigoExato).limit(1)
           : Promise.resolve({ data: [] as Produto[] }),
