@@ -114,7 +114,7 @@ async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<V
   const hay = (v: { descricao: string; nomeCsv: string }) => semAcento(`${v.descricao} ${v.nomeCsv}`)
   const casa = (palavra: string, h: string) => expandirSinonimos(palavra).some((syn) => h.includes(syn))
 
-  let matches = vendidos.filter((v) => {
+  const matches = vendidos.filter((v) => {
     if (codTermo && v.codigo === codTermo) {
       // Mesma checagem de src/../api/zapi-webhook.ts::avaliarVendas — o
       // código bateu, mas se veio texto de descrição junto ele precisa
@@ -128,9 +128,12 @@ async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<V
     const h = hay(v)
     return palavras.every((p) => casa(p, h))
   })
-  if (matches.length === 0 && palavras.length > 1) {
-    matches = vendidos.filter((v) => casa(palavras[0], hay(v)))
-  }
+  // (Removido o fallback de "tenta com a 1ª palavra" — mesmo motivo de
+  // api/zapi-webhook.ts::avaliarVendas: uma palavra genérica sozinha (ex.:
+  // "energetico", vindo do nome abreviado do faturamento) achava um único
+  // produto no pedido e cravava, mesmo sendo outro sabor/variante. Bug real:
+  // PDV 20170, "Energético Red Bull Sugar Free Pomelo..." casou com
+  // "RED BULL SUGAR FREE BR" só pela primeira palavra.)
 
   const produtoNoPedido = matches.length > 0
   const produtoCanon = matches.length === 1 ? `${matches[0].codigo} - ${matches[0].descricao}` : null

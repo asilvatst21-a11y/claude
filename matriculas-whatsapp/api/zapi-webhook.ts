@@ -428,7 +428,7 @@ async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<V
   const hay = (v: { descricao: string; nomeCsv: string }) => semAcento(`${v.descricao} ${v.nomeCsv}`)
   const casa = (palavra: string, h: string) => expandirSinonimos(palavra).some(syn => h.includes(syn))
 
-  let matches = vendidos.filter(v => {
+  const matches = vendidos.filter(v => {
     if (codTermo && v.codigo === codTermo) {
       // O código bateu, mas se o motorista também escreveu palavras da
       // descrição, elas precisam concordar com o que o catálogo diz pra esse
@@ -444,10 +444,12 @@ async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<V
     const h = hay(v)
     return palavras.every(p => casa(p, h))
   })
-  // Fallback: se nenhuma casou com todas as palavras, tenta com a 1ª palavra.
-  if (matches.length === 0 && palavras.length > 1) {
-    matches = vendidos.filter(v => casa(palavras[0], hay(v)))
-  }
+  // (Removido o fallback antigo de "tenta com a 1ª palavra" — ele cravava
+  // produto errado sempre que só a primeira palavra do texto batia com um
+  // único item do pedido, mesmo o resto da descrição sendo outro sabor/
+  // variante. Bug real: PDV 20170, "Energético Red Bull Sugar Free
+  // Pomelo..." casou com "RED BULL SUGAR FREE BR" só pela palavra inicial.
+  // Sem match forte o bastante, cai no fluxo de "produto não encontrado".)
 
   const produtoNoPedido = matches.length > 0
   // Só padroniza se a identificação for inequívoca (exatamente 1 produto compatível)
