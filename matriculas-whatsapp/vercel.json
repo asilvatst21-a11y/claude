@@ -16,8 +16,5 @@
       "destination": "https://painelanalitico-fxa7cahsbdhpbhhf.canadacentral-01.azurewebsites.net/$1",
       "permanent": false
     }
-  ],
-  "crons": [
-    { "path": "/api/cron-aviso-turno", "schedule": "*/5 * * * *" }
   ]
 }
