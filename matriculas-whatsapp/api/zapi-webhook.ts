@@ -327,16 +327,42 @@ function expandirSinonimos(palavra: string): string[] {
   return SIN[palavra] ?? [palavra]
 }
 
-// Descobre a data mais recente de vendas importadas (o CSV diário traz a data do arquivo).
-async function ultimaDataVendas(): Promise<string | null> {
-  const { data } = await supabase
-    .from('vendas_dia')
-    .select('data')
-    .order('data', { ascending: false })
-    .limit(1)
-    .maybeSingle()
-  return data?.data ?? null
+// Últimas N datas distintas de vendas importadas, da mais recente pra trás.
+// Usada pra tolerar reposição de mapa virado: quando o dia vira e um novo CSV
+// é importado, o pedido de ontem some da "última data" — sem isso, a equipe
+// perde a janela pra pedir reposição do mapa do dia anterior.
+async function ultimasDatasVendas(n: number): Promise<string[]> {
+  const datas: string[] = []
+  let cursor: string | null = null
+  for (let i = 0; i < n; i++) {
+    let q = supabase.from('vendas_dia').select('data').order('data', { ascending: false }).limit(1)
+    if (cursor) q = q.lt('data', cursor)
+    const { data } = await q.maybeSingle()
+    if (!data?.data) break
+    datas.push(data.data)
+    cursor = data.data
+  }
+  return datas
 }
+
+// Mesma ideia de ultimasDatasVendas, mas pra base de mapa_equipe (por filial).
+async function ultimasDatasMapaEquipe(filial: string, n: number): Promise<string[]> {
+  const datas: string[] = []
+  let cursor: string | null = null
+  for (let i = 0; i < n; i++) {
+    let q = supabase.from('mapa_equipe').select('data').eq('filial', filial).order('data', { ascending: false }).limit(1)
+    if (cursor) q = q.lt('data', cursor)
+    const { data } = await q.maybeSingle()
+    if (!data?.data) break
+    datas.push(data.data)
+    cursor = data.data
+  }
+  return datas
+}
+
+// Quantos dias de histórico uma reposição pode olhar pra trás, cobrindo mapas
+// virados no dia anterior (ex.: equipe só percebe a falta no dia seguinte).
+const JANELA_DIAS_REPOSICAO = 2
 
 // Retorna os produtos vendidos para um PDV na última data importada.
 // Inclui o nome completo do catálogo (descricao) e o nome abreviado do
@@ -378,9 +404,10 @@ async function buscarMapaRealPdv(pdvCod: number, data: string): Promise<string |
 // Monta um pequeno catálogo de referência pra IA, priorizando o que o PDV comprou.
 async function buscarProdutosContexto(pdvCodigo: string): Promise<string> {
   try {
-    const data = await ultimaDataVendas()
     const pdvCod = parseInt((pdvCodigo ?? '').replace(/\D/g, ''))
-    if (data && pdvCod) {
+    if (!pdvCod) return ''
+    const datas = await ultimasDatasVendas(JANELA_DIAS_REPOSICAO)
+    for (const data of datas) {
       const vendidos = await produtosVendidosPdv(pdvCod, data)
       if (vendidos.length > 0) {
         const lista = vendidos.filter(v => v.descricao).map(v => `${v.codigo} - ${v.descricao}`).join('\n')
@@ -400,15 +427,29 @@ type VendasInfo =
 
 // Avalia o PDV/produto contra o faturamento do dia e já tenta identificar o produto.
 async function avaliarVendas(pdvCodigo: string, termoProduto: string): Promise<VendasInfo> {
-  const data = await ultimaDataVendas()
-  if (!data) return { situacao: 'sem-csv' }
+  const datas = await ultimasDatasVendas(JANELA_DIAS_REPOSICAO)
+  if (datas.length === 0) return { situacao: 'sem-csv' }
 
   const pdvCod = parseInt((pdvCodigo ?? '').replace(/\D/g, ''))
-  if (!pdvCod) return { situacao: 'pdv-sem-venda', data }
+  if (!pdvCod) return { situacao: 'pdv-sem-venda', data: datas[0] }
 
-  const vendidos = await produtosVendidosPdv(pdvCod, data)
-  if (vendidos.length === 0) return { situacao: 'pdv-sem-venda', data }
+  // Tenta a data mais recente primeiro; se o PDV não tiver pedido nela, cai
+  // pra data anterior (cobre o caso do mapa já ter virado quando a equipe
+  // percebe a falta e só consegue pedir a reposição no dia seguinte).
+  for (const data of datas) {
+    const vendidos = await produtosVendidosPdv(pdvCod, data)
+    if (vendidos.length > 0) {
+      return avaliarVendasComPedido(data, vendidos, termoProduto)
+    }
+  }
+  return { situacao: 'pdv-sem-venda', data: datas[0] }
+}
 
+function avaliarVendasComPedido(
+  data: string,
+  vendidos: { codigo: number; descricao: string; nomeCsv: string }[],
+  termoProduto: string,
+): VendasInfo {
   // Casa o termo do motorista com algum produto comprado pelo PDV.
   // Busca por PALAVRAS (todas presentes), comparando contra o nome completo do
   // catálogo E o nome abreviado do faturamento (que usa a mesma sigla do
@@ -477,17 +518,18 @@ function ehTelefoneCME(telefone: string): boolean {
 async function buscarEquipeMapa(mapa: string | null, filial: string): Promise<string | null> {
   const alvo = normMapa(mapa)
   if (!alvo) return null
-  const { data: ult } = await supabase
-    .from('mapa_equipe').select('data').eq('filial', filial).order('data', { ascending: false }).limit(1).maybeSingle()
-  if (!ult?.data) return null
-  const { data: rows } = await supabase.from('mapa_equipe').select('*').eq('data', ult.data).eq('filial', filial)
-  const row = (rows ?? []).find((r: any) => normMapa(r.mapa) === alvo)
-  if (!row) return null
-  const linhas: string[] = []
-  if (row.motorista_nome) linhas.push(`🚚 Motorista: ${row.motorista_nome}`)
-  const ajs = [row.ajudante1_nome, row.ajudante2_nome].filter(Boolean)
-  if (ajs.length) linhas.push(`🧑‍🔧 Ajudante${ajs.length > 1 ? 's' : ''}: ${ajs.join(', ')}`)
-  return linhas.length ? linhas.join('\n') : null
+  const datas = await ultimasDatasMapaEquipe(filial, JANELA_DIAS_REPOSICAO)
+  for (const data of datas) {
+    const { data: rows } = await supabase.from('mapa_equipe').select('*').eq('data', data).eq('filial', filial)
+    const row = (rows ?? []).find((r: any) => normMapa(r.mapa) === alvo)
+    if (!row) continue
+    const linhas: string[] = []
+    if (row.motorista_nome) linhas.push(`🚚 Motorista: ${row.motorista_nome}`)
+    const ajs = [row.ajudante1_nome, row.ajudante2_nome].filter(Boolean)
+    if (ajs.length) linhas.push(`🧑‍🔧 Ajudante${ajs.length > 1 ? 's' : ''}: ${ajs.join(', ')}`)
+    if (linhas.length) return linhas.join('\n')
+  }
+  return null
 }
 
 // Valida se o mapa informado existe na base (mapa_equipe) importada mais recente da filial.
@@ -495,14 +537,16 @@ async function buscarEquipeMapa(mapa: string | null, filial: string): Promise<st
 //  'nao_encontrado' → há base, mas o mapa não casa → bloqueia e pede correção
 //  'ok'             → mapa encontrado
 async function validarMapaBase(mapa: string | null, filial: string): Promise<'sem_base' | 'nao_encontrado' | 'ok'> {
-  const { data: ult } = await supabase
-    .from('mapa_equipe').select('data').eq('filial', filial).order('data', { ascending: false }).limit(1).maybeSingle()
-  if (!ult?.data) return 'sem_base'
+  const datas = await ultimasDatasMapaEquipe(filial, JANELA_DIAS_REPOSICAO)
+  if (datas.length === 0) return 'sem_base'
   const alvo = normMapa(mapa)
   if (!alvo) return 'nao_encontrado'
-  const { data: rows } = await supabase.from('mapa_equipe').select('mapa').eq('data', ult.data).eq('filial', filial)
-  const achou = (rows ?? []).some((r: any) => normMapa(r.mapa) === alvo)
-  return achou ? 'ok' : 'nao_encontrado'
+  for (const data of datas) {
+    const { data: rows } = await supabase.from('mapa_equipe').select('mapa').eq('data', data).eq('filial', filial)
+    const achou = (rows ?? []).some((r: any) => normMapa(r.mapa) === alvo)
+    if (achou) return 'ok'
+  }
+  return 'nao_encontrado'
 }
 
 // Busca o nome fantasia do PDV no catálogo.
