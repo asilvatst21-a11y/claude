@@ -375,6 +375,27 @@ export default function DistribuicaoTML() {
       // de data do arquivo).
       const dataEscalaDefinitiva = dataOperacao || hojeISO()
 
+      // escalas_tml também só tem UNIQUE(filial, mapa) — mesmo risco de
+      // sobrescrever a data de mapas antigos silenciosamente (ver aviso
+      // equivalente em handleSaida).
+      const mapasDoArquivo = escalas.map((e) => e.mapa)
+      const { data: divergentes } = await supabase
+        .from('escalas_tml')
+        .select('mapa, data_entrega')
+        .eq('filial', usuario.filial)
+        .in('mapa', mapasDoArquivo)
+        .neq('data_entrega', dataEscalaDefinitiva)
+      if (divergentes && divergentes.length > 0) {
+        const exemplo = divergentes[0]
+        const confirma = window.confirm(
+          `${divergentes.length} mapa(s) deste arquivo já têm uma data de entrega diferente gravada ` +
+          `(ex.: mapa ${exemplo.mapa} está em ${formatarDataBR(exemplo.data_entrega)}).\n\n` +
+          `Continuar vai SOBRESCREVER a data desses mapas para ${formatarDataBR(dataEscalaDefinitiva)}.\n\n` +
+          `Confirme se "Data da operação" está correta antes de prosseguir. Continuar mesmo assim?`
+        )
+        if (!confirma) { setUploadingEscala(false); return }
+      }
+
       // Mapas cancelados saem da planilha nova — remove da data atual qualquer
       // mapa que não esteja mais na escala para não deixar registros velhos.
       const mapasNovos = escalas.map((e) => e.mapa)
@@ -445,6 +466,29 @@ export default function DistribuicaoTML() {
       // fevereiro 7, tornando impossível recuperar julho 2 do arquivo.
       const dataSaidaDefinitiva = dataOperacao || hojeISO()
       const saidasComData = saidas.map((s) => ({ ...s, dataSaida: dataSaidaDefinitiva }))
+
+      // saidas_tml só tem UNIQUE(filial, mapa) — sem a data — então subir
+      // com "Data da operação" errada (ex.: esquecida em hoje ao reimportar
+      // relatório antigo) SOBRESCREVE silenciosamente a data já gravada
+      // desses mapas. Avisa antes de deixar isso acontecer (incidente real:
+      // ver supabase-corrige-data-saida-07ago.sql).
+      const mapasDoArquivo = saidasComData.map((s) => s.mapa)
+      const { data: divergentes } = await supabase
+        .from('saidas_tml')
+        .select('mapa, data_saida')
+        .eq('filial', usuario.filial)
+        .in('mapa', mapasDoArquivo)
+        .neq('data_saida', dataSaidaDefinitiva)
+      if (divergentes && divergentes.length > 0) {
+        const exemplo = divergentes[0]
+        const confirma = window.confirm(
+          `${divergentes.length} mapa(s) deste arquivo já têm uma data de saída diferente gravada ` +
+          `(ex.: mapa ${exemplo.mapa} está em ${formatarDataBR(exemplo.data_saida)}).\n\n` +
+          `Continuar vai SOBRESCREVER a data desses mapas para ${formatarDataBR(dataSaidaDefinitiva)}.\n\n` +
+          `Confirme se "Data da operação" está correta antes de prosseguir. Continuar mesmo assim?`
+        )
+        if (!confirma) { setUploadingSaida(false); return }
+      }
 
       // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time"
       // quando o mesmo mapa aparece mais de uma vez na planilha importada.
