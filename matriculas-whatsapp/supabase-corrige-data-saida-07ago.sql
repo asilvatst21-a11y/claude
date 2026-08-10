@@ -67,6 +67,21 @@ FROM checklist_tml c
 WHERE c.filial = a.filial AND c.mapa = a.mapa
   AND a.data_saida = '2026-08-07' AND c.data <> '2026-08-07';
 
+-- ═══ ETAPA 2b — duplicatas em historico_tml ════════════════════════════
+-- Mapas em que a UPDATE acima foi pulada porque a linha com a data certa
+-- JÁ existia (ou seja: a linha em 2026-08-07 é uma duplicata sobrando,
+-- criada pela reimportação errada, e não a única cópia daquele mapa).
+-- Nesse caso não dá pra atualizar (violaria UNIQUE(filial,mapa,data)) —
+-- é só apagar a duplicata errada mesmo.
+DELETE FROM historico_tml h
+USING checklist_tml c
+WHERE c.filial = h.filial AND c.mapa = h.mapa
+  AND h.data_saida = '2026-08-07' AND c.data <> '2026-08-07'
+  AND EXISTS (
+    SELECT 1 FROM historico_tml h2
+    WHERE h2.filial = h.filial AND h2.mapa = h.mapa AND h2.data_saida = c.data
+  );
+
 -- ═══ ETAPA 3 — confirma que sumiu ══════════════════════════════════════
 SELECT 'saidas_tml' AS tabela, COUNT(*) AS restantes_errados
 FROM saidas_tml s JOIN checklist_tml c ON c.filial = s.filial AND c.mapa = s.mapa
