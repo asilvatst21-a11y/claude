@@ -365,8 +365,8 @@ export default function DistribuicaoTML() {
     setErro('')
     try {
       const buffer = await file.arrayBuffer()
-      const escalas = parseEscalaBuffer(buffer)
-      if (escalas.length === 0) {
+      const escalasBase = parseEscalaBuffer(buffer)
+      if (escalasBase.length === 0) {
         throw new Error('Nenhum motorista escalado encontrado na planilha')
       }
 
@@ -376,24 +376,38 @@ export default function DistribuicaoTML() {
       const dataEscalaDefinitiva = dataOperacao || hojeISO()
 
       // escalas_tml também só tem UNIQUE(filial, mapa) — mesmo risco de
-      // sobrescrever a data de mapas antigos silenciosamente (ver aviso
-      // equivalente em handleSaida).
-      const mapasDoArquivo = escalas.map((e) => e.mapa)
+      // sobrescrever a data de mapas antigos silenciosamente. Um simples
+      // confirm() se mostrou insuficiente na prática (ver aviso equivalente
+      // em handleSaida): por padrão os mapas divergentes ficam de fora do
+      // upload, só entram se a pessoa digitar a palavra de confirmação.
+      const mapasDoArquivo = escalasBase.map((e) => e.mapa)
       const { data: divergentes } = await supabase
         .from('escalas_tml')
         .select('mapa, data_entrega')
         .eq('filial', usuario.filial)
         .in('mapa', mapasDoArquivo)
         .neq('data_entrega', dataEscalaDefinitiva)
+      let escalas = escalasBase
       if (divergentes && divergentes.length > 0) {
         const exemplo = divergentes[0]
-        const confirma = window.confirm(
-          `${divergentes.length} mapa(s) deste arquivo já têm uma data de entrega diferente gravada ` +
+        const resposta = window.prompt(
+          `⚠️ ${divergentes.length} mapa(s) deste arquivo já têm uma data de entrega diferente gravada ` +
           `(ex.: mapa ${exemplo.mapa} está em ${formatarDataBR(exemplo.data_entrega)}).\n\n` +
-          `Continuar vai SOBRESCREVER a data desses mapas para ${formatarDataBR(dataEscalaDefinitiva)}.\n\n` +
-          `Confirme se "Data da operação" está correta antes de prosseguir. Continuar mesmo assim?`
+          `Por padrão esses ${divergentes.length} mapa(s) NÃO serão importados agora — o restante do ` +
+          `arquivo segue normal. Se "Data da operação" (${formatarDataBR(dataEscalaDefinitiva)}) está ` +
+          `certa e você quer SOBRESCREVER a data desses mapas mesmo assim, digite SOBRESCREVER abaixo ` +
+          `(deixe em branco ou cancele pra só pular esses mapas):`
         )
-        if (!confirma) { setUploadingEscala(false); return }
+        const forcarSobrescrita = resposta?.trim().toUpperCase() === 'SOBRESCREVER'
+        if (!forcarSobrescrita) {
+          const mapasDivergentes = new Set(divergentes.map((d) => d.mapa))
+          escalas = escalasBase.filter((e) => !mapasDivergentes.has(e.mapa))
+          if (escalas.length === 0) {
+            alert('Nenhum mapa importado — todos já tinham uma data diferente gravada e não foram sobrescritos.')
+            setUploadingEscala(false)
+            return
+          }
+        }
       }
 
       // Mapas cancelados saem da planilha nova — remove da data atual qualquer
@@ -465,29 +479,44 @@ export default function DistribuicaoTML() {
       // auto-converte strings mm/dd (ex: "07/02/2026") para o serial de
       // fevereiro 7, tornando impossível recuperar julho 2 do arquivo.
       const dataSaidaDefinitiva = dataOperacao || hojeISO()
-      const saidasComData = saidas.map((s) => ({ ...s, dataSaida: dataSaidaDefinitiva }))
+      const saidasBase = saidas.map((s) => ({ ...s, dataSaida: dataSaidaDefinitiva }))
 
       // saidas_tml só tem UNIQUE(filial, mapa) — sem a data — então subir
       // com "Data da operação" errada (ex.: esquecida em hoje ao reimportar
       // relatório antigo) SOBRESCREVE silenciosamente a data já gravada
-      // desses mapas. Avisa antes de deixar isso acontecer (incidente real:
-      // ver supabase-corrige-data-saida-07ago.sql).
-      const mapasDoArquivo = saidasComData.map((s) => s.mapa)
+      // desses mapas. Um simples confirm() se mostrou insuficiente na
+      // prática (incidente real de 07/08 recorreu mesmo com o aviso — ver
+      // supabase-corrige-data-saida-07ago.sql): por padrão agora esses
+      // mapas divergentes são EXCLUÍDOS do upload (o resto do arquivo segue
+      // normal), e só entram se a pessoa digitar a palavra de confirmação.
+      const mapasDoArquivo = saidasBase.map((s) => s.mapa)
       const { data: divergentes } = await supabase
         .from('saidas_tml')
         .select('mapa, data_saida')
         .eq('filial', usuario.filial)
         .in('mapa', mapasDoArquivo)
         .neq('data_saida', dataSaidaDefinitiva)
+      let saidasComData = saidasBase
       if (divergentes && divergentes.length > 0) {
         const exemplo = divergentes[0]
-        const confirma = window.confirm(
-          `${divergentes.length} mapa(s) deste arquivo já têm uma data de saída diferente gravada ` +
+        const resposta = window.prompt(
+          `⚠️ ${divergentes.length} mapa(s) deste arquivo já têm uma data de saída diferente gravada ` +
           `(ex.: mapa ${exemplo.mapa} está em ${formatarDataBR(exemplo.data_saida)}).\n\n` +
-          `Continuar vai SOBRESCREVER a data desses mapas para ${formatarDataBR(dataSaidaDefinitiva)}.\n\n` +
-          `Confirme se "Data da operação" está correta antes de prosseguir. Continuar mesmo assim?`
+          `Por padrão esses ${divergentes.length} mapa(s) NÃO serão importados agora — o restante do ` +
+          `arquivo segue normal. Se "Data da operação" (${formatarDataBR(dataSaidaDefinitiva)}) está ` +
+          `certa e você quer SOBRESCREVER a data desses mapas mesmo assim, digite SOBRESCREVER abaixo ` +
+          `(deixe em branco ou cancele pra só pular esses mapas):`
         )
-        if (!confirma) { setUploadingSaida(false); return }
+        const forcarSobrescrita = resposta?.trim().toUpperCase() === 'SOBRESCREVER'
+        if (!forcarSobrescrita) {
+          const mapasDivergentes = new Set(divergentes.map((d) => d.mapa))
+          saidasComData = saidasBase.filter((s) => !mapasDivergentes.has(s.mapa))
+          if (saidasComData.length === 0) {
+            alert('Nenhum mapa importado — todos já tinham uma data diferente gravada e não foram sobrescritos.')
+            setUploadingSaida(false)
+            return
+          }
+        }
       }
 
       // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time"
