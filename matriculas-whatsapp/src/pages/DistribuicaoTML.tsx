@@ -474,50 +474,18 @@ export default function DistribuicaoTML() {
         return
       }
 
-      // Usa a data confirmada pelo usuário no campo "Data da operação".
-      // A data do arquivo é ignorada porque o Excel com locale brasileiro
-      // auto-converte strings mm/dd (ex: "07/02/2026") para o serial de
-      // fevereiro 7, tornando impossível recuperar julho 2 do arquivo.
-      const dataSaidaDefinitiva = dataOperacao || hojeISO()
-      const saidasBase = saidas.map((s) => ({ ...s, dataSaida: dataSaidaDefinitiva }))
-
-      // saidas_tml só tem UNIQUE(filial, mapa) — sem a data — então subir
-      // com "Data da operação" errada (ex.: esquecida em hoje ao reimportar
-      // relatório antigo) SOBRESCREVE silenciosamente a data já gravada
-      // desses mapas. Um simples confirm() se mostrou insuficiente na
-      // prática (incidente real de 07/08 recorreu mesmo com o aviso — ver
-      // supabase-corrige-data-saida-07ago.sql): por padrão agora esses
-      // mapas divergentes são EXCLUÍDOS do upload (o resto do arquivo segue
-      // normal), e só entram se a pessoa digitar a palavra de confirmação.
-      const mapasDoArquivo = saidasBase.map((s) => s.mapa)
-      const { data: divergentes } = await supabase
-        .from('saidas_tml')
-        .select('mapa, data_saida')
-        .eq('filial', usuario.filial)
-        .in('mapa', mapasDoArquivo)
-        .neq('data_saida', dataSaidaDefinitiva)
-      let saidasComData = saidasBase
-      if (divergentes && divergentes.length > 0) {
-        const exemplo = divergentes[0]
-        const resposta = window.prompt(
-          `⚠️ ${divergentes.length} mapa(s) deste arquivo já têm uma data de saída diferente gravada ` +
-          `(ex.: mapa ${exemplo.mapa} está em ${formatarDataBR(exemplo.data_saida)}).\n\n` +
-          `Por padrão esses ${divergentes.length} mapa(s) NÃO serão importados agora — o restante do ` +
-          `arquivo segue normal. Se "Data da operação" (${formatarDataBR(dataSaidaDefinitiva)}) está ` +
-          `certa e você quer SOBRESCREVER a data desses mapas mesmo assim, digite SOBRESCREVER abaixo ` +
-          `(deixe em branco ou cancele pra só pular esses mapas):`
-        )
-        const forcarSobrescrita = resposta?.trim().toUpperCase() === 'SOBRESCREVER'
-        if (!forcarSobrescrita) {
-          const mapasDivergentes = new Set(divergentes.map((d) => d.mapa))
-          saidasComData = saidasBase.filter((s) => !mapasDivergentes.has(s.mapa))
-          if (saidasComData.length === 0) {
-            alert('Nenhum mapa importado — todos já tinham uma data diferente gravada e não foram sobrescritos.')
-            setUploadingSaida(false)
-            return
-          }
-        }
-      }
+      // A planilha 03.11.20 (a mesma lida por parseSaidaBuffer) traz a data
+      // real de cada mapa na própria linha (DtOper da fase "Saida Cdd/Fab"),
+      // como célula de data nativa do Excel — sem a ambiguidade dd/mm que
+      // motivava forçar uma única "Data da operação" pra tudo. Isso importa
+      // porque esse relatório é cumulativo (pode trazer 40+ dias numa
+      // exportação só): forçar uma data única nele foi o que causou o
+      // incidente de mapas antigos gravados com a data de hoje (ver
+      // supabase-corrige-data-saida-07ago.sql). Cada linha usa sua própria
+      // data agora; "Data da operação" só entra como reserva se por algum
+      // motivo a linha não tiver data no arquivo.
+      const saidasComData = saidas.map((s) => ({ ...s, dataSaida: s.dataSaida ?? dataOperacao ?? hojeISO() }))
+      const hoje = hojeISO()
 
       // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time"
       // quando o mesmo mapa aparece mais de uma vez na planilha importada.
@@ -538,13 +506,16 @@ export default function DistribuicaoTML() {
 
       const mapas = saidasComData.map((s) => s.mapa)
 
+      // Cada mapa agora pode ter sua própria data (arquivo cumulativo) — busca
+      // a escala por mapa sem travar numa data única, e casa em memória por
+      // mapa+data (o mesmo número de mapa pode existir em dias diferentes).
       const { data: escalas } = await supabase
         .from('escalas_tml')
-        .select('mapa, placa, matricula, regiao_entregas, cidades_entregas')
+        .select('mapa, data_entrega, placa, matricula, regiao_entregas, cidades_entregas')
         .eq('filial', usuario.filial)
-        .eq('data_entrega', dataSaidaDefinitiva)
         .in('mapa', mapas)
-      const escalaPorMapa = new Map((escalas ?? []).map((e) => [e.mapa, e]))
+      const escalaPorMapaData = new Map((escalas ?? []).map((e) => [`${e.mapa}|${e.data_entrega}`, e]))
+      const escalaPorMapa = (mapa: number, data: string) => escalaPorMapaData.get(`${mapa}|${data}`)
 
       // Fonte primária de matrícula: escala do dia (mapa → matrícula oficial).
       // Portaria entra como fallback porque a coluna M é posição fixa e pode
@@ -576,7 +547,7 @@ export default function DistribuicaoTML() {
       for (const saida of saidasComData) {
         if (mapasJaAlertados.has(`${saida.mapa}|${saida.dataSaida}`)) { diag.jaAlertado++; continue }
 
-        const escala = escalaPorMapa.get(saida.mapa)
+        const escala = escalaPorMapa(saida.mapa, saida.dataSaida)
         // Escala é a fonte oficial do mapa→matrícula; portaria como fallback.
         const matricula = escala?.matricula ?? saida.matricula ?? null
         const placa = escala?.placa ?? saida.placa ?? null
@@ -707,7 +678,7 @@ export default function DistribuicaoTML() {
       const saidasJaAlertadas = saidasComData.filter((s) => mapasJaAlertados.has(`${s.mapa}|${s.dataSaida}`))
       if (saidasJaAlertadas.length > 0) {
         const historicoRecup = saidasJaAlertadas.map((saida) => {
-          const escala = escalaPorMapa.get(saida.mapa)
+          const escala = escalaPorMapa(saida.mapa, saida.dataSaida)
           const matricula = escala?.matricula ?? saida.matricula ?? null
           const placa = escala?.placa ?? saida.placa ?? null
           const nome = matricula != null ? nomePorMatricula.get(matricula) ?? null : null
@@ -736,7 +707,10 @@ export default function DistribuicaoTML() {
         if (recupErr) erros.push(`Histórico (recuperação): ${recupErr.message}`)
       }
 
-      await enviarResumoDiario(usuario.filial, dataSaidaDefinitiva)
+      // Resumo diário e "quem falta sair" são sobre o estado ATUAL da
+      // operação — usam sempre hoje, não a(s) data(s) do arquivo importado
+      // (que pode ser um relatório retroativo/cumulativo de vários dias).
+      await enviarResumoDiario(usuario.filial, hoje)
 
       // Envia ao supervisor de cada sala a lista de mapas que ainda não saíram.
       // A mensagem é regenerada a cada import, refletindo o estado atual do CDD.
@@ -745,12 +719,12 @@ export default function DistribuicaoTML() {
           .from('escalas_tml')
           .select('mapa, placa, matricula')
           .eq('filial', usuario.filial)
-          .eq('data_entrega', dataSaidaDefinitiva)
+          .eq('data_entrega', hoje)
         const { data: todasSaidasDB } = await supabase
           .from('saidas_tml')
           .select('mapa')
           .eq('filial', usuario.filial)
-          .eq('data_saida', dataSaidaDefinitiva)
+          .eq('data_saida', hoje)
         const mapasSaidosDB = new Set((todasSaidasDB ?? []).map((s) => s.mapa))
 
         // Roster completo para todas as matrículas da escala do dia
@@ -807,8 +781,12 @@ export default function DistribuicaoTML() {
         // falha no envio de pendentes não derruba o import
       }
 
+      const datasDoArquivo = [...new Set(saidasComData.map((s) => s.dataSaida))].sort()
+      const resumoData = datasDoArquivo.length <= 1
+        ? formatarDataBR(datasDoArquivo[0] ?? hoje)
+        : `${formatarDataBR(datasDoArquivo[0])} a ${formatarDataBR(datasDoArquivo[datasDoArquivo.length - 1])} (${datasDoArquivo.length} dias)`
       alert(
-        `${saidasComData.length} saída(s) processada(s) — data: ${formatarDataBR(dataSaidaDefinitiva)}\n\n` +
+        `${saidasComData.length} saída(s) processada(s) — data: ${resumoData}\n\n` +
         `• ${diag.pendentes} motorista(s) perderam o TML — pendente de envio (use o botão "Enviar" na tela)\n` +
         `• ${diag.noPrazo} dentro do prazo (sem atraso)\n` +
         `• ${diag.semSala} sem sala (matrícula não está no roster)\n` +
