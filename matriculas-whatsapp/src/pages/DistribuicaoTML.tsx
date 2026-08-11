@@ -256,23 +256,31 @@ export default function DistribuicaoTML() {
   const [statusSaidaAberto, setStatusSaidaAberto] = useState(true)
   const [nominaAberta, setNominaAberta] = useState(true)
   const [alertasAbertos, setAlertasAbertos] = useState(true)
+  const [alertasDataDe, setAlertasDataDe] = useState('')
+  const [alertasDataAte, setAlertasDataAte] = useState('')
   const [historicoAberto, setHistoricoAberto] = useState(false)
   const [filtroNominal, setFiltroNominal] = useState<ResultadoNominal | 'todos'>('todos')
 
   const fetchAlertas = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
-    const { data } = await supabase
+    // Sem filtro de data: mantém o comportamento de sempre (últimos 200,
+    // mais recentes primeiro). Com filtro, busca só as datas selecionadas —
+    // sem o limite de 200, já que o recorte por data já limita o volume.
+    let query = supabase
       .from('alertas_tml')
       .select('*, supervisores_tml(nome, telefone)')
       .eq('filial', usuario.filial)
       .order('created_at', { ascending: false })
-      .limit(200)
+    if (alertasDataDe) query = query.gte('data_saida', alertasDataDe)
+    if (alertasDataAte) query = query.lte('data_saida', alertasDataAte)
+    if (!alertasDataDe && !alertasDataAte) query = query.limit(200)
+    const { data } = await query
     const lista = Array.isArray(data) ? data : []
     setAlertas(lista)
     setConversas(await buscarConversasPorAlertas(lista.map((a) => a.id)))
     setLoading(false)
-  }, [usuario])
+  }, [usuario, alertasDataDe, alertasDataAte])
 
   const fetchHistorico = useCallback(async () => {
     if (!usuario) return
@@ -1616,6 +1624,39 @@ export default function DistribuicaoTML() {
           </div>
           <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${alertasAbertos ? 'rotate-180' : ''}`} />
         </button>
+        {alertasAbertos && (
+          <div
+            className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b bg-muted/10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Calendar className="h-4 w-4 text-muted-foreground shrink-0" />
+            <label className="text-xs font-medium text-muted-foreground">De</label>
+            <input
+              type="date"
+              value={alertasDataDe}
+              onChange={(e) => setAlertasDataDe(e.target.value)}
+              className="px-2 py-1 border border-gray-200 rounded-md text-xs"
+            />
+            <label className="text-xs font-medium text-muted-foreground">Até</label>
+            <input
+              type="date"
+              value={alertasDataAte}
+              onChange={(e) => setAlertasDataAte(e.target.value)}
+              className="px-2 py-1 border border-gray-200 rounded-md text-xs"
+            />
+            {(alertasDataDe || alertasDataAte) && (
+              <button
+                onClick={() => { setAlertasDataDe(''); setAlertasDataAte('') }}
+                className="text-xs text-accent-600 hover:text-accent-800 font-medium"
+              >
+                Limpar filtro
+              </button>
+            )}
+            {!alertasDataDe && !alertasDataAte && (
+              <span className="text-xs text-muted-foreground">Sem filtro — mostrando os 200 mais recentes</span>
+            )}
+          </div>
+        )}
         {alertasAbertos && (loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-accent-500" />
@@ -1623,8 +1664,14 @@ export default function DistribuicaoTML() {
         ) : alertas.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground">
             <FileSpreadsheet className="h-10 w-10 mx-auto opacity-20 mb-3" />
-            <p>Nenhum alerta registrado ainda.</p>
-            <p className="text-sm mt-1">Importe a escala e a saída para começar o monitoramento.</p>
+            {alertasDataDe || alertasDataAte ? (
+              <p>Nenhum alerta no período selecionado.</p>
+            ) : (
+              <>
+                <p>Nenhum alerta registrado ainda.</p>
+                <p className="text-sm mt-1">Importe a escala e a saída para começar o monitoramento.</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
