@@ -57,7 +57,17 @@ function excelDateToISO(value: unknown): string | null {
 
 function excelTimeToHorario(value: unknown): string | null {
   if (value instanceof Date) {
-    return `${String(value.getUTCHours()).padStart(2, "0")}:${String(value.getUTCMinutes()).padStart(2, "0")}`;
+    // Célula de horário puro (sem data) — a xlsx (SheetJS) ancora esse valor
+    // no "dia zero" do Excel (1899-12-30) e monta o Date usando componentes
+    // LOCAIS (new Date(1899, 11, 30, h, m)), não UTC. 1899 é anterior à
+    // padronização de fuso do Brasil (1914): o fuso IANA América/São_Paulo
+    // define, pra datas antes disso, o LMT histórico de -03:06:28 em vez do
+    // -03:00 atual. Ler com getUTCHours()/getUTCMinutes() aplicava essa
+    // conversão de novo por cima, deslocando o horário em ~3h06min (ex.:
+    // 07:53 virava 10:59 na tela). getHours()/getMinutes() (local) desfazem
+    // exatamente a mesma conversão que a xlsx aplicou, então batem certo —
+    // não depende de qual fuso o navegador está, só precisa ser simétrico.
+    return `${String(value.getHours()).padStart(2, "0")}:${String(value.getMinutes()).padStart(2, "0")}`;
   }
   if (typeof value === "string") {
     const m = value.trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
@@ -91,7 +101,10 @@ function parseDuracaoParaMinutos(value: unknown): number | null {
     }
   }
   if (value instanceof Date) {
-    return value.getUTCHours() * 60 + value.getUTCMinutes();
+    // Mesmo motivo do excelTimeToHorario: célula de horário puro ancorada em
+    // 1899-12-30 (pré-fuso-padronizado no Brasil) — usa getHours()/getMinutes()
+    // locais, não UTC, pra desfazer a mesma conversão que a xlsx aplicou.
+    return value.getHours() * 60 + value.getMinutes();
   }
   const num = Number(value);
   if (value === null || value === undefined || value === "" || isNaN(num)) return null;
