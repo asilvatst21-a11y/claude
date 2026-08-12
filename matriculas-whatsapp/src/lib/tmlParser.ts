@@ -112,7 +112,7 @@ function parseDuracaoParaMinutos(value: unknown): number | null {
 }
 
 function readSheetRows(buffer: ArrayBuffer, preferredSheetName: string): unknown[][] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
   const sheetName =
     workbook.SheetNames.find((n) => normalize(n) === normalize(preferredSheetName)) ??
     workbook.SheetNames[0];
@@ -226,7 +226,7 @@ export interface PesoPlacaImportado {
 }
 
 export function parsePesoPlacaBuffer(buffer: ArrayBuffer): PesoPlacaImportado[] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
 
@@ -274,7 +274,7 @@ export function parsePesoPlacaBuffer(buffer: ArrayBuffer): PesoPlacaImportado[] 
  * placa do Freightech ainda não tem peso cadastrado no Frota Legal.
  */
 export function parsePlacasFreightechBuffer(buffer: ArrayBuffer): string[] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
 
@@ -311,7 +311,7 @@ export interface MotoristaSalaTML {
  * normalizada.
  */
 export function parseMotoristaSalaBuffer(buffer: ArrayBuffer): MotoristaSalaTML[] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
 
@@ -393,7 +393,7 @@ function extraiData(value: unknown): string | null {
  * medir o tempo de deslocamento (HR INICIO − horário matinal da sala).
  */
 export function parseChecklistBuffer(buffer: ArrayBuffer): ChecklistTML[] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
   const sheetName =
     workbook.SheetNames.find((n) => normalize(n).includes("checklist")) ?? workbook.SheetNames[0];
   const rows: unknown[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
@@ -557,7 +557,7 @@ export interface BeesMapaAgregado {
  * Usado pelo módulo Jornada e Tempo em Rota (Distribuição).
  */
 export function parseBeesBuffer(buffer: ArrayBuffer): BeesMapaAgregado[] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
   if (rows.length === 0) return [];
@@ -664,7 +664,7 @@ export interface BeesVisitaPdv {
  * agregado) pra não arriscar nada da agregação que já está em produção.
  */
 export function parseBeesVisitasPorPdv(buffer: ArrayBuffer): BeesVisitaPdv[] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
   if (rows.length === 0) return [];
@@ -707,7 +707,7 @@ export interface RoteirizadorLinha {
  * escala na hora do cálculo, não duplicado aqui.
  */
 export function parseRoteirizadorBuffer(buffer: ArrayBuffer): RoteirizadorLinha[] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
   if (rows.length === 0) return [];
@@ -746,7 +746,7 @@ export interface SeparacaoItem {
 }
 
 export function parseSeparacaoBuffer(buffer: ArrayBuffer): SeparacaoItem[] {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true, raw: true });
   const sheet = workbook.Sheets[workbook.SheetNames[0]];
   const rows: unknown[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null });
   if (rows.length === 0) return [];
