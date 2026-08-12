@@ -492,8 +492,38 @@ export default function DistribuicaoTML() {
       // supabase-corrige-data-saida-07ago.sql). Cada linha usa sua própria
       // data agora; "Data da operação" só entra como reserva se por algum
       // motivo a linha não tiver data no arquivo.
-      const saidasComData = saidas.map((s) => ({ ...s, dataSaida: s.dataSaida ?? dataOperacao ?? hojeISO() }))
+      const saidasBase = saidas.map((s) => ({ ...s, dataSaida: s.dataSaida ?? dataOperacao ?? hojeISO() }))
       const hoje = hojeISO()
+
+      // Saída é sempre um evento passado/presente — nunca no futuro. Uma
+      // data futura quase sempre é dia/mês trocado na própria planilha de
+      // origem (incidente real: 12/08 virou 08/12 → "2026-12-08" numa
+      // exportação "ao vivo", mesmo já sem a heurística de ambiguidade no
+      // nosso parser — ver supabase-corrige-data-saida-12ago.sql). Por
+      // padrão, essas linhas ficam de fora do import; só entram se a
+      // pessoa confirmar explicitamente que a data está certa mesmo.
+      const amanha = (() => { const d = new Date(`${hoje}T00:00:00Z`); d.setUTCDate(d.getUTCDate() + 1); return d.toISOString().slice(0, 10) })()
+      const suspeitas = saidasBase.filter((s) => s.dataSaida > amanha)
+      let saidasComData = saidasBase
+      if (suspeitas.length > 0) {
+        const exemplo = suspeitas[0]
+        const resposta = window.prompt(
+          `⚠️ ${suspeitas.length} mapa(s) vieram com data de saída no FUTURO (ex.: mapa ${exemplo.mapa} → ` +
+          `${formatarDataBR(exemplo.dataSaida)}). Saída é sempre um evento passado — isso costuma ser dia/mês ` +
+          `trocado na própria planilha de origem.\n\nPor padrão esses mapas NÃO serão importados agora — o ` +
+          `restante do arquivo segue normal. Se você conferiu e a data está certa mesmo, digite CONFIRMAR abaixo ` +
+          `(deixe em branco ou cancele pra só pular esses mapas):`
+        )
+        if (resposta?.trim().toUpperCase() !== 'CONFIRMAR') {
+          const mapasSuspeitos = new Set(suspeitas.map((s) => s.mapa))
+          saidasComData = saidasBase.filter((s) => !mapasSuspeitos.has(s.mapa))
+          if (saidasComData.length === 0) {
+            alert('Nenhum mapa importado — todos vieram com data no futuro e não foram confirmados.')
+            setUploadingSaida(false)
+            return
+          }
+        }
+      }
 
       // Evita "ON CONFLICT DO UPDATE command cannot affect row a second time"
       // quando o mesmo mapa aparece mais de uma vez na planilha importada.
