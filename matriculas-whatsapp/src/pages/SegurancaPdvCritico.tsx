@@ -242,7 +242,7 @@ export default function SegurancaPdvCritico() {
             <input
               ref={fileRef}
               type="file"
-              accept=".xlsx,.xls"
+              accept=".xlsx,.xls,.csv"
               className="hidden"
               disabled={importando}
               onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImportar(f) }}
