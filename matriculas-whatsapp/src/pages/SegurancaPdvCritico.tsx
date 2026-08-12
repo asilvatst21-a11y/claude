@@ -6,9 +6,10 @@ import {
   listarNiveisSubgrupo, salvarNivelSubgrupo, semearNiveisPadrao,
   importarRelatosPdv, listarRelatos, marcarNaoCritico, encerrarComDataRetroativa,
   carregarRelatosAnalise, calcularEstatisticasPdvCritico, buscarNomesColaboradoresPorMatricula,
+  listarSupervisoresPdv, agendarVisita,
   NIVEL_LABEL, STATUS_LABEL, PRAZO_DIAS,
   type NivelSubgrupo, type NivelCriticidade, type RelatoLinha, type ResultadoImportRelatos,
-  type LinhaAnaliseRelato, type EstatisticasPdvCritico,
+  type LinhaAnaliseRelato, type EstatisticasPdvCritico, type SupervisorPdv,
 } from '../lib/pdvSeguranca'
 
 const MES_LABEL = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -123,6 +124,70 @@ function EncerrarHistoricoModal({ onConfirmar, onFechar }: { onConfirmar: (dataF
   )
 }
 
+function AgendarModal({
+  relato, filial, enviando, onFechar, onConfirmar,
+}: {
+  relato: RelatoLinha
+  filial: string
+  enviando: boolean
+  onFechar: () => void
+  onConfirmar: (supervisor: SupervisorPdv) => void
+}) {
+  const [supervisores, setSupervisores] = useState<SupervisorPdv[]>([])
+  const [carregando, setCarregando] = useState(true)
+  const [supervisorId, setSupervisorId] = useState('')
+
+  useEffect(() => {
+    listarSupervisoresPdv(filial).then((lista) => {
+      setSupervisores(lista)
+      setCarregando(false)
+    })
+  }, [filial])
+
+  const supervisorSelecionado = supervisores.find((s) => s.id === supervisorId) ?? null
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onFechar}>
+      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-semibold text-sm mb-1">Agendar visita</h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          PDV <b>{relato.codigoPdv}</b> · {relato.subgrupo}
+          {relato.nivel && <> · <span className={`inline-flex px-1.5 py-0.5 rounded-full border text-[10px] font-semibold ${NIVEL_CSS[relato.nivel]}`}>{NIVEL_LABEL[relato.nivel]}</span></>}
+        </p>
+        <p className="text-xs text-muted-foreground mb-3">
+          Escolha o supervisor que vai receber o aviso por WhatsApp com o link do checklist da visita.
+        </p>
+        <label className="block text-xs text-muted-foreground mb-1">Supervisor</label>
+        {carregando ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground py-2"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Carregando supervisores…</div>
+        ) : supervisores.length === 0 ? (
+          <p className="text-xs text-red-600 mb-3">Nenhum supervisor cadastrado pra essa filial (cadastro em TML → Supervisores).</p>
+        ) : (
+          <select
+            value={supervisorId}
+            onChange={(e) => setSupervisorId(e.target.value)}
+            className="w-full border rounded-lg px-3 py-2 text-sm mb-3"
+          >
+            <option value="">Selecione…</option>
+            {supervisores.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+          </select>
+        )}
+        <div className="flex gap-2 justify-end">
+          <button onClick={onFechar} className="text-sm px-3 py-1.5 rounded-lg border hover:bg-accent">Cancelar</button>
+          <button
+            disabled={!supervisorSelecionado || enviando}
+            onClick={() => supervisorSelecionado && onConfirmar(supervisorSelecionado)}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-green-600 text-white disabled:opacity-50 hover:bg-green-700"
+          >
+            {enviando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {enviando ? 'Enviando…' : 'Agendar e enviar WhatsApp'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function SegurancaPdvCritico() {
   const { usuario } = useAuth()
   const [aba, setAba] = useState<'painel' | 'analise' | 'lista'>('painel')
@@ -139,6 +204,8 @@ export default function SegurancaPdvCritico() {
 
   const [modalNaoCritico, setModalNaoCritico] = useState<string | null>(null)
   const [modalEncerrar, setModalEncerrar] = useState<string | null>(null)
+  const [modalAgendar, setModalAgendar] = useState<RelatoLinha | null>(null)
+  const [agendando, setAgendando] = useState(false)
 
   const [analiseLinhas, setAnaliseLinhas] = useState<LinhaAnaliseRelato[] | null>(null)
   const [nomePorMatricula, setNomePorMatricula] = useState<Map<string, string>>(new Map())
@@ -231,11 +298,25 @@ export default function SegurancaPdvCritico() {
     setAnaliseLinhas(null)
   }
 
-  function handleAgendar() {
-    alert(
-      'Agendamento com escolha de supervisor e envio automático de WhatsApp ainda está sendo construído — ' +
-      'é a próxima etapa deste módulo.'
+  async function handleAgendar(supervisor: SupervisorPdv) {
+    if (!usuario || !modalAgendar) return
+    setAgendando(true)
+    setErro('')
+    const r = await agendarVisita(
+      {
+        id: modalAgendar.id, codigoPdv: modalAgendar.codigoPdv, subgrupo: modalAgendar.subgrupo,
+        nivel: modalAgendar.nivel, prazoVisita: modalAgendar.prazoVisita, instrucaoRegistrada: modalAgendar.instrucaoRegistrada,
+      },
+      supervisor,
+      usuario.nome ?? usuario.login
     )
+    setAgendando(false)
+    if (r.error) { setErro(r.error); return }
+    setModalAgendar(null)
+    if (r.whatsappEnviado === false) {
+      setErro(`Visita agendada, mas o WhatsApp pro supervisor não saiu: ${r.whatsappErro ?? 'erro desconhecido'}. Avise por outro meio.`)
+    }
+    await carregarRelatos()
   }
 
   if (!usuario) return null
@@ -386,6 +467,7 @@ export default function SegurancaPdvCritico() {
                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Subgrupo</th>
                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Criticidade</th>
                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Motorista</th>
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Instrução registrada</th>
                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Prazo</th>
                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Status BEES</th>
                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Status</th>
@@ -415,6 +497,7 @@ export default function SegurancaPdvCritico() {
                       ) : <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="px-3 py-2">{r.codigoMotorista ?? '—'}</td>
+                    <td className="px-3 py-2 max-w-[220px]">{r.instrucaoRegistrada || <span className="text-muted-foreground">—</span>}</td>
                     <td className="px-3 py-2"><PrazoBadge prazo={r.prazoVisita} /></td>
                     <td className="px-3 py-2">
                       {r.statusBees ? (
@@ -431,7 +514,7 @@ export default function SegurancaPdvCritico() {
                     <td className="px-3 py-2">
                       {r.status === 'aguardando_triagem' && (
                         <div className="flex flex-col gap-1 items-end">
-                          <button onClick={handleAgendar} className="text-[11px] font-semibold px-2 py-1 rounded-md border hover:bg-accent whitespace-nowrap">
+                          <button onClick={() => setModalAgendar(r)} className="text-[11px] font-semibold px-2 py-1 rounded-md border hover:bg-accent whitespace-nowrap">
                             Agendar
                           </button>
                           <button onClick={() => setModalNaoCritico(r.id)} className="text-[11px] text-muted-foreground hover:text-foreground hover:underline">
@@ -461,6 +544,15 @@ export default function SegurancaPdvCritico() {
         <EncerrarHistoricoModal
           onFechar={() => setModalEncerrar(null)}
           onConfirmar={(dataFechamento) => handleEncerrar(modalEncerrar, dataFechamento)}
+        />
+      )}
+      {modalAgendar && usuario && (
+        <AgendarModal
+          relato={modalAgendar}
+          filial={usuario.filial}
+          enviando={agendando}
+          onFechar={() => setModalAgendar(null)}
+          onConfirmar={handleAgendar}
         />
       )}
       </>

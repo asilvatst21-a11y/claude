@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import { supabase } from './supabase'
+import { enviarMensagemWhatsApp } from './zapi'
 
 // ── PDV Crítico (Segurança) ─────────────────────────────────────────────
 // Relato do motorista (categoria/subgrupo) já existe hoje fora deste app —
@@ -433,6 +434,7 @@ export interface RelatoLinha {
   subgrupo: string
   nivel: NivelCriticidade | null
   codigoMotorista: string | null
+  instrucaoRegistrada: string | null
   dataRelato: string
   prazoVisita: string | null
   status: StatusRelato
@@ -446,7 +448,7 @@ export interface RelatoLinha {
 export async function listarRelatos(filial: string): Promise<RelatoLinha[]> {
   const { data, error } = await supabase
     .from('pdv_seguranca_relatos')
-    .select('id, codigo_pdv, subgrupo, nivel_inicial, nivel_medido, codigo_motorista, data_relato, prazo_visita, status, reincidente_apos, numero_ocorrencia, origem_status')
+    .select('id, codigo_pdv, subgrupo, nivel_inicial, nivel_medido, codigo_motorista, instrucao_registrada, data_relato, prazo_visita, status, reincidente_apos, numero_ocorrencia, origem_status')
     .eq('filial', filial)
     .not('status', 'in', `(${STATUS_FORA_DO_PAINEL.join(',')})`)
     .order('data_relato', { ascending: false })
@@ -460,6 +462,10 @@ export async function listarRelatos(filial: string): Promise<RelatoLinha[]> {
     subgrupo: l.subgrupo,
     nivel: (l.nivel_medido ?? l.nivel_inicial) as NivelCriticidade | null,
     codigoMotorista: l.codigo_motorista,
+    // Coluna K da planilha de origem — instrução já registrada pra esse
+    // relato (quando existe), útil pra Segurança ver o que já foi
+    // orientado antes de agendar visita.
+    instrucaoRegistrada: l.instrucao_registrada,
     dataRelato: l.data_relato,
     prazoVisita: l.prazo_visita,
     status: l.status as StatusRelato,
@@ -500,6 +506,78 @@ export async function encerrarComDataRetroativa(id: string, dataFechamentoISO: s
     })
     .eq('id', id)
   return { error: error?.message ?? null }
+}
+
+// ── Agendamento de visita ────────────────────────────────────────────────
+// Reaproveita supervisores_tml (já usado no módulo de TML) — sem cadastro
+// próprio pro PDV Crítico. O usuário escolhe manualmente quem recebe o
+// aviso (região do PDV × CDD fixo variam por operação, então não dá pra
+// decidir isso sozinho).
+
+export interface SupervisorPdv {
+  id: string
+  nome: string
+  telefone: string
+}
+
+export async function listarSupervisoresPdv(filial: string): Promise<SupervisorPdv[]> {
+  const { data, error } = await supabase
+    .from('supervisores_tml')
+    .select('id, nome, telefone')
+    .eq('filial', filial)
+    .order('nome')
+  if (error) { console.error('listarSupervisoresPdv error:', error.message); return [] }
+  return data ?? []
+}
+
+function gerarLinkToken(): string {
+  return typeof crypto !== 'undefined' && crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+export interface AgendarVisitaResultado {
+  error: string | null
+  linkToken?: string
+  whatsappEnviado?: boolean
+  whatsappErro?: string
+}
+
+/**
+ * Agenda a visita: grava supervisor + gera o link público do checklist +
+ * manda o aviso por WhatsApp. Se o envio falhar (número inválido, Z-API
+ * fora do ar), o agendamento em si já foi salvo — só o aviso não saiu,
+ * reportado separadamente pra quem chamou decidir se tenta de novo.
+ */
+export async function agendarVisita(
+  relato: { id: string; codigoPdv: string; subgrupo: string; nivel: NivelCriticidade | null; prazoVisita: string | null; instrucaoRegistrada: string | null },
+  supervisor: SupervisorPdv,
+  agendadoPor: string
+): Promise<AgendarVisitaResultado> {
+  const linkToken = gerarLinkToken()
+  const { error } = await supabase
+    .from('pdv_seguranca_relatos')
+    .update({
+      status: 'agendado',
+      supervisor_id: supervisor.id,
+      agendado_em: new Date().toISOString(),
+      agendado_por: agendadoPor,
+      link_token: linkToken,
+    })
+    .eq('id', relato.id)
+  if (error) return { error: error.message }
+
+  const link = `${window.location.origin}/pdv-critico/visita?token=${linkToken}`
+  const mensagem =
+    `🚨 *Visita PDV Crítico — ${NIVEL_LABEL[relato.nivel ?? 'leve']}*\n\n` +
+    `PDV: *${relato.codigoPdv}*\n` +
+    `Risco: ${relato.subgrupo}\n` +
+    (relato.instrucaoRegistrada ? `Instrução já registrada: ${relato.instrucaoRegistrada}\n` : '') +
+    (relato.prazoVisita ? `Prazo da visita: ${relato.prazoVisita.split('-').reverse().join('/')}\n` : '') +
+    `\nPreencha o checklist da visita pelo link abaixo:\n${link}`
+
+  const envio = await enviarMensagemWhatsApp(supervisor.telefone, mensagem)
+  return { error: null, linkToken, whatsappEnviado: envio.sucesso, whatsappErro: envio.erro }
 }
 
 // ── Dashboard de análise ─────────────────────────────────────────────────
@@ -651,6 +729,10 @@ export function calcularEstatisticasPdvCritico(
     const m = fechadosPorMesMap.get(mesChave) ?? { total: 0, noPrazo: 0, foraPrazo: 0 }
     const a = fechadosPorAnoMap.get(anoChave) ?? { total: 0, noPrazo: 0, foraPrazo: 0 }
     m.total++; a.total++
+    // Comparação por DIA, não por timestamp — só vira "fora do prazo" se
+    // fechou pelo menos 1 dia depois do prazo. Fechado no mesmo dia do
+    // prazo conta como no prazo mesmo que o horário seja mais tarde (o
+    // slice(0,10) já descarta a hora dos dois lados antes de comparar).
     if (!l.prazoOrigem || !l.finalizadoEm) {
       fechadosSemPrazo++
     } else if (l.finalizadoEm.slice(0, 10) <= l.prazoOrigem) {
