@@ -82,7 +82,6 @@ const adminItems = [
   { permKey: 'fluxo', to: '/fluxo', label: 'Fluxo Punitivo', icon: GitBranch },
   { permKey: 'admin', to: '/envios-bloqueados', label: 'Envios Bloqueados', icon: AlertTriangle },
   { permKey: 'admin', to: '/admin', label: 'Administração',  icon: Shield    },
-  { permKey: 'admin', to: '/central-testes', label: 'Central de Testes', icon: TestTube2 },
 ]
 
 function temAcesso(permissoes: string[] | null | undefined, permKey: string | string[]): boolean {
@@ -186,6 +185,11 @@ export default function Layout() {
   }
 
   const p = usuario?.admin ? null : usuario?.permissoes
+  // Central de Testes é liberada pra qualquer usuário com pelo menos 1
+  // sessão habilitada (não só admin) — a ideia é dar pra mostrar em
+  // auditoria sem precisar de conta admin. permissoes null = sem
+  // restrição (acesso total, não "zero"); [] = bloqueado de propósito.
+  const podeVerCentralTestes = !!usuario?.admin || usuario?.permissoes == null || usuario.permissoes.length > 0
   const seg = segItems.filter(i => temAcesso(p, i.permKey))
   const gente = genteItems.filter(i => temAcesso(p, i.permKey))
   const financeiro = financeiroItems.filter(i => temAcesso(p, i.permKey))
@@ -301,6 +305,15 @@ export default function Layout() {
               items={armazem}
               open={sections.armazem}
               onToggle={() => toggleSection('armazem')}
+              collapsed={!sidebarOpen}
+              onNavigate={fecharMobile}
+            />
+          )}
+          {podeVerCentralTestes && (
+            <NavItem
+              to="/central-testes"
+              label="Central de Testes"
+              icon={TestTube2}
               collapsed={!sidebarOpen}
               onNavigate={fecharMobile}
             />

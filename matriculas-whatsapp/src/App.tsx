@@ -84,6 +84,17 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// Central de Testes: liberada pra qualquer usuário com pelo menos 1 sessão
+// habilitada (não só admin) — dá pra mostrar em auditoria sem conta admin.
+// permissoes null = sem restrição (acesso total, não "zero"); [] = bloqueado.
+function AlgumaPermissaoRoute({ children }: { children: React.ReactNode }) {
+  const { usuario, loading } = useAuth()
+  if (loading) return null
+  const pode = !!usuario?.admin || usuario?.permissoes == null || usuario.permissoes.length > 0
+  if (!pode) return <Navigate to="/" replace />
+  return <>{children}</>
+}
+
 // O /armazem é um ponto de entrada independente para o operador: se não
 // estiver logado, mostra a tela de login aqui mesmo (sem redirecionar para a
 // rota do supervisor) e, ao autenticar, permanece direto no app de atividades.
@@ -132,7 +143,7 @@ export default function App() {
             <Route path="/disparos" element={<Disparos />} />
             <Route path="/historico" element={<Historico />} />
             <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
-            <Route path="/central-testes" element={<AdminRoute><CentralTestes /></AdminRoute>} />
+            <Route path="/central-testes" element={<AlgumaPermissaoRoute><CentralTestes /></AlgumaPermissaoRoute>} />
             <Route path="/fluxo" element={<AdminRoute><FluxoPunitivo /></AdminRoute>} />
             <Route path="/envios-bloqueados" element={<AdminRoute><EnviosBloqueados /></AdminRoute>} />
             <Route path="/gsdpq" element={<Gsdpq />} />
