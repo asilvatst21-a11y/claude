@@ -6,8 +6,8 @@ import {
   listarNiveisSubgrupo, salvarNivelSubgrupo, semearNiveisPadrao,
   importarRelatosPdv, listarRelatos, marcarNaoCritico, encerrarComDataRetroativa, corrigirDataFechamento,
   carregarRelatosAnalise, calcularEstatisticasPdvCritico, buscarNomesColaboradoresPorMatricula,
-  listarSupervisoresPdv, agendarVisita,
-  NIVEL_LABEL, STATUS_LABEL, PRAZO_DIAS,
+  listarSupervisoresPdv, agendarVisita, aprovarCaso, reabrirCaso, RISCOS_VISITA_PDV,
+  NIVEL_LABEL, NIVEL_MEDIDO_LABEL, STATUS_LABEL, PRAZO_DIAS,
   type NivelSubgrupo, type NivelCriticidade, type RelatoLinha, type ResultadoImportRelatos,
   type LinhaAnaliseRelato, type EstatisticasPdvCritico, type SupervisorPdv,
 } from '../lib/pdvSeguranca'
@@ -188,6 +188,96 @@ function AgendarModal({
   )
 }
 
+const NIVEL_MEDIDO_CSS: Record<string, string> = {
+  alto: 'bg-red-50 text-red-700 border-red-200',
+  medio: 'bg-amber-50 text-amber-700 border-amber-200',
+  leve: 'bg-slate-100 text-slate-700 border-slate-200',
+  conforme: 'bg-green-50 text-green-700 border-green-200',
+}
+
+function FinalizacaoModal({
+  relato, processando, onFechar, onAprovar, onReabrir, onNaoCritico,
+}: {
+  relato: RelatoLinha
+  processando: boolean
+  onFechar: () => void
+  onAprovar: () => void
+  onReabrir: () => void
+  onNaoCritico: () => void
+}) {
+  const riscos = (relato.riscosMarcados ?? []).map((id) => RISCOS_VISITA_PDV.find((r) => r.id === id)?.label ?? id)
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onFechar}>
+      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-5 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-semibold text-sm mb-1">Finalizar caso — PDV {relato.codigoPdv}</h3>
+        <p className="text-xs text-muted-foreground mb-3">{relato.subgrupo}</p>
+
+        <div className="border rounded-lg p-3 mb-3 bg-muted/20 space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Nível medido na visita:</span>
+            {relato.nivelMedido ? (
+              <span className={`inline-flex px-2 py-0.5 rounded-full border text-[11px] font-semibold ${NIVEL_MEDIDO_CSS[relato.nivelMedido]}`}>
+                {NIVEL_MEDIDO_LABEL[relato.nivelMedido]}
+              </span>
+            ) : <span className="text-xs">—</span>}
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Riscos encontrados na visita:</p>
+            {riscos.length === 0 ? (
+              <p className="text-xs">Nenhum — visita não encontrou risco.</p>
+            ) : (
+              <ul className="text-xs list-disc list-inside space-y-0.5">
+                {riscos.map((r, i) => <li key={i}>{r}</li>)}
+              </ul>
+            )}
+          </div>
+          {relato.acaoRecomendada && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Ação recomendada pelo supervisor:</p>
+              <p className="text-xs">{relato.acaoRecomendada}</p>
+            </div>
+          )}
+          {relato.visitadoEm && (
+            <p className="text-[11px] text-muted-foreground">Visitado em {formatarDataBR(relato.visitadoEm)}</p>
+          )}
+        </div>
+
+        <p className="text-xs text-muted-foreground mb-3">
+          <b>Aprovar</b> encerra o caso e passa a avisar o motorista quando ele for pra esse PDV.{' '}
+          <b>Reabrir</b> volta pra triagem com prazo novo (calculado pela criticidade medida na visita).{' '}
+          <b>Não crítico</b> encerra sem avisar o motorista (exige justificativa).
+        </p>
+
+        <div className="flex flex-wrap gap-2 justify-end">
+          <button onClick={onFechar} className="text-sm px-3 py-1.5 rounded-lg border hover:bg-accent">Cancelar</button>
+          <button
+            disabled={processando}
+            onClick={onNaoCritico}
+            className="text-sm px-3 py-1.5 rounded-lg border hover:bg-accent disabled:opacity-50"
+          >
+            Não crítico
+          </button>
+          <button
+            disabled={processando}
+            onClick={onReabrir}
+            className="text-sm px-3 py-1.5 rounded-lg border border-amber-300 text-amber-700 hover:bg-amber-50 disabled:opacity-50"
+          >
+            Reabrir
+          </button>
+          <button
+            disabled={processando}
+            onClick={onAprovar}
+            className="flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-lg bg-green-600 text-white disabled:opacity-50 hover:bg-green-700"
+          >
+            {processando && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Aprovar
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function SegurancaPdvCritico() {
   const { usuario } = useAuth()
   const [aba, setAba] = useState<'painel' | 'analise' | 'lista'>('painel')
@@ -206,6 +296,8 @@ export default function SegurancaPdvCritico() {
   const [modalEncerrar, setModalEncerrar] = useState<string | null>(null)
   const [modalAgendar, setModalAgendar] = useState<RelatoLinha | null>(null)
   const [agendando, setAgendando] = useState(false)
+  const [modalFinalizar, setModalFinalizar] = useState<RelatoLinha | null>(null)
+  const [finalizando, setFinalizando] = useState(false)
 
   const [analiseLinhas, setAnaliseLinhas] = useState<LinhaAnaliseRelato[] | null>(null)
   const [nomePorMatricula, setNomePorMatricula] = useState<Map<string, string>>(new Map())
@@ -323,6 +415,28 @@ export default function SegurancaPdvCritico() {
     if (r.whatsappEnviado === false) {
       setErro(`Visita agendada, mas o WhatsApp pro supervisor não saiu: ${r.whatsappErro ?? 'erro desconhecido'}. Avise por outro meio.`)
     }
+    await carregarRelatos()
+  }
+
+  async function handleAprovar() {
+    if (!usuario || !modalFinalizar) return
+    setFinalizando(true)
+    setErro('')
+    const { error } = await aprovarCaso(modalFinalizar.id, usuario.nome ?? usuario.login)
+    setFinalizando(false)
+    if (error) { setErro(error); return }
+    setModalFinalizar(null)
+    await carregarRelatos()
+  }
+
+  async function handleReabrir() {
+    if (!usuario || !modalFinalizar) return
+    setFinalizando(true)
+    setErro('')
+    const { error } = await reabrirCaso(modalFinalizar.id, usuario.nome ?? usuario.login)
+    setFinalizando(false)
+    if (error) { setErro(error); return }
+    setModalFinalizar(null)
     await carregarRelatos()
   }
 
@@ -533,6 +647,11 @@ export default function SegurancaPdvCritico() {
                           </button>
                         </div>
                       )}
+                      {r.status === 'preenchido' && (
+                        <button onClick={() => setModalFinalizar(r)} className="text-[11px] font-semibold px-2 py-1 rounded-md border hover:bg-accent whitespace-nowrap">
+                          Finalizar
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -561,6 +680,16 @@ export default function SegurancaPdvCritico() {
           enviando={agendando}
           onFechar={() => setModalAgendar(null)}
           onConfirmar={handleAgendar}
+        />
+      )}
+      {modalFinalizar && (
+        <FinalizacaoModal
+          relato={modalFinalizar}
+          processando={finalizando}
+          onFechar={() => setModalFinalizar(null)}
+          onAprovar={handleAprovar}
+          onReabrir={handleReabrir}
+          onNaoCritico={() => { const id = modalFinalizar.id; setModalFinalizar(null); setModalNaoCritico(id) }}
         />
       )}
       </>

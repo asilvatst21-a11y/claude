@@ -467,6 +467,7 @@ export interface RelatoLinha {
   codigoPdv: string
   subgrupo: string
   nivel: NivelCriticidade | null
+  nivelMedido: NivelMedido | null
   codigoMotorista: string | null
   instrucaoRegistrada: string | null
   dataRelato: string
@@ -475,6 +476,9 @@ export interface RelatoLinha {
   statusBees: string | null
   reincidente: boolean
   numeroOcorrencia: number
+  riscosMarcados: string[] | null
+  acaoRecomendada: string | null
+  visitadoEm: string | null
 }
 
 // Painel operacional: nunca mostra histórico importado/cancelado da
@@ -482,7 +486,7 @@ export interface RelatoLinha {
 export async function listarRelatos(filial: string): Promise<RelatoLinha[]> {
   const { data, error } = await supabase
     .from('pdv_seguranca_relatos')
-    .select('id, codigo_pdv, subgrupo, nivel_inicial, nivel_medido, codigo_motorista, instrucao_registrada, data_relato, prazo_visita, status, reincidente_apos, numero_ocorrencia, origem_status')
+    .select('id, codigo_pdv, subgrupo, nivel_inicial, nivel_medido, codigo_motorista, instrucao_registrada, data_relato, prazo_visita, status, reincidente_apos, numero_ocorrencia, origem_status, riscos_marcados, acao_recomendada, visitado_em')
     .eq('filial', filial)
     .not('status', 'in', `(${STATUS_FORA_DO_PAINEL.join(',')})`)
     .order('data_relato', { ascending: false })
@@ -495,6 +499,7 @@ export async function listarRelatos(filial: string): Promise<RelatoLinha[]> {
     codigoPdv: l.codigo_pdv,
     subgrupo: l.subgrupo,
     nivel: (l.nivel_medido ?? l.nivel_inicial) as NivelCriticidade | null,
+    nivelMedido: l.nivel_medido as NivelMedido | null,
     codigoMotorista: l.codigo_motorista,
     // Coluna K da planilha de origem — instrução já registrada pra esse
     // relato (quando existe), útil pra Segurança ver o que já foi
@@ -507,6 +512,9 @@ export async function listarRelatos(filial: string): Promise<RelatoLinha[]> {
     // não é join com outra tabela. Atualiza a cada reimportação.
     statusBees: l.origem_status,
     reincidente: l.reincidente_apos != null,
+    riscosMarcados: l.riscos_marcados,
+    acaoRecomendada: l.acao_recomendada,
+    visitadoEm: l.visitado_em,
     numeroOcorrencia: l.numero_ocorrencia ?? 1,
   }))
 }
@@ -520,6 +528,56 @@ export async function marcarNaoCritico(id: string, justificativa: string, decidi
       justificativa_nao_critico: justificativa.trim(),
       decidido_por: decididoPor,
       decidido_em: new Date().toISOString(),
+    })
+    .eq('id', id)
+  return { error: error?.message ?? null }
+}
+
+// ── Finalização (Segurança) ──────────────────────────────────────────────
+// Depois do checklist preenchido (status 'preenchido'): aprova, reabre com
+// prazo novo de acordo com a criticidade medida na visita, ou marca não
+// crítico (mesma regra de não avisar o motorista, reaproveita marcarNaoCritico).
+
+export async function aprovarCaso(id: string, decididoPor: string): Promise<{ error: string | null }> {
+  const { error } = await supabase
+    .from('pdv_seguranca_relatos')
+    .update({
+      status: 'aprovado',
+      finalizado_em: new Date().toISOString(),
+      finalizado_por: decididoPor,
+    })
+    .eq('id', id)
+  return { error: error?.message ?? null }
+}
+
+/**
+ * Reabre o caso: a visita achou algo que não fecha o assunto (checklist
+ * mostrou risco que não foi resolvido/aceito). Mesmo caso, novo ciclo —
+ * volta pra triagem com prazo do zero calculado pela criticidade MEDIDA
+ * na visita (não a inicial), e limpa os dados da visita anterior pra não
+ * confundir com o novo checklist que vai ser preenchido.
+ */
+export async function reabrirCaso(id: string, decididoPor: string): Promise<{ error: string | null }> {
+  const { data: atual, error: erroLeitura } = await supabase
+    .from('pdv_seguranca_relatos')
+    .select('nivel_medido, nivel_inicial, numero_ocorrencia')
+    .eq('id', id)
+    .maybeSingle()
+  if (erroLeitura) return { error: erroLeitura.message }
+  if (!atual) return { error: 'Relato não encontrado.' }
+
+  const novoNivel = (atual.nivel_medido ?? atual.nivel_inicial) as NivelCriticidade | null
+  const hoje = new Date().toISOString().slice(0, 10)
+  const { error } = await supabase
+    .from('pdv_seguranca_relatos')
+    .update({
+      status: 'aguardando_triagem',
+      nivel_inicial: novoNivel,
+      prazo_visita: novoNivel ? somarDias(hoje, PRAZO_DIAS[novoNivel]) : null,
+      numero_ocorrencia: (atual.numero_ocorrencia ?? 1) + 1,
+      supervisor_id: null, agendado_em: null, agendado_por: null, link_token: null,
+      visitado_em: null, nivel_medido: null, pontuacao_medida: null, riscos_marcados: null, acao_recomendada: null,
+      decidido_por: decididoPor, decidido_em: new Date().toISOString(),
     })
     .eq('id', id)
   return { error: error?.message ?? null }
