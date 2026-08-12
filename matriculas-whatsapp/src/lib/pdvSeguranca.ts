@@ -174,6 +174,15 @@ export interface ResultadoImportRelatos {
   outrasAreas: number
   jaExistiam: number
   semData: number
+  canceladosNaOrigem: number
+  reincidencias: number
+}
+
+const NIVEL_ORDEM: Record<NivelCriticidade, number> = { leve: 0, medio: 1, alto: 2 }
+const ORDEM_NIVEL: NivelCriticidade[] = ['leve', 'medio', 'alto']
+
+function escalarNivel(nivel: NivelCriticidade): NivelCriticidade {
+  return ORDEM_NIVEL[Math.min(NIVEL_ORDEM[nivel] + 1, 2)]
 }
 
 /**
@@ -181,6 +190,12 @@ export interface ResultadoImportRelatos {
  * contado (some pro time responsável, não vira linha aqui). Nunca
  * sobrescreve um relato que já existe (mesma chave filial+pdv+subgrupo+
  * data): um caso em andamento não pode ser resetado por uma reimportação.
+ * Relatos já cancelados na origem não viram caso pendente aqui.
+ *
+ * Reincidência: quando o mesmo PDV+subgrupo já teve um caso APROVADO
+ * (concluído) antes da data deste novo relato, é sinal de que a
+ * orientação recomendada não está sendo seguida na entrega — o novo caso
+ * é marcado como reincidente e a criticidade escala um nível.
  */
 export async function importarRelatosPdv(file: File, filial: string): Promise<ResultadoImportRelatos> {
   const buffer = await file.arrayBuffer()
@@ -189,10 +204,16 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
 
   const niveis = new Map((await listarNiveisSubgrupo(filial)).map((n) => [n.subgrupo, n.nivel]))
 
-  const resultado: ResultadoImportRelatos = { seguranca: 0, outrasAreas: 0, jaExistiam: 0, semData: 0 }
+  const resultado: ResultadoImportRelatos = {
+    seguranca: 0, outrasAreas: 0, jaExistiam: 0, semData: 0, canceladosNaOrigem: 0, reincidencias: 0,
+  }
   const candidatasComRepetidas = linhas.filter((l) => {
     if (normalize(l.categoria) !== CATEGORIA_SEGURANCA) { resultado.outrasAreas++; return false }
     if (!l.dataRelato) { resultado.semData++; return false }
+    if (normalize(l.origemStatus) === 'canceled' || normalize(l.origemStatus) === 'cancelado') {
+      resultado.canceladosNaOrigem++
+      return false
+    }
     return true
   })
   if (candidatasComRepetidas.length === 0) return resultado
@@ -204,11 +225,15 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
   const porChave = new Map(candidatasComRepetidas.map((l) => [`${l.codigoPdv}|${l.subgrupo}|${l.dataRelato}`, l]))
   const candidatas = [...porChave.values()]
 
-  const { data: existentesRaw } = await supabase
-    .from('pdv_seguranca_relatos')
-    .select('codigo_pdv, subgrupo, data_relato')
-    .eq('filial', filial)
-    .in('codigo_pdv', [...new Set(candidatas.map((l) => l.codigoPdv))])
+  const codigosPdv = [...new Set(candidatas.map((l) => l.codigoPdv))]
+  const [{ data: existentesRaw }, { data: historicoRaw }] = await Promise.all([
+    supabase.from('pdv_seguranca_relatos').select('codigo_pdv, subgrupo, data_relato')
+      .eq('filial', filial).in('codigo_pdv', codigosPdv),
+    // Histórico completo (qualquer status) desses PDVs — usado tanto pra
+    // contar a ocorrência quanto pra achar o último caso já aprovado.
+    supabase.from('pdv_seguranca_relatos').select('id, codigo_pdv, subgrupo, status, finalizado_em')
+      .eq('filial', filial).in('codigo_pdv', codigosPdv),
+  ])
   const chaveExiste = new Set((existentesRaw ?? []).map((r) => `${r.codigo_pdv}|${r.subgrupo}|${r.data_relato}`))
 
   const novas = candidatas.filter((l) => !chaveExiste.has(`${l.codigoPdv}|${l.subgrupo}|${l.dataRelato}`))
@@ -216,8 +241,27 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
   resultado.seguranca = novas.length
   if (novas.length === 0) return resultado
 
+  const historicoPorChave = new Map<string, typeof historicoRaw>()
+  for (const h of historicoRaw ?? []) {
+    const chave = `${h.codigo_pdv}|${h.subgrupo}`
+    const lista = historicoPorChave.get(chave) ?? []
+    lista.push(h)
+    historicoPorChave.set(chave, lista as any)
+  }
+
   const rows = novas.map((l) => {
-    const nivel = niveis.get(l.subgrupo) ?? null
+    const chave = `${l.codigoPdv}|${l.subgrupo}`
+    const historico = (historicoPorChave.get(chave) ?? []) as { id: string; status: string; finalizado_em: string | null }[]
+    const ultimoAprovado = historico
+      .filter((h) => h.status === 'aprovado' && h.finalizado_em && h.finalizado_em < `${l.dataRelato}T23:59:59`)
+      .sort((a, b) => (b.finalizado_em! > a.finalizado_em! ? 1 : -1))[0]
+
+    let nivel = niveis.get(l.subgrupo) ?? null
+    if (ultimoAprovado) {
+      resultado.reincidencias++
+      if (nivel) nivel = escalarNivel(nivel)
+    }
+
     return {
       filial,
       codigo_pdv: l.codigoPdv,
@@ -230,6 +274,8 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
       nivel_inicial: nivel,
       prazo_visita: nivel ? somarDias(l.dataRelato!, PRAZO_DIAS[nivel]) : null,
       status: 'aguardando_triagem' as const,
+      reincidente_apos: ultimoAprovado?.id ?? null,
+      numero_ocorrencia: historico.length + 1,
     }
   })
   const BATCH = 300
@@ -252,12 +298,14 @@ export interface RelatoLinha {
   prazoVisita: string | null
   status: StatusRelato
   statusBees: { farol: StatusFarol; label: string } | null
+  reincidente: boolean
+  numeroOcorrencia: number
 }
 
 export async function listarRelatos(filial: string): Promise<RelatoLinha[]> {
   const { data, error } = await supabase
     .from('pdv_seguranca_relatos')
-    .select('id, codigo_pdv, subgrupo, nivel_inicial, nivel_medido, codigo_motorista, data_relato, prazo_visita, status')
+    .select('id, codigo_pdv, subgrupo, nivel_inicial, nivel_medido, codigo_motorista, data_relato, prazo_visita, status, reincidente_apos, numero_ocorrencia')
     .eq('filial', filial)
     .order('data_relato', { ascending: false })
     .limit(300)
@@ -283,6 +331,8 @@ export async function listarRelatos(filial: string): Promise<RelatoLinha[]> {
     prazoVisita: l.prazo_visita,
     status: l.status as StatusRelato,
     statusBees: beesPorPdv.has(l.codigo_pdv) ? traduzirStatusBees(beesPorPdv.get(l.codigo_pdv) ?? null) : null,
+    reincidente: l.reincidente_apos != null,
+    numeroOcorrencia: l.numero_ocorrencia ?? 1,
   }))
 }
 

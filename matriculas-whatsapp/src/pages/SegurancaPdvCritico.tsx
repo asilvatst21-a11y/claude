@@ -129,9 +129,11 @@ export default function SegurancaPdvCritico() {
     try {
       const r: ResultadoImportRelatos = await importarRelatosPdv(file, usuario.filial)
       setMsgImport(
-        `✅ ${r.seguranca} relato(s) de Segurança importado(s). ` +
-        `${r.outrasAreas} de outras áreas ignorado(s) (não entram nesse fluxo). ` +
+        `✅ ${r.seguranca} relato(s) de Segurança importado(s)` +
+        (r.reincidencias ? ` (${r.reincidencias} reincidência(s) — criticidade escalada automaticamente)` : '') +
+        `. ${r.outrasAreas} de outras áreas ignorado(s) (não entram nesse fluxo). ` +
         `${r.jaExistiam} já existiam (não foram tocados). ` +
+        (r.canceladosNaOrigem ? `${r.canceladosNaOrigem} cancelado(s) na origem, ignorado(s). ` : '') +
         (r.semData ? `${r.semData} sem data reconhecida, ignorado(s).` : '')
       )
       await carregarRelatos()
@@ -279,7 +281,17 @@ export default function SegurancaPdvCritico() {
               <tbody className="divide-y">
                 {relatos.map((r) => (
                   <tr key={r.id} className="hover:bg-muted/30 align-top">
-                    <td className="px-3 py-2 font-semibold tabular-nums">{r.codigoPdv}</td>
+                    <td className="px-3 py-2 font-semibold tabular-nums">
+                      {r.codigoPdv}
+                      {r.reincidente && (
+                        <span
+                          title={`${r.numeroOcorrencia}ª vez que esse PDV+subgrupo é relatado — reincidiu depois de um caso já aprovado`}
+                          className="ml-1.5 inline-flex px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 text-[10px] font-bold align-middle"
+                        >
+                          🔁 {r.numeroOcorrencia}ª vez
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2 max-w-[220px]">{r.subgrupo}</td>
                     <td className="px-3 py-2">
                       {r.nivel ? (
