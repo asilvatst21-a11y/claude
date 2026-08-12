@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown, BarChart2, CalendarClock } from 'lucide-react'
+import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown, BarChart2, CalendarClock, Users, Trophy } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
   listarNiveisSubgrupo, salvarNivelSubgrupo, semearNiveisPadrao,
   importarRelatosPdv, listarRelatos, marcarNaoCritico, encerrarComDataRetroativa,
-  carregarRelatosAnalise, calcularEstatisticasPdvCritico,
+  carregarRelatosAnalise, calcularEstatisticasPdvCritico, buscarNomesColaboradoresPorMatricula,
   NIVEL_LABEL, STATUS_LABEL, PRAZO_DIAS,
   type NivelSubgrupo, type NivelCriticidade, type RelatoLinha, type ResultadoImportRelatos,
   type LinhaAnaliseRelato, type EstatisticasPdvCritico,
@@ -141,6 +141,7 @@ export default function SegurancaPdvCritico() {
   const [modalEncerrar, setModalEncerrar] = useState<string | null>(null)
 
   const [analiseLinhas, setAnaliseLinhas] = useState<LinhaAnaliseRelato[] | null>(null)
+  const [nomePorMatricula, setNomePorMatricula] = useState<Map<string, string>>(new Map())
   const [carregandoAnalise, setCarregandoAnalise] = useState(false)
   const [filtroAno, setFiltroAno] = useState<number | null>(null)
   const [filtroMes, setFiltroMes] = useState<number | null>(null)
@@ -163,7 +164,12 @@ export default function SegurancaPdvCritico() {
   const carregarAnalise = useCallback(async () => {
     if (!usuario) return
     setCarregandoAnalise(true)
-    setAnaliseLinhas(await carregarRelatosAnalise(usuario.filial))
+    const [linhas, nomes] = await Promise.all([
+      carregarRelatosAnalise(usuario.filial),
+      buscarNomesColaboradoresPorMatricula(usuario.filial),
+    ])
+    setAnaliseLinhas(linhas)
+    setNomePorMatricula(nomes)
     setCarregandoAnalise(false)
   }, [usuario])
 
@@ -172,8 +178,8 @@ export default function SegurancaPdvCritico() {
   useEffect(() => { if (aba === 'analise' && !analiseLinhas) carregarAnalise() }, [aba, analiseLinhas, carregarAnalise])
 
   const estatisticas = useMemo(
-    () => analiseLinhas ? calcularEstatisticasPdvCritico(analiseLinhas, { ano: filtroAno, mes: filtroMes }) : null,
-    [analiseLinhas, filtroAno, filtroMes]
+    () => analiseLinhas ? calcularEstatisticasPdvCritico(analiseLinhas, { ano: filtroAno, mes: filtroMes }, nomePorMatricula) : null,
+    [analiseLinhas, filtroAno, filtroMes, nomePorMatricula]
   )
 
   async function handleMudarNivel(subgrupo: string, nivel: NivelCriticidade) {
@@ -676,12 +682,171 @@ function AnaliseTab({
         </div>
       </div>
 
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="border rounded-xl bg-white p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Relatos por dia da semana</h3>
+          <div className="space-y-1.5">
+            {estatisticas.relatosPorDiaSemana.map((d) => (
+              <BarraHorizontal key={d.diaSemana} label={d.diaSemana} total={d.total} max={maxDiaSemana} />
+            ))}
+          </div>
+        </div>
+
+        <div className="border rounded-xl bg-white p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Funil operacional (status atual)</h3>
+          {estatisticas.funil.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nenhum relato no período.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {estatisticas.funil.map((f) => (
+                <BarraHorizontal
+                  key={f.status}
+                  label={STATUS_LABEL[f.status as keyof typeof STATUS_LABEL] ?? f.status}
+                  total={f.total}
+                  max={Math.max(1, ...estatisticas.funil.map((x) => x.total))}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="border rounded-xl bg-white p-4">
-        <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Relatos por dia da semana</h3>
-        <div className="space-y-1.5">
-          {estatisticas.relatosPorDiaSemana.map((d) => (
-            <BarraHorizontal key={d.diaSemana} label={d.diaSemana} total={d.total} max={maxDiaSemana} />
-          ))}
+        <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><Trophy className="h-4 w-4 text-primary" /> PDVs recorrentes</h3>
+        {estatisticas.pdvsRecorrentes.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Nenhum relato no período.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-muted-foreground border-b">
+                  <th className="py-1.5 pr-3">PDV</th>
+                  <th className="py-1.5 pr-3 text-right">Relatos</th>
+                  <th className="py-1.5 pr-3 text-right">Reincidências</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {estatisticas.pdvsRecorrentes.map((p) => (
+                  <tr key={p.codigoPdv}>
+                    <td className="py-1.5 pr-3 font-medium tabular-nums">{p.codigoPdv}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{p.total}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{p.reincidencias > 0 ? <span className="text-red-600 font-semibold">{p.reincidencias}</span> : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="border rounded-xl bg-white p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Criticidade × % no prazo</h3>
+          {estatisticas.porCriticidade.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nenhum caso fechado no período.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-1.5 pr-3">Nível</th>
+                    <th className="py-1.5 pr-3 text-right">Fechados</th>
+                    <th className="py-1.5 pr-3 text-right">% no prazo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {estatisticas.porCriticidade.map((c) => (
+                    <tr key={c.nivel}>
+                      <td className="py-1.5 pr-3 font-medium">{NIVEL_LABEL[c.nivel as NivelCriticidade] ?? 'Sem nível'}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{c.total}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums font-semibold">{(c.noPrazo + c.foraPrazo) > 0 ? `${c.pctNoPrazo}%` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground mt-3">
+            {estatisticas.tempoMedioFechamentoDias != null
+              ? `Tempo médio de fechamento: ${estatisticas.tempoMedioFechamentoDias} dia(s) (relato → fechamento).`
+              : 'Sem dados suficientes pra calcular tempo médio de fechamento.'}
+          </p>
+        </div>
+
+        <div className="border rounded-xl bg-white p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Reincidência por mês</h3>
+          {estatisticas.reincidenciaPorMes.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nenhum relato no período.</p>
+          ) : (
+            <div className="overflow-x-auto max-h-64 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-1.5 pr-3">Mês</th>
+                    <th className="py-1.5 pr-3 text-right">Relatos</th>
+                    <th className="py-1.5 pr-3 text-right">Reincidentes</th>
+                    <th className="py-1.5 pr-3 text-right">%</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {estatisticas.reincidenciaPorMes.map((r) => (
+                    <tr key={r.mes}>
+                      <td className="py-1.5 pr-3 font-medium">{r.mes}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r.total}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{r.reincidentes}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums font-semibold">{r.pctReincidencia}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="border rounded-xl bg-white p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><Users className="h-4 w-4 text-primary" /> Top motoristas que relatam</h3>
+          {estatisticas.topMotoristas.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nenhum relato com matrícula no período.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-1.5 pr-3">Motorista</th>
+                    <th className="py-1.5 pr-3 text-right">Relatos</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {estatisticas.topMotoristas.map((m) => (
+                    <tr key={m.matricula}>
+                      <td className="py-1.5 pr-3">{m.nome}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums font-semibold">{m.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        <div className="border rounded-xl bg-white p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Motivos de "Não crítico" ({estatisticas.totalNaoCritico})</h3>
+          {estatisticas.motivosNaoCritico.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nenhum caso marcado não crítico no período.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {estatisticas.motivosNaoCritico.map((mo) => (
+                <BarraHorizontal
+                  key={mo.justificativa}
+                  label={mo.justificativa}
+                  total={mo.total}
+                  max={Math.max(1, ...estatisticas.motivosNaoCritico.map((x) => x.total))}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

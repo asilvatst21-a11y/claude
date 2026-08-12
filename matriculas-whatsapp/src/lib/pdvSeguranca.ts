@@ -504,23 +504,34 @@ export async function encerrarComDataRetroativa(id: string, dataFechamentoISO: s
 const DIAS_SEMANA_LABEL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
 
 export interface LinhaAnaliseRelato {
+  codigoPdv: string
   subgrupo: string
   status: string
+  nivel: NivelCriticidade | null
+  codigoMotorista: string | null
+  reincidente: boolean
   dataRelato: string | null
   prazoOrigem: string | null
   finalizadoEm: string | null
+  justificativaNaoCritico: string | null
 }
 
 export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnaliseRelato[]> {
   // O PostgREST corta em 1000 linhas por página — com milhares de relatos
   // históricos, um único select() perderia o resto silenciosamente.
-  type LinhaRaw = { subgrupo: string; status: string; data_relato: string | null; prazo_origem: string | null; finalizado_em: string | null }
+  type LinhaRaw = {
+    codigo_pdv: string; subgrupo: string; status: string
+    nivel_inicial: NivelCriticidade | null; nivel_medido: NivelCriticidade | null
+    codigo_motorista: string | null; reincidente_apos: string | null
+    data_relato: string | null; prazo_origem: string | null; finalizado_em: string | null
+    justificativa_nao_critico: string | null
+  }
   const PAGINA = 1000
   const linhas: LinhaRaw[] = []
   for (let inicio = 0; ; inicio += PAGINA) {
     const { data, error } = await supabase
       .from('pdv_seguranca_relatos')
-      .select('subgrupo, status, data_relato, prazo_origem, finalizado_em')
+      .select('codigo_pdv, subgrupo, status, nivel_inicial, nivel_medido, codigo_motorista, reincidente_apos, data_relato, prazo_origem, finalizado_em, justificativa_nao_critico')
       .eq('filial', filial)
       .range(inicio, inicio + PAGINA - 1)
     if (error) { console.error('carregarRelatosAnalise error:', error.message); break }
@@ -528,9 +539,27 @@ export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnali
     if (!data || data.length < PAGINA) break
   }
   return linhas.map((l) => ({
-    subgrupo: l.subgrupo, status: l.status, dataRelato: l.data_relato,
-    prazoOrigem: l.prazo_origem, finalizadoEm: l.finalizado_em,
+    codigoPdv: l.codigo_pdv, subgrupo: l.subgrupo, status: l.status,
+    nivel: l.nivel_medido ?? l.nivel_inicial,
+    codigoMotorista: l.codigo_motorista, reincidente: l.reincidente_apos != null,
+    dataRelato: l.data_relato, prazoOrigem: l.prazo_origem, finalizadoEm: l.finalizado_em,
+    justificativaNaoCritico: l.justificativa_nao_critico,
   }))
+}
+
+// Nome do colaborador por matrícula (tabela usada em Gente → Colaboradores)
+// — mesmo padrão de lookup usado em statusAtivo.ts/frota.ts/farolCriticos.ts.
+// Base histórica extensa pode trazer matrículas que não existem (ou ainda
+// não foram cadastradas) em Colaboradores — nesse caso cai em "sem nome".
+export async function buscarNomesColaboradoresPorMatricula(filial: string): Promise<Map<string, string>> {
+  const { data, error } = await supabase.from('colaboradores').select('matricula, nome').eq('filial', filial)
+  if (error) { console.error('buscarNomesColaboradoresPorMatricula error:', error.message); return new Map() }
+  const mapa = new Map<string, string>()
+  for (const c of data ?? []) {
+    if (c.matricula == null) continue
+    mapa.set(String(c.matricula).trim(), (c.nome ?? '').trim())
+  }
+  return mapa
 }
 
 export interface FiltroAnaliseData {
@@ -551,6 +580,14 @@ export interface EstatisticasPdvCritico {
   porStatusEMes: Record<string, { mes: string; total: number }[]>
   relatosPorDiaSemana: { diaSemana: string; total: number }[]
   anosDisponiveis: number[]
+  pdvsRecorrentes: { codigoPdv: string; total: number; reincidencias: number }[]
+  porCriticidade: { nivel: string; total: number; noPrazo: number; foraPrazo: number; pctNoPrazo: number }[]
+  tempoMedioFechamentoDias: number | null
+  reincidenciaPorMes: { mes: string; total: number; reincidentes: number; pctReincidencia: number }[]
+  motivosNaoCritico: { justificativa: string; total: number }[]
+  totalNaoCritico: number
+  funil: { status: string; total: number }[]
+  topMotoristas: { matricula: string; nome: string; total: number }[]
 }
 
 function dataBateNoFiltro(dataISO: string | null, filtro: FiltroAnaliseData): boolean {
@@ -560,7 +597,13 @@ function dataBateNoFiltro(dataISO: string | null, filtro: FiltroAnaliseData): bo
   return true
 }
 
-export function calcularEstatisticasPdvCritico(todasLinhas: LinhaAnaliseRelato[], filtro: FiltroAnaliseData = { ano: null, mes: null }): EstatisticasPdvCritico {
+const FUNIL_ORDEM: StatusRelato[] = ['aguardando_triagem', 'agendado', 'preenchido', 'aprovado', 'nao_critico', 'encerrado_historico', 'cancelado']
+
+export function calcularEstatisticasPdvCritico(
+  todasLinhas: LinhaAnaliseRelato[],
+  filtro: FiltroAnaliseData = { ano: null, mes: null },
+  nomePorMatricula: Map<string, string> = new Map()
+): EstatisticasPdvCritico {
   const anosDisponiveis = [...new Set(
     todasLinhas.map((l) => l.dataRelato ? Number(l.dataRelato.slice(0, 4)) : null).filter((a): a is number => a != null)
   )].sort((a, b) => b - a)
@@ -616,6 +659,107 @@ export function calcularEstatisticasPdvCritico(todasLinhas: LinhaAnaliseRelato[]
     diaSemanaTotais[new Date(`${l.dataRelato}T00:00:00Z`).getUTCDay()]++
   }
 
+  // PDVs recorrentes — quem mais aparece nos relatos (e quantas dessas
+  // são reincidência de verdade, não só "chegou de novo").
+  const pdvMap = new Map<string, { total: number; reincidencias: number }>()
+  for (const l of linhas) {
+    const p = pdvMap.get(l.codigoPdv) ?? { total: 0, reincidencias: 0 }
+    p.total++
+    if (l.reincidente) p.reincidencias++
+    pdvMap.set(l.codigoPdv, p)
+  }
+  const pdvsRecorrentes = [...pdvMap.entries()]
+    .map(([codigoPdv, p]) => ({ codigoPdv, total: p.total, reincidencias: p.reincidencias }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 15)
+
+  // Criticidade × prazo — só entre os fechados, pra saber se um nível
+  // mais alto é resolvido mais rápido (ou não) que um nível leve.
+  const criticidadeMap = new Map<string, { total: number; noPrazo: number; foraPrazo: number }>()
+  for (const l of fechados) {
+    const chave = l.nivel ?? 'sem-nivel'
+    const c = criticidadeMap.get(chave) ?? { total: 0, noPrazo: 0, foraPrazo: 0 }
+    c.total++
+    if (l.prazoOrigem && l.finalizadoEm) {
+      if (l.finalizadoEm.slice(0, 10) <= l.prazoOrigem) c.noPrazo++
+      else c.foraPrazo++
+    }
+    criticidadeMap.set(chave, c)
+  }
+  const ORDEM_NIVEL_LABEL = ['alto', 'medio', 'leve', 'sem-nivel']
+  const porCriticidade = ORDEM_NIVEL_LABEL
+    .filter((nivel) => criticidadeMap.has(nivel))
+    .map((nivel) => {
+      const c = criticidadeMap.get(nivel)!
+      return {
+        nivel, total: c.total, noPrazo: c.noPrazo, foraPrazo: c.foraPrazo,
+        pctNoPrazo: (c.noPrazo + c.foraPrazo) > 0 ? Math.round((c.noPrazo / (c.noPrazo + c.foraPrazo)) * 1000) / 10 : 0,
+      }
+    })
+
+  // Tempo médio de fechamento — não só "no prazo sim/não", quantos dias
+  // em média entre o relato e o fechamento de fato.
+  const diasFechamento: number[] = []
+  for (const l of fechados) {
+    if (!l.dataRelato || !l.finalizadoEm) continue
+    const dias = Math.round((new Date(`${l.finalizadoEm.slice(0, 10)}T00:00:00Z`).getTime() - new Date(`${l.dataRelato}T00:00:00Z`).getTime()) / 86400000)
+    if (dias >= 0) diasFechamento.push(dias)
+  }
+  const tempoMedioFechamentoDias = diasFechamento.length > 0
+    ? Math.round((diasFechamento.reduce((acc, d) => acc + d, 0) / diasFechamento.length) * 10) / 10
+    : null
+
+  // Reincidência por mês — % dos relatos do mês que já eram reincidência
+  // de um caso aprovado antes, pra ver se a orientação está pegando.
+  const reincidenciaPorMesMap = new Map<string, { total: number; reincidentes: number }>()
+  for (const l of linhas) {
+    const mes = l.dataRelato ? l.dataRelato.slice(0, 7) : 'sem-data'
+    const r = reincidenciaPorMesMap.get(mes) ?? { total: 0, reincidentes: 0 }
+    r.total++
+    if (l.reincidente) r.reincidentes++
+    reincidenciaPorMesMap.set(mes, r)
+  }
+  const reincidenciaPorMes = [...reincidenciaPorMesMap.entries()]
+    .map(([mes, r]) => ({
+      mes, total: r.total, reincidentes: r.reincidentes,
+      pctReincidencia: r.total > 0 ? Math.round((r.reincidentes / r.total) * 1000) / 10 : 0,
+    }))
+    .sort((a, b) => a.mes.localeCompare(b.mes))
+
+  // Motivos de "Não crítico" — pra auditar se o critério usado faz sentido.
+  const naoCriticos = linhas.filter((l) => l.status === 'nao_critico')
+  const motivoMap = new Map<string, number>()
+  for (const l of naoCriticos) {
+    const motivo = l.justificativaNaoCritico?.trim() || '(sem justificativa registrada)'
+    motivoMap.set(motivo, (motivoMap.get(motivo) ?? 0) + 1)
+  }
+  const motivosNaoCritico = [...motivoMap.entries()]
+    .map(([justificativa, total]) => ({ justificativa, total }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 15)
+
+  // Funil operacional — onde os casos do período estão agora, na ordem
+  // do fluxo (não é histórico, é a foto atual do status).
+  const funilCount = new Map<string, number>()
+  for (const l of linhas) funilCount.set(l.status, (funilCount.get(l.status) ?? 0) + 1)
+  const funil = FUNIL_ORDEM
+    .filter((status) => funilCount.has(status))
+    .map((status) => ({ status, total: funilCount.get(status)! }))
+
+  // Top motoristas que relatam — matrícula pode não estar em Colaboradores
+  // ainda (base histórica extensa importada de uma vez), cai em "sem nome".
+  const motoristaMap = new Map<string, number>()
+  for (const l of linhas) {
+    if (!l.codigoMotorista) continue
+    const matricula = l.codigoMotorista.trim()
+    if (!matricula) continue
+    motoristaMap.set(matricula, (motoristaMap.get(matricula) ?? 0) + 1)
+  }
+  const topMotoristas = [...motoristaMap.entries()]
+    .map(([matricula, total]) => ({ matricula, nome: nomePorMatricula.get(matricula) || `Matrícula ${matricula} (sem nome cadastrado)`, total }))
+    .sort((a, b) => b.total - a.total)
+    .slice(0, 15)
+
   const totalComPrazo = fechadosNoPrazo + fechadosForaPrazo
   return {
     totalFechados: fechados.length,
@@ -638,5 +782,13 @@ export function calcularEstatisticasPdvCritico(todasLinhas: LinhaAnaliseRelato[]
     porStatusEMes: porStatusEMesFinal,
     relatosPorDiaSemana: DIAS_SEMANA_LABEL.map((diaSemana, i) => ({ diaSemana, total: diaSemanaTotais[i] })),
     anosDisponiveis,
+    pdvsRecorrentes,
+    porCriticidade,
+    tempoMedioFechamentoDias,
+    reincidenciaPorMes,
+    motivosNaoCritico,
+    totalNaoCritico: naoCriticos.length,
+    funil,
+    topMotoristas,
   }
 }
