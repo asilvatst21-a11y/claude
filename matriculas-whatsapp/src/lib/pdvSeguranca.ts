@@ -301,7 +301,18 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
   // triagem" pra sempre mesmo já resolvidos/cancelados na origem.
   const paraAtualizarStatus = candidatas
     .map((l) => ({ l, existente: existentesPorChave.get(`${l.codigoPdv}|${l.subgrupo}|${l.dataRelato}`) }))
-    .filter((x) => x.existente && x.existente.origem_status !== x.l.origemStatus)
+    .filter((x) => {
+      if (!x.existente) return false
+      if (x.existente.origem_status !== x.l.origemStatus) return true
+      // Status BEES já bate com a última reimportação, mas se o caso
+      // ainda está preso em "aguardando_triagem" apesar da origem já
+      // mostrar CANCELED/CLOSED, precisa tentar reclassificar de novo
+      // (aconteceu de a atualização anterior só ter tocado o Status BEES,
+      // sem reclassificar o status do caso).
+      const origemNorm = normalize(x.l.origemStatus)
+      const precisaReclassificar = origemNorm === 'canceled' || origemNorm === 'cancelado' || origemNorm === 'closed'
+      return x.existente.status === 'aguardando_triagem' && precisaReclassificar
+    })
   const CONCORRENCIA = 15
   for (let i = 0; i < paraAtualizarStatus.length; i += CONCORRENCIA) {
     await Promise.all(
