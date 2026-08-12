@@ -278,7 +278,7 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
 
   const codigosPdv = [...new Set(candidatas.map((l) => l.codigoPdv))]
   const [{ data: existentesRaw }, { data: historicoRaw }] = await Promise.all([
-    supabase.from('pdv_seguranca_relatos').select('id, codigo_pdv, subgrupo, data_relato, origem_status')
+    supabase.from('pdv_seguranca_relatos').select('id, codigo_pdv, subgrupo, data_relato, origem_status, status')
       .eq('filial', filial).in('codigo_pdv', codigosPdv),
     // Histórico completo (qualquer status) desses PDVs — usado tanto pra
     // contar a ocorrência quanto pra achar o último caso já aprovado.
@@ -291,17 +291,33 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
   resultado.jaExistiam = candidatas.length - novas.length
   resultado.seguranca = novas.length
 
-  // Relatos que já existem: só o Status BEES pode mudar. Atualiza em
-  // paralelo (limitado) os que realmente mudaram de valor.
+  // Relatos que já existem: em princípio só o Status BEES pode mudar — um
+  // caso em andamento (agendado/preenchido/aprovado/não crítico) nunca é
+  // sobrescrito só porque a origem mudou de status. A EXCEÇÃO é um caso
+  // que nunca saiu da triagem (ainda "aguardando_triagem", nada foi feito
+  // com ele aqui): se a origem agora mostra CANCELED/CLOSED, reclassifica
+  // pra 'cancelado'/'encerrado_historico' também — sem isso, relatos
+  // importados antes dessa regra existir ficavam presos em "Aguardando
+  // triagem" pra sempre mesmo já resolvidos/cancelados na origem.
   const paraAtualizarStatus = candidatas
     .map((l) => ({ l, existente: existentesPorChave.get(`${l.codigoPdv}|${l.subgrupo}|${l.dataRelato}`) }))
     .filter((x) => x.existente && x.existente.origem_status !== x.l.origemStatus)
   const CONCORRENCIA = 15
   for (let i = 0; i < paraAtualizarStatus.length; i += CONCORRENCIA) {
     await Promise.all(
-      paraAtualizarStatus.slice(i, i + CONCORRENCIA).map(({ l, existente }) =>
-        supabase.from('pdv_seguranca_relatos').update({ origem_status: l.origemStatus }).eq('id', existente!.id)
-      )
+      paraAtualizarStatus.slice(i, i + CONCORRENCIA).map(({ l, existente }) => {
+        const origemNorm = normalize(l.origemStatus)
+        const isCancelado = origemNorm === 'canceled' || origemNorm === 'cancelado'
+        const isFechadoHistorico = origemNorm === 'closed'
+        const patch: Record<string, unknown> = { origem_status: l.origemStatus }
+        if (existente!.status === 'aguardando_triagem' && (isCancelado || isFechadoHistorico)) {
+          patch.status = isCancelado ? 'cancelado' : 'encerrado_historico'
+          patch.finalizado_em = l.ultimaAtualizacao ?? l.dataRelato
+          if (isCancelado) resultado.canceladosNaOrigem++
+          else resultado.fechadosHistorico++
+        }
+        return supabase.from('pdv_seguranca_relatos').update(patch).eq('id', existente!.id)
+      })
     )
   }
 
