@@ -1219,7 +1219,7 @@ function linhaTerritorioFixacaoMotorista(info: TerritorioMotoristaInfo): string 
   return `📍 Território: programado ${info.territorioProgramado} — ainda sem região executada pra confirmar`
 }
 
-function montarMensagemFixacaoMotorista(item: {
+export function montarMensagemFixacaoMotorista(item: {
   placa: string
   data: string
   sala: string | null

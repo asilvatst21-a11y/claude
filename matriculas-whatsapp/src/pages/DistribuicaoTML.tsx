@@ -106,7 +106,7 @@ function StatusBadge({ status }: { status: AlertaTML['status'] }) {
   )
 }
 
-function montarMensagemTml(alerta: {
+export function montarMensagemTml(alerta: {
   mapa: number
   placa: string | null
   nome: string | null

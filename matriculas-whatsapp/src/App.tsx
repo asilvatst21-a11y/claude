@@ -42,6 +42,7 @@ import Telemetria from './pages/Telemetria'
 import SegurancaExcessoPeso from './pages/SegurancaExcessoPeso'
 import SegurancaPdvCritico from './pages/SegurancaPdvCritico'
 import PdvCriticoVisitaPublica from './pages/PdvCriticoVisitaPublica'
+import CentralTestes from './pages/CentralTestes'
 import SegurancaExcessoPesoMatriz from './pages/SegurancaExcessoPesoMatriz'
 import SegurancaExcessoPesoFotos from './pages/SegurancaExcessoPesoFotos'
 import Jornada from './pages/Jornada'
@@ -131,6 +132,7 @@ export default function App() {
             <Route path="/disparos" element={<Disparos />} />
             <Route path="/historico" element={<Historico />} />
             <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
+            <Route path="/central-testes" element={<AdminRoute><CentralTestes /></AdminRoute>} />
             <Route path="/fluxo" element={<AdminRoute><FluxoPunitivo /></AdminRoute>} />
             <Route path="/envios-bloqueados" element={<AdminRoute><EnviosBloqueados /></AdminRoute>} />
             <Route path="/gsdpq" element={<Gsdpq />} />

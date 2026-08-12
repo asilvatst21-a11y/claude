@@ -5,7 +5,7 @@ import {
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
   Wallet, Menu, X, Truck, Boxes, Timer, Home, Send, SlidersHorizontal,
-  ShieldCheck, Fuel, Scale, Route, ClipboardCheck, GraduationCap, AlertTriangle, MapPin,
+  ShieldCheck, Fuel, Scale, Route, ClipboardCheck, GraduationCap, AlertTriangle, MapPin, TestTube2,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -82,6 +82,7 @@ const adminItems = [
   { permKey: 'fluxo', to: '/fluxo', label: 'Fluxo Punitivo', icon: GitBranch },
   { permKey: 'admin', to: '/envios-bloqueados', label: 'Envios Bloqueados', icon: AlertTriangle },
   { permKey: 'admin', to: '/admin', label: 'Administração',  icon: Shield    },
+  { permKey: 'admin', to: '/central-testes', label: 'Central de Testes', icon: TestTube2 },
 ]
 
 function temAcesso(permissoes: string[] | null | undefined, permKey: string | string[]): boolean {

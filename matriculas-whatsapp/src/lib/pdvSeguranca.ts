@@ -647,6 +647,20 @@ export interface AgendarVisitaResultado {
   whatsappErro?: string
 }
 
+export function montarMensagemAgendamentoVisita(
+  relato: { codigoPdv: string; subgrupo: string; nivel: NivelCriticidade | null; prazoVisita: string | null; instrucaoRegistrada: string | null },
+  link: string
+): string {
+  return (
+    `🚨 *Visita PDV Crítico — ${NIVEL_LABEL[relato.nivel ?? 'leve']}*\n\n` +
+    `PDV: *${relato.codigoPdv}*\n` +
+    `Risco: ${relato.subgrupo}\n` +
+    (relato.instrucaoRegistrada ? `Instrução já registrada: ${relato.instrucaoRegistrada}\n` : '') +
+    (relato.prazoVisita ? `Prazo da visita: ${relato.prazoVisita.split('-').reverse().join('/')}\n` : '') +
+    `\nPreencha o checklist da visita pelo link abaixo:\n${link}`
+  )
+}
+
 /**
  * Agenda a visita: grava supervisor + gera o link público do checklist +
  * manda o aviso por WhatsApp. Se o envio falhar (número inválido, Z-API
@@ -672,13 +686,7 @@ export async function agendarVisita(
   if (error) return { error: error.message }
 
   const link = `${window.location.origin}/pdv-critico/visita?token=${linkToken}`
-  const mensagem =
-    `🚨 *Visita PDV Crítico — ${NIVEL_LABEL[relato.nivel ?? 'leve']}*\n\n` +
-    `PDV: *${relato.codigoPdv}*\n` +
-    `Risco: ${relato.subgrupo}\n` +
-    (relato.instrucaoRegistrada ? `Instrução já registrada: ${relato.instrucaoRegistrada}\n` : '') +
-    (relato.prazoVisita ? `Prazo da visita: ${relato.prazoVisita.split('-').reverse().join('/')}\n` : '') +
-    `\nPreencha o checklist da visita pelo link abaixo:\n${link}`
+  const mensagem = montarMensagemAgendamentoVisita(relato, link)
 
   const envio = await enviarMensagemWhatsApp(supervisor.telefone, mensagem)
   return { error: null, linkToken, whatsappEnviado: envio.sucesso, whatsappErro: envio.erro }
@@ -763,6 +771,14 @@ export async function enviarChecklistVisita(
 // precisar de nenhuma lógica extra de "cancelar". A tabela de dedupe
 // (pdv_seguranca_avisos_motorista) evita reenviar o mesmo aviso pro mesmo
 // motorista+PDV toda vez que o BEES é reimportado no mesmo dia.
+export function montarMensagemAvisoMotoristaPdv(codigoPdv: string, subgrupo: string): string {
+  return (
+    `⚠️ *Atenção — PDV Crítico*\n\n` +
+    `Você está indo pro PDV *${codigoPdv}*, que tem uma orientação de segurança registrada:\n` +
+    `${subgrupo}\n\nRedobre a atenção nesse ponto.`
+  )
+}
+
 export async function avisarMotoristasPdvCritico(filial: string, data: string): Promise<{ enviados: number; erros: string[] }> {
   const erros: string[] = []
 
@@ -809,10 +825,7 @@ export async function avisarMotoristasPdvCritico(filial: string, data: string): 
     const telefone = telefonePorNumero.get(normalizarMatricula(String(matricula))) ?? telefonePorMatriculaTml.get(matricula) ?? null
     if (!telefone) { erros.push(`Matrícula ${matricula} sem telefone cadastrado (PDV ${v.pdv_codigo})`); continue }
 
-    const mensagem =
-      `⚠️ *Atenção — PDV Crítico*\n\n` +
-      `Você está indo pro PDV *${v.pdv_codigo}*, que tem uma orientação de segurança registrada:\n` +
-      `${caso.subgrupo}\n\nRedobre a atenção nesse ponto.`
+    const mensagem = montarMensagemAvisoMotoristaPdv(v.pdv_codigo, caso.subgrupo)
     const envio = await enviarMensagemWhatsApp(telefone, mensagem)
     if (!envio.sucesso) { erros.push(`Falha ao avisar matrícula ${matricula} (PDV ${v.pdv_codigo}): ${envio.erro}`); continue }
 
