@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
   listarNiveisSubgrupo, salvarNivelSubgrupo, semearNiveisPadrao,
-  importarRelatosPdv, listarRelatos, marcarNaoCritico, encerrarComDataRetroativa,
+  importarRelatosPdv, listarRelatos, marcarNaoCritico, encerrarComDataRetroativa, corrigirDataFechamento,
   carregarRelatosAnalise, calcularEstatisticasPdvCritico, buscarNomesColaboradoresPorMatricula,
   listarSupervisoresPdv, agendarVisita,
   NIVEL_LABEL, STATUS_LABEL, PRAZO_DIAS,
@@ -298,6 +298,13 @@ export default function SegurancaPdvCritico() {
     setAnaliseLinhas(null)
   }
 
+  async function handleCorrigirFechamento(id: string, novaData: string): Promise<string | null> {
+    const { error } = await corrigirDataFechamento(id, novaData)
+    if (error) return error
+    setAnaliseLinhas(null)
+    return null
+  }
+
   async function handleAgendar(supervisor: SupervisorPdv) {
     if (!usuario || !modalAgendar) return
     setAgendando(true)
@@ -360,6 +367,7 @@ export default function SegurancaPdvCritico() {
           filtroMes={filtroMes}
           onFiltroAno={setFiltroAno}
           onFiltroMes={setFiltroMes}
+          onCorrigirFechamento={handleCorrigirFechamento}
         />
       ) : aba === 'lista' ? (
         <ListaCompletaTab
@@ -575,7 +583,7 @@ function BarraHorizontal({ label, total, max }: { label: string; total: number; 
 }
 
 function AnaliseTab({
-  estatisticas, carregando, filtroAno, filtroMes, onFiltroAno, onFiltroMes,
+  estatisticas, carregando, filtroAno, filtroMes, onFiltroAno, onFiltroMes, onCorrigirFechamento,
 }: {
   estatisticas: EstatisticasPdvCritico | null
   carregando: boolean
@@ -583,7 +591,22 @@ function AnaliseTab({
   filtroMes: number | null
   onFiltroAno: (ano: number | null) => void
   onFiltroMes: (mes: number | null) => void
+  onCorrigirFechamento: (id: string, novaData: string) => Promise<string | null>
 }) {
+  const [edicaoId, setEdicaoId] = useState<string | null>(null)
+  const [edicaoData, setEdicaoData] = useState('')
+  const [edicaoSalvando, setEdicaoSalvando] = useState(false)
+  const [edicaoErro, setEdicaoErro] = useState('')
+
+  async function salvarCorrecao(id: string) {
+    if (!edicaoData) return
+    setEdicaoSalvando(true)
+    setEdicaoErro('')
+    const erro = await onCorrigirFechamento(id, edicaoData)
+    setEdicaoSalvando(false)
+    if (erro) { setEdicaoErro(erro); return }
+    setEdicaoId(null)
+  }
   const filtros = (
     <div className="flex flex-wrap items-end gap-3 border rounded-lg bg-white p-3">
       <div>
@@ -967,22 +990,54 @@ function AnaliseTab({
                   <th className="py-1.5 pr-3">Prazo</th>
                   <th className="py-1.5 pr-3">Fechou</th>
                   <th className="py-1.5 pr-3 text-right">Dias de atraso</th>
+                  <th className="py-1.5 pr-3"></th>
                 </tr>
               </thead>
               <tbody className="divide-y">
-                {estatisticas.casosForaPrazo.map((c, i) => (
-                  <tr key={`${c.codigoPdv}-${c.subgrupo}-${c.dataRelato}-${i}`}>
+                {estatisticas.casosForaPrazo.map((c) => (
+                  <tr key={c.id}>
                     <td className="py-1.5 pr-3 font-medium tabular-nums">{c.codigoPdv}</td>
                     <td className="py-1.5 pr-3 max-w-[200px] truncate" title={c.subgrupo}>{c.subgrupo}</td>
                     <td className="py-1.5 pr-3">{c.nivel ? (NIVEL_LABEL[c.nivel as NivelCriticidade] ?? c.nivel) : '—'}</td>
                     <td className="py-1.5 pr-3 whitespace-nowrap">{formatarDataBR(c.dataRelato)}</td>
                     <td className="py-1.5 pr-3 whitespace-nowrap">{formatarDataBR(c.prazoOrigem)}</td>
-                    <td className="py-1.5 pr-3 whitespace-nowrap">{formatarDataBR(c.finalizadoEm)}</td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap">
+                      {edicaoId === c.id ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="date"
+                            value={edicaoData}
+                            max={new Date().toISOString().slice(0, 10)}
+                            onChange={(e) => setEdicaoData(e.target.value)}
+                            className="border rounded px-1.5 py-0.5 text-xs"
+                          />
+                          <button
+                            disabled={!edicaoData || edicaoSalvando}
+                            onClick={() => salvarCorrecao(c.id)}
+                            className="text-[11px] font-semibold text-green-700 hover:underline disabled:opacity-50"
+                          >
+                            {edicaoSalvando ? '…' : 'Salvar'}
+                          </button>
+                          <button onClick={() => setEdicaoId(null)} className="text-[11px] text-muted-foreground hover:underline">Cancelar</button>
+                        </div>
+                      ) : formatarDataBR(c.finalizadoEm)}
+                    </td>
                     <td className="py-1.5 pr-3 text-right tabular-nums font-semibold text-red-600">{c.diasAtraso != null ? `+${c.diasAtraso}d` : '—'}</td>
+                    <td className="py-1.5 pr-3">
+                      {edicaoId !== c.id && (
+                        <button
+                          onClick={() => { setEdicaoId(c.id); setEdicaoData(c.finalizadoEm ?? ''); setEdicaoErro('') }}
+                          className="text-[11px] text-muted-foreground hover:text-foreground hover:underline whitespace-nowrap"
+                        >
+                          Corrigir data
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
+            {edicaoErro && <p className="text-xs text-red-600 px-3 py-2">{edicaoErro}</p>}
           </div>
         )}
       </div>

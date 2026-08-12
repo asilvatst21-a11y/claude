@@ -513,6 +513,18 @@ export async function encerrarComDataRetroativa(id: string, dataFechamentoISO: s
   return { error: error?.message ?? null }
 }
 
+// Correção manual da data de fechamento de um caso já fechado (aprovado
+// ou encerrado_historico) — pra ajustar registro que veio errado da
+// origem/import sem precisar reabrir o caso nem mexer em mais nada.
+export async function corrigirDataFechamento(id: string, novaDataISO: string): Promise<{ error: string | null }> {
+  if (!novaDataISO) return { error: 'Data é obrigatória.' }
+  const { error } = await supabase
+    .from('pdv_seguranca_relatos')
+    .update({ finalizado_em: `${novaDataISO}T00:00:00` })
+    .eq('id', id)
+  return { error: error?.message ?? null }
+}
+
 // ── Agendamento de visita ────────────────────────────────────────────────
 // Reaproveita supervisores_tml (já usado no módulo de TML) — sem cadastro
 // próprio pro PDV Crítico. O usuário escolhe manualmente quem recebe o
@@ -597,6 +609,7 @@ export async function agendarVisita(
 const DIAS_SEMANA_LABEL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
 
 export interface LinhaAnaliseRelato {
+  id: string
   codigoPdv: string
   subgrupo: string
   status: string
@@ -616,7 +629,7 @@ export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnali
   // O PostgREST corta em 1000 linhas por página — com milhares de relatos
   // históricos, um único select() perderia o resto silenciosamente.
   type LinhaRaw = {
-    codigo_pdv: string; subgrupo: string; status: string; origem_status: string | null
+    id: string; codigo_pdv: string; subgrupo: string; status: string; origem_status: string | null
     nivel_inicial: NivelCriticidade | null; nivel_medido: NivelCriticidade | null
     codigo_motorista: string | null; relato_motorista: string | null; instrucao_registrada: string | null
     reincidente_apos: string | null
@@ -628,7 +641,7 @@ export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnali
   for (let inicio = 0; ; inicio += PAGINA) {
     const { data, error } = await supabase
       .from('pdv_seguranca_relatos')
-      .select('codigo_pdv, subgrupo, status, origem_status, nivel_inicial, nivel_medido, codigo_motorista, relato_motorista, instrucao_registrada, reincidente_apos, data_relato, prazo_origem, finalizado_em, justificativa_nao_critico')
+      .select('id, codigo_pdv, subgrupo, status, origem_status, nivel_inicial, nivel_medido, codigo_motorista, relato_motorista, instrucao_registrada, reincidente_apos, data_relato, prazo_origem, finalizado_em, justificativa_nao_critico')
       .eq('filial', filial)
       .range(inicio, inicio + PAGINA - 1)
     if (error) { console.error('carregarRelatosAnalise error:', error.message); break }
@@ -636,7 +649,7 @@ export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnali
     if (!data || data.length < PAGINA) break
   }
   return linhas.map((l) => ({
-    codigoPdv: l.codigo_pdv, subgrupo: l.subgrupo, status: l.status, origemStatus: l.origem_status,
+    id: l.id, codigoPdv: l.codigo_pdv, subgrupo: l.subgrupo, status: l.status, origemStatus: l.origem_status,
     nivel: l.nivel_medido ?? l.nivel_inicial,
     codigoMotorista: l.codigo_motorista, relatoMotorista: l.relato_motorista, instrucaoRegistrada: l.instrucao_registrada,
     reincidente: l.reincidente_apos != null,
@@ -674,12 +687,24 @@ function normalizarMatricula(s: string): string {
 // certamente cadastrada em Colaboradores não batia por causa disso).
 // Matrícula de RH é única o suficiente pra buscar sem esse filtro.
 export async function buscarNomesColaboradoresPorMatricula(): Promise<Map<string, string>> {
-  const { data, error } = await supabase.from('colaboradores').select('matricula, nome')
-  if (error) { console.error('buscarNomesColaboradoresPorMatricula error:', error.message); return new Map() }
+  // O PostgREST corta em 1000 linhas por página — sem filtro de filial
+  // (de propósito, ver comentário acima) a tabela inteira de Colaboradores
+  // de todas as filiais entra na consulta, e uma empresa grande passa de
+  // 1000 fácil. Sem paginar aqui, boa parte dos colaboradores (matrícula
+  // incluída) nunca voltava, e todo mundo aparecia como "sem nome".
+  const PAGINA = 1000
   const mapa = new Map<string, string>()
-  for (const c of data ?? []) {
-    if (c.matricula == null) continue
-    mapa.set(normalizarMatricula(String(c.matricula)), (c.nome ?? '').trim())
+  for (let inicio = 0; ; inicio += PAGINA) {
+    const { data, error } = await supabase
+      .from('colaboradores')
+      .select('matricula, nome')
+      .range(inicio, inicio + PAGINA - 1)
+    if (error) { console.error('buscarNomesColaboradoresPorMatricula error:', error.message); break }
+    for (const c of data ?? []) {
+      if (c.matricula == null) continue
+      mapa.set(normalizarMatricula(String(c.matricula)), (c.nome ?? '').trim())
+    }
+    if (!data || data.length < PAGINA) break
   }
   return mapa
 }
@@ -710,7 +735,7 @@ export interface EstatisticasPdvCritico {
   totalNaoCritico: number
   funil: { status: string; total: number }[]
   topMotoristas: { matricula: string; nome: string; total: number }[]
-  casosForaPrazo: { codigoPdv: string; subgrupo: string; nivel: string | null; dataRelato: string | null; prazoOrigem: string | null; finalizadoEm: string | null; diasAtraso: number | null }[]
+  casosForaPrazo: { id: string; codigoPdv: string; subgrupo: string; nivel: string | null; dataRelato: string | null; prazoOrigem: string | null; finalizadoEm: string | null; diasAtraso: number | null }[]
 }
 
 function dataBateNoFiltro(dataISO: string | null, filtro: FiltroAnaliseData): boolean {
@@ -756,7 +781,7 @@ export function calcularEstatisticasPdvCritico(
       fechadosForaPrazo++; m.foraPrazo++; a.foraPrazo++
       const diasAtraso = Math.round((new Date(`${l.finalizadoEm.slice(0, 10)}T00:00:00Z`).getTime() - new Date(`${l.prazoOrigem}T00:00:00Z`).getTime()) / 86400000)
       casosForaPrazo.push({
-        codigoPdv: l.codigoPdv, subgrupo: l.subgrupo, nivel: l.nivel,
+        id: l.id, codigoPdv: l.codigoPdv, subgrupo: l.subgrupo, nivel: l.nivel,
         dataRelato: l.dataRelato, prazoOrigem: l.prazoOrigem, finalizadoEm: l.finalizadoEm,
         diasAtraso,
       })
