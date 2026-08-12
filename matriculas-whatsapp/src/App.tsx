@@ -41,6 +41,7 @@ import Relatos from './pages/Relatos'
 import Telemetria from './pages/Telemetria'
 import SegurancaExcessoPeso from './pages/SegurancaExcessoPeso'
 import SegurancaPdvCritico from './pages/SegurancaPdvCritico'
+import PdvCriticoVisitaPublica from './pages/PdvCriticoVisitaPublica'
 import SegurancaExcessoPesoMatriz from './pages/SegurancaExcessoPesoMatriz'
 import SegurancaExcessoPesoFotos from './pages/SegurancaExcessoPesoFotos'
 import Jornada from './pages/Jornada'
@@ -120,6 +121,7 @@ export default function App() {
           <Route path="/conferencia" element={<ConferenciaDigital />} />
           <Route path="/variavel-armazem" element={<VariavelTotem />} />
           <Route path="/consulta-pendencias" element={<ConsultaPendencias />} />
+          <Route path="/pdv-critico/visita" element={<PdvCriticoVisitaPublica />} />
           <Route path="/armazem" element={<ArmazemOperadorRoute />} />
           <Route path="/armazem/turno" element={<ArmazemTurnoRoute />} />
           <Route element={<ProtectedRoutes />}>

@@ -49,6 +49,35 @@ export const SUBGRUPOS_SEGURANCA_PADRAO: { subgrupo: string; nivel: NivelCritici
   { subgrupo: 'Baldeio em excesso', nivel: 'leve' },
 ]
 
+// Checklist da visita — grade única de chips (não duplica antes/depois).
+// Rascunho inicial cobrindo os subgrupos já usados no relato do motorista
+// mais alguns itens gerais de segurança de visita; dá pra ajustar depois,
+// mesmo padrão do SUBGRUPOS_SEGURANCA_PADRAO acima (constante no código,
+// não tem tela de configuração própria ainda).
+export interface RiscoVisita { id: string; label: string; nivel: NivelCriticidade }
+export const RISCOS_VISITA_PDV: RiscoVisita[] = [
+  { id: 'violencia_urbana', label: 'Alto risco de violência urbana (roubo)', nivel: 'alto' },
+  { id: 'sem_seguranca_local', label: 'Ausência de segurança/portaria em área de risco', nivel: 'alto' },
+  { id: 'empilhamento_estoque', label: 'Risco de empilhamento no estoque', nivel: 'alto' },
+  { id: 'estrutura_comprometida', label: 'Estrutura de prateleira/estoque comprometida', nivel: 'alto' },
+  { id: 'acesso_escada_irregular', label: 'Acesso/escada irregular', nivel: 'medio' },
+  { id: 'rampa_irregular', label: 'Rampa de acesso irregular', nivel: 'medio' },
+  { id: 'rua_dificil_acesso', label: 'Rua de difícil acesso (manobra/visibilidade)', nivel: 'medio' },
+  { id: 'iluminacao_inadequada', label: 'Iluminação inadequada no ponto de descarga', nivel: 'medio' },
+  { id: 'sem_sinalizacao', label: 'Ausência de sinalização de segurança', nivel: 'medio' },
+  { id: 'piso_escorregadio', label: 'Piso escorregadio ou com buracos', nivel: 'medio' },
+  { id: 'fiacao_exposta', label: 'Fiação elétrica exposta', nivel: 'medio' },
+  { id: 'animais_soltos', label: 'Animais soltos no local', nivel: 'medio' },
+  { id: 'estacionamento_restrito', label: 'Restrições de estacionamento', nivel: 'leve' },
+  { id: 'calcada_irregular', label: 'Calçada de acesso irregular', nivel: 'leve' },
+  { id: 'dificuldade_cone', label: 'Dificuldade do uso do cone', nivel: 'leve' },
+  { id: 'baldeio_excesso', label: 'Baldeio em excesso', nivel: 'leve' },
+  { id: 'sem_espaco_manobra', label: 'Falta de espaço pra manobra do caminhão', nivel: 'leve' },
+  { id: 'obstrucao_passagem', label: 'Obstrução de passagem por mercadoria/lixo', nivel: 'leve' },
+  { id: 'sem_identificacao_pdv', label: 'Ausência de identificação do PDV', nivel: 'leve' },
+  { id: 'descarga_sem_cobertura', label: 'Área de descarga sem cobertura (chuva)', nivel: 'leve' },
+]
+
 function normalize(value: unknown): string {
   return String(value ?? '')
     .normalize('NFD')
@@ -595,6 +624,77 @@ export async function agendarVisita(
 
   const envio = await enviarMensagemWhatsApp(supervisor.telefone, mensagem)
   return { error: null, linkToken, whatsappEnviado: envio.sucesso, whatsappErro: envio.erro }
+}
+
+// ── Checklist público da visita (sem login) ──────────────────────────────
+// Acessado pelo link enviado no WhatsApp — supervisor não faz login, só
+// tem o token da URL como credencial. Consulta/gravação sempre por
+// link_token, nunca por id direto (id não vaza pra URL).
+
+export interface RelatoParaVisita {
+  id: string
+  codigoPdv: string
+  subgrupo: string
+  nivel: NivelCriticidade | null
+  instrucaoRegistrada: string | null
+  prazoVisita: string | null
+  status: StatusRelato
+}
+
+export async function buscarRelatoPorToken(token: string): Promise<{ relato: RelatoParaVisita | null; error: string | null }> {
+  if (!token) return { relato: null, error: 'Link inválido.' }
+  const { data, error } = await supabase
+    .from('pdv_seguranca_relatos')
+    .select('id, codigo_pdv, subgrupo, nivel_inicial, instrucao_registrada, prazo_visita, status')
+    .eq('link_token', token)
+    .maybeSingle()
+  if (error) return { relato: null, error: error.message }
+  if (!data) return { relato: null, error: 'Link não encontrado — confira se copiou a URL completa.' }
+  return {
+    relato: {
+      id: data.id, codigoPdv: data.codigo_pdv, subgrupo: data.subgrupo,
+      nivel: data.nivel_inicial as NivelCriticidade | null,
+      instrucaoRegistrada: data.instrucao_registrada, prazoVisita: data.prazo_visita,
+      status: data.status as StatusRelato,
+    },
+    error: null,
+  }
+}
+
+// Nível medido = o pior nível entre os riscos marcados na visita; nenhum
+// risco marcado = "conforme" (visita não achou nada preocupante).
+function calcularNivelMedido(riscosMarcados: string[]): NivelMedido {
+  const niveis = riscosMarcados
+    .map((id) => RISCOS_VISITA_PDV.find((r) => r.id === id)?.nivel)
+    .filter((n): n is NivelCriticidade => !!n)
+  if (niveis.includes('alto')) return 'alto'
+  if (niveis.includes('medio')) return 'medio'
+  if (niveis.includes('leve')) return 'leve'
+  return 'conforme'
+}
+
+export async function enviarChecklistVisita(
+  token: string,
+  riscosMarcados: string[],
+  acaoRecomendada: string
+): Promise<{ error: string | null }> {
+  const { relato, error: erroBusca } = await buscarRelatoPorToken(token)
+  if (erroBusca || !relato) return { error: erroBusca ?? 'Link inválido.' }
+  if (relato.status !== 'agendado') return { error: 'Esse checklist já foi preenchido.' }
+
+  const nivelMedido = calcularNivelMedido(riscosMarcados)
+  const { error } = await supabase
+    .from('pdv_seguranca_relatos')
+    .update({
+      status: 'preenchido',
+      visitado_em: new Date().toISOString(),
+      nivel_medido: nivelMedido,
+      riscos_marcados: riscosMarcados,
+      acao_recomendada: acaoRecomendada.trim() || null,
+    })
+    .eq('link_token', token)
+    .eq('status', 'agendado')
+  return { error: error?.message ?? null }
 }
 
 // ── Dashboard de análise ─────────────────────────────────────────────────
