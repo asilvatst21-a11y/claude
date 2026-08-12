@@ -29,6 +29,7 @@ export const SECOES_SISTEMA = [
   { key: 'relatos',         label: 'Relatos',         grupo: 'Segurança'    },
   { key: 'telemetria',      label: 'Telemetria',      grupo: 'Segurança'    },
   { key: 'excesso-peso',    label: 'Excesso de Peso', grupo: 'Segurança'    },
+  { key: 'pdv-critico',     label: 'PDV Crítico',     grupo: 'Segurança'    },
   { key: 'jornada',         label: 'Jornada',         grupo: 'Gente'        },
   { key: 'fluxo',           label: 'Fluxo Punitivo',  grupo: 'Admin'        },
   { key: 'vales',           label: 'Vales',           grupo: 'Financeiro'   },

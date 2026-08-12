@@ -22,6 +22,7 @@ const segItems = [
   { permKey: 'relatos',         to: '/relatos',         label: 'Relatos',         icon: Flag                   },
   { permKey: 'telemetria',      to: '/telemetria',      label: 'Telemetria',      icon: Gauge                  },
   { permKey: 'excesso-peso',    to: '/seguranca/excesso-peso', label: 'Excesso de Peso', icon: Scale           },
+  { permKey: 'pdv-critico',     to: '/seguranca/pdv-critico', label: 'PDV Crítico',     icon: AlertTriangle   },
 ]
 
 const genteItems = [
@@ -59,7 +60,7 @@ const distribuicaoItems = [
   { permKey: 'distribuicao', to: '/distribuicao/dto',          label: 'DTO Distribuição',     icon: ShieldCheck },
   { permKey: 'distribuicao', to: '/distribuicao/jornada-rota', label: 'Jornada e Tempo em Rota', icon: Route },
   { permKey: 'distribuicao', to: '/distribuicao/conferencia', label: 'Conferência Digital', icon: ClipboardCheck },
-  { permKey: 'distribuicao', to: '/distribuicao/farol-criticos', label: 'Farol de Mercados e PDVs Críticos', icon: Flag },
+  { permKey: 'distribuicao', to: '/distribuicao/farol-criticos', label: 'Farol de Mercados e PDVs Travas', icon: Flag },
 ]
 
 const frotaItems = [

@@ -40,6 +40,7 @@ import Prontuario from './pages/Prontuario'
 import Relatos from './pages/Relatos'
 import Telemetria from './pages/Telemetria'
 import SegurancaExcessoPeso from './pages/SegurancaExcessoPeso'
+import SegurancaPdvCritico from './pages/SegurancaPdvCritico'
 import SegurancaExcessoPesoMatriz from './pages/SegurancaExcessoPesoMatriz'
 import SegurancaExcessoPesoFotos from './pages/SegurancaExcessoPesoFotos'
 import Jornada from './pages/Jornada'
@@ -140,6 +141,7 @@ export default function App() {
             <Route path="/seguranca/excesso-peso" element={<SegurancaExcessoPeso />} />
             <Route path="/seguranca/excesso-peso/matriz" element={<SegurancaExcessoPesoMatriz />} />
             <Route path="/seguranca/excesso-peso/fotos-tara" element={<SegurancaExcessoPesoFotos />} />
+            <Route path="/seguranca/pdv-critico" element={<SegurancaPdvCritico />} />
             <Route path="/jornada" element={<Jornada />} />
             <Route path="/colaboradores" element={<Colaboradores />} />
             <Route path="/distribuicao" element={<Distribuicao />} />

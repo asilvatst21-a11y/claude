@@ -148,7 +148,7 @@ export default function DistribuicaoFarolCriticos() {
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
-            <TrafficCone className="h-6 w-6 text-primary" /> Farol de Mercados e PDVs Críticos
+            <TrafficCone className="h-6 w-6 text-primary" /> Farol de Mercados e PDVs Travas
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             Status de entrega vindo do BEES (por PDV), motorista/placa de escalas_tml, valor da nota do CORA.
