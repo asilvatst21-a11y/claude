@@ -599,6 +599,7 @@ export interface EstatisticasPdvCritico {
   totalNaoCritico: number
   funil: { status: string; total: number }[]
   topMotoristas: { matricula: string; nome: string; total: number }[]
+  casosForaPrazo: { codigoPdv: string; subgrupo: string; nivel: string | null; dataRelato: string | null; prazoOrigem: string | null; finalizadoEm: string | null; diasAtraso: number | null }[]
 }
 
 function dataBateNoFiltro(dataISO: string | null, filtro: FiltroAnaliseData): boolean {
@@ -624,6 +625,7 @@ export function calcularEstatisticasPdvCritico(
   let fechadosNoPrazo = 0, fechadosForaPrazo = 0, fechadosSemPrazo = 0
   const fechadosPorMesMap = new Map<string, { total: number; noPrazo: number; foraPrazo: number }>()
   const fechadosPorAnoMap = new Map<string, { total: number; noPrazo: number; foraPrazo: number }>()
+  const casosForaPrazo: EstatisticasPdvCritico['casosForaPrazo'] = []
   const fechados = linhas.filter((l) => l.status === 'aprovado' || l.status === 'encerrado_historico')
   for (const l of fechados) {
     const mesChave = l.finalizadoEm ? l.finalizadoEm.slice(0, 7) : (l.dataRelato ? l.dataRelato.slice(0, 7) : 'sem-data')
@@ -637,10 +639,17 @@ export function calcularEstatisticasPdvCritico(
       fechadosNoPrazo++; m.noPrazo++; a.noPrazo++
     } else {
       fechadosForaPrazo++; m.foraPrazo++; a.foraPrazo++
+      const diasAtraso = Math.round((new Date(`${l.finalizadoEm.slice(0, 10)}T00:00:00Z`).getTime() - new Date(`${l.prazoOrigem}T00:00:00Z`).getTime()) / 86400000)
+      casosForaPrazo.push({
+        codigoPdv: l.codigoPdv, subgrupo: l.subgrupo, nivel: l.nivel,
+        dataRelato: l.dataRelato, prazoOrigem: l.prazoOrigem, finalizadoEm: l.finalizadoEm,
+        diasAtraso,
+      })
     }
     fechadosPorMesMap.set(mesChave, m)
     fechadosPorAnoMap.set(anoChave, a)
   }
+  casosForaPrazo.sort((x, y) => (y.diasAtraso ?? 0) - (x.diasAtraso ?? 0))
 
   // Quebra por subgrupo/mês vale pra QUALQUER status (não só cancelado) —
   // a tela filtra por status escolhido, preparado pra quando existirem
@@ -803,5 +812,6 @@ export function calcularEstatisticasPdvCritico(
     totalNaoCritico: naoCriticos.length,
     funil,
     topMotoristas,
+    casosForaPrazo,
   }
 }

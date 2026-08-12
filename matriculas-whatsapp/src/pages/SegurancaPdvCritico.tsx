@@ -849,6 +849,44 @@ function AnaliseTab({
           )}
         </div>
       </div>
+
+      <div className="border rounded-xl bg-white p-4">
+        <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5">
+          <AlertTriangle className="h-4 w-4 text-red-600" /> Fora do prazo no período ({estatisticas.fechadosForaPrazo})
+        </h3>
+        {estatisticas.casosForaPrazo.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Nenhum caso fora do prazo no período filtrado.</p>
+        ) : (
+          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-white">
+                <tr className="text-left text-muted-foreground border-b">
+                  <th className="py-1.5 pr-3">PDV</th>
+                  <th className="py-1.5 pr-3">Subgrupo</th>
+                  <th className="py-1.5 pr-3">Nível</th>
+                  <th className="py-1.5 pr-3">Relato</th>
+                  <th className="py-1.5 pr-3">Prazo</th>
+                  <th className="py-1.5 pr-3">Fechou</th>
+                  <th className="py-1.5 pr-3 text-right">Dias de atraso</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {estatisticas.casosForaPrazo.map((c, i) => (
+                  <tr key={`${c.codigoPdv}-${c.subgrupo}-${c.dataRelato}-${i}`}>
+                    <td className="py-1.5 pr-3 font-medium tabular-nums">{c.codigoPdv}</td>
+                    <td className="py-1.5 pr-3 max-w-[200px] truncate" title={c.subgrupo}>{c.subgrupo}</td>
+                    <td className="py-1.5 pr-3">{c.nivel ? (NIVEL_LABEL[c.nivel as NivelCriticidade] ?? c.nivel) : '—'}</td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap">{formatarDataBR(c.dataRelato)}</td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap">{formatarDataBR(c.prazoOrigem)}</td>
+                    <td className="py-1.5 pr-3 whitespace-nowrap">{formatarDataBR(c.finalizadoEm)}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums font-semibold text-red-600">{c.diasAtraso != null ? `+${c.diasAtraso}d` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }
