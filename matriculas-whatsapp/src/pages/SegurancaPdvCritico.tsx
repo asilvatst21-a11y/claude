@@ -1,15 +1,17 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown, BarChart2, CalendarClock } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
   listarNiveisSubgrupo, salvarNivelSubgrupo, semearNiveisPadrao,
   importarRelatosPdv, listarRelatos, marcarNaoCritico, encerrarComDataRetroativa,
-  carregarEstatisticasPdvCritico,
+  carregarRelatosAnalise, calcularEstatisticasPdvCritico,
   NIVEL_LABEL, STATUS_LABEL, PRAZO_DIAS,
   type NivelSubgrupo, type NivelCriticidade, type RelatoLinha, type ResultadoImportRelatos,
-  type EstatisticasPdvCritico,
+  type LinhaAnaliseRelato, type EstatisticasPdvCritico,
 } from '../lib/pdvSeguranca'
+
+const MES_LABEL = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 
 const NIVEL_CSS: Record<NivelCriticidade, string> = {
   alto: 'bg-red-50 text-red-700 border-red-200',
@@ -138,8 +140,10 @@ export default function SegurancaPdvCritico() {
   const [modalNaoCritico, setModalNaoCritico] = useState<string | null>(null)
   const [modalEncerrar, setModalEncerrar] = useState<string | null>(null)
 
-  const [estatisticas, setEstatisticas] = useState<EstatisticasPdvCritico | null>(null)
-  const [carregandoEstatisticas, setCarregandoEstatisticas] = useState(false)
+  const [analiseLinhas, setAnaliseLinhas] = useState<LinhaAnaliseRelato[] | null>(null)
+  const [carregandoAnalise, setCarregandoAnalise] = useState(false)
+  const [filtroAno, setFiltroAno] = useState<number | null>(null)
+  const [filtroMes, setFiltroMes] = useState<number | null>(null)
 
   const carregarNiveis = useCallback(async () => {
     if (!usuario) return
@@ -156,16 +160,21 @@ export default function SegurancaPdvCritico() {
     setCarregandoRelatos(false)
   }, [usuario])
 
-  const carregarEstatisticas = useCallback(async () => {
+  const carregarAnalise = useCallback(async () => {
     if (!usuario) return
-    setCarregandoEstatisticas(true)
-    setEstatisticas(await carregarEstatisticasPdvCritico(usuario.filial))
-    setCarregandoEstatisticas(false)
+    setCarregandoAnalise(true)
+    setAnaliseLinhas(await carregarRelatosAnalise(usuario.filial))
+    setCarregandoAnalise(false)
   }, [usuario])
 
   useEffect(() => { carregarNiveis() }, [carregarNiveis])
   useEffect(() => { carregarRelatos() }, [carregarRelatos])
-  useEffect(() => { if (aba === 'analise' && !estatisticas) carregarEstatisticas() }, [aba, estatisticas, carregarEstatisticas])
+  useEffect(() => { if (aba === 'analise' && !analiseLinhas) carregarAnalise() }, [aba, analiseLinhas, carregarAnalise])
+
+  const estatisticas = useMemo(
+    () => analiseLinhas ? calcularEstatisticasPdvCritico(analiseLinhas, { ano: filtroAno, mes: filtroMes }) : null,
+    [analiseLinhas, filtroAno, filtroMes]
+  )
 
   async function handleMudarNivel(subgrupo: string, nivel: NivelCriticidade) {
     if (!usuario) return
@@ -191,7 +200,7 @@ export default function SegurancaPdvCritico() {
       )
       if (r.erroAtualizacao) setErro(`Erro ao reclassificar caso(s) já existente(s): ${r.erroAtualizacao}`)
       await carregarRelatos()
-      setEstatisticas(null)
+      setAnaliseLinhas(null)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao importar relatos')
     }
@@ -256,7 +265,14 @@ export default function SegurancaPdvCritico() {
       </div>
 
       {aba === 'analise' ? (
-        <AnaliseTab estatisticas={estatisticas} carregando={carregandoEstatisticas} />
+        <AnaliseTab
+          estatisticas={estatisticas}
+          carregando={carregandoAnalise}
+          filtroAno={filtroAno}
+          filtroMes={filtroMes}
+          onFiltroAno={setFiltroAno}
+          onFiltroMes={setFiltroMes}
+        />
       ) : (
       <>
       {/* ── Config: nível por subgrupo ─────────────────────────────── */}
@@ -453,14 +469,60 @@ function BarraHorizontal({ label, total, max }: { label: string; total: number; 
   )
 }
 
-function AnaliseTab({ estatisticas, carregando }: { estatisticas: EstatisticasPdvCritico | null; carregando: boolean }) {
+function AnaliseTab({
+  estatisticas, carregando, filtroAno, filtroMes, onFiltroAno, onFiltroMes,
+}: {
+  estatisticas: EstatisticasPdvCritico | null
+  carregando: boolean
+  filtroAno: number | null
+  filtroMes: number | null
+  onFiltroAno: (ano: number | null) => void
+  onFiltroMes: (mes: number | null) => void
+}) {
+  const filtros = (
+    <div className="flex flex-wrap items-end gap-3 border rounded-lg bg-white p-3">
+      <div>
+        <label className="block text-xs text-muted-foreground mb-1">Ano</label>
+        <select
+          value={filtroAno ?? ''}
+          onChange={(e) => onFiltroAno(e.target.value ? Number(e.target.value) : null)}
+          className="border rounded-md px-2 py-1.5 text-sm"
+        >
+          <option value="">Todos</option>
+          {(estatisticas?.anosDisponiveis ?? []).map((ano) => <option key={ano} value={ano}>{ano}</option>)}
+        </select>
+      </div>
+      <div>
+        <label className="block text-xs text-muted-foreground mb-1">Mês</label>
+        <select
+          value={filtroMes ?? ''}
+          onChange={(e) => onFiltroMes(e.target.value ? Number(e.target.value) : null)}
+          className="border rounded-md px-2 py-1.5 text-sm"
+        >
+          <option value="">Todos</option>
+          {MES_LABEL.map((label, i) => <option key={i} value={i + 1}>{label}</option>)}
+        </select>
+      </div>
+      {(filtroAno != null || filtroMes != null) && (
+        <button
+          onClick={() => { onFiltroAno(null); onFiltroMes(null) }}
+          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Limpar filtro
+        </button>
+      )}
+    </div>
+  )
+
   if (carregando || !estatisticas) {
-    return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+    return (
+      <div className="space-y-5">
+        {filtros}
+        <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+      </div>
+    )
   }
 
-  const pctNoPrazo = estatisticas.totalFechados > 0
-    ? Math.round((estatisticas.fechadosNoPrazo / estatisticas.totalFechados) * 1000) / 10
-    : 0
   const maxCancelSubgrupo = Math.max(1, ...estatisticas.canceladosPorSubgrupo.map((s) => s.total))
   const maxCancelMes = Math.max(1, ...estatisticas.canceladosPorMes.map((m) => m.total))
   const maxDiaSemana = Math.max(1, ...estatisticas.relatosPorDiaSemana.map((d) => d.total))
@@ -468,6 +530,8 @@ function AnaliseTab({ estatisticas, carregando }: { estatisticas: EstatisticasPd
 
   return (
     <div className="space-y-5">
+      {filtros}
+
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="border rounded-xl bg-white p-3">
           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
@@ -477,7 +541,7 @@ function AnaliseTab({ estatisticas, carregando }: { estatisticas: EstatisticasPd
         </div>
         <div className="border rounded-xl bg-green-50 p-3">
           <p className="text-[11px] font-semibold text-green-700 uppercase tracking-wide">No prazo</p>
-          <p className="text-xl font-bold leading-tight text-green-700">{pctNoPrazo}%</p>
+          <p className="text-xl font-bold leading-tight text-green-700">{estatisticas.pctNoPrazo}%</p>
           <p className="text-[11px] text-green-700/80">{estatisticas.fechadosNoPrazo} caso(s)</p>
         </div>
         <div className="border rounded-xl bg-red-50 p-3">
@@ -495,11 +559,43 @@ function AnaliseTab({ estatisticas, carregando }: { estatisticas: EstatisticasPd
         </p>
       )}
 
+      <div className="border rounded-xl bg-white p-4">
+        <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> % fechado no prazo por mês</h3>
+        {estatisticas.fechadosPorMes.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Nenhum caso fechado no período.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-left text-muted-foreground border-b">
+                  <th className="py-1.5 pr-3">Mês</th>
+                  <th className="py-1.5 pr-3 text-right">Fechados</th>
+                  <th className="py-1.5 pr-3 text-right">No prazo</th>
+                  <th className="py-1.5 pr-3 text-right">Fora do prazo</th>
+                  <th className="py-1.5 pr-3 text-right">% no prazo</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {estatisticas.fechadosPorMes.map((m) => (
+                  <tr key={m.mes}>
+                    <td className="py-1.5 pr-3 font-medium">{m.mes}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums">{m.total}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-green-700">{m.noPrazo}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums text-red-600">{m.foraPrazo}</td>
+                    <td className="py-1.5 pr-3 text-right tabular-nums font-semibold">{(m.noPrazo + m.foraPrazo) > 0 ? `${m.pctNoPrazo}%` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="border rounded-xl bg-white p-4">
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Cancelados por subgrupo</h3>
           {estatisticas.canceladosPorSubgrupo.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Nenhum cancelamento no histórico.</p>
+            <p className="text-xs text-muted-foreground">Nenhum cancelamento no período.</p>
           ) : (
             <div className="space-y-1.5">
               {estatisticas.canceladosPorSubgrupo.map((s) => (
@@ -512,7 +608,7 @@ function AnaliseTab({ estatisticas, carregando }: { estatisticas: EstatisticasPd
         <div className="border rounded-xl bg-white p-4">
           <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Cancelados por mês</h3>
           {estatisticas.canceladosPorMes.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Nenhum cancelamento no histórico.</p>
+            <p className="text-xs text-muted-foreground">Nenhum cancelamento no período.</p>
           ) : (
             <div className="space-y-1.5">
               {estatisticas.canceladosPorMes.map((m) => (

@@ -489,70 +489,119 @@ export async function encerrarComDataRetroativa(id: string, dataFechamentoISO: s
 // (aprovado/encerrado_historico, no prazo × fora do prazo usando prazo/
 // ultima_atualizacao da própria planilha) e cancelados na origem
 // (por subgrupo e por mês), além do dia da semana que mais recebe relato
-// (todos os status, não só os fechados/cancelados).
+// (todos os status, não só os fechados/cancelados). Busca tudo uma vez só
+// e filtra por ano/mês no cliente — evita ida ao banco a cada troca de
+// filtro.
 
 const DIAS_SEMANA_LABEL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
 
-export interface EstatisticasPdvCritico {
-  totalFechados: number
-  fechadosNoPrazo: number
-  fechadosForaPrazo: number
-  fechadosSemPrazo: number
-  canceladosPorSubgrupo: { subgrupo: string; total: number }[]
-  canceladosPorMes: { mes: string; total: number }[]
-  relatosPorDiaSemana: { diaSemana: string; total: number }[]
+export interface LinhaAnaliseRelato {
+  subgrupo: string
+  status: string
+  dataRelato: string | null
+  prazoOrigem: string | null
+  finalizadoEm: string | null
 }
 
-export async function carregarEstatisticasPdvCritico(filial: string): Promise<EstatisticasPdvCritico> {
-  const vazio: EstatisticasPdvCritico = {
-    totalFechados: 0, fechadosNoPrazo: 0, fechadosForaPrazo: 0, fechadosSemPrazo: 0,
-    canceladosPorSubgrupo: [], canceladosPorMes: [],
-    relatosPorDiaSemana: DIAS_SEMANA_LABEL.map((diaSemana) => ({ diaSemana, total: 0 })),
-  }
+export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnaliseRelato[]> {
   // O PostgREST corta em 1000 linhas por página — com milhares de relatos
   // históricos, um único select() perderia o resto silenciosamente.
-  type LinhaEstat = { subgrupo: string; status: string; data_relato: string; prazo_origem: string | null; finalizado_em: string | null }
+  type LinhaRaw = { subgrupo: string; status: string; data_relato: string | null; prazo_origem: string | null; finalizado_em: string | null }
   const PAGINA = 1000
-  const linhas: LinhaEstat[] = []
+  const linhas: LinhaRaw[] = []
   for (let inicio = 0; ; inicio += PAGINA) {
     const { data, error } = await supabase
       .from('pdv_seguranca_relatos')
       .select('subgrupo, status, data_relato, prazo_origem, finalizado_em')
       .eq('filial', filial)
       .range(inicio, inicio + PAGINA - 1)
-    if (error) { console.error('carregarEstatisticasPdvCritico error:', error.message); return vazio }
+    if (error) { console.error('carregarRelatosAnalise error:', error.message); break }
     linhas.push(...(data ?? []))
     if (!data || data.length < PAGINA) break
   }
+  return linhas.map((l) => ({
+    subgrupo: l.subgrupo, status: l.status, dataRelato: l.data_relato,
+    prazoOrigem: l.prazo_origem, finalizadoEm: l.finalizado_em,
+  }))
+}
+
+export interface FiltroAnaliseData {
+  ano: number | null
+  mes: number | null  // 1-12
+}
+
+export interface EstatisticasPdvCritico {
+  totalFechados: number
+  fechadosNoPrazo: number
+  fechadosForaPrazo: number
+  fechadosSemPrazo: number
+  pctNoPrazo: number
+  fechadosPorMes: { mes: string; total: number; noPrazo: number; foraPrazo: number; pctNoPrazo: number }[]
+  canceladosPorSubgrupo: { subgrupo: string; total: number }[]
+  canceladosPorMes: { mes: string; total: number }[]
+  relatosPorDiaSemana: { diaSemana: string; total: number }[]
+  anosDisponiveis: number[]
+}
+
+function dataBateNoFiltro(dataISO: string | null, filtro: FiltroAnaliseData): boolean {
+  if (!dataISO) return filtro.ano == null && filtro.mes == null
+  if (filtro.ano != null && Number(dataISO.slice(0, 4)) !== filtro.ano) return false
+  if (filtro.mes != null && Number(dataISO.slice(5, 7)) !== filtro.mes) return false
+  return true
+}
+
+export function calcularEstatisticasPdvCritico(todasLinhas: LinhaAnaliseRelato[], filtro: FiltroAnaliseData = { ano: null, mes: null }): EstatisticasPdvCritico {
+  const anosDisponiveis = [...new Set(
+    todasLinhas.map((l) => l.dataRelato ? Number(l.dataRelato.slice(0, 4)) : null).filter((a): a is number => a != null)
+  )].sort((a, b) => b - a)
+
+  const linhas = todasLinhas.filter((l) => dataBateNoFiltro(l.dataRelato, filtro))
 
   let fechadosNoPrazo = 0, fechadosForaPrazo = 0, fechadosSemPrazo = 0
+  const fechadosPorMesMap = new Map<string, { total: number; noPrazo: number; foraPrazo: number }>()
   const fechados = linhas.filter((l) => l.status === 'aprovado' || l.status === 'encerrado_historico')
   for (const l of fechados) {
-    if (!l.prazo_origem || !l.finalizado_em) { fechadosSemPrazo++; continue }
-    const fechamento = String(l.finalizado_em).slice(0, 10)
-    if (fechamento <= l.prazo_origem) fechadosNoPrazo++
-    else fechadosForaPrazo++
+    const mesChave = l.finalizadoEm ? l.finalizadoEm.slice(0, 7) : (l.dataRelato ? l.dataRelato.slice(0, 7) : 'sem-data')
+    const m = fechadosPorMesMap.get(mesChave) ?? { total: 0, noPrazo: 0, foraPrazo: 0 }
+    m.total++
+    if (!l.prazoOrigem || !l.finalizadoEm) {
+      fechadosSemPrazo++
+    } else if (l.finalizadoEm.slice(0, 10) <= l.prazoOrigem) {
+      fechadosNoPrazo++; m.noPrazo++
+    } else {
+      fechadosForaPrazo++; m.foraPrazo++
+    }
+    fechadosPorMesMap.set(mesChave, m)
   }
 
   const subgrupoMap = new Map<string, number>()
   const mesMap = new Map<string, number>()
   for (const l of linhas.filter((l) => l.status === 'cancelado')) {
     subgrupoMap.set(l.subgrupo, (subgrupoMap.get(l.subgrupo) ?? 0) + 1)
-    const mes = String(l.data_relato).slice(0, 7)
+    const mes = l.dataRelato ? l.dataRelato.slice(0, 7) : 'sem-data'
     mesMap.set(mes, (mesMap.get(mes) ?? 0) + 1)
   }
 
   const diaSemanaTotais = new Array(7).fill(0)
   for (const l of linhas) {
-    if (!l.data_relato) continue
-    diaSemanaTotais[new Date(`${l.data_relato}T00:00:00Z`).getUTCDay()]++
+    if (!l.dataRelato) continue
+    diaSemanaTotais[new Date(`${l.dataRelato}T00:00:00Z`).getUTCDay()]++
   }
 
+  const totalComPrazo = fechadosNoPrazo + fechadosForaPrazo
   return {
     totalFechados: fechados.length,
     fechadosNoPrazo, fechadosForaPrazo, fechadosSemPrazo,
+    pctNoPrazo: totalComPrazo > 0 ? Math.round((fechadosNoPrazo / totalComPrazo) * 1000) / 10 : 0,
+    fechadosPorMes: [...fechadosPorMesMap.entries()]
+      .map(([mes, m]) => ({
+        mes, total: m.total, noPrazo: m.noPrazo, foraPrazo: m.foraPrazo,
+        pctNoPrazo: (m.noPrazo + m.foraPrazo) > 0 ? Math.round((m.noPrazo / (m.noPrazo + m.foraPrazo)) * 1000) / 10 : 0,
+      }))
+      .sort((a, b) => a.mes.localeCompare(b.mes)),
     canceladosPorSubgrupo: [...subgrupoMap.entries()].map(([subgrupo, total]) => ({ subgrupo, total })).sort((a, b) => b.total - a.total),
     canceladosPorMes: [...mesMap.entries()].map(([mes, total]) => ({ mes, total })).sort((a, b) => a.mes.localeCompare(b.mes)),
     relatosPorDiaSemana: DIAS_SEMANA_LABEL.map((diaSemana, i) => ({ diaSemana, total: diaSemanaTotais[i] })),
+    anosDisponiveis,
   }
 }
