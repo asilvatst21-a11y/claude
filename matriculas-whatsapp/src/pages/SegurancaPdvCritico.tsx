@@ -514,6 +514,8 @@ function AnaliseTab({
     </div>
   )
 
+  const [statusEscolhido, setStatusEscolhido] = useState('cancelado')
+
   if (carregando || !estatisticas) {
     return (
       <div className="space-y-5">
@@ -523,10 +525,14 @@ function AnaliseTab({
     )
   }
 
-  const maxCancelSubgrupo = Math.max(1, ...estatisticas.canceladosPorSubgrupo.map((s) => s.total))
-  const maxCancelMes = Math.max(1, ...estatisticas.canceladosPorMes.map((m) => m.total))
+  const statusOptions = estatisticas.statusDisponiveis
+  const statusAtivo = statusOptions.includes(statusEscolhido) ? statusEscolhido : (statusOptions[0] ?? statusEscolhido)
+  const subgrupoDoStatus = estatisticas.porStatusESubgrupo[statusAtivo] ?? []
+  const mesDoStatus = estatisticas.porStatusEMes[statusAtivo] ?? []
+  const maxSubgrupo = Math.max(1, ...subgrupoDoStatus.map((s) => s.total))
+  const maxMes = Math.max(1, ...mesDoStatus.map((m) => m.total))
   const maxDiaSemana = Math.max(1, ...estatisticas.relatosPorDiaSemana.map((d) => d.total))
-  const totalCancelados = estatisticas.canceladosPorSubgrupo.reduce((acc, s) => acc + s.total, 0)
+  const totalDoStatus = subgrupoDoStatus.reduce((acc, s) => acc + s.total, 0)
 
   return (
     <div className="space-y-5">
@@ -550,7 +556,7 @@ function AnaliseTab({
         </div>
         <div className="border rounded-xl bg-white p-3">
           <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Cancelados (origem)</p>
-          <p className="text-xl font-bold leading-tight">{totalCancelados}</p>
+          <p className="text-xl font-bold leading-tight">{estatisticas.porStatusESubgrupo.cancelado?.reduce((acc, s) => acc + s.total, 0) ?? 0}</p>
         </div>
       </div>
       {estatisticas.fechadosSemPrazo > 0 && (
@@ -559,63 +565,114 @@ function AnaliseTab({
         </p>
       )}
 
-      <div className="border rounded-xl bg-white p-4">
-        <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> % fechado no prazo por mês</h3>
-        {estatisticas.fechadosPorMes.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Nenhum caso fechado no período.</p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="text-left text-muted-foreground border-b">
-                  <th className="py-1.5 pr-3">Mês</th>
-                  <th className="py-1.5 pr-3 text-right">Fechados</th>
-                  <th className="py-1.5 pr-3 text-right">No prazo</th>
-                  <th className="py-1.5 pr-3 text-right">Fora do prazo</th>
-                  <th className="py-1.5 pr-3 text-right">% no prazo</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {estatisticas.fechadosPorMes.map((m) => (
-                  <tr key={m.mes}>
-                    <td className="py-1.5 pr-3 font-medium">{m.mes}</td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums">{m.total}</td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums text-green-700">{m.noPrazo}</td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums text-red-600">{m.foraPrazo}</td>
-                    <td className="py-1.5 pr-3 text-right tabular-nums font-semibold">{(m.noPrazo + m.foraPrazo) > 0 ? `${m.pctNoPrazo}%` : '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
       <div className="grid sm:grid-cols-2 gap-4">
         <div className="border rounded-xl bg-white p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Cancelados por subgrupo</h3>
-          {estatisticas.canceladosPorSubgrupo.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Nenhum cancelamento no período.</p>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> % fechado no prazo por ano</h3>
+          {estatisticas.fechadosPorAno.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nenhum caso fechado no período.</p>
           ) : (
-            <div className="space-y-1.5">
-              {estatisticas.canceladosPorSubgrupo.map((s) => (
-                <BarraHorizontal key={s.subgrupo} label={s.subgrupo} total={s.total} max={maxCancelSubgrupo} />
-              ))}
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-1.5 pr-3">Ano</th>
+                    <th className="py-1.5 pr-3 text-right">Fechados</th>
+                    <th className="py-1.5 pr-3 text-right">No prazo</th>
+                    <th className="py-1.5 pr-3 text-right">Fora do prazo</th>
+                    <th className="py-1.5 pr-3 text-right">% no prazo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {estatisticas.fechadosPorAno.map((a) => (
+                    <tr key={a.ano}>
+                      <td className="py-1.5 pr-3 font-medium">{a.ano}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{a.total}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums text-green-700">{a.noPrazo}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums text-red-600">{a.foraPrazo}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums font-semibold">{(a.noPrazo + a.foraPrazo) > 0 ? `${a.pctNoPrazo}%` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
 
         <div className="border rounded-xl bg-white p-4">
-          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Cancelados por mês</h3>
-          {estatisticas.canceladosPorMes.length === 0 ? (
-            <p className="text-xs text-muted-foreground">Nenhum cancelamento no período.</p>
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> % fechado no prazo por mês</h3>
+          {estatisticas.fechadosPorMes.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nenhum caso fechado no período.</p>
           ) : (
-            <div className="space-y-1.5">
-              {estatisticas.canceladosPorMes.map((m) => (
-                <BarraHorizontal key={m.mes} label={m.mes} total={m.total} max={maxCancelMes} />
-              ))}
+            <div className="overflow-x-auto max-h-72 overflow-y-auto">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="text-left text-muted-foreground border-b">
+                    <th className="py-1.5 pr-3">Mês</th>
+                    <th className="py-1.5 pr-3 text-right">Fechados</th>
+                    <th className="py-1.5 pr-3 text-right">No prazo</th>
+                    <th className="py-1.5 pr-3 text-right">Fora do prazo</th>
+                    <th className="py-1.5 pr-3 text-right">% no prazo</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {estatisticas.fechadosPorMes.map((m) => (
+                    <tr key={m.mes}>
+                      <td className="py-1.5 pr-3 font-medium">{m.mes}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums">{m.total}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums text-green-700">{m.noPrazo}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums text-red-600">{m.foraPrazo}</td>
+                      <td className="py-1.5 pr-3 text-right tabular-nums font-semibold">{(m.noPrazo + m.foraPrazo) > 0 ? `${m.pctNoPrazo}%` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="border rounded-xl bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <h3 className="text-sm font-semibold flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Relatos por subgrupo e mês</h3>
+          <div>
+            <label className="text-xs text-muted-foreground mr-2">Status</label>
+            <select
+              value={statusAtivo}
+              onChange={(e) => setStatusEscolhido(e.target.value)}
+              className="border rounded-md px-2 py-1 text-xs"
+            >
+              {statusOptions.length === 0
+                ? <option value="">Sem dados no período</option>
+                : statusOptions.map((s) => <option key={s} value={s}>{STATUS_LABEL[s as keyof typeof STATUS_LABEL] ?? s}</option>)}
+            </select>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground mb-3">{totalDoStatus} relato(s) com esse status no período filtrado.</p>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Por subgrupo</h4>
+            {subgrupoDoStatus.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nenhum relato com esse status no período.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {subgrupoDoStatus.map((s) => (
+                  <BarraHorizontal key={s.subgrupo} label={s.subgrupo} total={s.total} max={maxSubgrupo} />
+                ))}
+              </div>
+            )}
+          </div>
+          <div>
+            <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Por mês</h4>
+            {mesDoStatus.length === 0 ? (
+              <p className="text-xs text-muted-foreground">Nenhum relato com esse status no período.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {mesDoStatus.map((m) => (
+                  <BarraHorizontal key={m.mes} label={m.mes} total={m.total} max={maxMes} />
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

@@ -279,7 +279,7 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
 
   const codigosPdv = [...new Set(candidatas.map((l) => l.codigoPdv))]
   const [{ data: existentesRaw }, { data: historicoRaw }] = await Promise.all([
-    supabase.from('pdv_seguranca_relatos').select('id, codigo_pdv, subgrupo, data_relato, origem_status, status')
+    supabase.from('pdv_seguranca_relatos').select('id, codigo_pdv, subgrupo, data_relato, origem_status, status, prazo_origem')
       .eq('filial', filial).in('codigo_pdv', codigosPdv),
     // Histórico completo (qualquer status) desses PDVs — usado tanto pra
     // contar a ocorrência quanto pra achar o último caso já aprovado.
@@ -314,6 +314,10 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
     .filter((x) => {
       if (!x.existente) return false
       if (x.existente.origem_status !== x.l.origemStatus) return true
+      // prazo_origem só passou a ser gravado depois — relato antigo (ou já
+      // reclassificado num deploy anterior a essa correção) pode estar sem
+      // ele mesmo já tendo o dado na planilha agora. Backfilla.
+      if (!x.existente.prazo_origem && x.l.prazoOrigem) return true
       // Status BEES já bate com a última reimportação, mas se o caso
       // ainda está preso em "aguardando_triagem" apesar da origem já
       // mostrar CANCELED/CLOSED, precisa tentar reclassificar de novo
@@ -330,7 +334,11 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
         const origemNorm = normalize(l.origemStatus)
         const isCancelado = origemNorm === 'canceled' || origemNorm === 'cancelado'
         const isFechadoHistorico = origemNorm === 'closed'
-        const patch: Record<string, unknown> = { origem_status: l.origemStatus }
+        // prazo_origem também é campo "fonte" (coluna M da planilha) — sem
+        // atualizar aqui, um relato reclassificado ficava com prazo_origem
+        // nulo pra sempre (ele foi gravado antes desse campo existir) e
+        // caía em "sem prazo", nunca entrando no % fechado no prazo/fora.
+        const patch: Record<string, unknown> = { origem_status: l.origemStatus, prazo_origem: l.prazoOrigem }
         if (existente!.status === 'aguardando_triagem' && (isCancelado || isFechadoHistorico)) {
           patch.status = isCancelado ? 'cancelado' : 'encerrado_historico'
           patch.finalizado_em = l.ultimaAtualizacao ?? l.dataRelato
@@ -537,8 +545,10 @@ export interface EstatisticasPdvCritico {
   fechadosSemPrazo: number
   pctNoPrazo: number
   fechadosPorMes: { mes: string; total: number; noPrazo: number; foraPrazo: number; pctNoPrazo: number }[]
-  canceladosPorSubgrupo: { subgrupo: string; total: number }[]
-  canceladosPorMes: { mes: string; total: number }[]
+  fechadosPorAno: { ano: string; total: number; noPrazo: number; foraPrazo: number; pctNoPrazo: number }[]
+  statusDisponiveis: string[]
+  porStatusESubgrupo: Record<string, { subgrupo: string; total: number }[]>
+  porStatusEMes: Record<string, { mes: string; total: number }[]>
   relatosPorDiaSemana: { diaSemana: string; total: number }[]
   anosDisponiveis: number[]
 }
@@ -559,27 +569,45 @@ export function calcularEstatisticasPdvCritico(todasLinhas: LinhaAnaliseRelato[]
 
   let fechadosNoPrazo = 0, fechadosForaPrazo = 0, fechadosSemPrazo = 0
   const fechadosPorMesMap = new Map<string, { total: number; noPrazo: number; foraPrazo: number }>()
+  const fechadosPorAnoMap = new Map<string, { total: number; noPrazo: number; foraPrazo: number }>()
   const fechados = linhas.filter((l) => l.status === 'aprovado' || l.status === 'encerrado_historico')
   for (const l of fechados) {
     const mesChave = l.finalizadoEm ? l.finalizadoEm.slice(0, 7) : (l.dataRelato ? l.dataRelato.slice(0, 7) : 'sem-data')
+    const anoChave = mesChave.slice(0, 4)
     const m = fechadosPorMesMap.get(mesChave) ?? { total: 0, noPrazo: 0, foraPrazo: 0 }
-    m.total++
+    const a = fechadosPorAnoMap.get(anoChave) ?? { total: 0, noPrazo: 0, foraPrazo: 0 }
+    m.total++; a.total++
     if (!l.prazoOrigem || !l.finalizadoEm) {
       fechadosSemPrazo++
     } else if (l.finalizadoEm.slice(0, 10) <= l.prazoOrigem) {
-      fechadosNoPrazo++; m.noPrazo++
+      fechadosNoPrazo++; m.noPrazo++; a.noPrazo++
     } else {
-      fechadosForaPrazo++; m.foraPrazo++
+      fechadosForaPrazo++; m.foraPrazo++; a.foraPrazo++
     }
     fechadosPorMesMap.set(mesChave, m)
+    fechadosPorAnoMap.set(anoChave, a)
   }
 
-  const subgrupoMap = new Map<string, number>()
-  const mesMap = new Map<string, number>()
-  for (const l of linhas.filter((l) => l.status === 'cancelado')) {
-    subgrupoMap.set(l.subgrupo, (subgrupoMap.get(l.subgrupo) ?? 0) + 1)
+  // Quebra por subgrupo/mês vale pra QUALQUER status (não só cancelado) —
+  // a tela filtra por status escolhido, preparado pra quando existirem
+  // mais status além de cancelado/encerrado_historico.
+  const statusDisponiveis = [...new Set(linhas.map((l) => l.status))].sort()
+  const porStatusESubgrupo: Record<string, Map<string, number>> = {}
+  const porStatusEMes: Record<string, Map<string, number>> = {}
+  for (const l of linhas) {
+    const subMap = porStatusESubgrupo[l.status] ?? (porStatusESubgrupo[l.status] = new Map())
+    subMap.set(l.subgrupo, (subMap.get(l.subgrupo) ?? 0) + 1)
+    const mesMap = porStatusEMes[l.status] ?? (porStatusEMes[l.status] = new Map())
     const mes = l.dataRelato ? l.dataRelato.slice(0, 7) : 'sem-data'
     mesMap.set(mes, (mesMap.get(mes) ?? 0) + 1)
+  }
+  const porStatusESubgrupoFinal: Record<string, { subgrupo: string; total: number }[]> = {}
+  for (const [status, mapa] of Object.entries(porStatusESubgrupo)) {
+    porStatusESubgrupoFinal[status] = [...mapa.entries()].map(([subgrupo, total]) => ({ subgrupo, total })).sort((a, b) => b.total - a.total)
+  }
+  const porStatusEMesFinal: Record<string, { mes: string; total: number }[]> = {}
+  for (const [status, mapa] of Object.entries(porStatusEMes)) {
+    porStatusEMesFinal[status] = [...mapa.entries()].map(([mes, total]) => ({ mes, total })).sort((a, b) => a.mes.localeCompare(b.mes))
   }
 
   const diaSemanaTotais = new Array(7).fill(0)
@@ -599,8 +627,15 @@ export function calcularEstatisticasPdvCritico(todasLinhas: LinhaAnaliseRelato[]
         pctNoPrazo: (m.noPrazo + m.foraPrazo) > 0 ? Math.round((m.noPrazo / (m.noPrazo + m.foraPrazo)) * 1000) / 10 : 0,
       }))
       .sort((a, b) => a.mes.localeCompare(b.mes)),
-    canceladosPorSubgrupo: [...subgrupoMap.entries()].map(([subgrupo, total]) => ({ subgrupo, total })).sort((a, b) => b.total - a.total),
-    canceladosPorMes: [...mesMap.entries()].map(([mes, total]) => ({ mes, total })).sort((a, b) => a.mes.localeCompare(b.mes)),
+    fechadosPorAno: [...fechadosPorAnoMap.entries()]
+      .map(([ano, a]) => ({
+        ano, total: a.total, noPrazo: a.noPrazo, foraPrazo: a.foraPrazo,
+        pctNoPrazo: (a.noPrazo + a.foraPrazo) > 0 ? Math.round((a.noPrazo / (a.noPrazo + a.foraPrazo)) * 1000) / 10 : 0,
+      }))
+      .sort((a, b) => a.ano.localeCompare(b.ano)),
+    statusDisponiveis,
+    porStatusESubgrupo: porStatusESubgrupoFinal,
+    porStatusEMes: porStatusEMesFinal,
     relatosPorDiaSemana: DIAS_SEMANA_LABEL.map((diaSemana, i) => ({ diaSemana, total: diaSemanaTotais[i] })),
     anosDisponiveis,
   }
