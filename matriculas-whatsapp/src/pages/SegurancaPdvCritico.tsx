@@ -222,7 +222,7 @@ export default function SegurancaPdvCritico() {
     if (error) { setErro(error); return }
     setModalEncerrar(null)
     await carregarRelatos()
-    setEstatisticas(null)
+    setAnaliseLinhas(null)
   }
 
   function handleAgendar() {
