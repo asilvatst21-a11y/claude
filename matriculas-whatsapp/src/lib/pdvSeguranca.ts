@@ -128,7 +128,12 @@ export interface RelatoImportado {
  * status, prazo, ultima_atualizacao, mes, tipo, transportadora, partition.
  */
 export function parseRelatosPdvBuffer(buffer: ArrayBuffer): RelatoImportado[] {
-  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true })
+  // raw:true também no XLSX.read() em si (não só no sheet_to_json) — sem
+  // isso, CSV corre o mesmo bug já corrigido no tmlParser.ts: a própria
+  // ingestão de CSV do SheetJS faz auto-detecção ambígua de data (assume
+  // formato americano MM/DD) antes do parser dd/mm-sempre deste módulo
+  // rodar. Não afeta .xlsx binário (datas já vêm tipadas).
+  const workbook = XLSX.read(buffer, { type: 'array', cellDates: true, raw: true })
   const sheetName = workbook.SheetNames.find((n) => normalize(n).includes('export')) ?? workbook.SheetNames[0]
   const rows: unknown[][] = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, raw: true, defval: null })
   if (rows.length === 0) return []
@@ -635,7 +640,17 @@ export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnali
     nivel: l.nivel_medido ?? l.nivel_inicial,
     codigoMotorista: l.codigo_motorista, relatoMotorista: l.relato_motorista, instrucaoRegistrada: l.instrucao_registrada,
     reincidente: l.reincidente_apos != null,
-    dataRelato: l.data_relato, prazoOrigem: l.prazo_origem, finalizadoEm: l.finalizado_em,
+    dataRelato: l.data_relato, prazoOrigem: l.prazo_origem,
+    // finalizado_em volta do Supabase como timestamptz completo
+    // ("2026-01-19T00:00:00+00:00"); truncando pra "yyyy-mm-dd" aqui (na
+    // origem, uma vez só) garante que toda comparação/agrupamento por dia
+    // e toda exibição (formatarDataBR trata "yyyy-mm-dd" sem conversão de
+    // fuso) usem exatamente o mesmo dia — sem isso, formatarDataBR cai no
+    // fallback que converte pro fuso do navegador, podendo mostrar um dia
+    // diferente do que a comparação por dia realmente usou (ex.: Prazo e
+    // Fechou aparentando ser o mesmo dia na tela, mas o caso ainda
+    // marcado como fora do prazo).
+    finalizadoEm: l.finalizado_em ? l.finalizado_em.slice(0, 10) : null,
     justificativaNaoCritico: l.justificativa_nao_critico,
   }))
 }
