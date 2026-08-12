@@ -139,7 +139,11 @@ export function parseRelatosPdvBuffer(buffer: ArrayBuffer): RelatoImportado[] {
   const relatoIdx = header.findIndex((c) => c.includes('relato_motorista') || c.includes('relato motorista'))
   const dataIdx = header.findIndex((c) => c.includes('data_de_criacao') || c.includes('data de criacao'))
   const statusIdx = header.indexOf('status')
-  const prazoIdx = header.indexOf('prazo')
+  // Match "solto" — a coluna de prazo na planilha de origem nem sempre se
+  // chama exatamente "prazo" (ex.: "prazo_resolucao", "data prazo"). Um
+  // indexOf() exato deixava prazoIdx sempre -1 quando o nome real da
+  // coluna era outro, e todo relato caía em "sem prazo" no % no prazo.
+  const prazoIdx = header.findIndex((c) => c.includes('prazo'))
   const ultimaAtualizacaoIdx = header.findIndex((c) => c.includes('ultima_atualizacao') || c.includes('ultima atualizacao'))
   if (pdvIdx === -1 || categoriaIdx === -1 || subcatIdx === -1) return []
 
@@ -547,6 +551,13 @@ export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnali
   }))
 }
 
+// Zeros à esquerda variam entre fontes (planilha de relato x cadastro de
+// Colaboradores) — mesmo normalizador usado em jornada.ts/telemetriaHotspot.ts
+// pra outras tabelas com matrícula, senão "0012345" nunca bate com "12345".
+function normalizarMatricula(s: string): string {
+  return s.trim().replace(/^0+/, '') || '0'
+}
+
 // Nome do colaborador por matrícula (tabela usada em Gente → Colaboradores)
 // — mesmo padrão de lookup usado em statusAtivo.ts/frota.ts/farolCriticos.ts.
 // Base histórica extensa pode trazer matrículas que não existem (ou ainda
@@ -557,7 +568,7 @@ export async function buscarNomesColaboradoresPorMatricula(filial: string): Prom
   const mapa = new Map<string, string>()
   for (const c of data ?? []) {
     if (c.matricula == null) continue
-    mapa.set(String(c.matricula).trim(), (c.nome ?? '').trim())
+    mapa.set(normalizarMatricula(String(c.matricula)), (c.nome ?? '').trim())
   }
   return mapa
 }
@@ -748,10 +759,12 @@ export function calcularEstatisticasPdvCritico(
 
   // Top motoristas que relatam — matrícula pode não estar em Colaboradores
   // ainda (base histórica extensa importada de uma vez), cai em "sem nome".
+  // Normaliza zero à esquerda igual ao mapa de nomes, senão "0012345" (da
+  // planilha de relato) nunca casa com "12345" (cadastro de Colaboradores).
   const motoristaMap = new Map<string, number>()
   for (const l of linhas) {
     if (!l.codigoMotorista) continue
-    const matricula = l.codigoMotorista.trim()
+    const matricula = normalizarMatricula(l.codigoMotorista)
     if (!matricula) continue
     motoristaMap.set(matricula, (motoristaMap.get(matricula) ?? 0) + 1)
   }
