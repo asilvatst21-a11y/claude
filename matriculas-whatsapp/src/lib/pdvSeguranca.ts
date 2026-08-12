@@ -190,12 +190,19 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
   const niveis = new Map((await listarNiveisSubgrupo(filial)).map((n) => [n.subgrupo, n.nivel]))
 
   const resultado: ResultadoImportRelatos = { seguranca: 0, outrasAreas: 0, jaExistiam: 0, semData: 0 }
-  const candidatas = linhas.filter((l) => {
+  const candidatasComRepetidas = linhas.filter((l) => {
     if (normalize(l.categoria) !== CATEGORIA_SEGURANCA) { resultado.outrasAreas++; return false }
     if (!l.dataRelato) { resultado.semData++; return false }
     return true
   })
-  if (candidatas.length === 0) return resultado
+  if (candidatasComRepetidas.length === 0) return resultado
+
+  // A planilha de origem traz o mesmo relato repetido em mais de uma linha
+  // (ex.: atualizações sucessivas do mesmo caso) — sem isso o INSERT em
+  // lote quebra na constraint única, já que duas linhas do próprio arquivo
+  // caem na mesma chave filial+pdv+subgrupo+data.
+  const porChave = new Map(candidatasComRepetidas.map((l) => [`${l.codigoPdv}|${l.subgrupo}|${l.dataRelato}`, l]))
+  const candidatas = [...porChave.values()]
 
   const { data: existentesRaw } = await supabase
     .from('pdv_seguranca_relatos')
