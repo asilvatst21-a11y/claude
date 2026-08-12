@@ -26,6 +26,7 @@ import {
   buscarFarol, statusEnvioFarol, registrarEnvioFarol,
   type FarolLinha, type StatusFarol, type CategoriaWatchlist,
 } from '../lib/farolCriticos'
+import { avisarMotoristasPdvCritico } from '../lib/pdvSeguranca'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -771,9 +772,26 @@ export default function JornadaRota() {
         avisoFarol = `\n\n⚠️ Farol de Críticos não enviado: ${e instanceof Error ? e.message : String(e)}`
       }
 
+      // Aviso ao motorista quando o mapa do dia passa por PDV com caso
+      // aprovado no PDV Crítico — mesmo gatilho do Farol, não bloqueia o
+      // import se falhar.
+      let avisoPdvCritico = ''
+      try {
+        const { enviados, erros } = await avisarMotoristasPdvCritico(usuario.filial, dataOperacao)
+        if (erros.length > 0) {
+          console.error('[Jornada] falhas no aviso de PDV Crítico:', erros)
+          avisoPdvCritico = `\n\n⚠️ PDV Crítico: ${enviados} aviso(s) enviado(s), ${erros.length} falha(s) (ver console).`
+        } else if (enviados > 0) {
+          avisoPdvCritico = `\n\n🚨 PDV Crítico: ${enviados} motorista(s) avisado(s) sobre PDV com caso aprovado na rota.`
+        }
+      } catch (e) {
+        console.error('[Jornada] falha ao avisar motoristas de PDV Crítico:', e)
+      }
+
       alert(
         `${agregados.length} mapa(s) atualizado(s) a partir do BEES. Mensagens enviadas por sala + resumo do CDD.` +
         avisoFarol +
+        avisoPdvCritico +
         (errosEnvio.length > 0 ? `\n\n⚠️ Falhas no envio:\n${errosEnvio.join('\n')}` : '')
       )
     } catch (err) {

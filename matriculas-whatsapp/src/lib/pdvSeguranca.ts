@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import { supabase } from './supabase'
-import { enviarMensagemWhatsApp } from './zapi'
+import { enviarMensagemWhatsApp, aguardarEntreEnvios } from './zapi'
 
 // ── PDV Crítico (Segurança) ─────────────────────────────────────────────
 // Relato do motorista (categoria/subgrupo) já existe hoje fora deste app —
@@ -753,6 +753,78 @@ export async function enviarChecklistVisita(
     .eq('link_token', token)
     .eq('status', 'agendado')
   return { error: error?.message ?? null }
+}
+
+// ── Aviso automático ao motorista (PDV aprovado na rota do dia) ─────────
+// Mesmo gatilho do Farol de Mercados e PDVs Travas: dispara a cada import
+// do BEES em Jornada e Tempo em Rota (distribuicao_bees_visitas tem
+// mapa+pdv_codigo+data). Busca os casos 'aprovado' de NOVO a cada disparo
+// — se o caso for reaberto, ele sai da lista sozinho e o aviso para sem
+// precisar de nenhuma lógica extra de "cancelar". A tabela de dedupe
+// (pdv_seguranca_avisos_motorista) evita reenviar o mesmo aviso pro mesmo
+// motorista+PDV toda vez que o BEES é reimportado no mesmo dia.
+export async function avisarMotoristasPdvCritico(filial: string, data: string): Promise<{ enviados: number; erros: string[] }> {
+  const erros: string[] = []
+
+  const { data: aprovados, error: erroAprovados } = await supabase
+    .from('pdv_seguranca_relatos')
+    .select('id, codigo_pdv, subgrupo')
+    .eq('filial', filial).eq('status', 'aprovado')
+  if (erroAprovados) return { enviados: 0, erros: [erroAprovados.message] }
+  if (!aprovados || aprovados.length === 0) return { enviados: 0, erros: [] }
+  const casoPorPdv = new Map(aprovados.map((a) => [a.codigo_pdv, a]))
+
+  const { data: visitas, error: erroVisitas } = await supabase
+    .from('distribuicao_bees_visitas')
+    .select('mapa, pdv_codigo')
+    .eq('filial', filial).eq('data', data)
+    .in('pdv_codigo', [...casoPorPdv.keys()])
+  if (erroVisitas) return { enviados: 0, erros: [erroVisitas.message] }
+  if (!visitas || visitas.length === 0) return { enviados: 0, erros: [] }
+
+  const mapas = [...new Set(visitas.map((v) => v.mapa).filter((m): m is number => m != null))]
+  if (mapas.length === 0) return { enviados: 0, erros: [] }
+
+  const [{ data: escalas }, { data: matriculasCad }, { data: rosterTml }, { data: jaAvisados }] = await Promise.all([
+    supabase.from('escalas_tml').select('mapa, matricula').eq('filial', filial).eq('data_entrega', data).in('mapa', mapas),
+    supabase.from('matriculas').select('numero, whatsapp').eq('filial', filial).eq('ativo', true),
+    supabase.from('motoristas_sala_tml').select('matricula, telefone').eq('filial', filial),
+    supabase.from('pdv_seguranca_avisos_motorista').select('matricula, codigo_pdv').eq('filial', filial).eq('data', data),
+  ])
+  const matriculaPorMapa = new Map((escalas ?? []).map((e) => [e.mapa, e.matricula]))
+  const telefonePorNumero = new Map((matriculasCad ?? []).map((m) => [normalizarMatricula(String(m.numero)), m.whatsapp as string | null]))
+  const telefonePorMatriculaTml = new Map((rosterTml ?? []).map((r) => [r.matricula, r.telefone as string | null]))
+  const avisadoSet = new Set((jaAvisados ?? []).map((a) => `${a.matricula}|${a.codigo_pdv}`))
+
+  let enviados = 0
+  for (const v of visitas) {
+    if (v.mapa == null) continue
+    const matricula = matriculaPorMapa.get(v.mapa)
+    if (matricula == null) continue
+    const caso = casoPorPdv.get(v.pdv_codigo)
+    if (!caso) continue
+    const chave = `${matricula}|${v.pdv_codigo}`
+    if (avisadoSet.has(chave)) continue
+
+    const telefone = telefonePorNumero.get(normalizarMatricula(String(matricula))) ?? telefonePorMatriculaTml.get(matricula) ?? null
+    if (!telefone) { erros.push(`Matrícula ${matricula} sem telefone cadastrado (PDV ${v.pdv_codigo})`); continue }
+
+    const mensagem =
+      `⚠️ *Atenção — PDV Crítico*\n\n` +
+      `Você está indo pro PDV *${v.pdv_codigo}*, que tem uma orientação de segurança registrada:\n` +
+      `${caso.subgrupo}\n\nRedobre a atenção nesse ponto.`
+    const envio = await enviarMensagemWhatsApp(telefone, mensagem)
+    if (!envio.sucesso) { erros.push(`Falha ao avisar matrícula ${matricula} (PDV ${v.pdv_codigo}): ${envio.erro}`); continue }
+
+    await supabase.from('pdv_seguranca_avisos_motorista').upsert(
+      { filial, data, matricula: String(matricula), codigo_pdv: v.pdv_codigo, relato_id: caso.id },
+      { onConflict: 'filial,data,matricula,codigo_pdv' }
+    )
+    avisadoSet.add(chave)
+    enviados++
+    await aguardarEntreEnvios()
+  }
+  return { enviados, erros }
 }
 
 // ── Dashboard de análise ─────────────────────────────────────────────────
