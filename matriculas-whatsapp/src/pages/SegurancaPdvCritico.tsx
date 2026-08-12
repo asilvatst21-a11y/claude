@@ -21,12 +21,14 @@ const STATUS_CSS: Record<string, string> = {
   aprovado: 'bg-green-50 text-green-700',
   nao_critico: 'bg-slate-100 text-slate-500',
 }
-const BEES_CSS: Record<string, string> = {
-  pendente: 'bg-slate-100 text-slate-600',
-  iniciado: 'bg-blue-50 text-blue-700',
-  concluido: 'bg-green-50 text-green-700',
-  atencao: 'bg-red-50 text-red-700',
-  sem_mapa: 'bg-slate-50 text-slate-400',
+// Status BEES = coluna "status" da própria planilha de relatos (ex.:
+// "CANCELED"). O vocabulário vem da fonte, não é fixo — colore por
+// palavra-chave em vez de mapear valor por valor.
+function statusBeesCss(status: string): string {
+  const s = status.toLowerCase()
+  if (s.includes('cancel')) return 'bg-slate-100 text-slate-500 line-through'
+  if (s.includes('conclu') || s.includes('resolv') || s.includes('finaliz')) return 'bg-green-50 text-green-700'
+  return 'bg-blue-50 text-blue-700'
 }
 
 function diasRestantes(prazoISO: string | null): number | null {
@@ -132,8 +134,8 @@ export default function SegurancaPdvCritico() {
         `✅ ${r.seguranca} relato(s) de Segurança importado(s)` +
         (r.reincidencias ? ` (${r.reincidencias} reincidência(s) — criticidade escalada automaticamente)` : '') +
         `. ${r.outrasAreas} de outras áreas ignorado(s) (não entram nesse fluxo). ` +
-        `${r.jaExistiam} já existiam (não foram tocados). ` +
-        (r.canceladosNaOrigem ? `${r.canceladosNaOrigem} cancelado(s) na origem, ignorado(s). ` : '') +
+        `${r.jaExistiam} já existiam (Status BEES atualizado quando mudou; resto do caso preservado). ` +
+        (r.canceladosNaOrigem ? `${r.canceladosNaOrigem} novo(s) já cancelado(s) na origem, ignorado(s). ` : '') +
         (r.semData ? `${r.semData} sem data reconhecida, ignorado(s).` : '')
       )
       await carregarRelatos()
@@ -304,8 +306,8 @@ export default function SegurancaPdvCritico() {
                     <td className="px-3 py-2"><PrazoBadge prazo={r.prazoVisita} /></td>
                     <td className="px-3 py-2">
                       {r.statusBees ? (
-                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium ${BEES_CSS[r.statusBees.farol]}`}>
-                          {r.statusBees.label}
+                        <span className={`inline-flex px-2 py-0.5 rounded-full text-[11px] font-medium ${statusBeesCss(r.statusBees)}`}>
+                          {r.statusBees}
                         </span>
                       ) : <span className="text-muted-foreground">sem dado</span>}
                     </td>

@@ -1,6 +1,5 @@
 import * as XLSX from 'xlsx'
 import { supabase } from './supabase'
-import { traduzirStatusBees, type StatusFarol } from './farolCriticos'
 
 // ── PDV Crítico (Segurança) ─────────────────────────────────────────────
 // Relato do motorista (categoria/subgrupo) já existe hoje fora deste app —
@@ -188,9 +187,12 @@ function escalarNivel(nivel: NivelCriticidade): NivelCriticidade {
 /**
  * Importa relatos de PDV. Só grava categoria "Segurança" — o resto é só
  * contado (some pro time responsável, não vira linha aqui). Nunca
- * sobrescreve um relato que já existe (mesma chave filial+pdv+subgrupo+
- * data): um caso em andamento não pode ser resetado por uma reimportação.
- * Relatos já cancelados na origem não viram caso pendente aqui.
+ * sobrescreve o CASO de um relato que já existe (mesma chave filial+pdv+
+ * subgrupo+data) — um caso em andamento não pode ser resetado por uma
+ * reimportação. A única coisa que É atualizada num relato já existente é
+ * o "Status BEES" (coluna "status" da própria planilha, que reflete o
+ * estado no sistema de origem e pode mudar a cada reimportação).
+ * Relatos novos já cancelados na origem não viram caso pendente aqui.
  *
  * Reincidência: quando o mesmo PDV+subgrupo já teve um caso APROVADO
  * (concluído) antes da data deste novo relato, é sinal de que a
@@ -210,10 +212,6 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
   const candidatasComRepetidas = linhas.filter((l) => {
     if (normalize(l.categoria) !== CATEGORIA_SEGURANCA) { resultado.outrasAreas++; return false }
     if (!l.dataRelato) { resultado.semData++; return false }
-    if (normalize(l.origemStatus) === 'canceled' || normalize(l.origemStatus) === 'cancelado') {
-      resultado.canceladosNaOrigem++
-      return false
-    }
     return true
   })
   if (candidatasComRepetidas.length === 0) return resultado
@@ -227,19 +225,47 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
 
   const codigosPdv = [...new Set(candidatas.map((l) => l.codigoPdv))]
   const [{ data: existentesRaw }, { data: historicoRaw }] = await Promise.all([
-    supabase.from('pdv_seguranca_relatos').select('codigo_pdv, subgrupo, data_relato')
+    supabase.from('pdv_seguranca_relatos').select('id, codigo_pdv, subgrupo, data_relato, origem_status')
       .eq('filial', filial).in('codigo_pdv', codigosPdv),
     // Histórico completo (qualquer status) desses PDVs — usado tanto pra
     // contar a ocorrência quanto pra achar o último caso já aprovado.
     supabase.from('pdv_seguranca_relatos').select('id, codigo_pdv, subgrupo, status, finalizado_em')
       .eq('filial', filial).in('codigo_pdv', codigosPdv),
   ])
-  const chaveExiste = new Set((existentesRaw ?? []).map((r) => `${r.codigo_pdv}|${r.subgrupo}|${r.data_relato}`))
+  const existentesPorChave = new Map((existentesRaw ?? []).map((r) => [`${r.codigo_pdv}|${r.subgrupo}|${r.data_relato}`, r]))
 
-  const novas = candidatas.filter((l) => !chaveExiste.has(`${l.codigoPdv}|${l.subgrupo}|${l.dataRelato}`))
+  const novas = candidatas.filter((l) => !existentesPorChave.has(`${l.codigoPdv}|${l.subgrupo}|${l.dataRelato}`))
   resultado.jaExistiam = candidatas.length - novas.length
   resultado.seguranca = novas.length
-  if (novas.length === 0) return resultado
+
+  // Relatos que já existem: só o Status BEES pode mudar. Atualiza em
+  // paralelo (limitado) os que realmente mudaram de valor.
+  const paraAtualizarStatus = candidatas
+    .map((l) => ({ l, existente: existentesPorChave.get(`${l.codigoPdv}|${l.subgrupo}|${l.dataRelato}`) }))
+    .filter((x) => x.existente && x.existente.origem_status !== x.l.origemStatus)
+  const CONCORRENCIA = 15
+  for (let i = 0; i < paraAtualizarStatus.length; i += CONCORRENCIA) {
+    await Promise.all(
+      paraAtualizarStatus.slice(i, i + CONCORRENCIA).map(({ l, existente }) =>
+        supabase.from('pdv_seguranca_relatos').update({ origem_status: l.origemStatus }).eq('id', existente!.id)
+      )
+    )
+  }
+
+  // Relatos NOVOS que já chegam cancelados na origem não viram caso
+  // pendente aqui — não faz sentido abrir uma triagem pra algo que a
+  // própria fonte já cancelou. (Um relato já existente que vira
+  // cancelado depois só teve o Status BEES atualizado acima, não é
+  // ignorado — o caso continua existindo pra auditoria.)
+  const novasAtivas = novas.filter((l) => {
+    if (normalize(l.origemStatus) === 'canceled' || normalize(l.origemStatus) === 'cancelado') {
+      resultado.canceladosNaOrigem++
+      resultado.seguranca--
+      return false
+    }
+    return true
+  })
+  if (novasAtivas.length === 0) return resultado
 
   const historicoPorChave = new Map<string, typeof historicoRaw>()
   for (const h of historicoRaw ?? []) {
@@ -249,7 +275,7 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
     historicoPorChave.set(chave, lista as any)
   }
 
-  const rows = novas.map((l) => {
+  const rows = novasAtivas.map((l) => {
     const chave = `${l.codigoPdv}|${l.subgrupo}`
     const historico = (historicoPorChave.get(chave) ?? []) as { id: string; status: string; finalizado_em: string | null }[]
     const ultimoAprovado = historico
@@ -297,7 +323,7 @@ export interface RelatoLinha {
   dataRelato: string
   prazoVisita: string | null
   status: StatusRelato
-  statusBees: { farol: StatusFarol; label: string } | null
+  statusBees: string | null
   reincidente: boolean
   numeroOcorrencia: number
 }
@@ -305,21 +331,12 @@ export interface RelatoLinha {
 export async function listarRelatos(filial: string): Promise<RelatoLinha[]> {
   const { data, error } = await supabase
     .from('pdv_seguranca_relatos')
-    .select('id, codigo_pdv, subgrupo, nivel_inicial, nivel_medido, codigo_motorista, data_relato, prazo_visita, status, reincidente_apos, numero_ocorrencia')
+    .select('id, codigo_pdv, subgrupo, nivel_inicial, nivel_medido, codigo_motorista, data_relato, prazo_visita, status, reincidente_apos, numero_ocorrencia, origem_status')
     .eq('filial', filial)
     .order('data_relato', { ascending: false })
     .limit(300)
   if (error) { console.error('listarRelatos error:', error.message); return [] }
   const linhas = data ?? []
-
-  const codigos = [...new Set(linhas.map((l) => l.codigo_pdv))]
-  const { data: bees } = codigos.length > 0
-    ? await supabase.from('distribuicao_bees_visitas').select('pdv_codigo, status, data').eq('filial', filial).in('pdv_codigo', codigos).order('data', { ascending: false })
-    : { data: [] as any[] }
-  const beesPorPdv = new Map<string, string | null>()
-  for (const b of bees ?? []) {
-    if (!beesPorPdv.has(String(b.pdv_codigo))) beesPorPdv.set(String(b.pdv_codigo), b.status)
-  }
 
   return linhas.map((l) => ({
     id: l.id,
@@ -330,7 +347,9 @@ export async function listarRelatos(filial: string): Promise<RelatoLinha[]> {
     dataRelato: l.data_relato,
     prazoVisita: l.prazo_visita,
     status: l.status as StatusRelato,
-    statusBees: beesPorPdv.has(l.codigo_pdv) ? traduzirStatusBees(beesPorPdv.get(l.codigo_pdv) ?? null) : null,
+    // "Status BEES" = coluna "status" (L) da própria planilha de relatos —
+    // não é join com outra tabela. Atualiza a cada reimportação.
+    statusBees: l.origem_status,
     reincidente: l.reincidente_apos != null,
     numeroOcorrencia: l.numero_ocorrencia ?? 1,
   }))
