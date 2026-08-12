@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown } from 'lucide-react'
+import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown, BarChart2, CalendarClock } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
   listarNiveisSubgrupo, salvarNivelSubgrupo, semearNiveisPadrao,
-  importarRelatosPdv, listarRelatos, marcarNaoCritico,
+  importarRelatosPdv, listarRelatos, marcarNaoCritico, encerrarComDataRetroativa,
+  carregarEstatisticasPdvCritico,
   NIVEL_LABEL, STATUS_LABEL, PRAZO_DIAS,
   type NivelSubgrupo, type NivelCriticidade, type RelatoLinha, type ResultadoImportRelatos,
+  type EstatisticasPdvCritico,
 } from '../lib/pdvSeguranca'
 
 const NIVEL_CSS: Record<NivelCriticidade, string> = {
@@ -20,6 +22,8 @@ const STATUS_CSS: Record<string, string> = {
   preenchido: 'bg-amber-50 text-amber-700',
   aprovado: 'bg-green-50 text-green-700',
   nao_critico: 'bg-slate-100 text-slate-500',
+  encerrado_historico: 'bg-slate-100 text-slate-500',
+  cancelado: 'bg-slate-100 text-slate-400 line-through',
 }
 // Status BEES = coluna "status" da própria planilha de relatos (ex.:
 // "CANCELED"). O vocabulário vem da fonte, não é fixo — colore por
@@ -84,8 +88,42 @@ function NaoCriticoModal({ onConfirmar, onFechar }: { onConfirmar: (justificativ
   )
 }
 
+function EncerrarHistoricoModal({ onConfirmar, onFechar }: { onConfirmar: (dataFechamento: string) => void; onFechar: () => void }) {
+  const [data, setData] = useState(() => new Date().toISOString().slice(0, 10))
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onFechar}>
+      <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-semibold text-sm mb-1">Encerrar (já resolvido)</h3>
+        <p className="text-xs text-muted-foreground mb-3">
+          Pra caso que chegou aberto/em andamento na origem mas já foi resolvido na prática antes de entrar no
+          fluxo — encerra sem checklist de visita. Pode escolher uma data retroativa.
+        </p>
+        <label className="block text-xs text-muted-foreground mb-1">Data de fechamento</label>
+        <input
+          type="date"
+          value={data}
+          max={new Date().toISOString().slice(0, 10)}
+          onChange={(e) => setData(e.target.value)}
+          className="w-full border rounded-lg px-3 py-2 text-sm mb-3"
+        />
+        <div className="flex gap-2 justify-end">
+          <button onClick={onFechar} className="text-sm px-3 py-1.5 rounded-lg border hover:bg-accent">Cancelar</button>
+          <button
+            disabled={!data}
+            onClick={() => onConfirmar(data)}
+            className="text-sm px-3 py-1.5 rounded-lg bg-green-600 text-white disabled:opacity-50 hover:bg-green-700"
+          >
+            Confirmar encerramento
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function SegurancaPdvCritico() {
   const { usuario } = useAuth()
+  const [aba, setAba] = useState<'painel' | 'analise'>('painel')
   const [niveis, setNiveis] = useState<NivelSubgrupo[]>([])
   const [carregandoNiveis, setCarregandoNiveis] = useState(true)
   const [configAberta, setConfigAberta] = useState(false)
@@ -98,6 +136,10 @@ export default function SegurancaPdvCritico() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [modalNaoCritico, setModalNaoCritico] = useState<string | null>(null)
+  const [modalEncerrar, setModalEncerrar] = useState<string | null>(null)
+
+  const [estatisticas, setEstatisticas] = useState<EstatisticasPdvCritico | null>(null)
+  const [carregandoEstatisticas, setCarregandoEstatisticas] = useState(false)
 
   const carregarNiveis = useCallback(async () => {
     if (!usuario) return
@@ -114,8 +156,16 @@ export default function SegurancaPdvCritico() {
     setCarregandoRelatos(false)
   }, [usuario])
 
+  const carregarEstatisticas = useCallback(async () => {
+    if (!usuario) return
+    setCarregandoEstatisticas(true)
+    setEstatisticas(await carregarEstatisticasPdvCritico(usuario.filial))
+    setCarregandoEstatisticas(false)
+  }, [usuario])
+
   useEffect(() => { carregarNiveis() }, [carregarNiveis])
   useEffect(() => { carregarRelatos() }, [carregarRelatos])
+  useEffect(() => { if (aba === 'analise' && !estatisticas) carregarEstatisticas() }, [aba, estatisticas, carregarEstatisticas])
 
   async function handleMudarNivel(subgrupo: string, nivel: NivelCriticidade) {
     if (!usuario) return
@@ -131,14 +181,16 @@ export default function SegurancaPdvCritico() {
     try {
       const r: ResultadoImportRelatos = await importarRelatosPdv(file, usuario.filial)
       setMsgImport(
-        `✅ ${r.seguranca} relato(s) de Segurança importado(s)` +
-        (r.reincidencias ? ` (${r.reincidencias} reincidência(s) — criticidade escalada automaticamente)` : '') +
+        `✅ ${r.seguranca} relato(s) de Segurança processado(s): ${r.ativos} novo(s) na fila de triagem` +
+        (r.fechadosHistorico ? `, ${r.fechadosHistorico} já vieram fechado(s) na origem (viram registro histórico, sem triagem)` : '') +
+        (r.canceladosNaOrigem ? `, ${r.canceladosNaOrigem} já vieram cancelado(s) na origem (só registro de análise)` : '') +
+        (r.reincidencias ? `. ${r.reincidencias} reincidência(s) — criticidade escalada automaticamente` : '') +
         `. ${r.outrasAreas} de outras áreas ignorado(s) (não entram nesse fluxo). ` +
-        `${r.jaExistiam} já existiam (Status BEES atualizado quando mudou; resto do caso preservado). ` +
-        (r.canceladosNaOrigem ? `${r.canceladosNaOrigem} novo(s) já cancelado(s) na origem, ignorado(s). ` : '') +
-        (r.semData ? `${r.semData} sem data reconhecida, ignorado(s).` : '')
+        `${r.jaExistiam} já existiam (Status BEES atualizado quando mudou; resto do caso preservado).` +
+        (r.semData ? ` ${r.semData} sem data reconhecida, ignorado(s).` : '')
       )
       await carregarRelatos()
+      setEstatisticas(null)
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao importar relatos')
     }
@@ -152,6 +204,15 @@ export default function SegurancaPdvCritico() {
     if (error) { setErro(error); return }
     setModalNaoCritico(null)
     await carregarRelatos()
+  }
+
+  async function handleEncerrar(id: string, dataFechamento: string) {
+    if (!usuario) return
+    const { error } = await encerrarComDataRetroativa(id, dataFechamento, usuario.nome ?? usuario.login)
+    if (error) { setErro(error); return }
+    setModalEncerrar(null)
+    await carregarRelatos()
+    setEstatisticas(null)
   }
 
   function handleAgendar() {
@@ -176,6 +237,27 @@ export default function SegurancaPdvCritico() {
 
       {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2">{erro}</div>}
 
+      <div className="flex gap-1 border-b">
+        {([
+          { valor: 'painel' as const, label: 'Painel operacional' },
+          { valor: 'analise' as const, label: 'Análise' },
+        ]).map((t) => (
+          <button
+            key={t.valor}
+            onClick={() => setAba(t.valor)}
+            className={`px-3 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
+              aba === t.valor ? 'border-accent-500 text-accent-700' : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {aba === 'analise' ? (
+        <AnaliseTab estatisticas={estatisticas} carregando={carregandoEstatisticas} />
+      ) : (
+      <>
       {/* ── Config: nível por subgrupo ─────────────────────────────── */}
       <div className="border rounded-lg bg-white">
         <button
@@ -325,6 +407,9 @@ export default function SegurancaPdvCritico() {
                           <button onClick={() => setModalNaoCritico(r.id)} className="text-[11px] text-muted-foreground hover:text-foreground hover:underline">
                             Não crítico
                           </button>
+                          <button onClick={() => setModalEncerrar(r.id)} className="text-[11px] text-muted-foreground hover:text-foreground hover:underline">
+                            Encerrar (já resolvido)
+                          </button>
                         </div>
                       )}
                     </td>
@@ -342,6 +427,109 @@ export default function SegurancaPdvCritico() {
           onConfirmar={(justificativa) => handleNaoCritico(modalNaoCritico, justificativa)}
         />
       )}
+      {modalEncerrar && (
+        <EncerrarHistoricoModal
+          onFechar={() => setModalEncerrar(null)}
+          onConfirmar={(dataFechamento) => handleEncerrar(modalEncerrar, dataFechamento)}
+        />
+      )}
+      </>
+      )}
+    </div>
+  )
+}
+
+function BarraHorizontal({ label, total, max }: { label: string; total: number; max: number }) {
+  const pct = max > 0 ? Math.round((total / max) * 100) : 0
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-40 shrink-0 truncate text-muted-foreground" title={label}>{label}</span>
+      <div className="flex-1 h-4 bg-slate-100 rounded overflow-hidden">
+        <div className="h-full bg-accent-500 rounded" style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-8 shrink-0 text-right font-semibold tabular-nums">{total}</span>
+    </div>
+  )
+}
+
+function AnaliseTab({ estatisticas, carregando }: { estatisticas: EstatisticasPdvCritico | null; carregando: boolean }) {
+  if (carregando || !estatisticas) {
+    return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+  }
+
+  const pctNoPrazo = estatisticas.totalFechados > 0
+    ? Math.round((estatisticas.fechadosNoPrazo / estatisticas.totalFechados) * 1000) / 10
+    : 0
+  const maxCancelSubgrupo = Math.max(1, ...estatisticas.canceladosPorSubgrupo.map((s) => s.total))
+  const maxCancelMes = Math.max(1, ...estatisticas.canceladosPorMes.map((m) => m.total))
+  const maxDiaSemana = Math.max(1, ...estatisticas.relatosPorDiaSemana.map((d) => d.total))
+  const totalCancelados = estatisticas.canceladosPorSubgrupo.reduce((acc, s) => acc + s.total, 0)
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="border rounded-xl bg-white p-3">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1">
+            <CalendarClock className="h-3 w-3" /> Fechados
+          </p>
+          <p className="text-xl font-bold leading-tight">{estatisticas.totalFechados}</p>
+        </div>
+        <div className="border rounded-xl bg-green-50 p-3">
+          <p className="text-[11px] font-semibold text-green-700 uppercase tracking-wide">No prazo</p>
+          <p className="text-xl font-bold leading-tight text-green-700">{pctNoPrazo}%</p>
+          <p className="text-[11px] text-green-700/80">{estatisticas.fechadosNoPrazo} caso(s)</p>
+        </div>
+        <div className="border rounded-xl bg-red-50 p-3">
+          <p className="text-[11px] font-semibold text-red-700 uppercase tracking-wide">Fora do prazo</p>
+          <p className="text-xl font-bold leading-tight text-red-700">{estatisticas.fechadosForaPrazo}</p>
+        </div>
+        <div className="border rounded-xl bg-white p-3">
+          <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Cancelados (origem)</p>
+          <p className="text-xl font-bold leading-tight">{totalCancelados}</p>
+        </div>
+      </div>
+      {estatisticas.fechadosSemPrazo > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {estatisticas.fechadosSemPrazo} caso(s) fechado(s) sem prazo/data de fechamento reconhecidos na origem — fora do cálculo de % no prazo.
+        </p>
+      )}
+
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="border rounded-xl bg-white p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Cancelados por subgrupo</h3>
+          {estatisticas.canceladosPorSubgrupo.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nenhum cancelamento no histórico.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {estatisticas.canceladosPorSubgrupo.map((s) => (
+                <BarraHorizontal key={s.subgrupo} label={s.subgrupo} total={s.total} max={maxCancelSubgrupo} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="border rounded-xl bg-white p-4">
+          <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Cancelados por mês</h3>
+          {estatisticas.canceladosPorMes.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nenhum cancelamento no histórico.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {estatisticas.canceladosPorMes.map((m) => (
+                <BarraHorizontal key={m.mes} label={m.mes} total={m.total} max={maxCancelMes} />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="border rounded-xl bg-white p-4">
+        <h3 className="text-sm font-semibold mb-3 flex items-center gap-1.5"><BarChart2 className="h-4 w-4 text-primary" /> Relatos por dia da semana</h3>
+        <div className="space-y-1.5">
+          {estatisticas.relatosPorDiaSemana.map((d) => (
+            <BarraHorizontal key={d.diaSemana} label={d.diaSemana} total={d.total} max={maxDiaSemana} />
+          ))}
+        </div>
+      </div>
     </div>
   )
 }

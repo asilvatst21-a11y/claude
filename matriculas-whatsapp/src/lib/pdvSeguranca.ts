@@ -10,7 +10,10 @@ import { supabase } from './supabase'
 
 export type NivelCriticidade = 'alto' | 'medio' | 'leve'
 export type NivelMedido = NivelCriticidade | 'conforme'
-export type StatusRelato = 'aguardando_triagem' | 'agendado' | 'preenchido' | 'aprovado' | 'nao_critico'
+export type StatusRelato =
+  | 'aguardando_triagem' | 'agendado' | 'preenchido' | 'aprovado' | 'nao_critico'
+  | 'encerrado_historico'  // CLOSED na origem (ou encerrado manualmente com data retroativa) — nunca passou por visita
+  | 'cancelado'             // CANCELED na origem — só registro de análise, nunca vira caso
 
 export const NIVEL_LABEL: Record<NivelCriticidade, string> = { alto: 'NC Alto', medio: 'NC Médio', leve: 'NC Leve' }
 export const NIVEL_MEDIDO_LABEL: Record<NivelMedido, string> = { alto: 'NC Alto', medio: 'NC Médio', leve: 'NC Leve', conforme: 'Conforme' }
@@ -20,7 +23,13 @@ export const STATUS_LABEL: Record<StatusRelato, string> = {
   preenchido: 'Aguarda finalização',
   aprovado: 'Encerrado',
   nao_critico: 'Não crítico · sem visita',
+  encerrado_historico: 'Encerrado (histórico)',
+  cancelado: 'Cancelado na origem',
 }
+
+// Status que não entram na fila operacional — só existem pra análise
+// (histórico importado ou registro de cancelamento da origem).
+const STATUS_FORA_DO_PAINEL: StatusRelato[] = ['encerrado_historico', 'cancelado']
 
 // Prazo da visita a partir do nível inicial — editável no código até
 // virar tela de configuração própria; hoje reflete o mockup aprovado.
@@ -52,6 +61,32 @@ function normalize(value: unknown): string {
 // normalizado "seguranca", e todo relato caía em "outras áreas").
 const CATEGORIA_SEGURANCA = normalize('Segurança')
 
+// A planilha de origem grafa o mesmo subgrupo de formas diferentes (ex.:
+// "Rampa irregular" vs "Acesso / Escada / Rampa irregular") — sem
+// canonicalizar, cada variação vira uma "categoria" nova sem nível
+// configurado e a criticidade nunca é aplicada. Casa por pedaço (o nome
+// costuma vir separado por "/"): se qualquer pedaço do nome bruto bate
+// (igual ou contido) com qualquer pedaço de um subgrupo já cadastrado,
+// usa o nome canônico já cadastrado em vez do bruto.
+function pedacosDoSubgrupo(s: string): string[] {
+  return normalize(s).split('/').map((p) => p.trim()).filter(Boolean)
+}
+
+function canonicalizarSubgrupo(bruto: string, canonicos: string[]): string {
+  const brutoNorm = normalize(bruto)
+  for (const c of canonicos) {
+    if (normalize(c) === brutoNorm) return c
+  }
+  const brutoPedacos = pedacosDoSubgrupo(bruto)
+  for (const c of canonicos) {
+    const cPedacos = pedacosDoSubgrupo(c)
+    if (cPedacos.some((cp) => brutoPedacos.some((bp) => bp === cp || bp.includes(cp) || cp.includes(bp)))) {
+      return c
+    }
+  }
+  return bruto
+}
+
 // Célula de data real do Excel: extrai ano/mês/dia em UTC (seguro pra
 // datas de calendário normais — o deslocamento por fuso só afeta células
 // de HORÁRIO puro ancoradas em 1899, não datas reais como esta).
@@ -80,6 +115,8 @@ export interface RelatoImportado {
   relatoMotorista: string | null
   dataRelato: string | null
   origemStatus: string | null
+  prazoOrigem: string | null
+  ultimaAtualizacao: string | null
 }
 
 /**
@@ -102,6 +139,8 @@ export function parseRelatosPdvBuffer(buffer: ArrayBuffer): RelatoImportado[] {
   const relatoIdx = header.findIndex((c) => c.includes('relato_motorista') || c.includes('relato motorista'))
   const dataIdx = header.findIndex((c) => c.includes('data_de_criacao') || c.includes('data de criacao'))
   const statusIdx = header.indexOf('status')
+  const prazoIdx = header.indexOf('prazo')
+  const ultimaAtualizacaoIdx = header.findIndex((c) => c.includes('ultima_atualizacao') || c.includes('ultima atualizacao'))
   if (pdvIdx === -1 || categoriaIdx === -1 || subcatIdx === -1) return []
 
   const out: RelatoImportado[] = []
@@ -119,6 +158,8 @@ export function parseRelatosPdvBuffer(buffer: ArrayBuffer): RelatoImportado[] {
       relatoMotorista: relatoIdx !== -1 ? String(row[relatoIdx] ?? '').trim() || null : null,
       dataRelato: dataIdx !== -1 ? excelDateParaISO(row[dataIdx]) : null,
       origemStatus: statusIdx !== -1 ? String(row[statusIdx] ?? '').trim() || null : null,
+      prazoOrigem: prazoIdx !== -1 ? excelDateParaISO(row[prazoIdx]) : null,
+      ultimaAtualizacao: ultimaAtualizacaoIdx !== -1 ? excelDateParaISO(row[ultimaAtualizacaoIdx]) : null,
     })
   }
   return out
@@ -169,7 +210,9 @@ function somarDias(dataISO: string, dias: number): string {
 }
 
 export interface ResultadoImportRelatos {
-  seguranca: number
+  seguranca: number         // total de novos relatos de Segurança processados (ativos + históricos + cancelados)
+  ativos: number            // entraram na fila operacional (aguardando triagem)
+  fechadosHistorico: number // já vieram CLOSED na origem — vira registro fechado, sem triagem, só análise
   outrasAreas: number
   jaExistiam: number
   semData: number
@@ -192,7 +235,14 @@ function escalarNivel(nivel: NivelCriticidade): NivelCriticidade {
  * reimportação. A única coisa que É atualizada num relato já existente é
  * o "Status BEES" (coluna "status" da própria planilha, que reflete o
  * estado no sistema de origem e pode mudar a cada reimportação).
- * Relatos novos já cancelados na origem não viram caso pendente aqui.
+ *
+ * Relatos NOVOS que já chegam CANCELED ou CLOSED na origem nunca entram
+ * na fila operacional (nunca viram "aguardando triagem"): CANCELED vira
+ * um registro terminal 'cancelado' e CLOSED vira 'encerrado_historico' —
+ * ambos gravados só pra alimentar a análise (% cancelado por subgrupo/mês,
+ * % fechado no prazo usando prazo/ultima_atualizacao da própria planilha).
+ * Só OPEN/IN_PROGRESS (ou qualquer status desconhecido) abrem triagem de
+ * verdade.
  *
  * Reincidência: quando o mesmo PDV+subgrupo já teve um caso APROVADO
  * (concluído) antes da data deste novo relato, é sinal de que a
@@ -205,15 +255,18 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
   if (linhas.length === 0) throw new Error('Nenhum relato reconhecido na planilha.')
 
   const niveis = new Map((await listarNiveisSubgrupo(filial)).map((n) => [n.subgrupo, n.nivel]))
+  const subgruposCanonicos = [...niveis.keys()]
 
   const resultado: ResultadoImportRelatos = {
-    seguranca: 0, outrasAreas: 0, jaExistiam: 0, semData: 0, canceladosNaOrigem: 0, reincidencias: 0,
+    seguranca: 0, ativos: 0, fechadosHistorico: 0, outrasAreas: 0, jaExistiam: 0, semData: 0, canceladosNaOrigem: 0, reincidencias: 0,
   }
-  const candidatasComRepetidas = linhas.filter((l) => {
-    if (normalize(l.categoria) !== CATEGORIA_SEGURANCA) { resultado.outrasAreas++; return false }
-    if (!l.dataRelato) { resultado.semData++; return false }
-    return true
-  })
+  const candidatasComRepetidas = linhas
+    .filter((l) => {
+      if (normalize(l.categoria) !== CATEGORIA_SEGURANCA) { resultado.outrasAreas++; return false }
+      if (!l.dataRelato) { resultado.semData++; return false }
+      return true
+    })
+    .map((l) => ({ ...l, subgrupo: canonicalizarSubgrupo(l.subgrupo, subgruposCanonicos) }))
   if (candidatasComRepetidas.length === 0) return resultado
 
   // A planilha de origem traz o mesmo relato repetido em mais de uma linha
@@ -252,21 +305,6 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
     )
   }
 
-  // Relatos NOVOS que já chegam cancelados na origem não viram caso
-  // pendente aqui — não faz sentido abrir uma triagem pra algo que a
-  // própria fonte já cancelou. (Um relato já existente que vira
-  // cancelado depois só teve o Status BEES atualizado acima, não é
-  // ignorado — o caso continua existindo pra auditoria.)
-  const novasAtivas = novas.filter((l) => {
-    if (normalize(l.origemStatus) === 'canceled' || normalize(l.origemStatus) === 'cancelado') {
-      resultado.canceladosNaOrigem++
-      resultado.seguranca--
-      return false
-    }
-    return true
-  })
-  if (novasAtivas.length === 0) return resultado
-
   const historicoPorChave = new Map<string, typeof historicoRaw>()
   for (const h of historicoRaw ?? []) {
     const chave = `${h.codigo_pdv}|${h.subgrupo}`
@@ -275,7 +313,15 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
     historicoPorChave.set(chave, lista as any)
   }
 
-  const rows = novasAtivas.map((l) => {
+  // Relatos NOVOS que já chegam CANCELED/CLOSED na origem nunca abrem
+  // triagem — viram registro terminal (cancelado / encerrado_historico)
+  // gravado só pra alimentar a análise. OPEN/IN_PROGRESS (ou status
+  // desconhecido) seguem pro fluxo normal de triagem.
+  const rows = novas.map((l) => {
+    const origemNorm = normalize(l.origemStatus)
+    const isCancelado = origemNorm === 'canceled' || origemNorm === 'cancelado'
+    const isFechadoHistorico = origemNorm === 'closed'
+
     const chave = `${l.codigoPdv}|${l.subgrupo}`
     const historico = (historicoPorChave.get(chave) ?? []) as { id: string; status: string; finalizado_em: string | null }[]
     const ultimoAprovado = historico
@@ -288,6 +334,10 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
       if (nivel) nivel = escalarNivel(nivel)
     }
 
+    if (isCancelado) resultado.canceladosNaOrigem++
+    else if (isFechadoHistorico) resultado.fechadosHistorico++
+    else resultado.ativos++
+
     return {
       filial,
       codigo_pdv: l.codigoPdv,
@@ -297,9 +347,11 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
       relato_motorista: l.relatoMotorista,
       data_relato: l.dataRelato,
       origem_status: l.origemStatus,
+      prazo_origem: l.prazoOrigem,
       nivel_inicial: nivel,
       prazo_visita: nivel ? somarDias(l.dataRelato!, PRAZO_DIAS[nivel]) : null,
-      status: 'aguardando_triagem' as const,
+      status: isCancelado ? ('cancelado' as const) : isFechadoHistorico ? ('encerrado_historico' as const) : ('aguardando_triagem' as const),
+      finalizado_em: (isCancelado || isFechadoHistorico) ? (l.ultimaAtualizacao ?? l.dataRelato) : null,
       reincidente_apos: ultimoAprovado?.id ?? null,
       numero_ocorrencia: historico.length + 1,
     }
@@ -328,11 +380,14 @@ export interface RelatoLinha {
   numeroOcorrencia: number
 }
 
+// Painel operacional: nunca mostra histórico importado/cancelado da
+// origem (poderiam ser milhares de linhas) — isso vive só na análise.
 export async function listarRelatos(filial: string): Promise<RelatoLinha[]> {
   const { data, error } = await supabase
     .from('pdv_seguranca_relatos')
     .select('id, codigo_pdv, subgrupo, nivel_inicial, nivel_medido, codigo_motorista, data_relato, prazo_visita, status, reincidente_apos, numero_ocorrencia, origem_status')
     .eq('filial', filial)
+    .not('status', 'in', `(${STATUS_FORA_DO_PAINEL.join(',')})`)
     .order('data_relato', { ascending: false })
     .limit(300)
   if (error) { console.error('listarRelatos error:', error.message); return [] }
@@ -367,4 +422,94 @@ export async function marcarNaoCritico(id: string, justificativa: string, decidi
     })
     .eq('id', id)
   return { error: error?.message ?? null }
+}
+
+// Encerramento manual retroativo: caso o relato tenha chegado OPEN/
+// IN_PROGRESS na origem mas já tenha sido resolvido na prática antes de
+// entrar no fluxo, dá pra encerrar direto (sem checklist de visita) com
+// uma data de fechamento escolhida — inclusive no passado.
+export async function encerrarComDataRetroativa(id: string, dataFechamentoISO: string, decididoPor: string): Promise<{ error: string | null }> {
+  if (!dataFechamentoISO) return { error: 'Data de fechamento é obrigatória.' }
+  const { error } = await supabase
+    .from('pdv_seguranca_relatos')
+    .update({
+      status: 'encerrado_historico',
+      finalizado_em: `${dataFechamentoISO}T00:00:00`,
+      finalizado_por: decididoPor,
+    })
+    .eq('id', id)
+  return { error: error?.message ?? null }
+}
+
+// ── Dashboard de análise ─────────────────────────────────────────────────
+// Cobre o que fica de fora do painel operacional: relatos já fechados
+// (aprovado/encerrado_historico, no prazo × fora do prazo usando prazo/
+// ultima_atualizacao da própria planilha) e cancelados na origem
+// (por subgrupo e por mês), além do dia da semana que mais recebe relato
+// (todos os status, não só os fechados/cancelados).
+
+const DIAS_SEMANA_LABEL = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado']
+
+export interface EstatisticasPdvCritico {
+  totalFechados: number
+  fechadosNoPrazo: number
+  fechadosForaPrazo: number
+  fechadosSemPrazo: number
+  canceladosPorSubgrupo: { subgrupo: string; total: number }[]
+  canceladosPorMes: { mes: string; total: number }[]
+  relatosPorDiaSemana: { diaSemana: string; total: number }[]
+}
+
+export async function carregarEstatisticasPdvCritico(filial: string): Promise<EstatisticasPdvCritico> {
+  const vazio: EstatisticasPdvCritico = {
+    totalFechados: 0, fechadosNoPrazo: 0, fechadosForaPrazo: 0, fechadosSemPrazo: 0,
+    canceladosPorSubgrupo: [], canceladosPorMes: [],
+    relatosPorDiaSemana: DIAS_SEMANA_LABEL.map((diaSemana) => ({ diaSemana, total: 0 })),
+  }
+  // O PostgREST corta em 1000 linhas por página — com milhares de relatos
+  // históricos, um único select() perderia o resto silenciosamente.
+  type LinhaEstat = { subgrupo: string; status: string; data_relato: string; prazo_origem: string | null; finalizado_em: string | null }
+  const PAGINA = 1000
+  const linhas: LinhaEstat[] = []
+  for (let inicio = 0; ; inicio += PAGINA) {
+    const { data, error } = await supabase
+      .from('pdv_seguranca_relatos')
+      .select('subgrupo, status, data_relato, prazo_origem, finalizado_em')
+      .eq('filial', filial)
+      .range(inicio, inicio + PAGINA - 1)
+    if (error) { console.error('carregarEstatisticasPdvCritico error:', error.message); return vazio }
+    linhas.push(...(data ?? []))
+    if (!data || data.length < PAGINA) break
+  }
+
+  let fechadosNoPrazo = 0, fechadosForaPrazo = 0, fechadosSemPrazo = 0
+  const fechados = linhas.filter((l) => l.status === 'aprovado' || l.status === 'encerrado_historico')
+  for (const l of fechados) {
+    if (!l.prazo_origem || !l.finalizado_em) { fechadosSemPrazo++; continue }
+    const fechamento = String(l.finalizado_em).slice(0, 10)
+    if (fechamento <= l.prazo_origem) fechadosNoPrazo++
+    else fechadosForaPrazo++
+  }
+
+  const subgrupoMap = new Map<string, number>()
+  const mesMap = new Map<string, number>()
+  for (const l of linhas.filter((l) => l.status === 'cancelado')) {
+    subgrupoMap.set(l.subgrupo, (subgrupoMap.get(l.subgrupo) ?? 0) + 1)
+    const mes = String(l.data_relato).slice(0, 7)
+    mesMap.set(mes, (mesMap.get(mes) ?? 0) + 1)
+  }
+
+  const diaSemanaTotais = new Array(7).fill(0)
+  for (const l of linhas) {
+    if (!l.data_relato) continue
+    diaSemanaTotais[new Date(`${l.data_relato}T00:00:00Z`).getUTCDay()]++
+  }
+
+  return {
+    totalFechados: fechados.length,
+    fechadosNoPrazo, fechadosForaPrazo, fechadosSemPrazo,
+    canceladosPorSubgrupo: [...subgrupoMap.entries()].map(([subgrupo, total]) => ({ subgrupo, total })).sort((a, b) => b.total - a.total),
+    canceladosPorMes: [...mesMap.entries()].map(([mes, total]) => ({ mes, total })).sort((a, b) => a.mes.localeCompare(b.mes)),
+    relatosPorDiaSemana: DIAS_SEMANA_LABEL.map((diaSemana, i) => ({ diaSemana, total: diaSemanaTotais[i] })),
+  }
 }
