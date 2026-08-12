@@ -113,6 +113,7 @@ export interface RelatoImportado {
   subgrupo: string
   codigoMotorista: string | null
   relatoMotorista: string | null
+  instrucaoRegistrada: string | null
   dataRelato: string | null
   origemStatus: string | null
   prazoOrigem: string | null
@@ -137,6 +138,7 @@ export function parseRelatosPdvBuffer(buffer: ArrayBuffer): RelatoImportado[] {
   const subcatIdx = header.findIndex((c) => c.includes('subcategoria'))
   const motoristaIdx = header.findIndex((c) => c.includes('codigo_motorista') || c.includes('codigo motorista'))
   const relatoIdx = header.findIndex((c) => c.includes('relato_motorista') || c.includes('relato motorista'))
+  const instrucaoIdx = header.findIndex((c) => c.includes('instrucao'))
   const dataIdx = header.findIndex((c) => c.includes('data_de_criacao') || c.includes('data de criacao'))
   const statusIdx = header.indexOf('status')
   // Match "solto" — a coluna de prazo na planilha de origem nem sempre se
@@ -160,6 +162,7 @@ export function parseRelatosPdvBuffer(buffer: ArrayBuffer): RelatoImportado[] {
       subgrupo,
       codigoMotorista: motoristaIdx !== -1 ? String(row[motoristaIdx] ?? '').trim() || null : null,
       relatoMotorista: relatoIdx !== -1 ? String(row[relatoIdx] ?? '').trim() || null : null,
+      instrucaoRegistrada: instrucaoIdx !== -1 ? String(row[instrucaoIdx] ?? '').trim() || null : null,
       dataRelato: dataIdx !== -1 ? excelDateParaISO(row[dataIdx]) : null,
       origemStatus: statusIdx !== -1 ? String(row[statusIdx] ?? '').trim() || null : null,
       prazoOrigem: prazoIdx !== -1 ? excelDateParaISO(row[prazoIdx]) : null,
@@ -283,7 +286,7 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
 
   const codigosPdv = [...new Set(candidatas.map((l) => l.codigoPdv))]
   const [{ data: existentesRaw }, { data: historicoRaw }] = await Promise.all([
-    supabase.from('pdv_seguranca_relatos').select('id, codigo_pdv, subgrupo, data_relato, origem_status, status, prazo_origem')
+    supabase.from('pdv_seguranca_relatos').select('id, codigo_pdv, subgrupo, data_relato, origem_status, status, prazo_origem, instrucao_registrada')
       .eq('filial', filial).in('codigo_pdv', codigosPdv),
     // Histórico completo (qualquer status) desses PDVs — usado tanto pra
     // contar a ocorrência quanto pra achar o último caso já aprovado.
@@ -318,10 +321,12 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
     .filter((x) => {
       if (!x.existente) return false
       if (x.existente.origem_status !== x.l.origemStatus) return true
-      // prazo_origem só passou a ser gravado depois — relato antigo (ou já
-      // reclassificado num deploy anterior a essa correção) pode estar sem
-      // ele mesmo já tendo o dado na planilha agora. Backfilla.
+      // prazo_origem/instrucao_registrada só passaram a ser gravados
+      // depois — relato antigo (ou já reclassificado num deploy anterior a
+      // essa correção) pode estar sem eles mesmo já tendo o dado na
+      // planilha agora. Backfilla.
       if (!x.existente.prazo_origem && x.l.prazoOrigem) return true
+      if (!x.existente.instrucao_registrada && x.l.instrucaoRegistrada) return true
       // Status BEES já bate com a última reimportação, mas se o caso
       // ainda está preso em "aguardando_triagem" apesar da origem já
       // mostrar CANCELED/CLOSED, precisa tentar reclassificar de novo
@@ -342,7 +347,7 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
         // atualizar aqui, um relato reclassificado ficava com prazo_origem
         // nulo pra sempre (ele foi gravado antes desse campo existir) e
         // caía em "sem prazo", nunca entrando no % fechado no prazo/fora.
-        const patch: Record<string, unknown> = { origem_status: l.origemStatus, prazo_origem: l.prazoOrigem }
+        const patch: Record<string, unknown> = { origem_status: l.origemStatus, prazo_origem: l.prazoOrigem, instrucao_registrada: l.instrucaoRegistrada }
         if (existente!.status === 'aguardando_triagem' && (isCancelado || isFechadoHistorico)) {
           patch.status = isCancelado ? 'cancelado' : 'encerrado_historico'
           patch.finalizado_em = l.ultimaAtualizacao ?? l.dataRelato
@@ -400,6 +405,7 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
       subgrupo: l.subgrupo,
       codigo_motorista: l.codigoMotorista,
       relato_motorista: l.relatoMotorista,
+      instrucao_registrada: l.instrucaoRegistrada,
       data_relato: l.dataRelato,
       origem_status: l.origemStatus,
       prazo_origem: l.prazoOrigem,
@@ -511,8 +517,11 @@ export interface LinhaAnaliseRelato {
   codigoPdv: string
   subgrupo: string
   status: string
+  origemStatus: string | null
   nivel: NivelCriticidade | null
   codigoMotorista: string | null
+  relatoMotorista: string | null
+  instrucaoRegistrada: string | null
   reincidente: boolean
   dataRelato: string | null
   prazoOrigem: string | null
@@ -524,9 +533,10 @@ export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnali
   // O PostgREST corta em 1000 linhas por página — com milhares de relatos
   // históricos, um único select() perderia o resto silenciosamente.
   type LinhaRaw = {
-    codigo_pdv: string; subgrupo: string; status: string
+    codigo_pdv: string; subgrupo: string; status: string; origem_status: string | null
     nivel_inicial: NivelCriticidade | null; nivel_medido: NivelCriticidade | null
-    codigo_motorista: string | null; reincidente_apos: string | null
+    codigo_motorista: string | null; relato_motorista: string | null; instrucao_registrada: string | null
+    reincidente_apos: string | null
     data_relato: string | null; prazo_origem: string | null; finalizado_em: string | null
     justificativa_nao_critico: string | null
   }
@@ -535,7 +545,7 @@ export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnali
   for (let inicio = 0; ; inicio += PAGINA) {
     const { data, error } = await supabase
       .from('pdv_seguranca_relatos')
-      .select('codigo_pdv, subgrupo, status, nivel_inicial, nivel_medido, codigo_motorista, reincidente_apos, data_relato, prazo_origem, finalizado_em, justificativa_nao_critico')
+      .select('codigo_pdv, subgrupo, status, origem_status, nivel_inicial, nivel_medido, codigo_motorista, relato_motorista, instrucao_registrada, reincidente_apos, data_relato, prazo_origem, finalizado_em, justificativa_nao_critico')
       .eq('filial', filial)
       .range(inicio, inicio + PAGINA - 1)
     if (error) { console.error('carregarRelatosAnalise error:', error.message); break }
@@ -543,9 +553,10 @@ export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnali
     if (!data || data.length < PAGINA) break
   }
   return linhas.map((l) => ({
-    codigoPdv: l.codigo_pdv, subgrupo: l.subgrupo, status: l.status,
+    codigoPdv: l.codigo_pdv, subgrupo: l.subgrupo, status: l.status, origemStatus: l.origem_status,
     nivel: l.nivel_medido ?? l.nivel_inicial,
-    codigoMotorista: l.codigo_motorista, reincidente: l.reincidente_apos != null,
+    codigoMotorista: l.codigo_motorista, relatoMotorista: l.relato_motorista, instrucaoRegistrada: l.instrucao_registrada,
+    reincidente: l.reincidente_apos != null,
     dataRelato: l.data_relato, prazoOrigem: l.prazo_origem, finalizadoEm: l.finalizado_em,
     justificativaNaoCritico: l.justificativa_nao_critico,
   }))
@@ -562,8 +573,15 @@ function normalizarMatricula(s: string): string {
 // — mesmo padrão de lookup usado em statusAtivo.ts/frota.ts/farolCriticos.ts.
 // Base histórica extensa pode trazer matrículas que não existem (ou ainda
 // não foram cadastradas) em Colaboradores — nesse caso cai em "sem nome".
-export async function buscarNomesColaboradoresPorMatricula(filial: string): Promise<Map<string, string>> {
-  const { data, error } = await supabase.from('colaboradores').select('matricula, nome').eq('filial', filial)
+//
+// Busca SEM filtrar por filial de propósito: a matrícula (código do
+// motorista) da planilha de relato do PDV Crítico vem de um sistema de
+// origem próprio, cujo código de filial/regional pode não bater com o
+// valor de filial usado neste app — confirmado na prática (matrícula
+// certamente cadastrada em Colaboradores não batia por causa disso).
+// Matrícula de RH é única o suficiente pra buscar sem esse filtro.
+export async function buscarNomesColaboradoresPorMatricula(): Promise<Map<string, string>> {
+  const { data, error } = await supabase.from('colaboradores').select('matricula, nome')
   if (error) { console.error('buscarNomesColaboradoresPorMatricula error:', error.message); return new Map() }
   const mapa = new Map<string, string>()
   for (const c of data ?? []) {

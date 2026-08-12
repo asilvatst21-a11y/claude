@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown, BarChart2, CalendarClock, Users, Trophy } from 'lucide-react'
+import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown, BarChart2, CalendarClock, Users, Trophy, Search, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
@@ -125,7 +125,7 @@ function EncerrarHistoricoModal({ onConfirmar, onFechar }: { onConfirmar: (dataF
 
 export default function SegurancaPdvCritico() {
   const { usuario } = useAuth()
-  const [aba, setAba] = useState<'painel' | 'analise'>('painel')
+  const [aba, setAba] = useState<'painel' | 'analise' | 'lista'>('painel')
   const [niveis, setNiveis] = useState<NivelSubgrupo[]>([])
   const [carregandoNiveis, setCarregandoNiveis] = useState(true)
   const [configAberta, setConfigAberta] = useState(false)
@@ -166,7 +166,7 @@ export default function SegurancaPdvCritico() {
     setCarregandoAnalise(true)
     const [linhas, nomes] = await Promise.all([
       carregarRelatosAnalise(usuario.filial),
-      buscarNomesColaboradoresPorMatricula(usuario.filial),
+      buscarNomesColaboradoresPorMatricula(),
     ])
     setAnaliseLinhas(linhas)
     setNomePorMatricula(nomes)
@@ -175,7 +175,7 @@ export default function SegurancaPdvCritico() {
 
   useEffect(() => { carregarNiveis() }, [carregarNiveis])
   useEffect(() => { carregarRelatos() }, [carregarRelatos])
-  useEffect(() => { if (aba === 'analise' && !analiseLinhas) carregarAnalise() }, [aba, analiseLinhas, carregarAnalise])
+  useEffect(() => { if ((aba === 'analise' || aba === 'lista') && !analiseLinhas) carregarAnalise() }, [aba, analiseLinhas, carregarAnalise])
 
   const estatisticas = useMemo(
     () => analiseLinhas ? calcularEstatisticasPdvCritico(analiseLinhas, { ano: filtroAno, mes: filtroMes }, nomePorMatricula) : null,
@@ -257,6 +257,7 @@ export default function SegurancaPdvCritico() {
         {([
           { valor: 'painel' as const, label: 'Painel operacional' },
           { valor: 'analise' as const, label: 'Análise' },
+          { valor: 'lista' as const, label: 'Lista completa' },
         ]).map((t) => (
           <button
             key={t.valor}
@@ -278,6 +279,12 @@ export default function SegurancaPdvCritico() {
           filtroMes={filtroMes}
           onFiltroAno={setFiltroAno}
           onFiltroMes={setFiltroMes}
+        />
+      ) : aba === 'lista' ? (
+        <ListaCompletaTab
+          linhas={analiseLinhas}
+          carregando={carregandoAnalise}
+          nomePorMatricula={nomePorMatricula}
         />
       ) : (
       <>
@@ -887,6 +894,138 @@ function AnaliseTab({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function normalizarMatriculaLista(s: string): string {
+  return s.trim().replace(/^0+/, '') || '0'
+}
+
+const PAGINA_LISTA = 50
+
+function ListaCompletaTab({
+  linhas, carregando, nomePorMatricula,
+}: {
+  linhas: LinhaAnaliseRelato[] | null
+  carregando: boolean
+  nomePorMatricula: Map<string, string>
+}) {
+  const [busca, setBusca] = useState('')
+  const [statusFiltro, setStatusFiltro] = useState('')
+  const [pagina, setPagina] = useState(1)
+
+  const filtradas = useMemo(() => {
+    if (!linhas) return []
+    const buscaNorm = busca.trim().toLowerCase()
+    return linhas.filter((l) => {
+      if (statusFiltro && l.status !== statusFiltro) return false
+      if (!buscaNorm) return true
+      return l.codigoPdv.toLowerCase().includes(buscaNorm) || l.subgrupo.toLowerCase().includes(buscaNorm)
+    })
+  }, [linhas, busca, statusFiltro])
+
+  const totalPaginas = Math.max(1, Math.ceil(filtradas.length / PAGINA_LISTA))
+  const paginaAtual = Math.min(pagina, totalPaginas)
+  const pagina0 = (paginaAtual - 1) * PAGINA_LISTA
+  const visiveis = filtradas.slice(pagina0, pagina0 + PAGINA_LISTA)
+
+  const statusOptions = useMemo(() => [...new Set((linhas ?? []).map((l) => l.status))].sort(), [linhas])
+
+  if (carregando || !linhas) {
+    return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-3 border rounded-lg bg-white p-3">
+        <div className="flex-1 min-w-[220px]">
+          <label className="block text-xs text-muted-foreground mb-1">Buscar por PDV ou subgrupo</label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+            <input
+              type="text"
+              value={busca}
+              onChange={(e) => { setBusca(e.target.value); setPagina(1) }}
+              placeholder="Ex.: 279861 ou rampa"
+              className="w-full border rounded-md pl-8 pr-2 py-1.5 text-sm"
+            />
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs text-muted-foreground mb-1">Status</label>
+          <select
+            value={statusFiltro}
+            onChange={(e) => { setStatusFiltro(e.target.value); setPagina(1) }}
+            className="border rounded-md px-2 py-1.5 text-sm"
+          >
+            <option value="">Todos</option>
+            {statusOptions.map((s) => <option key={s} value={s}>{STATUS_LABEL[s as keyof typeof STATUS_LABEL] ?? s}</option>)}
+          </select>
+        </div>
+        <span className="text-xs text-muted-foreground ml-auto">{filtradas.length} relato(s) no filtro</span>
+      </div>
+
+      <div className="border rounded-xl bg-white shadow-sm overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50">
+            <tr className="text-left text-muted-foreground border-b">
+              <th className="py-2 px-3">PDV</th>
+              <th className="py-2 px-3">Subgrupo</th>
+              <th className="py-2 px-3">Nível</th>
+              <th className="py-2 px-3">Relato do motorista</th>
+              <th className="py-2 px-3">Instrução registrada</th>
+              <th className="py-2 px-3">Status BEES</th>
+              <th className="py-2 px-3">Status</th>
+              <th className="py-2 px-3">Motorista</th>
+              <th className="py-2 px-3">Data</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {visiveis.length === 0 ? (
+              <tr><td colSpan={9} className="text-center py-8 text-muted-foreground">Nenhum relato no filtro.</td></tr>
+            ) : visiveis.map((l, i) => {
+              const matricula = l.codigoMotorista ? normalizarMatriculaLista(l.codigoMotorista) : null
+              const nomeMotorista = matricula ? nomePorMatricula.get(matricula) : null
+              return (
+                <tr key={`${l.codigoPdv}-${l.subgrupo}-${l.dataRelato}-${i}`} className="hover:bg-slate-50 align-top">
+                  <td className="py-2 px-3 font-semibold tabular-nums whitespace-nowrap">{l.codigoPdv}</td>
+                  <td className="py-2 px-3 max-w-[160px]">{l.subgrupo}</td>
+                  <td className="py-2 px-3 whitespace-nowrap">{l.nivel ? (NIVEL_LABEL[l.nivel] ?? l.nivel) : '—'}</td>
+                  <td className="py-2 px-3 max-w-[220px]">{l.relatoMotorista || '—'}</td>
+                  <td className="py-2 px-3 max-w-[220px]">{l.instrucaoRegistrada || '—'}</td>
+                  <td className="py-2 px-3 whitespace-nowrap">{l.origemStatus || '—'}</td>
+                  <td className="py-2 px-3 whitespace-nowrap">{STATUS_LABEL[l.status as keyof typeof STATUS_LABEL] ?? l.status}</td>
+                  <td className="py-2 px-3 whitespace-nowrap">
+                    {matricula ? (nomeMotorista || `Matrícula ${matricula} (sem nome cadastrado)`) : '—'}
+                  </td>
+                  <td className="py-2 px-3 whitespace-nowrap">{formatarDataBR(l.dataRelato)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {filtradas.length > PAGINA_LISTA && (
+        <div className="flex items-center justify-center gap-3 text-sm">
+          <button
+            onClick={() => setPagina((p) => Math.max(1, p - 1))}
+            disabled={paginaAtual <= 1}
+            className="flex items-center gap-1 px-2 py-1 rounded-md border disabled:opacity-40 hover:bg-accent"
+          >
+            <ChevronLeft className="h-4 w-4" /> Anterior
+          </button>
+          <span className="text-xs text-muted-foreground">Página {paginaAtual} de {totalPaginas}</span>
+          <button
+            onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+            disabled={paginaAtual >= totalPaginas}
+            className="flex items-center gap-1 px-2 py-1 rounded-md border disabled:opacity-40 hover:bg-accent"
+          >
+            Próxima <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
