@@ -218,6 +218,7 @@ export interface ResultadoImportRelatos {
   semData: number
   canceladosNaOrigem: number
   reincidencias: number
+  erroAtualizacao?: string
 }
 
 const NIVEL_ORDEM: Record<NivelCriticidade, number> = { leve: 0, medio: 1, alto: 2 }
@@ -285,7 +286,16 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
     supabase.from('pdv_seguranca_relatos').select('id, codigo_pdv, subgrupo, status, finalizado_em')
       .eq('filial', filial).in('codigo_pdv', codigosPdv),
   ])
-  const existentesPorChave = new Map((existentesRaw ?? []).map((r) => [`${r.codigo_pdv}|${r.subgrupo}|${r.data_relato}`, r]))
+  // Canonicaliza o subgrupo dos relatos JÁ GRAVADOS também — linhas
+  // importadas antes da canonicalização existir podem ter ficado salvas
+  // com o texto bruto (ex.: "Rampa irregular" em vez de "Acesso / Escada
+  // / Rampa irregular"). Sem isso, a chave de comparação não bate mais
+  // depois que a canonicalização entrou, o relato reimportado é tratado
+  // como "novo" (vira linha duplicada) e o caso antigo nunca é achado
+  // pra reclassificar — ele fica preso em "Aguardando triagem" pra sempre.
+  const existentesPorChave = new Map((existentesRaw ?? []).map((r) => [
+    `${r.codigo_pdv}|${canonicalizarSubgrupo(r.subgrupo, subgruposCanonicos)}|${r.data_relato}`, r,
+  ]))
 
   const novas = candidatas.filter((l) => !existentesPorChave.has(`${l.codigoPdv}|${l.subgrupo}|${l.dataRelato}`))
   resultado.jaExistiam = candidatas.length - novas.length
@@ -315,7 +325,7 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
     })
   const CONCORRENCIA = 15
   for (let i = 0; i < paraAtualizarStatus.length; i += CONCORRENCIA) {
-    await Promise.all(
+    const resultados = await Promise.all(
       paraAtualizarStatus.slice(i, i + CONCORRENCIA).map(({ l, existente }) => {
         const origemNorm = normalize(l.origemStatus)
         const isCancelado = origemNorm === 'canceled' || origemNorm === 'cancelado'
@@ -330,11 +340,17 @@ export async function importarRelatosPdv(file: File, filial: string): Promise<Re
         return supabase.from('pdv_seguranca_relatos').update(patch).eq('id', existente!.id)
       })
     )
+    // Erro de update aqui era engolido silenciosamente — se a
+    // reclassificação falhar (RLS, constraint etc.), precisa aparecer,
+    // não só "continuar em aguardando triagem" sem explicação nenhuma.
+    for (const r of resultados) {
+      if (r.error) { console.error('pdv_seguranca_relatos update error:', r.error.message); resultado.erroAtualizacao = r.error.message }
+    }
   }
 
   const historicoPorChave = new Map<string, typeof historicoRaw>()
   for (const h of historicoRaw ?? []) {
-    const chave = `${h.codigo_pdv}|${h.subgrupo}`
+    const chave = `${h.codigo_pdv}|${canonicalizarSubgrupo(h.subgrupo, subgruposCanonicos)}`
     const lista = historicoPorChave.get(chave) ?? []
     lista.push(h)
     historicoPorChave.set(chave, lista as any)

@@ -189,6 +189,7 @@ export default function SegurancaPdvCritico() {
         `${r.jaExistiam} já existiam (Status BEES atualizado quando mudou; resto do caso preservado).` +
         (r.semData ? ` ${r.semData} sem data reconhecida, ignorado(s).` : '')
       )
+      if (r.erroAtualizacao) setErro(`Erro ao reclassificar caso(s) já existente(s): ${r.erroAtualizacao}`)
       await carregarRelatos()
       setEstatisticas(null)
     } catch (e) {
