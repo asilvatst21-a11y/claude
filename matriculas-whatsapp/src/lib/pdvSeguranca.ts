@@ -40,8 +40,6 @@ export const SUBGRUPOS_SEGURANCA_PADRAO: { subgrupo: string; nivel: NivelCritici
   { subgrupo: 'Baldeio em excesso', nivel: 'leve' },
 ]
 
-const CATEGORIA_SEGURANCA = 'segurança'
-
 function normalize(value: unknown): string {
   return String(value ?? '')
     .normalize('NFD')
@@ -49,6 +47,11 @@ function normalize(value: unknown): string {
     .trim()
     .toLowerCase()
 }
+
+// normalize() já tira acento — comparar contra uma constante SEM tirar
+// acento dela mesma (bug real: "segurança" nunca batia com o resultado
+// normalizado "seguranca", e todo relato caía em "outras áreas").
+const CATEGORIA_SEGURANCA = normalize('Segurança')
 
 // Célula de data real do Excel: extrai ano/mês/dia em UTC (seguro pra
 // datas de calendário normais — o deslocamento por fuso só afeta células
