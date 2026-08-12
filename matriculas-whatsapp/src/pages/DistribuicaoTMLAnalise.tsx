@@ -5,7 +5,7 @@ import {
 } from 'recharts'
 import {
   BarChart2, AlertTriangle, CheckCircle2, Clock, Users, Timer, ChevronDown, ChevronRight,
-  X, ListChecks, MinusCircle,
+  X, Trophy, MinusCircle,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
@@ -20,6 +20,17 @@ import { formatarDataBR } from '../lib/utils'
 
 const CORES = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#be185d']
 const TOOLTIP_STYLE = { borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12 }
+
+const RANKING_METRICAS = [
+  { valor: 'tml', label: 'Piores TML' },
+  { valor: 'deslocamento', label: 'Piores Deslocamento' },
+  { valor: 'conferencia', label: 'Piores Conferência' },
+  { valor: 'checklist', label: 'Piores Checklist' },
+] as const
+type RankingMetrica = typeof RANKING_METRICAS[number]['valor']
+const RANKING_METRICA_CAMPO = {
+  tml: 'tmlFinalMedio', deslocamento: 'deslocamentoMedio', conferencia: 'confMedio', checklist: 'checklistMedio',
+} as const
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -141,7 +152,7 @@ export default function DistribuicaoTMLAnalise() {
   const [matinalMetaParams, setMatinalMetaParams] = useState<MetaMatinalParam[]>([])
   const [gatilhoParams, setGatilhoParams] = useState<GatilhoEstouroParam[]>([])
   const [conferenciaPorMapa, setConferenciaPorMapa] = useState<Map<string, ConferenciaPassoMapa>>(new Map())
-  const [passoAberto, setPassoAberto] = useState(true)
+  const [rankingMetrica, setRankingMetrica] = useState<RankingMetrica>('tml')
   const [detalheAberto, setDetalheAberto] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
@@ -284,6 +295,8 @@ export default function DistribuicaoTMLAnalise() {
     chave: string
     mapa: number | null
     placa: string | null
+    nome: string | null
+    matricula: number | null
     sala: SalaTML
     data: string
     matinalMin: number | null
@@ -338,7 +351,7 @@ export default function DistribuicaoTMLAnalise() {
           : null
 
         return {
-          chave: a.chave, mapa: a.mapa, placa: a.placa, sala: a.sala, data: a.data,
+          chave: a.chave, mapa: a.mapa, placa: a.placa, nome: a.nome, matricula: a.matricula, sala: a.sala, data: a.data,
           matinalMin, deslocamentoMin, checklistMin, confMin, movimentacaoMin, tmlFinalMin,
           metaMatinal: metaMatinalMinutos(a.data, matinalMetaParams),
           metaDeslocamento: gatilhoEstouroMinutos(a.data, gatilhoParams).ideal,
@@ -371,6 +384,56 @@ export default function DistribuicaoTMLAnalise() {
     metaMatinal: mediaMeta('metaMatinal'), metaDeslocamento: mediaMeta('metaDeslocamento'), metaChecklist: mediaMeta('metaChecklist'),
     metaConferencia: mediaMeta('metaConferencia'), metaMovimentacao: mediaMeta('metaMovimentacao'),
   }
+
+  interface LinhaRankingMotorista {
+    chave: string
+    nome: string
+    matricula: number | null
+    mapas: number
+    matinalMedio: number | null
+    deslocamentoMedio: number | null
+    checklistMedio: number | null
+    confMedio: number | null
+    tmlFinalMedio: number | null
+  }
+
+  const rankingMotoristas = useMemo<LinhaRankingMotorista[]>(() => {
+    const mapa = new Map<string, { nome: string; matricula: number | null; mapas: number
+      somaMatinal: number; nMatinal: number
+      somaDeslocamento: number; nDeslocamento: number
+      somaChecklist: number; nChecklist: number
+      somaConf: number; nConf: number
+      somaTml: number; nTml: number
+    }>()
+    for (const l of aberturaPorMapa) {
+      const chave = l.matricula != null ? String(l.matricula) : `s/matricula:${l.nome ?? '—'}`
+      const k = mapa.get(chave) ?? {
+        nome: l.nome ?? '—', matricula: l.matricula, mapas: 0,
+        somaMatinal: 0, nMatinal: 0, somaDeslocamento: 0, nDeslocamento: 0,
+        somaChecklist: 0, nChecklist: 0, somaConf: 0, nConf: 0, somaTml: 0, nTml: 0,
+      }
+      k.mapas++
+      if (l.matinalMin != null) { k.somaMatinal += l.matinalMin; k.nMatinal++ }
+      if (l.deslocamentoMin != null) { k.somaDeslocamento += l.deslocamentoMin; k.nDeslocamento++ }
+      if (l.checklistMin != null) { k.somaChecklist += l.checklistMin; k.nChecklist++ }
+      if (l.confMin != null) { k.somaConf += l.confMin; k.nConf++ }
+      if (l.tmlFinalMin != null) { k.somaTml += l.tmlFinalMin; k.nTml++ }
+      mapa.set(chave, k)
+    }
+    return [...mapa.entries()].map(([chave, k]) => ({
+      chave, nome: k.nome, matricula: k.matricula, mapas: k.mapas,
+      matinalMedio: k.nMatinal > 0 ? k.somaMatinal / k.nMatinal : null,
+      deslocamentoMedio: k.nDeslocamento > 0 ? k.somaDeslocamento / k.nDeslocamento : null,
+      checklistMedio: k.nChecklist > 0 ? k.somaChecklist / k.nChecklist : null,
+      confMedio: k.nConf > 0 ? k.somaConf / k.nConf : null,
+      tmlFinalMedio: k.nTml > 0 ? k.somaTml / k.nTml : null,
+    }))
+  }, [aberturaPorMapa])
+
+  const rankingMotoristasOrdenado = useMemo(() => {
+    const campo = RANKING_METRICA_CAMPO[rankingMetrica]
+    return [...rankingMotoristas].sort((a, b) => (b[campo] ?? -1) - (a[campo] ?? -1))
+  }, [rankingMotoristas, rankingMetrica])
 
   const detalheAtual = useMemo(() => {
     if (!detalheAberto) return null
@@ -940,72 +1003,71 @@ export default function DistribuicaoTMLAnalise() {
           </ChartCard>
 
           <SectionTitle
-            title="Passo a passo por mapa"
-            subtitle="TML de cada mapa no período — abra os detalhes pra ver a linha do tempo completa (matinal, checklist, conferência e saída)."
+            title="Ranking de Motoristas"
+            subtitle="Média do motorista no período selecionado, por etapa — filtre pelo pior indicador."
           />
+          <div className="flex gap-2 flex-wrap">
+            {RANKING_METRICAS.map((m) => (
+              <button
+                key={m.valor}
+                onClick={() => setRankingMetrica(m.valor)}
+                className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
+                  rankingMetrica === m.valor ? 'bg-accent-500 text-white border-accent-500' : 'bg-white text-muted-foreground border-gray-200 hover:bg-accent'
+                }`}
+              >
+                {m.label}
+              </button>
+            ))}
+          </div>
           <div className="border rounded-xl bg-white shadow-sm">
-            <button onClick={() => setPassoAberto(v => !v)} className="w-full flex items-center justify-between gap-2 px-4 py-3 border-b text-left">
-              <span className="flex items-center gap-2">
-                {passoAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-                <ListChecks className="h-4 w-4 text-primary shrink-0" />
-                <h2 className="text-sm font-semibold">Mapas do período</h2>
-              </span>
-              <span className="text-xs text-muted-foreground">{analisePasso.length} registro(s)</span>
-            </button>
-            {passoAberto && (analisePasso.length === 0 ? (
-              <p className="text-sm text-muted-foreground p-4">Nenhum mapa no período.</p>
+            <div className="flex items-center gap-2 px-4 py-3 border-b">
+              <Trophy className="h-4 w-4 text-primary shrink-0" />
+              <h2 className="text-sm font-semibold">Motoristas do período</h2>
+              <span className="text-xs text-muted-foreground ml-auto">{rankingMotoristasOrdenado.length} motorista(s)</span>
+            </div>
+            {rankingMotoristasOrdenado.length === 0 ? (
+              <p className="text-sm text-muted-foreground p-4">Nenhum motorista no período.</p>
             ) : (
               <div className="overflow-x-auto max-h-[520px] overflow-y-auto">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 bg-slate-50 z-10">
                     <tr className="text-left text-xs text-muted-foreground border-b">
-                      <th className="py-2 px-4">Mapa</th>
                       <th className="py-2 px-4">Motorista</th>
-                      <th className="py-2 px-4">Sala</th>
-                      <th className="py-2 px-4">Data</th>
-                      <th className="py-2 px-4 text-right">TML</th>
-                      <th className="py-2 px-4">Status</th>
-                      <th className="py-2 px-4"></th>
+                      <th className="py-2 px-4 text-right">Mapas</th>
+                      <th className="py-2 px-4 text-right">Matinal</th>
+                      <th className="py-2 px-4 text-right">Deslocamento</th>
+                      <th className="py-2 px-4 text-right">Checklist</th>
+                      <th className="py-2 px-4 text-right">Conferência</th>
+                      <th className="py-2 px-4 text-right">TML Final</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {analisePasso.map((a) => (
-                      <tr key={a.chave} className="border-b last:border-0 hover:bg-slate-50">
-                        <td className="py-2 px-4 font-semibold tabular-nums">{a.mapa ?? '—'}</td>
+                    {rankingMotoristasOrdenado.map((r) => (
+                      <tr key={r.chave} className="border-b last:border-0 hover:bg-slate-50">
                         <td className="py-2 px-4">
-                          <div>{a.nome ?? '—'}</div>
-                          {a.placa && <div className="text-xs text-muted-foreground">{a.placa}</div>}
+                          <div className="font-medium">{r.nome}</div>
+                          {r.matricula != null && <div className="text-xs text-muted-foreground">Matr. {r.matricula}</div>}
                         </td>
-                        <td className="py-2 px-4 whitespace-nowrap">{SALA_TML_LABEL[a.sala]}</td>
-                        <td className="py-2 px-4 whitespace-nowrap">{formatarDataBR(a.data)}</td>
-                        <td className={`py-2 px-4 text-right font-semibold tabular-nums ${a.resultado === 'atrasado' ? 'text-red-600' : 'text-green-700'}`}>
-                          {a.tempoSaida != null ? `${a.tempoSaida} min` : '—'}
+                        <td className="py-2 px-4 text-right tabular-nums">{r.mapas}</td>
+                        <td className="py-2 px-4 text-right tabular-nums">{r.matinalMedio != null ? `${r.matinalMedio.toFixed(0)}min` : '—'}</td>
+                        <td className={`py-2 px-4 text-right tabular-nums ${rankingMetrica === 'deslocamento' ? 'font-bold text-accent-700' : ''}`}>
+                          {r.deslocamentoMedio != null ? `${r.deslocamentoMedio.toFixed(0)}min` : '—'}
                         </td>
-                        <td className="py-2 px-4">
-                          {a.resultado === 'atrasado' ? (
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-red-50 text-red-700">
-                              <AlertTriangle className="h-3 w-3" /> estouro de TML
-                            </span>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full bg-green-50 text-green-700">
-                              <CheckCircle2 className="h-3 w-3" /> dentro do TML
-                            </span>
-                          )}
+                        <td className={`py-2 px-4 text-right tabular-nums ${rankingMetrica === 'checklist' ? 'font-bold text-accent-700' : ''}`}>
+                          {r.checklistMedio != null ? `${r.checklistMedio.toFixed(0)}min` : '—'}
                         </td>
-                        <td className="py-2 px-4">
-                          <button
-                            onClick={() => setDetalheAberto(a.chave)}
-                            className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md border hover:bg-accent transition-colors whitespace-nowrap"
-                          >
-                            Ver detalhes
-                          </button>
+                        <td className={`py-2 px-4 text-right tabular-nums ${rankingMetrica === 'conferencia' ? 'font-bold text-accent-700' : ''}`}>
+                          {r.confMedio != null ? `${r.confMedio.toFixed(0)}min` : '—'}
+                        </td>
+                        <td className={`py-2 px-4 text-right tabular-nums font-bold ${rankingMetrica === 'tml' ? 'text-accent-700' : ''}`}>
+                          {r.tmlFinalMedio != null ? `${r.tmlFinalMedio.toFixed(0)}min` : '—'}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            ))}
+            )}
           </div>
 
           <div className="border rounded-xl bg-white shadow-sm">
