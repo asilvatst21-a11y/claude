@@ -982,25 +982,34 @@ export async function buscarNomesColaboradoresPorMatricula(): Promise<Map<string
   // de todas as filiais entra na consulta, e uma empresa grande passa de
   // 1000 fácil. Sem paginar aqui, boa parte dos colaboradores (matrícula
   // incluída) nunca voltava, e todo mundo aparecia como "sem nome".
+  //
+  // Colaboradores tem DUAS matrículas: `matricula` (LOG20, interna) e
+  // `matricula_promax` (3 dígitos, sistema Promax). O codigo_motorista da
+  // planilha de relato do PDV Crítico é de um sistema de origem externo —
+  // bate com a matrícula Promax (mesmo formato de 3 dígitos), não com a
+  // LOG20. Indexa pelas duas pra cobrir os dois casos.
   const PAGINA = 1000
   const mapa = new Map<string, string>()
+  function registrar(matriculaBruta: unknown, nome: string) {
+    if (matriculaBruta == null) return
+    const chave = normalizarMatricula(String(matriculaBruta))
+    if (!chave || !nome) return
+    // matrícula não é única globalmente (só filial+nome é) — a mesma
+    // matrícula pode aparecer em Colaboradores de mais de uma filial.
+    // Sem essa proteção, uma linha duplicada/sem nome processada depois
+    // sobrescrevia silenciosamente o nome certo já encontrado.
+    if (!mapa.has(chave)) mapa.set(chave, nome)
+  }
   for (let inicio = 0; ; inicio += PAGINA) {
     const { data, error } = await supabase
       .from('colaboradores')
-      .select('matricula, nome')
+      .select('matricula, matricula_promax, nome')
       .range(inicio, inicio + PAGINA - 1)
     if (error) { console.error('buscarNomesColaboradoresPorMatricula error:', error.message); break }
     for (const c of data ?? []) {
-      if (c.matricula == null) continue
       const nome = (c.nome ?? '').trim()
-      // matrícula não é única globalmente (só filial+nome é) — a mesma
-      // matrícula pode aparecer em Colaboradores de mais de uma filial.
-      // Sem essa proteção, uma linha duplicada/sem nome processada depois
-      // sobrescrevia silenciosamente o nome certo já encontrado.
-      if (!nome) continue
-      if (!mapa.has(normalizarMatricula(String(c.matricula)))) {
-        mapa.set(normalizarMatricula(String(c.matricula)), nome)
-      }
+      registrar(c.matricula_promax, nome)
+      registrar(c.matricula, nome)
     }
     if (!data || data.length < PAGINA) break
   }

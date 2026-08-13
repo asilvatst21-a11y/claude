@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown, BarChart2, CalendarClock, Users, Trophy, Search, ChevronLeft, ChevronRight, Bell } from 'lucide-react'
+import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown, BarChart2, CalendarClock, Users, Trophy, Search, ChevronLeft, ChevronRight, Bell, HelpCircle } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
@@ -1327,12 +1327,19 @@ function AvisosMotoristaTab({ avisos, carregando }: { avisos: AvisoMotoristaLinh
   return (
     <div className="space-y-4">
       <div className="border rounded-lg bg-white p-4">
-        <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-1"><Bell className="h-4 w-4 text-primary" /> Avisos enviados aos motoristas</h2>
-        <p className="text-xs text-muted-foreground">
-          Histórico de todo aviso de "PDV crítico na rota" já mandado por WhatsApp — dispara automaticamente a cada
-          import do BEES em Jornada e Tempo em Rota, para quem tem no mapa do dia um PDV com caso aprovado. Um
-          motorista só recebe uma vez por PDV por dia, mesmo reimportando o BEES várias vezes.
-        </p>
+        <h2 className="text-sm font-semibold flex items-center gap-1.5">
+          <Bell className="h-4 w-4 text-primary" /> Avisos enviados aos motoristas
+          <span
+            className="cursor-help"
+            title={
+              'Histórico de todo aviso de "PDV crítico na rota" já mandado por WhatsApp — dispara automaticamente a cada ' +
+              'import do BEES em Jornada e Tempo em Rota, para quem tem no mapa do dia um PDV com caso aprovado. Um ' +
+              'motorista só recebe uma vez por PDV por dia, mesmo reimportando o BEES várias vezes.'
+            }
+          >
+            <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
+          </span>
+        </h2>
       </div>
       <div className="border rounded-xl bg-white shadow-sm overflow-x-auto">
         <table className="w-full text-xs">
