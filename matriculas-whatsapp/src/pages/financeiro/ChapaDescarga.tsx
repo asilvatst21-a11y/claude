@@ -6,6 +6,7 @@ import {
   clientesComMapaHoje, listarLancamentosDoDia, registrarLancamento, calcularChapa, calcularDescarga, buscarMotoristaPlaca, buscarValorNotaCora,
   type ClienteComMapaHoje, type ClienteChapaDescarga, type LancamentoChapaDescarga, type TipoLancamento,
 } from '@/lib/chapaDescarga'
+import { formatarBRL } from '@/lib/variavelArmazem'
 
 function hojeISO() {
   return new Date().toISOString().slice(0, 10)
@@ -49,10 +50,11 @@ export default function ChapaDescargaPage() {
   const [recibo, setRecibo] = useState<LancamentoChapaDescarga | null>(null)
 
   async function carregar() {
+    if (!usuario?.filial) return
     setCarregando(true)
     setErro(null)
     try {
-      const [cs, ls] = await Promise.all([clientesComMapaHoje(data), listarLancamentosDoDia(data)])
+      const [cs, ls] = await Promise.all([clientesComMapaHoje(usuario.filial, data), listarLancamentosDoDia(data)])
       setClientes(cs)
       setLancamentos(ls)
     } catch (e) {
@@ -61,7 +63,7 @@ export default function ChapaDescargaPage() {
     setCarregando(false)
   }
 
-  useEffect(() => { carregar() }, [data])
+  useEffect(() => { carregar() }, [data, usuario?.filial])
 
   // Assim que o mapa é conhecido (direto, ou após a seleção no passo "mapa"),
   // busca automaticamente motorista e placa que rodaram aquele mapa na Base
@@ -239,24 +241,28 @@ export default function ChapaDescargaPage() {
           <p className="text-sm text-muted-foreground p-4">Nenhum cliente de Chapa/Descarga com mapa nesta data.</p>
         ) : (
           <div className="divide-y">
-            {clientes.map(({ cliente, mapas }) => (
+            {clientes.map((item) => {
+              const { cliente, mapas, valorNota } = item
+              return (
               <div key={cliente.id} className="flex items-center justify-between gap-3 px-4 py-3 flex-wrap">
                 <div>
                   <p className="text-sm font-medium">{cliente.codigo} - {cliente.nome}</p>
-                  <p className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
+                  <p className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5 flex-wrap">
                     {cliente.chapa_habilitado && <span className="inline-flex items-center gap-1"><Truck className="h-3 w-3" /> Chapa</span>}
                     {cliente.descarga_habilitado && <span className="inline-flex items-center gap-1"><Package className="h-3 w-3" /> Descarga</span>}
-                    <span>· mapa(s): {mapas.join(', ')}</span>
+                    <span>· nota (CORA): {valorNota != null ? formatarBRL(valorNota) : '—'}</span>
+                    {mapas.length > 0 && <span>· mapa(s): {mapas.join(', ')}</span>}
                   </p>
                 </div>
                 <button
-                  onClick={() => iniciarLancamento({ cliente, mapas })}
+                  onClick={() => iniciarLancamento(item)}
                   className="px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-md font-medium hover:opacity-90"
                 >
                   Lançar pagamento
                 </button>
               </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>

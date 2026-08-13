@@ -43,6 +43,7 @@ export interface LancamentoChapaDescarga {
 export interface ClienteComMapaHoje {
   cliente: ClienteChapaDescarga
   mapas: string[]
+  valorNota: number | null
 }
 
 export interface ResultadoCalculo {
@@ -154,19 +155,41 @@ export async function buscarValorNotaCora(filial: string, data: string, clienteC
   return soma > 0 ? soma : null
 }
 
-// Clientes ativos (com Chapa e/ou Descarga habilitados) que têm mapa na rua
-// no dia informado — base da notificação ao financeiro.
-export async function clientesComMapaHoje(data: string): Promise<ClienteComMapaHoje[]> {
+// Clientes ativos (com Chapa e/ou Descarga habilitados) com nota no CORA
+// no dia informado — base da notificação ao financeiro. Combinado (não
+// mais vendas_dia): já validamos direto pelo CORA, que já traz código do
+// cliente e valor da nota juntos — uma fonte só em vez de duas. O mapa
+// (usado só pra buscar motorista/placa na Base) continua vindo de
+// vendas_dia, mas apenas pros clientes que o CORA já confirmou — se a
+// Base ainda não tiver o mapa daquele cliente, a lista de mapas fica
+// vazia e o lançamento segue sem mapa selecionado (preenchimento manual).
+export async function clientesComMapaHoje(filial: string, data: string): Promise<ClienteComMapaHoje[]> {
   const clientes = (await listarClientes()).filter(c => c.ativo && (c.chapa_habilitado || c.descarga_habilitado))
   if (clientes.length === 0) return []
 
   const codigos = clientes.map(c => c.codigo)
-  const { data: rows, error } = await supabase
+  const { data: notas, error: erroNotas } = await supabase
+    .from('distribuicao_cora_notas')
+    .select('cliente_codigo, valor_total_nf')
+    .eq('filial', filial)
+    .eq('data', data)
+    .in('cliente_codigo', codigos.map(String))
+  if (erroNotas) throw new Error(`Erro ao buscar notas do CORA: ${erroNotas.message}`)
+  if (!notas || notas.length === 0) return []
+
+  const valorPorCodigo = new Map<number, number>()
+  for (const n of notas) {
+    const cod = Number(n.cliente_codigo)
+    valorPorCodigo.set(cod, (valorPorCodigo.get(cod) ?? 0) + (n.valor_total_nf != null ? Number(n.valor_total_nf) : 0))
+  }
+  const codigosComNota = [...valorPorCodigo.keys()]
+
+  const { data: rows, error: erroVendas } = await supabase
     .from('vendas_dia')
     .select('pdv_codigo, mapa')
     .eq('data', data)
-    .in('pdv_codigo', codigos)
-  if (error) throw new Error(`Erro ao buscar vendas do dia: ${error.message}`)
+    .in('pdv_codigo', codigosComNota)
+  if (erroVendas) throw new Error(`Erro ao buscar mapas do dia: ${erroVendas.message}`)
 
   const mapasPorCodigo = new Map<number, Set<string>>()
   for (const row of rows ?? []) {
@@ -176,8 +199,12 @@ export async function clientesComMapaHoje(data: string): Promise<ClienteComMapaH
   }
 
   return clientes
-    .filter(c => mapasPorCodigo.has(c.codigo))
-    .map(c => ({ cliente: c, mapas: [...mapasPorCodigo.get(c.codigo)!].sort() }))
+    .filter(c => valorPorCodigo.has(c.codigo))
+    .map(c => ({
+      cliente: c,
+      mapas: [...(mapasPorCodigo.get(c.codigo) ?? [])].sort(),
+      valorNota: valorPorCodigo.get(c.codigo) ?? null,
+    }))
 }
 
 export async function registrarLancamento(lancamento: {
@@ -234,7 +261,7 @@ export async function notificarFinanceiroWhatsApp(
   const grupo = filialRow?.grupo_financeiro_whatsapp
   if (!grupo) return { enviado: false, motivo: 'Grupo do financeiro não configurado.' }
 
-  const clientes = await clientesComMapaHoje(data)
+  const clientes = await clientesComMapaHoje(filial, data)
   if (clientes.length === 0) return { enviado: false, motivo: 'Nenhum cliente de Chapa/Descarga com mapa hoje.' }
 
   const [ano, mes, dia] = data.split('-')
