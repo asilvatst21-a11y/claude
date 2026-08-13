@@ -74,11 +74,22 @@ function parseDtoExcel(buffer: ArrayBuffer, filial: string): Omit<DtoObservacao,
   const wb = XLSX.read(buffer)
   const ws = wb.Sheets[wb.SheetNames[0]]
   const raw = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '', raw: false })
-  return raw.filter(r => (r['Colaborador'] ?? '').trim()).map(r => ({
-    filial,
-    external_id: (r['c'] ?? '').trim() || null,
-    data_aplicacao: excelDate(r['Data da Aplicação'] ?? ''),
-    colaborador: (r['Colaborador'] ?? '').trim(),
+  return raw.filter(r => (r['Colaborador'] ?? '').trim()).map(r => {
+    const dataAplicacao = excelDate(r['Data da Aplicação'] ?? '')
+    const colaborador = (r['Colaborador'] ?? '').trim()
+    const atividade = (r['Atividade'] ?? '').trim()
+    // A coluna 'c' nunca existiu na planilha de origem — external_id ficava
+    // sempre nulo, e como unique(filial, external_id) não pega linhas NULL,
+    // toda reimportação virava um INSERT novo, duplicando tudo de novo em
+    // vez de atualizar. Sem uma coluna de id real conhecida, usa uma chave
+    // composta estável (data+colaborador+atividade) pra reimportação virar
+    // upsert de verdade.
+    const idComposto = [dataAplicacao, colaborador, atividade].filter(Boolean).join('|')
+    return {
+      filial,
+      external_id: (r['c'] ?? '').trim() || idComposto || null,
+      data_aplicacao: dataAplicacao,
+      colaborador,
     lider_inspecao: (r['Lider na Inspeção'] ?? '').trim() || null,
     avaliador: (r['Avaliador'] ?? '').trim() || null,
     cargo_avaliador: (r['Cargo Avaliador'] ?? '').trim() || null,
@@ -86,7 +97,7 @@ function parseDtoExcel(buffer: ArrayBuffer, filial: string): Omit<DtoObservacao,
     cpf_avaliado: (r['CPF Avaliado'] ?? '').trim() || null,
     operacao: (r['Operação'] ?? '').trim() || null,
     area: (r['Área'] ?? '').trim() || null,
-    atividade: (r['Atividade'] ?? '').trim() || null,
+    atividade: atividade || null,
     duracao: (r['Duração'] ?? '').trim() || null,
     tem_padrao: (r['Há um padrão escrito para esta atividade?'] ?? '').trim() || null,
     uso_epis: (r['Há o uso de 100% dos EPIs previstos para execução da atividade?'] ?? '').trim() || null,
@@ -104,7 +115,8 @@ function parseDtoExcel(buffer: ArrayBuffer, filial: string): Omit<DtoObservacao,
     tarefa_com_desvio: (r['Houve Desvio em alguma destas tarefas especificas de segurança?'] ?? '').trim() || null,
     qual_desvio: (r['Qual Desvio Encontrado?'] ?? '').trim() || null,
     acao_gerada: (r['Descreva a ação gerada:'] ?? '').trim() || null,
-  }))
+    }
+  })
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
@@ -157,22 +169,28 @@ export default function Dto() {
   const onDrop = useCallback(async (files: File[]) => {
     if (!usuario || !files[0]) return
     setUploadando(true)
+    const erros: string[] = []
     const buffer = await files[0].arrayBuffer()
     const rows = parseDtoExcel(buffer, usuario.filial)
     const comId = rows.filter(r => r.external_id)
     const semId = rows.filter(r => !r.external_id)
     for (let i = 0; i < comId.length; i += 50) {
-      await supabase.from('dto_observacoes').upsert(
+      const { error } = await supabase.from('dto_observacoes').upsert(
         comId.slice(i, i + 50).map(r => ({ ...r, status_acao: 'Pendente' })),
         { onConflict: 'filial,external_id', ignoreDuplicates: false }
       )
+      if (error) erros.push(error.message)
     }
     if (semId.length > 0) {
       for (let i = 0; i < semId.length; i += 50) {
-        await supabase.from('dto_observacoes').insert(semId.slice(i, i + 50).map(r => ({ ...r, status_acao: 'Pendente' })))
+        const { error } = await supabase.from('dto_observacoes').insert(semId.slice(i, i + 50).map(r => ({ ...r, status_acao: 'Pendente' })))
+        if (error) erros.push(error.message)
       }
     }
     setUploadando(false)
+    if (erros.length > 0) {
+      alert(`⚠️ Parte do arquivo não foi salva (${erros.length} lote(s) com erro, de ${rows.length} observação(ões) no total) — erro do banco:\n${[...new Set(erros)].join('\n')}`)
+    }
     carregarDados()
   }, [usuario])
 
