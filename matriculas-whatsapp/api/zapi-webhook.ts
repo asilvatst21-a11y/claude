@@ -388,6 +388,31 @@ async function produtosVendidosPdv(pdvCod: number, data: string): Promise<{ codi
   })
 }
 
+// Resposta da Aurora pra "quantos cabem por lastro": aceita código exato
+// (produtos.codigo) ou um pedaço do nome (ilike em descricao). Mesma fonte
+// que alimenta o ⓘ da Conferência Digital (produtos.lastro).
+async function buscarLastroPorTexto(texto: string): Promise<string> {
+  const termo = texto.trim()
+  const codigoMatch = termo.match(/^\d{3,7}$/)
+
+  if (codigoMatch) {
+    const { data } = await supabase.from('produtos').select('codigo, descricao, lastro').eq('codigo', Number(codigoMatch[0])).maybeSingle()
+    if (!data) return `🔍 Não achei nenhum produto com o código *${codigoMatch[0]}* no catálogo.`
+    if (data.lastro == null) return `📦 *${data.descricao}* (Cód. ${data.codigo}) ainda não tem o lastro cadastrado no catálogo.`
+    return `📦 *${data.descricao}* (Cód. ${data.codigo})\nLastro: *${data.lastro} caixas*`
+  }
+
+  const { data: matches } = await supabase.from('produtos').select('codigo, descricao, lastro').ilike('descricao', `%${termo}%`).order('codigo').limit(8)
+  if (!matches || matches.length === 0) return `🔍 Não achei nenhum produto parecido com "*${termo}*" no catálogo. Tenta mandar o código, se souber.`
+  if (matches.length === 1) {
+    const p = matches[0]
+    if (p.lastro == null) return `📦 *${p.descricao}* (Cód. ${p.codigo}) ainda não tem o lastro cadastrado no catálogo.`
+    return `📦 *${p.descricao}* (Cód. ${p.codigo})\nLastro: *${p.lastro} caixas*`
+  }
+  const linhas = matches.map((p) => `• ${p.descricao} (Cód. ${p.codigo}) — ${p.lastro != null ? `${p.lastro} caixas` : 'sem lastro cadastrado'}`)
+  return [`🔍 Achei ${matches.length} produtos parecidos com "*${termo}*":`, ...linhas, '', 'Manda o *código* certo pra eu confirmar.'].join('\n')
+}
+
 // Busca o mapa real do PDV no faturamento do dia (fonte da verdade, vinda do
 // CSV importado), para confrontar com o mapa que o motorista digitou.
 async function buscarMapaRealPdv(pdvCod: number, data: string): Promise<string | null> {
@@ -3360,7 +3385,10 @@ const AURORA_SUBMENUS: Record<string, OpcaoZ[]> = {
   ],
   treinamentos: [{ id: 'aurora_item:duvida_treinamento', title: 'Tirar dúvida sobre um treinamento' }],
   financeiro: [{ id: 'aurora_item:pendencias', title: 'Consultar minhas pendências' }],
-  armazem: [{ id: 'aurora_item:variavel', title: 'Consultar meu variável/pontuação' }],
+  armazem: [
+    { id: 'aurora_item:variavel', title: 'Consultar meu variável/pontuação' },
+    { id: 'aurora_item:lastro', title: 'Quantos cabem por lastro' },
+  ],
   sugestoes: [{ id: 'aurora_item:enviar_sugestao', title: 'Enviar uma sugestão' }],
 }
 
@@ -3650,6 +3678,11 @@ async function tratarItemAurora(remetente: string, senderName: string, itemId: s
     await perguntarProximoPasso(remetente)
     return { ok: true, action: 'aurora-link-variavel' }
   }
+  if (itemId === 'aurora_item:lastro') {
+    await definirEstadoAurora(remetente, 'aguardando_produto_lastro')
+    await enviar(remetente, '📦 Me fala o *produto* (ou o *código*) que eu já te digo quantos cabem no lastro.')
+    return { ok: true, action: 'aurora-pede-produto-lastro' }
+  }
   if (itemId === 'aurora_item:enviar_sugestao') {
     await definirEstadoAurora(remetente, 'aguardando_sugestao_texto')
     await enviar(remetente, '💬 Manda sua sugestão! Pode ser sobre qualquer processo — o que trava, o que podia ser mais rápido, ou o que faria diferença no seu dia a dia.')
@@ -3731,6 +3764,25 @@ async function tratarAurora(
       await enviar(remetente, resposta)
       await perguntarProximoPasso(remetente)
       return { ok: true, action: 'aurora-matricula-respondido' }
+    }
+    if (sessao.estado === 'aguardando_produto_lastro') {
+      let conteudo = texto.trim()
+      if (!conteudo && temAudioSemTexto(body)) {
+        const transcrito = await transcreverAudio(extrairAudioUrl(body))
+        if (!transcrito) {
+          await enviar(remetente, 'Não consegui entender o áudio. Pode escrever o produto ou o código?')
+          return { ok: true, action: 'aurora-lastro-audio-falhou' }
+        }
+        conteudo = transcrito
+      }
+      if (!conteudo) {
+        await enviar(remetente, '📦 Manda o nome do produto (ou o código) pra eu consultar o lastro.')
+        return { ok: true, action: 'aurora-lastro-repete' }
+      }
+      const resposta = await buscarLastroPorTexto(conteudo)
+      await enviar(remetente, resposta)
+      await perguntarProximoPasso(remetente)
+      return { ok: true, action: 'aurora-lastro-respondido' }
     }
     if (sessao.estado === 'aguardando_sugestao_texto') {
       let conteudo = texto.trim()
