@@ -4,8 +4,8 @@ import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
   listarPontosRisco, criarPontoRisco, atualizarPontoRisco, listarSugestoes, aprovarSugestao, rejeitarSugestao,
-  buscarCidadesBairrosConhecidos,
-  type PontoRisco, type SugestaoRisco, type Severidade, type TipoPonto,
+  buscarCidadesBairrosConhecidos, normalizarTexto,
+  type PontoRisco, type SugestaoRisco, type Severidade, type TipoPonto, type CidadesBairrosConhecidos,
 } from '../lib/rotasRisco'
 
 const SEV_LABEL: Record<Severidade, string> = { baixo: 'Baixo', moderado: 'Moderado', alto: 'Alto' }
@@ -19,30 +19,38 @@ const SEV_CSS: Record<Severidade, string> = {
 // — mesmo texto que vai bater no cruzamento automático, evita erro de
 // digitação. Reaproveitado nos 3 formulários (novo ponto, editar, aprovar).
 function CidadeBairroFields({
-  cidade, bairro, onCidade, onBairro, conhecidos,
+  cidade, bairro, onCidade, onBairro, conhecidos, idSufixo,
 }: {
   cidade: string; bairro: string; onCidade: (v: string) => void; onBairro: (v: string) => void
-  conhecidos: { cidades: string[]; porCidade: Map<string, string[]> }
+  conhecidos: CidadesBairrosConhecidos; idSufixo: string
 }) {
-  const bairrosDaCidade = conhecidos.porCidade.get(cidade.toUpperCase().trim()) ?? []
+  // Normaliza (sem acento, maiúsculo) pra achar mesmo se o admin digitar
+  // "Petrópolis" e o dado salvo (vindo da planilha) vier "PETROPOLIS" sem
+  // acento. Enquanto a cidade digitada ainda não bate com nenhuma conhecida
+  // (ex.: só começou a digitar), mostra todos os bairros já vistos — assim
+  // sempre tem sugestão pra escolher, em vez de ficar vazio.
+  const bairrosDaCidade = conhecidos.bairrosPorCidadeNorm.get(normalizarTexto(cidade))
+  const opcoesBairro = bairrosDaCidade && bairrosDaCidade.length > 0 ? bairrosDaCidade : conhecidos.bairrosTodos
+  const idCidades = `rr-cidades-${idSufixo}`
+  const idBairros = `rr-bairros-${idSufixo}`
   return (
     <>
       <div>
         <label className="text-xs font-medium text-muted-foreground">Cidade</label>
-        <input list="rr-cidades" value={cidade} onChange={(e) => onCidade(e.target.value)} placeholder="Ex.: Petrópolis" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
-        <datalist id="rr-cidades">{conhecidos.cidades.map((c) => <option key={c} value={c} />)}</datalist>
+        <input list={idCidades} value={cidade} onChange={(e) => onCidade(e.target.value)} placeholder="Ex.: Petrópolis" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" autoComplete="off" />
+        <datalist id={idCidades}>{conhecidos.cidades.map((c) => <option key={c} value={c} />)}</datalist>
       </div>
       <div>
         <label className="text-xs font-medium text-muted-foreground">Bairro <span className="font-normal">(opcional — sem isso, vale a cidade inteira)</span></label>
-        <input list="rr-bairros" value={bairro} onChange={(e) => onBairro(e.target.value)} placeholder="Ex.: Itaipava" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
-        <datalist id="rr-bairros">{bairrosDaCidade.map((b) => <option key={b} value={b} />)}</datalist>
+        <input list={idBairros} value={bairro} onChange={(e) => onBairro(e.target.value)} placeholder="Ex.: Itaipava" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" autoComplete="off" />
+        <datalist id={idBairros}>{opcoesBairro.map((b) => <option key={b} value={b} />)}</datalist>
       </div>
     </>
   )
 }
 
 function AprovarModal({ sugestao, conhecidos, onClose, onAprovado }: {
-  sugestao: SugestaoRisco; conhecidos: { cidades: string[]; porCidade: Map<string, string[]> }
+  sugestao: SugestaoRisco; conhecidos: CidadesBairrosConhecidos
   onClose: () => void; onAprovado: () => void
 }) {
   const { usuario } = useAuth()
@@ -114,7 +122,7 @@ function AprovarModal({ sugestao, conhecidos, onClose, onAprovado }: {
               <label className="text-xs font-medium text-muted-foreground">Rota</label>
               <input value={rota} onChange={(e) => setRota(e.target.value)} placeholder="Ex.: Cascavel → Toledo" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
-            <CidadeBairroFields cidade={cidade} bairro={bairro} onCidade={setCidade} onBairro={setBairro} conhecidos={conhecidos} />
+            <CidadeBairroFields cidade={cidade} bairro={bairro} onCidade={setCidade} onBairro={setBairro} conhecidos={conhecidos} idSufixo="aprovar" />
             <div className="col-span-2">
               <label className="text-xs font-medium text-muted-foreground">PDV de referência <span className="font-normal">(opcional — alternativa à cidade/bairro)</span></label>
               <input value={pdvReferencia} onChange={(e) => setPdvReferencia(e.target.value)} placeholder="Código do PDV mais próximo" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
@@ -165,7 +173,7 @@ function RejeitarModal({ sugestao, onClose, onRejeitado }: { sugestao: SugestaoR
 }
 
 function EditarPontoModal({ ponto, conhecidos, onClose, onSalvo }: {
-  ponto: PontoRisco; conhecidos: { cidades: string[]; porCidade: Map<string, string[]> }
+  ponto: PontoRisco; conhecidos: CidadesBairrosConhecidos
   onClose: () => void; onSalvo: () => void
 }) {
   const [titulo, setTitulo] = useState(ponto.titulo)
@@ -243,7 +251,7 @@ function EditarPontoModal({ ponto, conhecidos, onClose, onSalvo }: {
               <label className="text-xs font-medium text-muted-foreground">Rota</label>
               <input value={rota} onChange={(e) => setRota(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
-            <CidadeBairroFields cidade={cidade} bairro={bairro} onCidade={setCidade} onBairro={setBairro} conhecidos={conhecidos} />
+            <CidadeBairroFields cidade={cidade} bairro={bairro} onCidade={setCidade} onBairro={setBairro} conhecidos={conhecidos} idSufixo="editar" />
             <div>
               <label className="text-xs font-medium text-muted-foreground">PDV de referência <span className="font-normal">(opcional)</span></label>
               <input value={pdvReferencia} onChange={(e) => setPdvReferencia(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
@@ -289,7 +297,7 @@ export default function SegurancaRotasRisco() {
   })
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
-  const [conhecidos, setConhecidos] = useState<{ cidades: string[]; porCidade: Map<string, string[]> }>({ cidades: [], porCidade: new Map() })
+  const [conhecidos, setConhecidos] = useState<CidadesBairrosConhecidos>({ cidades: [], bairrosTodos: [], bairrosPorCidadeNorm: new Map() })
 
   const carregar = useCallback(async () => {
     if (!usuario?.filial) return
@@ -435,7 +443,7 @@ export default function SegurancaRotasRisco() {
             <CidadeBairroFields
               cidade={form.cidade} bairro={form.bairro}
               onCidade={(v) => setForm((f) => ({ ...f, cidade: v }))} onBairro={(v) => setForm((f) => ({ ...f, bairro: v }))}
-              conhecidos={conhecidos}
+              conhecidos={conhecidos} idSufixo="novo"
             />
             <div>
               <label className="text-xs font-medium text-muted-foreground">PDV de referência <span className="font-normal">(opcional — alternativa à cidade/bairro)</span></label>

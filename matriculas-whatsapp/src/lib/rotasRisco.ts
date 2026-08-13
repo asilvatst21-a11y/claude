@@ -55,7 +55,7 @@ function normalizarCodigoPdv(s: string): string {
 function normalizarMatricula(s: string): string {
   return s.trim().replace(/^0+/, '') || '0'
 }
-function normalizarTexto(s: string): string {
+export function normalizarTexto(s: string): string {
   return s.normalize('NFD').replace(/\p{Mn}/gu, '').toUpperCase().trim()
 }
 
@@ -86,7 +86,15 @@ export interface CidadeBairro { cidade: string; bairro: string | null }
 // como autocomplete no cadastro do ponto de risco, pra evitar erro de
 // digitação (o mesmo tipo de bug que já travou o cruzamento por nome de
 // atividade em DTO e por código de PDV aqui mesmo).
-export async function buscarCidadesBairrosConhecidos(filial: string, diasAtras = 90): Promise<{ cidades: string[]; porCidade: Map<string, string[]> }> {
+export interface CidadesBairrosConhecidos {
+  cidades: string[]
+  bairrosTodos: string[]
+  // chave normalizada (sem acento, maiúscula) — pra achar mesmo se o admin
+  // digitar "Petrópolis" e o dado salvo vier "PETROPOLIS" sem acento.
+  bairrosPorCidadeNorm: Map<string, string[]>
+}
+
+export async function buscarCidadesBairrosConhecidos(filial: string, diasAtras = 90): Promise<CidadesBairrosConhecidos> {
   const desde = new Date()
   desde.setDate(desde.getDate() - diasAtras)
   const desdeISO = desde.toISOString().slice(0, 10)
@@ -96,22 +104,26 @@ export async function buscarCidadesBairrosConhecidos(filial: string, diasAtras =
     .eq('filial', filial)
     .gte('data_entrega', desdeISO)
     .not('cidades_entregas', 'is', null)
-  if (error) { console.error('buscarCidadesBairrosConhecidos error:', error.message); return { cidades: [], porCidade: new Map() } }
+  if (error) { console.error('buscarCidadesBairrosConhecidos error:', error.message); return { cidades: [], bairrosTodos: [], bairrosPorCidadeNorm: new Map() } }
 
   const cidadesSet = new Set<string>()
-  const porCidade = new Map<string, Set<string>>()
+  const bairrosTodosSet = new Set<string>()
+  const porCidadeNorm = new Map<string, Set<string>>()
   for (const row of data ?? []) {
     const cidades = parseCidadesEntregas(row.cidades_entregas)
     const bairros = parseBairrosEntregas(row.regiao_entregas)
+    for (const b of bairros) bairrosTodosSet.add(b)
     for (const c of cidades) {
       cidadesSet.add(c)
-      if (!porCidade.has(c)) porCidade.set(c, new Set())
-      for (const b of bairros) porCidade.get(c)!.add(b)
+      const chave = normalizarTexto(c)
+      if (!porCidadeNorm.has(chave)) porCidadeNorm.set(chave, new Set())
+      for (const b of bairros) porCidadeNorm.get(chave)!.add(b)
     }
   }
   return {
     cidades: [...cidadesSet].sort(),
-    porCidade: new Map([...porCidade.entries()].map(([c, bs]) => [c, [...bs].sort()])),
+    bairrosTodos: [...bairrosTodosSet].sort(),
+    bairrosPorCidadeNorm: new Map([...porCidadeNorm.entries()].map(([c, bs]) => [c, [...bs].sort()])),
   }
 }
 
