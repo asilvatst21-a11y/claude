@@ -5,7 +5,7 @@ import {
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
   Wallet, Menu, X, Truck, Boxes, Timer, Home, Send, SlidersHorizontal,
-  ShieldCheck, Fuel, Scale, Route, ClipboardCheck, GraduationCap, AlertTriangle, MapPin, TestTube2,
+  ShieldCheck, Fuel, Scale, Route, ClipboardCheck, GraduationCap, AlertTriangle, MapPin, TestTube2, Target,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -23,6 +23,7 @@ const segItems = [
   { permKey: 'telemetria',      to: '/telemetria',      label: 'Telemetria',      icon: Gauge                  },
   { permKey: 'excesso-peso',    to: '/seguranca/excesso-peso', label: 'Excesso de Peso', icon: Scale           },
   { permKey: 'pdv-critico',     to: '/seguranca/pdv-critico', label: 'PDV Crítico',     icon: AlertTriangle   },
+  { permKey: 'treinamentos-seguranca', to: '/seguranca/treinamentos', label: 'Treinamentos Segurança', icon: Target },
 ]
 
 const genteItems = [
