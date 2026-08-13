@@ -780,7 +780,7 @@ export default function JornadaRota() {
         const { enviados, erros } = await avisarMotoristasPdvCritico(usuario.filial, dataOperacao)
         if (erros.length > 0) {
           console.error('[Jornada] falhas no aviso de PDV Crítico:', erros)
-          avisoPdvCritico = `\n\n⚠️ PDV Crítico: ${enviados} aviso(s) enviado(s), ${erros.length} falha(s) (ver console).`
+          avisoPdvCritico = `\n\n⚠️ PDV Crítico: ${enviados} aviso(s) enviado(s).\n${erros.join('\n')}`
         } else if (enviados > 0) {
           avisoPdvCritico = `\n\n🚨 PDV Crítico: ${enviados} motorista(s) avisado(s) sobre PDV com caso aprovado na rota.`
         }

@@ -788,18 +788,30 @@ export async function avisarMotoristasPdvCritico(filial: string, data: string): 
     .eq('filial', filial).eq('status', 'aprovado')
   if (erroAprovados) return { enviados: 0, erros: [erroAprovados.message] }
   if (!aprovados || aprovados.length === 0) return { enviados: 0, erros: [] }
-  const casoPorPdv = new Map(aprovados.map((a) => [a.codigo_pdv, a]))
+  // Zeros à esquerda variam entre a planilha de relato do motorista e o
+  // export do BEES (um pode vir "0088213", o outro "88213") — sem
+  // normalizar, o .in('pdv_codigo', ...) abaixo não casava NADA e a função
+  // voltava silenciosa (0 enviados, 0 erros), sem nenhum sinal do motivo.
+  const casoPorPdv = new Map(aprovados.map((a) => [normalizarCodigoPdv(a.codigo_pdv), a]))
 
-  const { data: visitas, error: erroVisitas } = await supabase
+  // Busca todas as visitas do dia (sem filtrar por pdv_codigo no servidor,
+  // já que a comparação exata é o que estava quebrando) e casa em memória
+  // pelo código normalizado.
+  const { data: visitasBrutas, error: erroVisitas } = await supabase
     .from('distribuicao_bees_visitas')
     .select('mapa, pdv_codigo')
     .eq('filial', filial).eq('data', data)
-    .in('pdv_codigo', [...casoPorPdv.keys()])
   if (erroVisitas) return { enviados: 0, erros: [erroVisitas.message] }
-  if (!visitas || visitas.length === 0) return { enviados: 0, erros: [] }
+  if (!visitasBrutas || visitasBrutas.length === 0) {
+    return { enviados: 0, erros: ['Nenhuma visita do BEES encontrada pra essa data — confira se o import rodou pra essa filial/data.'] }
+  }
+  const visitas = visitasBrutas.filter((v) => casoPorPdv.has(normalizarCodigoPdv(v.pdv_codigo)))
+  if (visitas.length === 0) {
+    return { enviados: 0, erros: [`Nenhum PDV com caso aprovado apareceu na rota do dia (${visitasBrutas.length} visita(s) no BEES, ${casoPorPdv.size} PDV(s) aprovado(s), nenhum em comum).`] }
+  }
 
   const mapas = [...new Set(visitas.map((v) => v.mapa).filter((m): m is number => m != null))]
-  if (mapas.length === 0) return { enviados: 0, erros: [] }
+  if (mapas.length === 0) return { enviados: 0, erros: ['Visitas encontradas mas sem número de mapa (tour_display_id) — não dá pra achar o motorista.'] }
 
   const [{ data: escalas }, { data: matriculasCad }, { data: rosterTml }, { data: jaAvisados }] = await Promise.all([
     supabase.from('escalas_tml').select('mapa, matricula').eq('filial', filial).eq('data_entrega', data).in('mapa', mapas),
@@ -817,7 +829,7 @@ export async function avisarMotoristasPdvCritico(filial: string, data: string): 
     if (v.mapa == null) continue
     const matricula = matriculaPorMapa.get(v.mapa)
     if (matricula == null) continue
-    const caso = casoPorPdv.get(v.pdv_codigo)
+    const caso = casoPorPdv.get(normalizarCodigoPdv(v.pdv_codigo))
     if (!caso) continue
     const chave = `${matricula}|${v.pdv_codigo}`
     if (avisadoSet.has(chave)) continue
@@ -962,6 +974,13 @@ export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnali
 // Colaboradores) — mesmo normalizador usado em jornada.ts/telemetriaHotspot.ts
 // pra outras tabelas com matrícula, senão "0012345" nunca bate com "12345".
 function normalizarMatricula(s: string): string {
+  return s.trim().replace(/^0+/, '') || '0'
+}
+
+// Mesma ideia de normalizarMatricula, pro código de PDV — a planilha de
+// relato do motorista e o export do BEES vêm de sistemas diferentes e podem
+// não bater exatamente em zeros à esquerda.
+function normalizarCodigoPdv(s: string): string {
   return s.trim().replace(/^0+/, '') || '0'
 }
 
