@@ -18,7 +18,6 @@ import type { AlertaTML, HistoricoTML, MotivoJustificativaTML, ConversaMotorista
 import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_TML_PAUSADOS } from '../lib/whatsappStatus'
 import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorTelefone, buscarStatusColaboradoresPorMatricula, podeEnviarPara } from '../lib/statusAtivo'
-import { executarChecagemHotspot } from '../lib/telemetriaHotspot'
 import { avisarMotoristasRotaRiscoPorRegiao } from '../lib/rotasRisco'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
@@ -473,16 +472,6 @@ export default function DistribuicaoTML() {
       alert(`${escalas.length} registro(s) de escala importado(s) — data: ${formatarDataBR(dataEscalaDefinitiva)}.${avisoRotaRisco}`)
       await fetchStatusSaida()
       await fetchPendentes()
-
-      // Confere rotas de risco de telemetria (feature separada, hotspot de
-      // velocidade) pra essa mesma data — só manda WhatsApp de verdade se
-      // "Envio automático" estiver ativo (config e preview em Segurança →
-      // Telemetria → aba "Rotas de Risco").
-      try {
-        await executarChecagemHotspot(usuario.filial, dataEscalaDefinitiva, false)
-      } catch (e) {
-        console.error('[Telemetria Hotspot] falha ao checar rotas de risco:', e)
-      }
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao importar escala')
     } finally {

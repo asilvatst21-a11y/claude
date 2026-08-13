@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import {
   Send, Loader2, CheckCircle2, XCircle, TestTube2, Truck, Route, ShieldAlert,
-  ClipboardList, Gavel, PackageSearch, Radar, PackageCheck, Warehouse, Car, Send as SendIcon,
+  ClipboardList, Gavel, PackageSearch, PackageCheck, Warehouse, Car, Send as SendIcon,
   GraduationCap, Clock3,
 } from 'lucide-react'
 import { formatarDataBR } from '../lib/utils'
@@ -14,7 +14,6 @@ import {
   type LinhaJornada,
 } from '../lib/jornada'
 import { montarMensagemDivergencia, type ItemConf } from '../lib/conferencia'
-import { montarMensagemAlertaRota } from '../lib/telemetriaHotspot'
 import { montarMensagemAgendamentoVisita, montarMensagemAvisoMotoristaPdv } from '../lib/pdvSeguranca'
 
 function hojeISO(): string {
@@ -281,19 +280,6 @@ const SESSOES: SessaoTeste[] = [
         gerar: () => montarMensagemDivergencia({
           mapa: 279861, baiaRotulo: 'Baia 03', item: itemConfExemplo, conferente: 'Maria Souza (exemplo)', data: hojeISO(),
         }),
-      },
-    ],
-  },
-  {
-    nome: 'Telemetria',
-    icon: Radar,
-    itens: [
-      {
-        id: 'telemetria-hotspot',
-        titulo: 'Alerta de rota em hotspot → motorista',
-        quandoDispara: 'Ao importar a escala, quando o motorista tem cidades de risco no roteiro.',
-        destino: 'Celular do motorista',
-        gerar: () => montarMensagemAlertaRota('João da Silva (exemplo)', [{ cidade: 'Centro', eventos: 5 }, { cidade: 'Zona Norte', eventos: 3 }]),
       },
     ],
   },

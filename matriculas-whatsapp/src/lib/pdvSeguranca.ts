@@ -971,8 +971,8 @@ export async function carregarRelatosAnalise(filial: string): Promise<LinhaAnali
 }
 
 // Zeros à esquerda variam entre fontes (planilha de relato x cadastro de
-// Colaboradores) — mesmo normalizador usado em jornada.ts/telemetriaHotspot.ts
-// pra outras tabelas com matrícula, senão "0012345" nunca bate com "12345".
+// Colaboradores) — mesmo normalizador usado em jornada.ts pra outras tabelas
+// com matrícula, senão "0012345" nunca bate com "12345".
 function normalizarMatricula(s: string): string {
   return s.trim().replace(/^0+/, '') || '0'
 }

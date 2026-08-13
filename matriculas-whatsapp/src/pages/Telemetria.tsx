@@ -22,10 +22,6 @@ import { registrarOrientacaoVerbalFluxo } from '../lib/fluxoPunitivo'
 import { mesesDeEmpresa } from '../lib/gsdpqVencimento'
 import { enviarMensagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
-import {
-  buscarConfigHotspot, salvarConfigHotspot, executarChecagemHotspot,
-  type ConfigHotspot, type ResultadoChecagemHotspot,
-} from '../lib/telemetriaHotspot'
 import type { TelemetriaAlerta, TelemetriaAcao } from '../types'
 import { formatarDataBR } from '../lib/utils'
 
@@ -648,7 +644,7 @@ export default function Telemetria() {
   const [loading, setLoading]             = useState(true)
   const [detalheViaAberto, setDetalheViaAberto] = useState(true)
   const [uploading, setUploading]         = useState(false)
-  const [tab, setTab]                     = useState<'dash' | 'motoristas' | 'veiculos' | 'via' | 'semid' | 'reincidencia' | 'score' | 'serie' | 'tempocasa' | 'mapa' | 'reciclagem' | 'rotarisco'>('dash')
+  const [tab, setTab]                     = useState<'dash' | 'motoristas' | 'veiculos' | 'via' | 'semid' | 'reincidencia' | 'score' | 'serie' | 'tempocasa' | 'mapa' | 'reciclagem'>('dash')
 
   // Tempo de casa / taxa por rota rodada
   const [colaboradoresInfo, setColaboradoresInfo] = useState<Map<string, { dataAdmissao: string | null; matricula: string | null }>>(new Map())
@@ -670,13 +666,6 @@ export default function Telemetria() {
   const [copiado, setCopiado]             = useState<string | null>(null)
   const [salvandoGrupoSpike, setSalvandoGrupoSpike] = useState(false)
   const [enviandoSpike, setEnviandoSpike] = useState(false)
-
-  // Rotas de risco (hotspot de telemetria x escala do dia)
-  const [cfgHotspot, setCfgHotspot]           = useState<ConfigHotspot>({ ativo: false, minEventos: 8, topN: 5 })
-  const [salvandoCfgHotspot, setSalvandoCfgHotspot] = useState(false)
-  const [dataTesteHotspot, setDataTesteHotspot] = useState(() => new Date().toISOString().slice(0, 10))
-  const [testandoHotspot, setTestandoHotspot] = useState(false)
-  const [resultadoHotspot, setResultadoHotspot] = useState<ResultadoChecagemHotspot | null>(null)
 
   // Mapa geográfico: "agrupado" (clusters com contagem, visível em qualquer
   // zoom) é o padrão porque a área de atendimento é grande e o calor sozinho
@@ -802,33 +791,6 @@ export default function Telemetria() {
   }
 
   useEffect(() => { loadData() }, [usuario])
-
-  useEffect(() => {
-    if (!usuario) return
-    buscarConfigHotspot(usuario.filial).then(setCfgHotspot)
-  }, [usuario])
-
-  async function salvarCfgHotspot(novaCfg: ConfigHotspot) {
-    if (!usuario) return
-    setCfgHotspot(novaCfg)
-    setSalvandoCfgHotspot(true)
-    try {
-      await salvarConfigHotspot(usuario.filial, novaCfg)
-    } finally {
-      setSalvandoCfgHotspot(false)
-    }
-  }
-
-  async function testarHotspotAgora() {
-    if (!usuario) return
-    setTestandoHotspot(true)
-    try {
-      const resultado = await executarChecagemHotspot(usuario.filial, dataTesteHotspot, true)
-      setResultadoHotspot(resultado)
-    } finally {
-      setTestandoHotspot(false)
-    }
-  }
 
   // ── Config. WhatsApp do alerta de spike ────────────────────────────────────
 
@@ -1448,7 +1410,6 @@ export default function Telemetria() {
               ['tempocasa',     'Tempo de Casa'],
               ['mapa',          'Mapa de Calor'],
               ['reciclagem',    `Reciclagem${reciclagem.filter(r => !r.feito).length > 0 ? ` (${reciclagem.filter(r => !r.feito).length})` : ''}`],
-              ['rotarisco',     'Rotas de Risco'],
               ['semid',         `Sem Identificação${semIdAlertas.length > 0 ? ` (${semIdAlertas.length})` : ''}`],
             ] as [string, string][]).map(([k, l]) => (
               <button key={k} onClick={() => setTab(k as typeof tab)}
@@ -2295,106 +2256,6 @@ export default function Telemetria() {
           )}
 
           {/* ── Rotas de Risco Tab ───────────────────────────────────────── */}
-          {tab === 'rotarisco' && (
-            <div className="space-y-3">
-              <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 space-y-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-700">Rotas de risco hoje</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    Cruza as cidades com mais ocorrências de telemetria (últimos 90 dias) com a escala do dia
-                    (cidades da coluna "Cidades +Entregas" do 03.11.49.02, importada em Distribuição → Carta de
-                    Controle TML) e avisa o motorista por WhatsApp quando a rota bater numa cidade quente.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-3 flex-wrap">
-                  <input
-                    type="date" value={dataTesteHotspot} onChange={e => setDataTesteHotspot(e.target.value)}
-                    className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
-                  />
-                  <button
-                    onClick={testarHotspotAgora}
-                    disabled={testandoHotspot}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border text-xs hover:bg-accent transition-colors disabled:opacity-50"
-                  >
-                    {testandoHotspot ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null} Testar agora
-                  </button>
-                  <label className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-md border cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={cfgHotspot.ativo}
-                      onChange={(e) => salvarCfgHotspot({ ...cfgHotspot, ativo: e.target.checked })}
-                      disabled={salvandoCfgHotspot}
-                    />
-                    Envio automático ativo
-                  </label>
-                </div>
-
-                <div className="flex items-center gap-4 text-xs text-gray-500">
-                  <label className="flex items-center gap-1.5">
-                    Mín. eventos p/ ser "quente":
-                    <input
-                      type="number" min={1} value={cfgHotspot.minEventos}
-                      onChange={(e) => setCfgHotspot((c) => ({ ...c, minEventos: parseInt(e.target.value) || 1 }))}
-                      onBlur={() => salvarCfgHotspot(cfgHotspot)}
-                      className="w-14 border border-gray-200 rounded px-1.5 py-0.5"
-                    />
-                  </label>
-                  <label className="flex items-center gap-1.5">
-                    Top cidades:
-                    <input
-                      type="number" min={1} max={20} value={cfgHotspot.topN}
-                      onChange={(e) => setCfgHotspot((c) => ({ ...c, topN: parseInt(e.target.value) || 1 }))}
-                      onBlur={() => salvarCfgHotspot(cfgHotspot)}
-                      className="w-14 border border-gray-200 rounded px-1.5 py-0.5"
-                    />
-                  </label>
-                  {!cfgHotspot.ativo && (
-                    <span className="text-amber-700">Desligado — o import da escala só calcula o preview, não manda WhatsApp ainda.</span>
-                  )}
-                </div>
-
-                {resultadoHotspot && (
-                  <div className="border-t pt-3 space-y-2 text-sm">
-                    {resultadoHotspot.hotspots.length === 0 ? (
-                      <p className="text-gray-400 text-xs">Nenhuma cidade "quente" com esse limiar nos últimos 90 dias.</p>
-                    ) : (
-                      <p className="text-xs text-gray-500">
-                        Cidades quentes: {resultadoHotspot.hotspots.map((h) => `${h.cidade} (${h.eventos})`).join(', ')}
-                      </p>
-                    )}
-                    {resultadoHotspot.enviados.length === 0 ? (
-                      <p className="text-xs text-green-700">Nenhuma rota dessa data bate com uma cidade quente — nada {cfgHotspot.ativo ? 'enviado' : 'a enviar'}.</p>
-                    ) : (
-                      <div>
-                        <p className="text-xs font-semibold text-amber-700 mb-1">
-                          {resultadoHotspot.enviados.length} rota(s) {cfgHotspot.ativo ? 'avisada(s)' : 'seria(m) avisada(s) se o envio automático estivesse ativo'}:
-                        </p>
-                        <ul className="text-xs text-gray-700 space-y-0.5">
-                          {resultadoHotspot.enviados.map((e) => (
-                            <li key={e.mapa}>• Mapa {e.mapa} — {e.nome ?? 'sem nome no roster'} — {e.cidades}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    {resultadoHotspot.semTelefone.length > 0 && (
-                      <p className="text-xs text-red-600">
-                        {resultadoHotspot.semTelefone.length} rota(s) bateram mas sem telefone cadastrado: {resultadoHotspot.semTelefone.map((s) => `Mapa ${s.mapa}`).join(', ')}
-                      </p>
-                    )}
-                    {resultadoHotspot.bloqueados.length > 0 && (
-                      <p className="text-xs text-red-600">
-                        {resultadoHotspot.bloqueados.length} rota(s) bloqueada(s) por status do colaborador (inativo/opt-out).
-                      </p>
-                    )}
-                    {resultadoHotspot.jaEnviadosAntes > 0 && (
-                      <p className="text-xs text-gray-500">{resultadoHotspot.jaEnviadosAntes} rota(s) já tinham sido avisadas antes nessa data — não repetido.</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
         </>
       )}
 
