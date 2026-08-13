@@ -27,6 +27,7 @@ import {
   type FarolLinha, type StatusFarol, type CategoriaWatchlist,
 } from '../lib/farolCriticos'
 import { avisarMotoristasPdvCritico } from '../lib/pdvSeguranca'
+import { avisarMotoristasRotaRisco, perguntarSobrePontoRiscoParaMotoristasDoDia } from '../lib/rotasRisco'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -788,10 +789,28 @@ export default function JornadaRota() {
         console.error('[Jornada] falha ao avisar motoristas de PDV Crítico:', e)
       }
 
+      // Aviso de Rotas de Risco (mesmo gatilho, mesmo padrão) + pergunta
+      // proativa da Aurora pra quem rodou hoje, sugerindo novos pontos.
+      let avisoRotaRisco = ''
+      try {
+        const { enviados, erros } = await avisarMotoristasRotaRisco(usuario.filial, dataOperacao)
+        if (erros.length > 0) {
+          console.error('[Jornada] falhas no aviso de Rotas de Risco:', erros)
+          avisoRotaRisco = `\n\n🛣️ Rotas de Risco: ${enviados} aviso(s) enviado(s).\n${erros.join('\n')}`
+        } else if (enviados > 0) {
+          avisoRotaRisco = `\n\n🛣️ Rotas de Risco: ${enviados} motorista(s) avisado(s) sobre ponto de risco na rota.`
+        }
+        const { perguntados } = await perguntarSobrePontoRiscoParaMotoristasDoDia(usuario.filial, dataOperacao)
+        if (perguntados > 0) avisoRotaRisco += `\n💬 ${perguntados} motorista(s) recebeu(eram) a pergunta sobre novos pontos de risco.`
+      } catch (e) {
+        console.error('[Jornada] falha em Rotas de Risco:', e)
+      }
+
       alert(
         `${agregados.length} mapa(s) atualizado(s) a partir do BEES. Mensagens enviadas por sala + resumo do CDD.` +
         avisoFarol +
         avisoPdvCritico +
+        avisoRotaRisco +
         (errosEnvio.length > 0 ? `\n\n⚠️ Falhas no envio:\n${errosEnvio.join('\n')}` : '')
       )
     } catch (err) {

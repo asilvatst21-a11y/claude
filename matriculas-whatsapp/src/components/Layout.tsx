@@ -24,6 +24,7 @@ const segItems = [
   { permKey: 'excesso-peso',    to: '/seguranca/excesso-peso', label: 'Excesso de Peso', icon: Scale           },
   { permKey: 'pdv-critico',     to: '/seguranca/pdv-critico', label: 'PDV Crítico',     icon: AlertTriangle   },
   { permKey: 'treinamentos-seguranca', to: '/seguranca/treinamentos', label: 'Treinamentos Segurança', icon: Target },
+  { permKey: 'rotas-risco',     to: '/seguranca/rotas-risco', label: 'Rotas de Risco',   icon: MapPin          },
 ]
 
 const genteItems = [

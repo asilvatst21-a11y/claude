@@ -42,6 +42,7 @@ import Telemetria from './pages/Telemetria'
 import SegurancaExcessoPeso from './pages/SegurancaExcessoPeso'
 import SegurancaPdvCritico from './pages/SegurancaPdvCritico'
 import SegurancaTreinamentos from './pages/SegurancaTreinamentos'
+import SegurancaRotasRisco from './pages/SegurancaRotasRisco'
 import PdvCriticoVisitaPublica from './pages/PdvCriticoVisitaPublica'
 import CentralTestes from './pages/CentralTestes'
 import SegurancaExcessoPesoMatriz from './pages/SegurancaExcessoPesoMatriz'
@@ -159,6 +160,7 @@ export default function App() {
             <Route path="/seguranca/excesso-peso/fotos-tara" element={<SegurancaExcessoPesoFotos />} />
             <Route path="/seguranca/pdv-critico" element={<SegurancaPdvCritico />} />
             <Route path="/seguranca/treinamentos" element={<SegurancaTreinamentos />} />
+            <Route path="/seguranca/rotas-risco" element={<SegurancaRotasRisco />} />
             <Route path="/jornada" element={<Jornada />} />
             <Route path="/colaboradores" element={<Colaboradores />} />
             <Route path="/distribuicao" element={<Distribuicao />} />

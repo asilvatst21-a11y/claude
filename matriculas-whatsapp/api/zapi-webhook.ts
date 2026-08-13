@@ -199,6 +199,19 @@ function temImagem(body: any): boolean {
   return !!extrairImagemUrl(body) || body?.type === 'ImageMessage'
 }
 
+// Localização compartilhada pelo WhatsApp (usada em Rotas de Risco, pro
+// motorista marcar o ponto exato). Sem precedente nesse arquivo até agora —
+// checa as formas mais comuns do payload do Z-API pra um LocationMessage,
+// sem confiar cegamente num único formato de campo.
+function extrairLocalizacao(body: any): { latitude: number; longitude: number } | null {
+  const loc = body?.location ?? body?.Location ?? null
+  const lat = Number(loc?.latitude ?? loc?.lat ?? body?.latitude)
+  const lng = Number(loc?.longitude ?? loc?.lng ?? loc?.long ?? body?.longitude)
+  if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) return { latitude: lat, longitude: lng }
+  if (body?.type === 'LocationMessage') console.warn('[Aurora] LocationMessage recebido mas sem latitude/longitude reconhecível:', JSON.stringify(body).slice(0, 400))
+  return null
+}
+
 // Baixa o áudio do Z-API e transcreve via Whisper da Groq (endpoint compatível
 // com a OpenAI). Retorna o texto transcrito ou null se falhar / sem chave.
 async function transcreverAudio(url: string): Promise<string | null> {
@@ -3375,6 +3388,7 @@ const AURORA_CATEGORIAS: OpcaoZ[] = [
   { id: 'aurora_cat:treinamentos', title: '🎓 Treinamentos' },
   { id: 'aurora_cat:financeiro', title: '💰 Financeiro' },
   { id: 'aurora_cat:armazem', title: '📦 Armazém' },
+  { id: 'aurora_cat:seguranca', title: '🦺 Segurança' },
   { id: 'aurora_cat:sugestoes', title: '💬 Sugestões' },
 ]
 
@@ -3388,6 +3402,10 @@ const AURORA_SUBMENUS: Record<string, OpcaoZ[]> = {
   armazem: [
     { id: 'aurora_item:variavel', title: 'Consultar meu variável/pontuação' },
     { id: 'aurora_item:lastro', title: 'Quantos cabem por lastro' },
+  ],
+  seguranca: [
+    { id: 'aurora_item:pontos_risco_mapa', title: 'Pontos de risco da minha rota' },
+    { id: 'aurora_item:sugerir_ponto_risco', title: 'Sinalizar um ponto de risco' },
   ],
   sugestoes: [{ id: 'aurora_item:enviar_sugestao', title: 'Enviar uma sugestão' }],
 }
@@ -3501,6 +3519,42 @@ async function filialDoTelefoneOuPadrao(remetente: string): Promise<string> {
   if (colab?.filial) return colab.filial
   const { data } = await supabase.from('filiais').select('nome').order('nome').limit(1)
   return data?.[0]?.nome ?? ''
+}
+
+// ── Rotas de Risco — consulta e cadastro de ponto de risco pela Aurora ────
+// Mesmo cruzamento do PDV Crítico (BEES do dia → PDV → ponto de risco
+// vinculado por PDV de referência), mas fora de src/lib/rotasRisco.ts
+// porque este arquivo é uma function isolada (sem import de src/).
+function normalizarCodigoPdvRota(s: string): string {
+  return s.trim().replace(/^0+/, '') || '0'
+}
+
+const SEV_LABEL_ROTA: Record<string, string> = { alto: 'Alto', moderado: 'Moderado', baixo: 'Baixo' }
+const SEV_ORDEM_ROTA: Record<string, number> = { alto: 0, moderado: 1, baixo: 2 }
+
+async function pontosRiscoPorMapaAurora(filial: string, data: string, mapa: number): Promise<{ titulo: string; severidade: string; velocidade_segura: string | null }[]> {
+  const { data: visitas } = await supabase.from('distribuicao_bees_visitas').select('mapa, pdv_codigo').eq('filial', filial).eq('data', data)
+  const pdvsDoMapa = new Set((visitas ?? []).filter((v: any) => v.mapa === mapa).map((v: any) => normalizarCodigoPdvRota(v.pdv_codigo)))
+  if (pdvsDoMapa.size === 0) return []
+  const { data: pontos } = await supabase.from('rotas_risco_pontos').select('titulo, severidade, velocidade_segura, pdv_referencia').eq('filial', filial).eq('ativo', true)
+  return (pontos ?? []).filter((p: any) => p.pdv_referencia && pdvsDoMapa.has(normalizarCodigoPdvRota(p.pdv_referencia)))
+}
+
+function montarMensagemPontosDoMapaAurora(mapa: number, pontos: { titulo: string; severidade: string; velocidade_segura: string | null }[]): string {
+  if (pontos.length === 0) return `🔍 Não encontrei nenhum ponto de risco cadastrado na rota do mapa *${mapa}*.`
+  const ordenados = [...pontos].sort((a, b) => (SEV_ORDEM_ROTA[a.severidade] ?? 9) - (SEV_ORDEM_ROTA[b.severidade] ?? 9))
+  const linhas = ordenados.map((p) => `• *${p.titulo}* — ${SEV_LABEL_ROTA[p.severidade] ?? p.severidade}${p.velocidade_segura ? ` (${p.velocidade_segura})` : ''}`)
+  return [`🛣️ *${pontos.length} ponto(s) de risco na rota do mapa ${mapa}:*`, ...linhas].join('\n')
+}
+
+// Igual descobrirSalaColaborador, mas também traz a matrícula — usada só
+// pra vincular o relato de ponto de risco a quem mandou.
+async function descobrirMotoristaPorTelefone(remetente: string): Promise<{ filial: string; matricula: string | null; nome: string | null } | null> {
+  const digitos = ultimosDigitos(remetente)
+  if (!digitos) return null
+  const { data: colaboradores } = await supabase.from('motoristas_sala_tml').select('filial, matricula, nome, telefone').not('telefone', 'is', null)
+  const colab = (colaboradores ?? []).find((c: any) => ultimosDigitos(c.telefone) === digitos)
+  return colab ? { filial: colab.filial, matricula: colab.matricula != null ? String(colab.matricula) : null, nome: colab.nome ?? null } : null
 }
 
 const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
@@ -3683,6 +3737,16 @@ async function tratarItemAurora(remetente: string, senderName: string, itemId: s
     await enviar(remetente, '📦 Me fala o *produto* (ou o *código*) que eu já te digo quantos cabem no lastro.')
     return { ok: true, action: 'aurora-pede-produto-lastro' }
   }
+  if (itemId === 'aurora_item:pontos_risco_mapa') {
+    await definirEstadoAurora(remetente, 'aguardando_mapa_rota_risco')
+    await enviar(remetente, '🛣️ Qual o *número do mapa* de hoje? Te mostro os pontos de risco cadastrados na rota.')
+    return { ok: true, action: 'aurora-pede-mapa-rota-risco' }
+  }
+  if (itemId === 'aurora_item:sugerir_ponto_risco') {
+    await definirEstadoAurora(remetente, 'aguardando_relato_ponto_risco', { texto: null, viaAudio: false, latitude: null, longitude: null, aguardandoLocalizacaoOpcional: false })
+    await enviar(remetente, '📍 Me conta o que você viu — pode ser *texto* ou *áudio*. Se preferir, pode mandar a *localização* primeiro também.')
+    return { ok: true, action: 'aurora-pede-relato-ponto-risco' }
+  }
   if (itemId === 'aurora_item:enviar_sugestao') {
     await definirEstadoAurora(remetente, 'aguardando_sugestao_texto')
     await enviar(remetente, '💬 Manda sua sugestão! Pode ser sobre qualquer processo — o que trava, o que podia ser mais rápido, ou o que faria diferença no seu dia a dia.')
@@ -3783,6 +3847,88 @@ async function tratarAurora(
       await enviar(remetente, resposta)
       await perguntarProximoPasso(remetente)
       return { ok: true, action: 'aurora-lastro-respondido' }
+    }
+    if (sessao.estado === 'aguardando_mapa_rota_risco') {
+      let conteudo = texto.trim()
+      if (!conteudo && temAudioSemTexto(body)) {
+        const transcrito = await transcreverAudio(extrairAudioUrl(body))
+        if (!transcrito) {
+          await enviar(remetente, 'Não consegui entender o áudio. Pode escrever o número do mapa?')
+          return { ok: true, action: 'aurora-rota-risco-audio-falhou' }
+        }
+        conteudo = transcrito
+      }
+      const mapa = extrairMapa(conteudo)
+      if (mapa == null) {
+        await enviar(remetente, '🔢 Não entendi. Envie só o *número do mapa* de hoje (ex: 279088).')
+        return { ok: true, action: 'aurora-rota-risco-mapa-repete' }
+      }
+      const filial = await filialDoTelefoneOuPadrao(remetente)
+      const pontos = await pontosRiscoPorMapaAurora(filial, hojeSPISO(), mapa)
+      await enviar(remetente, montarMensagemPontosDoMapaAurora(mapa, pontos))
+      await perguntarProximoPasso(remetente)
+      return { ok: true, action: 'aurora-rota-risco-respondido' }
+    }
+    if (sessao.estado === 'aguardando_relato_ponto_risco') {
+      const ctx = { texto: null, viaAudio: false, latitude: null, longitude: null, aguardandoLocalizacaoOpcional: false, ...(sessao.contexto ?? {}) } as {
+        texto: string | null; viaAudio: boolean; latitude: number | null; longitude: number | null; aguardandoLocalizacaoOpcional: boolean
+      }
+
+      // "Não teve nada" na pergunta proativa (fora do fluxo pelo menu) —
+      // encerra sem registrar sugestão nenhuma.
+      if (ctx.texto == null && ctx.latitude == null && /^(n[aã]o|nada|sem nada)\b/i.test(texto.trim())) {
+        await encerrarSessaoAurora(remetente)
+        await enviar(remetente, 'Beleza, valeu! Qualquer coisa é só chamar. 🙌')
+        return { ok: true, action: 'aurora-rota-risco-nada-relatado' }
+      }
+
+      const localizacao = extrairLocalizacao(body)
+      if (localizacao) { ctx.latitude = localizacao.latitude; ctx.longitude = localizacao.longitude }
+
+      if (!localizacao && ctx.texto == null) {
+        let conteudo = texto.trim()
+        let viaAudio = false
+        if (!conteudo && temAudioSemTexto(body)) {
+          const transcrito = await transcreverAudio(extrairAudioUrl(body))
+          if (transcrito) { conteudo = transcrito; viaAudio = true }
+        }
+        if (conteudo) { ctx.texto = conteudo; ctx.viaAudio = viaAudio }
+      }
+
+      // Localização chegou mas ainda falta o relato — pede o relato, sem
+      // fechar a sugestão ainda.
+      if (localizacao && ctx.texto == null) {
+        await definirEstadoAurora(remetente, 'aguardando_relato_ponto_risco', ctx)
+        await enviar(remetente, '📍 Localização recebida! Agora me conta o que você viu ali — texto ou áudio.')
+        return { ok: true, action: 'aurora-rota-risco-pede-relato' }
+      }
+
+      // Relato chegou mas ainda não perguntamos sobre localização.
+      if (ctx.texto != null && ctx.latitude == null && !ctx.aguardandoLocalizacaoOpcional) {
+        ctx.aguardandoLocalizacaoOpcional = true
+        await definirEstadoAurora(remetente, 'aguardando_relato_ponto_risco', ctx)
+        await enviar(remetente, 'Entendi! Quer mandar a *localização* também? (opcional — pode compartilhar ou só responder "não")')
+        return { ok: true, action: 'aurora-rota-risco-pede-localizacao' }
+      }
+
+      // Nada reconhecido ainda (nem texto, nem áudio, nem localização).
+      if (ctx.texto == null) {
+        if (btn) return null
+        await enviar(remetente, '📍 Me conta o que você viu — texto ou áudio. Se preferir, pode mandar a localização primeiro.')
+        return { ok: true, action: 'aurora-rota-risco-repete' }
+      }
+
+      // Relato + (localização ou já perguntamos e seguiu) → registra.
+      const motorista = await descobrirMotoristaPorTelefone(remetente)
+      const filial = motorista?.filial ?? await filialDoTelefoneOuPadrao(remetente)
+      await supabase.from('rotas_risco_sugestoes').insert({
+        filial, matricula: motorista?.matricula ?? null, nome_motorista: motorista?.nome ?? senderName ?? null,
+        telefone: remetente, relato_texto: ctx.texto, via_audio: ctx.viaAudio,
+        latitude: ctx.latitude, longitude: ctx.longitude,
+      })
+      await encerrarSessaoAurora(remetente)
+      await enviar(remetente, '✅ Registrado! Assim que o time de Segurança confirmar, esse ponto entra no aviso automático pra quem passar por ali. Valeu por avisar 🙏')
+      return { ok: true, action: 'aurora-rota-risco-registrado' }
     }
     if (sessao.estado === 'aguardando_sugestao_texto') {
       let conteudo = texto.trim()
