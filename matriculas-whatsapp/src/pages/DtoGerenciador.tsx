@@ -137,6 +137,22 @@ function periodicidadeDias(risco: string): number | null {
 
 // ── Normalização e datas ────────────────────────────────────────────────────────────────
 
+// select('*').eq('filial', ...) sem paginação corta em 1000 linhas por
+// padrão do PostgREST — em tabelas grandes (dto_observacoes, relatos), os
+// registros mais recentes (import novo de DTO, por ex.) ficam de fora do
+// corte e o Gerenciador parece "não atualizar" mesmo clicando em Atualizar.
+async function buscarTodasLinhasPorFilial<T = any>(tabela: string, filial: string): Promise<T[]> {
+  const PAGINA = 1000
+  const linhas: T[] = []
+  for (let de = 0; ; de += PAGINA) {
+    const { data, error } = await supabase.from(tabela).select('*').eq('filial', filial).range(de, de + PAGINA - 1)
+    if (error) { console.error(`buscarTodasLinhasPorFilial(${tabela}) error:`, error.message); break }
+    linhas.push(...((data ?? []) as T[]))
+    if (!data || data.length < PAGINA) break
+  }
+  return linhas
+}
+
 function norm(s: string | null | undefined): string {
   return (s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim()
 }
@@ -396,19 +412,19 @@ export default function DtoGerenciador() {
   async function carregar() {
     if (!usuario) return
     setCarregando(true)
-    const [{ data: ativ }, { data: obs }, { data: rel }, { data: av }, { data: ali }, { data: sol }, { data: fluxos }] = await Promise.all([
+    const [{ data: ativ }, obs, rel, { data: av }, { data: ali }, { data: sol }, { data: fluxos }] = await Promise.all([
       supabase.from('dto_atividades').select('*').eq('filial', usuario.filial).order('area').order('nome_atividade'),
-      supabase.from('dto_observacoes').select('*').eq('filial', usuario.filial),
-      supabase.from('relatos').select('*').eq('filial', usuario.filial),
+      buscarTodasLinhasPorFilial('dto_observacoes', usuario.filial),
+      buscarTodasLinhasPorFilial('relatos', usuario.filial),
       supabase.from('dto_avaliadores').select('*').eq('filial', usuario.filial).eq('ativo', true).order('nome'),
       supabase.from('dto_atividade_aliases').select('*').eq('filial', usuario.filial),
       supabase.from('dto_solicitacoes').select('*').eq('filial', usuario.filial).order('criado_em', { ascending: false }),
       supabase.from('fluxo_punitivo').select('colaborador_nome, data_infracao, origem, tipo_acao, status').eq('filial', usuario.filial),
     ])
     setAtividades(ativ ?? [])
-    setObservacoes(obs ?? [])
+    setObservacoes(obs)
     setAvaliadores(av ?? [])
-    setRelatos(rel ?? [])
+    setRelatos(rel)
     setAliases(ali ?? [])
     setSolicitacoesDto(sol ?? [])
 
