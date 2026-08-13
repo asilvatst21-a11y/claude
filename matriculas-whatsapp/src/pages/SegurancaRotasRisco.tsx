@@ -141,7 +141,7 @@ export default function SegurancaRotasRisco() {
 
   const [form, setForm] = useState({
     titulo: '', tipo: 'ponto' as TipoPonto, severidade: 'baixo' as Severidade,
-    rodovia: '', velocidade: '', rota: '', pdvReferencia: '', mapsUrl: '',
+    rodovia: '', velocidade: '', rota: '', pdvReferencia: '', mapsUrl: '', latitude: '', longitude: '',
   })
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
@@ -159,17 +159,25 @@ export default function SegurancaRotasRisco() {
 
   async function salvarPonto() {
     if (!usuario?.filial || !form.titulo.trim()) { setMsg('Preencha pelo menos o título.'); return }
+    const lat = form.latitude.trim() ? Number(form.latitude.trim().replace(',', '.')) : null
+    const lng = form.longitude.trim() ? Number(form.longitude.trim().replace(',', '.')) : null
+    if ((lat != null && !Number.isFinite(lat)) || (lng != null && !Number.isFinite(lng))) {
+      setMsg('Latitude/longitude inválidas — use só números (ex.: -24.9578).')
+      return
+    }
+    if ((lat != null) !== (lng != null)) { setMsg('Preencha latitude e longitude juntas, ou deixe as duas em branco.'); return }
+    const mapsUrl = form.mapsUrl.trim() || (lat != null && lng != null ? `https://maps.google.com/?q=${lat},${lng}` : null)
     setSalvando(true)
     setMsg('')
     const { error } = await criarPontoRisco({
       filial: usuario.filial, titulo: form.titulo.trim(), tipo: form.tipo, severidade: form.severidade,
       rodovia: form.rodovia.trim() || null, velocidade_segura: form.velocidade.trim() || null,
       rota: form.rota.trim() || null, pdv_referencia: form.pdvReferencia.trim() || null,
-      latitude: null, longitude: null, maps_url: form.mapsUrl.trim() || null,
+      latitude: lat, longitude: lng, maps_url: mapsUrl,
     })
     setSalvando(false)
     if (error) { setMsg(`Erro ao criar: ${error}`); return }
-    setForm({ titulo: '', tipo: 'ponto', severidade: 'baixo', rodovia: '', velocidade: '', rota: '', pdvReferencia: '', mapsUrl: '' })
+    setForm({ titulo: '', tipo: 'ponto', severidade: 'baixo', rodovia: '', velocidade: '', rota: '', pdvReferencia: '', mapsUrl: '', latitude: '', longitude: '' })
     setMsg('✅ Ponto de risco criado.')
     carregar()
   }
@@ -280,7 +288,15 @@ export default function SegurancaRotasRisco() {
               <input value={form.pdvReferencia} onChange={(e) => setForm((f) => ({ ...f, pdvReferencia: e.target.value }))} placeholder="Código do PDV mais próximo" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground">Link do Google Maps</label>
+              <label className="text-xs font-medium text-muted-foreground">Latitude</label>
+              <input value={form.latitude} onChange={(e) => setForm((f) => ({ ...f, latitude: e.target.value }))} placeholder="Ex.: -24.9578" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Longitude</label>
+              <input value={form.longitude} onChange={(e) => setForm((f) => ({ ...f, longitude: e.target.value }))} placeholder="Ex.: -53.4595" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs font-medium text-muted-foreground">Link do Google Maps <span className="text-muted-foreground font-normal">(opcional — sem isso, gero um a partir da latitude/longitude)</span></label>
               <input value={form.mapsUrl} onChange={(e) => setForm((f) => ({ ...f, mapsUrl: e.target.value }))} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
           </div>
