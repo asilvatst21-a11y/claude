@@ -427,6 +427,24 @@ export default function DtoGerenciador() {
 
   useEffect(() => { carregar() }, [usuario?.filial])
 
+  // Atualiza sozinho quando a aba volta a ficar visível/em foco — cobre o
+  // caso de importar em Análise DTO numa aba e voltar pra essa tela (já
+  // montada) em outra, sem precisar clicar em "Atualizar" ou recarregar.
+  // Não há realtime aqui: as duas telas leem a mesma tabela
+  // (dto_observacoes), só que cada uma busca só ao montar.
+  useEffect(() => {
+    function onFoco() {
+      if (document.visibilityState === 'visible') carregar()
+    }
+    document.addEventListener('visibilitychange', onFoco)
+    window.addEventListener('focus', onFoco)
+    return () => {
+      document.removeEventListener('visibilitychange', onFoco)
+      window.removeEventListener('focus', onFoco)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [usuario?.filial])
+
   async function vincularAlias(alias: string, nomeAtividade: string) {
     if (!usuario) return
     setVinculando(alias)
