@@ -840,6 +840,53 @@ export async function avisarMotoristasPdvCritico(filial: string, data: string): 
   return { enviados, erros }
 }
 
+export interface AvisoMotoristaLinha {
+  id: string
+  data: string
+  matricula: string
+  nomeMotorista: string
+  codigoPdv: string
+  subgrupo: string | null
+  enviadoEm: string
+}
+
+// Histórico de avisos já mandados (não é "fila" — é o log do que já saiu),
+// pra responder "onde eu vejo que isso foi enviado?" sem precisar confiar
+// só no console do navegador no momento do import.
+export async function listarAvisosMotoristaPdv(filial: string, limite = 200): Promise<AvisoMotoristaLinha[]> {
+  const { data, error } = await supabase
+    .from('pdv_seguranca_avisos_motorista')
+    .select('id, data, matricula, codigo_pdv, enviado_em, relato_id')
+    .eq('filial', filial)
+    .order('enviado_em', { ascending: false })
+    .limit(limite)
+  if (error) { console.error('listarAvisosMotoristaPdv error:', error.message); return [] }
+  const linhas = data ?? []
+  if (linhas.length === 0) return []
+
+  const relatoIds = [...new Set(linhas.map((l) => l.relato_id).filter((id): id is string => !!id))]
+  const [{ data: relatos }, nomePorMatricula] = await Promise.all([
+    relatoIds.length > 0
+      ? supabase.from('pdv_seguranca_relatos').select('id, subgrupo').in('id', relatoIds)
+      : Promise.resolve({ data: [] as { id: string; subgrupo: string }[] }),
+    buscarNomesColaboradoresPorMatricula(),
+  ])
+  const subgrupoPorRelato = new Map((relatos ?? []).map((r) => [r.id, r.subgrupo]))
+
+  return linhas.map((l) => {
+    const matriculaNorm = normalizarMatricula(l.matricula)
+    return {
+      id: l.id,
+      data: l.data,
+      matricula: l.matricula,
+      nomeMotorista: nomePorMatricula.get(matriculaNorm) ?? `Matrícula ${l.matricula} (sem nome cadastrado)`,
+      codigoPdv: l.codigo_pdv,
+      subgrupo: l.relato_id ? (subgrupoPorRelato.get(l.relato_id) ?? null) : null,
+      enviadoEm: l.enviado_em,
+    }
+  })
+}
+
 // ── Dashboard de análise ─────────────────────────────────────────────────
 // Cobre o que fica de fora do painel operacional: relatos já fechados
 // (aprovado/encerrado_historico, no prazo × fora do prazo usando prazo/
@@ -945,7 +992,15 @@ export async function buscarNomesColaboradoresPorMatricula(): Promise<Map<string
     if (error) { console.error('buscarNomesColaboradoresPorMatricula error:', error.message); break }
     for (const c of data ?? []) {
       if (c.matricula == null) continue
-      mapa.set(normalizarMatricula(String(c.matricula)), (c.nome ?? '').trim())
+      const nome = (c.nome ?? '').trim()
+      // matrícula não é única globalmente (só filial+nome é) — a mesma
+      // matrícula pode aparecer em Colaboradores de mais de uma filial.
+      // Sem essa proteção, uma linha duplicada/sem nome processada depois
+      // sobrescrevia silenciosamente o nome certo já encontrado.
+      if (!nome) continue
+      if (!mapa.has(normalizarMatricula(String(c.matricula)))) {
+        mapa.set(normalizarMatricula(String(c.matricula)), nome)
+      }
     }
     if (!data || data.length < PAGINA) break
   }

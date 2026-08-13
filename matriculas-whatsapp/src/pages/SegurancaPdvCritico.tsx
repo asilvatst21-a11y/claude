@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown, BarChart2, CalendarClock, Users, Trophy, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown, BarChart2, CalendarClock, Users, Trophy, Search, ChevronLeft, ChevronRight, Bell } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
   listarNiveisSubgrupo, salvarNivelSubgrupo, semearNiveisPadrao,
   importarRelatosPdv, listarRelatos, marcarNaoCritico, encerrarComDataRetroativa, corrigirDataFechamento,
   carregarRelatosAnalise, calcularEstatisticasPdvCritico, buscarNomesColaboradoresPorMatricula,
-  listarSupervisoresPdv, agendarVisita, aprovarCaso, reabrirCaso, RISCOS_VISITA_PDV,
+  listarSupervisoresPdv, agendarVisita, aprovarCaso, reabrirCaso, RISCOS_VISITA_PDV, listarAvisosMotoristaPdv,
   NIVEL_LABEL, NIVEL_MEDIDO_LABEL, STATUS_LABEL, PRAZO_DIAS,
   type NivelSubgrupo, type NivelCriticidade, type RelatoLinha, type ResultadoImportRelatos,
-  type LinhaAnaliseRelato, type EstatisticasPdvCritico, type SupervisorPdv,
+  type LinhaAnaliseRelato, type EstatisticasPdvCritico, type SupervisorPdv, type AvisoMotoristaLinha,
 } from '../lib/pdvSeguranca'
 
 const MES_LABEL = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
@@ -280,7 +280,7 @@ function FinalizacaoModal({
 
 export default function SegurancaPdvCritico() {
   const { usuario } = useAuth()
-  const [aba, setAba] = useState<'painel' | 'analise' | 'lista'>('painel')
+  const [aba, setAba] = useState<'painel' | 'analise' | 'lista' | 'avisos'>('painel')
   const [niveis, setNiveis] = useState<NivelSubgrupo[]>([])
   const [carregandoNiveis, setCarregandoNiveis] = useState(true)
   const [configAberta, setConfigAberta] = useState(false)
@@ -304,6 +304,9 @@ export default function SegurancaPdvCritico() {
   const [carregandoAnalise, setCarregandoAnalise] = useState(false)
   const [filtroAno, setFiltroAno] = useState<number | null>(null)
   const [filtroMes, setFiltroMes] = useState<number | null>(null)
+
+  const [avisos, setAvisos] = useState<AvisoMotoristaLinha[] | null>(null)
+  const [carregandoAvisos, setCarregandoAvisos] = useState(false)
 
   const carregarNiveis = useCallback(async () => {
     if (!usuario) return
@@ -332,9 +335,17 @@ export default function SegurancaPdvCritico() {
     setCarregandoAnalise(false)
   }, [usuario])
 
+  const carregarAvisos = useCallback(async () => {
+    if (!usuario) return
+    setCarregandoAvisos(true)
+    setAvisos(await listarAvisosMotoristaPdv(usuario.filial))
+    setCarregandoAvisos(false)
+  }, [usuario])
+
   useEffect(() => { carregarNiveis() }, [carregarNiveis])
   useEffect(() => { carregarRelatos() }, [carregarRelatos])
   useEffect(() => { if ((aba === 'analise' || aba === 'lista') && !analiseLinhas) carregarAnalise() }, [aba, analiseLinhas, carregarAnalise])
+  useEffect(() => { if (aba === 'avisos' && !avisos) carregarAvisos() }, [aba, avisos, carregarAvisos])
 
   const estatisticas = useMemo(
     () => analiseLinhas ? calcularEstatisticasPdvCritico(analiseLinhas, { ano: filtroAno, mes: filtroMes }, nomePorMatricula) : null,
@@ -460,6 +471,7 @@ export default function SegurancaPdvCritico() {
           { valor: 'painel' as const, label: 'Painel operacional' },
           { valor: 'analise' as const, label: 'Análise' },
           { valor: 'lista' as const, label: 'Lista completa' },
+          { valor: 'avisos' as const, label: 'Avisos ao motorista' },
         ]).map((t) => (
           <button
             key={t.valor}
@@ -489,6 +501,8 @@ export default function SegurancaPdvCritico() {
           carregando={carregandoAnalise}
           nomePorMatricula={nomePorMatricula}
         />
+      ) : aba === 'avisos' ? (
+        <AvisosMotoristaTab avisos={avisos} carregando={carregandoAvisos} />
       ) : (
       <>
       {/* ── Config: nível por subgrupo ─────────────────────────────── */}
@@ -1302,6 +1316,50 @@ function ListaCompletaTab({
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+function AvisosMotoristaTab({ avisos, carregando }: { avisos: AvisoMotoristaLinha[] | null; carregando: boolean }) {
+  if (carregando || !avisos) {
+    return <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+  }
+  return (
+    <div className="space-y-4">
+      <div className="border rounded-lg bg-white p-4">
+        <h2 className="text-sm font-semibold flex items-center gap-1.5 mb-1"><Bell className="h-4 w-4 text-primary" /> Avisos enviados aos motoristas</h2>
+        <p className="text-xs text-muted-foreground">
+          Histórico de todo aviso de "PDV crítico na rota" já mandado por WhatsApp — dispara automaticamente a cada
+          import do BEES em Jornada e Tempo em Rota, para quem tem no mapa do dia um PDV com caso aprovado. Um
+          motorista só recebe uma vez por PDV por dia, mesmo reimportando o BEES várias vezes.
+        </p>
+      </div>
+      <div className="border rounded-xl bg-white shadow-sm overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-slate-50">
+            <tr className="text-left text-muted-foreground border-b">
+              <th className="py-2 px-3">Data</th>
+              <th className="py-2 px-3">Motorista</th>
+              <th className="py-2 px-3">PDV</th>
+              <th className="py-2 px-3">Motivo</th>
+              <th className="py-2 px-3">Enviado em</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y">
+            {avisos.length === 0 ? (
+              <tr><td colSpan={5} className="text-center py-8 text-muted-foreground">Nenhum aviso enviado ainda.</td></tr>
+            ) : avisos.map((a) => (
+              <tr key={a.id} className="hover:bg-slate-50">
+                <td className="py-2 px-3 whitespace-nowrap">{formatarDataBR(a.data)}</td>
+                <td className="py-2 px-3 whitespace-nowrap">{a.nomeMotorista}</td>
+                <td className="py-2 px-3 font-semibold tabular-nums">{a.codigoPdv}</td>
+                <td className="py-2 px-3 max-w-[260px]">{a.subgrupo ?? '—'}</td>
+                <td className="py-2 px-3 whitespace-nowrap">{formatarDataBR(a.enviadoEm)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }
