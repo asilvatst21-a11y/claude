@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Route, Loader2, MapPin, Check, X } from 'lucide-react'
+import { Route, Loader2, MapPin, Check, X, Pencil } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
-  listarPontosRisco, criarPontoRisco, listarSugestoes, aprovarSugestao, rejeitarSugestao,
+  listarPontosRisco, criarPontoRisco, atualizarPontoRisco, listarSugestoes, aprovarSugestao, rejeitarSugestao,
   type PontoRisco, type SugestaoRisco, type Severidade, type TipoPonto,
 } from '../lib/rotasRisco'
 
@@ -131,6 +131,109 @@ function RejeitarModal({ sugestao, onClose, onRejeitado }: { sugestao: SugestaoR
   )
 }
 
+function EditarPontoModal({ ponto, onClose, onSalvo }: { ponto: PontoRisco; onClose: () => void; onSalvo: () => void }) {
+  const [titulo, setTitulo] = useState(ponto.titulo)
+  const [tipo, setTipo] = useState<TipoPonto>(ponto.tipo)
+  const [severidade, setSeveridade] = useState<Severidade>(ponto.severidade)
+  const [rodovia, setRodovia] = useState(ponto.rodovia ?? '')
+  const [velocidade, setVelocidade] = useState(ponto.velocidade_segura ?? '')
+  const [rota, setRota] = useState(ponto.rota ?? '')
+  const [pdvReferencia, setPdvReferencia] = useState(ponto.pdv_referencia ?? '')
+  const [latitude, setLatitude] = useState(ponto.latitude != null ? String(ponto.latitude) : '')
+  const [longitude, setLongitude] = useState(ponto.longitude != null ? String(ponto.longitude) : '')
+  const [mapsUrl, setMapsUrl] = useState(ponto.maps_url ?? '')
+  const [salvando, setSalvando] = useState(false)
+  const [erro, setErro] = useState('')
+
+  async function confirmar() {
+    if (!titulo.trim()) { setErro('Preencha o título.'); return }
+    const lat = latitude.trim() ? Number(latitude.trim().replace(',', '.')) : null
+    const lng = longitude.trim() ? Number(longitude.trim().replace(',', '.')) : null
+    if ((lat != null && !Number.isFinite(lat)) || (lng != null && !Number.isFinite(lng))) {
+      setErro('Latitude/longitude inválidas — use só números.')
+      return
+    }
+    setSalvando(true)
+    setErro('')
+    const { error } = await atualizarPontoRisco(ponto.id, {
+      titulo: titulo.trim(), tipo, severidade,
+      rodovia: rodovia.trim() || null, velocidade_segura: velocidade.trim() || null,
+      rota: rota.trim() || null, pdv_referencia: pdvReferencia.trim() || null,
+      latitude: lat, longitude: lng,
+      maps_url: mapsUrl.trim() || (lat != null && lng != null ? `https://maps.google.com/?q=${lat},${lng}` : null),
+    })
+    setSalvando(false)
+    if (error) { setErro(`Erro: ${error}`); return }
+    onSalvo()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-5 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-semibold mb-3">Editar ponto de risco</h3>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground">Título</label>
+            <input value={titulo} onChange={(e) => setTitulo(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Tipo</label>
+              <select value={tipo} onChange={(e) => setTipo(e.target.value as TipoPonto)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1">
+                <option value="ponto">Ponto</option>
+                <option value="trecho">Trecho</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Severidade</label>
+              <select value={severidade} onChange={(e) => setSeveridade(e.target.value as Severidade)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1">
+                <option value="baixo">Baixo</option>
+                <option value="moderado">Moderado</option>
+                <option value="alto">Alto</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Rodovia</label>
+              <input value={rodovia} onChange={(e) => setRodovia(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Velocidade segura</label>
+              <input value={velocidade} onChange={(e) => setVelocidade(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Rota</label>
+              <input value={rota} onChange={(e) => setRota(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">PDV de referência</label>
+              <input value={pdvReferencia} onChange={(e) => setPdvReferencia(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Latitude</label>
+              <input value={latitude} onChange={(e) => setLatitude(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground">Longitude</label>
+              <input value={longitude} onChange={(e) => setLongitude(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs font-medium text-muted-foreground">Link do Google Maps</label>
+              <input value={mapsUrl} onChange={(e) => setMapsUrl(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+            </div>
+          </div>
+        </div>
+        {erro && <p className="text-sm text-red-600 mt-3">{erro}</p>}
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm rounded-lg border">Cancelar</button>
+          <button onClick={confirmar} disabled={salvando} className="px-3 py-1.5 text-sm rounded-lg bg-primary text-white disabled:opacity-50">
+            {salvando ? 'Salvando…' : 'Salvar alterações'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function SegurancaRotasRisco() {
   const { usuario } = useAuth()
   const [pontos, setPontos] = useState<PontoRisco[]>([])
@@ -138,6 +241,7 @@ export default function SegurancaRotasRisco() {
   const [carregando, setCarregando] = useState(true)
   const [aprovarAlvo, setAprovarAlvo] = useState<SugestaoRisco | null>(null)
   const [rejeitarAlvo, setRejeitarAlvo] = useState<SugestaoRisco | null>(null)
+  const [editarAlvo, setEditarAlvo] = useState<PontoRisco | null>(null)
 
   const [form, setForm] = useState({
     titulo: '', tipo: 'ponto' as TipoPonto, severidade: 'baixo' as Severidade,
@@ -323,8 +427,13 @@ export default function SegurancaRotasRisco() {
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {pontos.map((p) => (
                 <div key={p.id} className={`border rounded-xl p-3 ${p.severidade === 'alto' ? 'bg-red-50 border-red-200' : 'bg-slate-50'}`}>
-                  <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${SEV_CSS[p.severidade]}`}>{SEV_LABEL[p.severidade]}</span>
-                  {p.origem === 'motorista' && <span className="ml-1.5 text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-100 text-brand-700">sugerido por motorista</span>}
+                  <div className="flex items-start justify-between gap-2">
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full border ${SEV_CSS[p.severidade]}`}>{SEV_LABEL[p.severidade]}</span>
+                    <button onClick={() => setEditarAlvo(p)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-muted-foreground hover:text-primary shrink-0">
+                      <Pencil className="h-3 w-3" /> Editar
+                    </button>
+                  </div>
+                  {p.origem === 'motorista' && <span className="mt-1 inline-block text-[10px] font-bold px-2 py-0.5 rounded-full bg-brand-100 text-brand-700">sugerido por motorista</span>}
                   <div className="font-semibold text-sm mt-1.5">{p.titulo}</div>
                   <div className="grid grid-cols-2 gap-1.5 mt-2 text-xs">
                     <div><span className="text-muted-foreground">Tipo: </span><b>{p.tipo === 'ponto' ? 'Ponto' : 'Trecho'}</b></div>
@@ -342,6 +451,7 @@ export default function SegurancaRotasRisco() {
 
       {aprovarAlvo && <AprovarModal sugestao={aprovarAlvo} onClose={() => setAprovarAlvo(null)} onAprovado={() => { setAprovarAlvo(null); carregar() }} />}
       {rejeitarAlvo && <RejeitarModal sugestao={rejeitarAlvo} onClose={() => setRejeitarAlvo(null)} onRejeitado={() => { setRejeitarAlvo(null); carregar() }} />}
+      {editarAlvo && <EditarPontoModal ponto={editarAlvo} onClose={() => setEditarAlvo(null)} onSalvo={() => { setEditarAlvo(null); carregar() }} />}
     </div>
   )
 }

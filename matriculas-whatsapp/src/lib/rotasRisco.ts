@@ -86,6 +86,12 @@ export async function criarPontoRisco(input: NovoPontoInput): Promise<{ id: stri
   return { id: data?.id ?? null, error: error?.message ?? null }
 }
 
+export async function atualizarPontoRisco(id: string, patch: Partial<NovoPontoInput>): Promise<{ error: string | null }> {
+  const { error } = await supabase.from('rotas_risco_pontos').update(patch).eq('id', id)
+  if (error) console.error('atualizarPontoRisco error:', error.message)
+  return { error: error?.message ?? null }
+}
+
 export async function listarSugestoes(filial: string, status: SugestaoRisco['status'] = 'pendente'): Promise<SugestaoRisco[]> {
   const { data, error } = await supabase
     .from('rotas_risco_sugestoes')
