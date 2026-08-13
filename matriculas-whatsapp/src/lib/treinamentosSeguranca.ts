@@ -74,13 +74,42 @@ async function buscarTiposAtoNoIntervalo(filial: string, inicio: string, fim: st
   return tipos
 }
 
-// Ranking dos atos mais recorrentes no período (semana ou mês corrente),
-// com variação % vs período anterior de mesmo tamanho.
-export async function rankingAtos(filial: string, periodo: 'semana' | 'mes'): Promise<AtoRanking[]> {
-  const fim = hojeISO()
-  const inicio = periodo === 'semana' ? somarDias(fim, -7) : somarDias(fim, -30)
-  const inicioAnterior = periodo === 'semana' ? somarDias(inicio, -7) : somarDias(inicio, -30)
+// Uma "semana" dentro do mês, no padrão SEM1..SEM5 usado nos lançamentos
+// retroativos: SEM1 = dias 1-7, SEM2 = 8-14, SEM3 = 15-21, SEM4 = 22-28,
+// SEM5 = 29 até o fim do mês (só existe nos meses com mais de 28 dias).
+export interface PeriodoSelecionavel { chave: string; rotulo: string; inicio: string; fim: string }
+
+const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
+
+export function periodosDoMes(mesISO: string): PeriodoSelecionavel[] {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  const ultimoDia = new Date(Date.UTC(ano, mes, 0)).getUTCDate()
+  const nomeMes = MESES_PT[mes - 1]
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const diaISO = (d: number) => `${ano}-${pad(mes)}-${pad(d)}`
+
+  const periodos: PeriodoSelecionavel[] = [
+    { chave: 'mes', rotulo: `Mês inteiro — ${nomeMes}/${ano}`, inicio: diaISO(1), fim: diaISO(ultimoDia) },
+  ]
+  const limites = [1, 8, 15, 22, 29]
+  for (let i = 0; i < limites.length; i++) {
+    const de = limites[i]
+    if (de > ultimoDia) break
+    const ate = Math.min(i < limites.length - 1 ? limites[i + 1] - 1 : ultimoDia, ultimoDia)
+    periodos.push({ chave: `sem${i + 1}`, rotulo: `SEM${i + 1} — ${nomeMes.toUpperCase()}`, inicio: diaISO(de), fim: diaISO(ate) })
+  }
+  return periodos
+}
+
+// Ranking dos atos mais recorrentes no período escolhido (mês inteiro ou uma
+// semana SEM1..SEM5 dentro dele — inclusive retroativo, pra lançamento de
+// meses/semanas passados), com variação % vs período anterior de mesmo
+// tamanho (nº de dias) imediatamente antes do início escolhido.
+export async function rankingAtos(filial: string, periodo: PeriodoSelecionavel): Promise<AtoRanking[]> {
+  const { inicio, fim } = periodo
+  const dias = Math.round((new Date(`${fim}T00:00:00Z`).getTime() - new Date(`${inicio}T00:00:00Z`).getTime()) / 86400000) + 1
   const fimAnterior = somarDias(inicio, -1)
+  const inicioAnterior = somarDias(fimAnterior, -(dias - 1))
 
   const [atual, anterior] = await Promise.all([
     buscarTiposAtoNoIntervalo(filial, inicio, fim),

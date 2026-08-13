@@ -3,8 +3,8 @@ import { Target, Loader2, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
-  rankingAtos, listarSessoes, criarSessao, marcarConcluido, calcularEfetividade, statusSessao,
-  type AtoRanking, type SessaoTreinamento, type Efetividade,
+  rankingAtos, listarSessoes, criarSessao, marcarConcluido, calcularEfetividade, statusSessao, periodosDoMes,
+  type AtoRanking, type SessaoTreinamento, type Efetividade, type PeriodoSelecionavel,
 } from '../lib/treinamentosSeguranca'
 
 const STATUS_LABEL: Record<string, string> = {
@@ -20,6 +20,26 @@ const STATUS_CSS: Record<string, string> = {
 function hojeISO(): string {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function mesAtualISO(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+const MESES_PT = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro']
+
+// Últimos 18 meses (inclui o atual) — cobre lançamento retroativo sem virar
+// uma lista infinita de opções.
+function opcoesMeses(): { valor: string; label: string }[] {
+  const hoje = new Date()
+  const opcoes: { valor: string; label: string }[] = []
+  for (let i = 0; i < 18; i++) {
+    const d = new Date(Date.UTC(hoje.getFullYear(), hoje.getMonth() - i, 1))
+    const valor = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    opcoes.push({ valor, label: `${MESES_PT[d.getUTCMonth()]}/${d.getUTCFullYear()}` })
+  }
+  return opcoes
 }
 
 function ConcluirModal({ sessao, onClose, onConfirmado }: { sessao: SessaoTreinamento; onClose: () => void; onConfirmado: () => void }) {
@@ -98,7 +118,13 @@ function EfetividadeRow({ filial, sessao }: { filial: string; sessao: SessaoTrei
 
 export default function SegurancaTreinamentos() {
   const { usuario } = useAuth()
-  const [periodo, setPeriodo] = useState<'semana' | 'mes'>('mes')
+  const [mesSelecionado, setMesSelecionado] = useState(mesAtualISO())
+  const [periodoChave, setPeriodoChave] = useState('mes')
+  const periodosOpcoes = useMemo(() => periodosDoMes(mesSelecionado), [mesSelecionado])
+  const periodo = useMemo<PeriodoSelecionavel>(
+    () => periodosOpcoes.find((p) => p.chave === periodoChave) ?? periodosOpcoes[0],
+    [periodosOpcoes, periodoChave],
+  )
   const [ranking, setRanking] = useState<AtoRanking[]>([])
   const [carregandoRanking, setCarregandoRanking] = useState(true)
   const [sessoes, setSessoes] = useState<SessaoTreinamento[]>([])
@@ -178,20 +204,35 @@ export default function SegurancaTreinamentos() {
             Ranking de atos mais recorrentes em Relatos → sessão de treinamento sugerida → acompanhamento e efetividade.
           </p>
         </div>
-        <div className="inline-flex rounded-lg border bg-slate-50 p-1">
-          {(['semana', 'mes'] as const).map((p) => (
-            <button key={p} onClick={() => setPeriodo(p)} className={`px-3 py-1.5 text-sm rounded-md font-medium ${periodo === p ? 'bg-white shadow text-foreground' : 'text-muted-foreground'}`}>
-              {p === 'semana' ? 'Semana' : 'Mês'}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <select
+            value={mesSelecionado}
+            onChange={(e) => { setMesSelecionado(e.target.value); setPeriodoChave('mes') }}
+            className="border rounded-lg px-3 py-2 text-sm bg-white"
+          >
+            {opcoesMeses().map((o) => <option key={o.valor} value={o.valor}>{o.label}</option>)}
+          </select>
+          <div className="inline-flex rounded-lg border bg-slate-50 p-1 flex-wrap">
+            {periodosOpcoes.map((p) => (
+              <button
+                key={p.chave}
+                onClick={() => setPeriodoChave(p.chave)}
+                className={`px-3 py-1.5 text-sm rounded-md font-medium whitespace-nowrap ${periodoChave === p.chave ? 'bg-white shadow text-foreground' : 'text-muted-foreground'}`}
+              >
+                {p.chave === 'mes' ? 'Mês inteiro' : p.chave.replace('sem', 'SEM')}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
       {/* Ranking */}
       <div className="bg-white border rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b">
-          <h2 className="font-semibold text-sm">Atos mais recorrentes — {periodo === 'semana' ? 'últimos 7 dias' : 'últimos 30 dias'}</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Relatos classificados "Ato Inseguro", agrupados por tipo de ato. Variação vs. período anterior de mesmo tamanho.</p>
+          <h2 className="font-semibold text-sm">Atos mais recorrentes — {periodo.rotulo}</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Relatos classificados "Ato Inseguro", agrupados por tipo de ato, de {formatarDataBR(periodo.inicio)} a {formatarDataBR(periodo.fim)}. Variação vs. período anterior de mesmo tamanho — dá pra escolher mês e semana retroativos pra lançamento.
+          </p>
         </div>
         <div className="p-5">
           {carregandoRanking ? (
