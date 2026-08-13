@@ -17,6 +17,11 @@ function normalizarBusca(s: string): string {
   return s.normalize('NFD').replace(/[̀-ͯ]/g, '').trim().toLowerCase()
 }
 
+function unidadePlural(unidade: string, n: number): string {
+  if (n === 1 || /s$/i.test(unidade)) return unidade
+  return `${unidade}s`
+}
+
 // Data local (não UTC) — usar toISOString() aqui rolaria a data pra frente
 // perto da meia-noite no horário do Brasil (UTC-3), fazendo a conferência
 // buscar/gravar num dia diferente do que o Relatório de Separação foi
@@ -525,9 +530,9 @@ export default function ConferenciaDigital() {
               <div className="absolute left-3 right-3 top-full mt-1.5 z-10 rounded-xl bg-brand-700 text-white text-xs px-3 py-2 shadow-lg flex items-center gap-2">
                 <Info className="h-3.5 w-3.5 shrink-0 opacity-80" />
                 <span>
-                  Lastro deste item: <b>{lastro} {it.unidade ?? 'cx'}</b>.
+                  Lastro deste item: <b>{lastro} {unidadePlural(it.unidade ?? 'cx', lastro)}</b>.
                   {lastroInfo && (
-                    <> {it.quantidade} {it.unidade ?? 'cx'} = <b>{lastroInfo.lastros} lastro{lastroInfo.lastros === 1 ? '' : 's'}</b>{lastroInfo.avulsas > 0 ? <> + <b>{lastroInfo.avulsas} avulsa{lastroInfo.avulsas === 1 ? '' : 's'}</b></> : ''}.</>
+                    <> {it.quantidade} {unidadePlural(it.unidade ?? 'cx', it.quantidade ?? 0)} = <b>{lastroInfo.lastros} lastro{lastroInfo.lastros === 1 ? '' : 's'}</b>{lastroInfo.avulsas > 0 ? <> + <b>{lastroInfo.avulsas} avulsa{lastroInfo.avulsas === 1 ? '' : 's'}</b></> : ''}.</>
                   )}
                 </span>
               </div>
