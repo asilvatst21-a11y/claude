@@ -740,7 +740,12 @@ export default function DtoGerenciador() {
       const gatilho = calcGatilho(rel.atosAnteriores, rel.atosRecentes)
       const risco = riscoFinal(cInicial, gatilho, rel.abordPos, rel.atosRecentes)
       const periodicidade = periodicidadeDias(risco)
-      const ultimoDTO = ativ.ultimo_dto_manual ? parseData(ativ.ultimo_dto_manual) : dto.ultimo
+      // ultimo_dto_manual é um preenchimento inicial (pra atividade que
+      // ainda não tinha observação nenhuma na base) — não pode ganhar pra
+      // sempre de um DTO real mais recente vindo do import. Usa o mais
+      // recente dos dois, nunca um valor fixo travado no tempo.
+      const ultimoManual = ativ.ultimo_dto_manual ? parseData(ativ.ultimo_dto_manual) : null
+      const ultimoDTO = dto.ultimo && ultimoManual ? (dto.ultimo > ultimoManual ? dto.ultimo : ultimoManual) : (dto.ultimo ?? ultimoManual)
       let vencimento: Date | null = null
       let diasRestantes: number | null = null
       let status: LinhaCalc['status'] = 'Nunca'
