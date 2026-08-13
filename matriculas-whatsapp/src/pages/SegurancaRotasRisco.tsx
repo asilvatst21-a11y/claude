@@ -4,6 +4,7 @@ import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
   listarPontosRisco, criarPontoRisco, atualizarPontoRisco, listarSugestoes, aprovarSugestao, rejeitarSugestao,
+  buscarCidadesBairrosConhecidos,
   type PontoRisco, type SugestaoRisco, type Severidade, type TipoPonto,
 } from '../lib/rotasRisco'
 
@@ -14,7 +15,36 @@ const SEV_CSS: Record<Severidade, string> = {
   alto: 'bg-red-50 text-red-700 border-red-200',
 }
 
-function AprovarModal({ sugestao, onClose, onAprovado }: { sugestao: SugestaoRisco; onClose: () => void; onAprovado: () => void }) {
+// Autocomplete de cidade/bairro puxado dos últimos imports de Escala do dia
+// — mesmo texto que vai bater no cruzamento automático, evita erro de
+// digitação. Reaproveitado nos 3 formulários (novo ponto, editar, aprovar).
+function CidadeBairroFields({
+  cidade, bairro, onCidade, onBairro, conhecidos,
+}: {
+  cidade: string; bairro: string; onCidade: (v: string) => void; onBairro: (v: string) => void
+  conhecidos: { cidades: string[]; porCidade: Map<string, string[]> }
+}) {
+  const bairrosDaCidade = conhecidos.porCidade.get(cidade.toUpperCase().trim()) ?? []
+  return (
+    <>
+      <div>
+        <label className="text-xs font-medium text-muted-foreground">Cidade</label>
+        <input list="rr-cidades" value={cidade} onChange={(e) => onCidade(e.target.value)} placeholder="Ex.: Petrópolis" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+        <datalist id="rr-cidades">{conhecidos.cidades.map((c) => <option key={c} value={c} />)}</datalist>
+      </div>
+      <div>
+        <label className="text-xs font-medium text-muted-foreground">Bairro <span className="font-normal">(opcional — sem isso, vale a cidade inteira)</span></label>
+        <input list="rr-bairros" value={bairro} onChange={(e) => onBairro(e.target.value)} placeholder="Ex.: Itaipava" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
+        <datalist id="rr-bairros">{bairrosDaCidade.map((b) => <option key={b} value={b} />)}</datalist>
+      </div>
+    </>
+  )
+}
+
+function AprovarModal({ sugestao, conhecidos, onClose, onAprovado }: {
+  sugestao: SugestaoRisco; conhecidos: { cidades: string[]; porCidade: Map<string, string[]> }
+  onClose: () => void; onAprovado: () => void
+}) {
   const { usuario } = useAuth()
   const [titulo, setTitulo] = useState(sugestao.relato_texto?.slice(0, 80) ?? '')
   const [tipo, setTipo] = useState<TipoPonto>('ponto')
@@ -23,6 +53,8 @@ function AprovarModal({ sugestao, onClose, onAprovado }: { sugestao: SugestaoRis
   const [velocidade, setVelocidade] = useState('')
   const [rota, setRota] = useState('')
   const [pdvReferencia, setPdvReferencia] = useState('')
+  const [cidade, setCidade] = useState('')
+  const [bairro, setBairro] = useState('')
   const [salvando, setSalvando] = useState(false)
   const [erro, setErro] = useState('')
 
@@ -33,7 +65,7 @@ function AprovarModal({ sugestao, onClose, onAprovado }: { sugestao: SugestaoRis
     const { error } = await aprovarSugestao(sugestao.id, {
       filial: usuario.filial, titulo: titulo.trim(), tipo, severidade,
       rodovia: rodovia.trim() || null, velocidade_segura: velocidade.trim() || null, rota: rota.trim() || null,
-      pdv_referencia: pdvReferencia.trim() || null,
+      pdv_referencia: pdvReferencia.trim() || null, cidade: cidade.trim() || null, bairro: bairro.trim() || null,
       latitude: sugestao.latitude, longitude: sugestao.longitude, maps_url: null,
     }, usuario.nome ?? usuario.login)
     setSalvando(false)
@@ -82,12 +114,13 @@ function AprovarModal({ sugestao, onClose, onAprovado }: { sugestao: SugestaoRis
               <label className="text-xs font-medium text-muted-foreground">Rota</label>
               <input value={rota} onChange={(e) => setRota(e.target.value)} placeholder="Ex.: Cascavel → Toledo" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground">PDV de referência</label>
+            <CidadeBairroFields cidade={cidade} bairro={bairro} onCidade={setCidade} onBairro={setBairro} conhecidos={conhecidos} />
+            <div className="col-span-2">
+              <label className="text-xs font-medium text-muted-foreground">PDV de referência <span className="font-normal">(opcional — alternativa à cidade/bairro)</span></label>
               <input value={pdvReferencia} onChange={(e) => setPdvReferencia(e.target.value)} placeholder="Código do PDV mais próximo" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
           </div>
-          <p className="text-[11px] text-muted-foreground">O PDV de referência é o que liga esse ponto ao aviso automático (quando o mapa do dia passa por ele) e à consulta pela Aurora. Sem PDV, o ponto fica só cadastrado, sem cruzamento automático.</p>
+          <p className="text-[11px] text-muted-foreground">Cidade (e opcionalmente bairro) é o que liga esse ponto ao aviso automático e à consulta pela Aurora, cruzando com a rota do mapa do dia. Sem nenhum dos dois (nem PDV), o ponto fica só cadastrado, sem cruzamento automático.</p>
         </div>
         {erro && <p className="text-sm text-red-600 mt-3">{erro}</p>}
         <div className="flex justify-end gap-2 mt-4">
@@ -131,7 +164,10 @@ function RejeitarModal({ sugestao, onClose, onRejeitado }: { sugestao: SugestaoR
   )
 }
 
-function EditarPontoModal({ ponto, onClose, onSalvo }: { ponto: PontoRisco; onClose: () => void; onSalvo: () => void }) {
+function EditarPontoModal({ ponto, conhecidos, onClose, onSalvo }: {
+  ponto: PontoRisco; conhecidos: { cidades: string[]; porCidade: Map<string, string[]> }
+  onClose: () => void; onSalvo: () => void
+}) {
   const [titulo, setTitulo] = useState(ponto.titulo)
   const [tipo, setTipo] = useState<TipoPonto>(ponto.tipo)
   const [severidade, setSeveridade] = useState<Severidade>(ponto.severidade)
@@ -139,6 +175,8 @@ function EditarPontoModal({ ponto, onClose, onSalvo }: { ponto: PontoRisco; onCl
   const [velocidade, setVelocidade] = useState(ponto.velocidade_segura ?? '')
   const [rota, setRota] = useState(ponto.rota ?? '')
   const [pdvReferencia, setPdvReferencia] = useState(ponto.pdv_referencia ?? '')
+  const [cidade, setCidade] = useState(ponto.cidade ?? '')
+  const [bairro, setBairro] = useState(ponto.bairro ?? '')
   const [latitude, setLatitude] = useState(ponto.latitude != null ? String(ponto.latitude) : '')
   const [longitude, setLongitude] = useState(ponto.longitude != null ? String(ponto.longitude) : '')
   const [mapsUrl, setMapsUrl] = useState(ponto.maps_url ?? '')
@@ -159,6 +197,7 @@ function EditarPontoModal({ ponto, onClose, onSalvo }: { ponto: PontoRisco; onCl
       titulo: titulo.trim(), tipo, severidade,
       rodovia: rodovia.trim() || null, velocidade_segura: velocidade.trim() || null,
       rota: rota.trim() || null, pdv_referencia: pdvReferencia.trim() || null,
+      cidade: cidade.trim() || null, bairro: bairro.trim() || null,
       latitude: lat, longitude: lng,
       maps_url: mapsUrl.trim() || (lat != null && lng != null ? `https://maps.google.com/?q=${lat},${lng}` : null),
     })
@@ -204,8 +243,9 @@ function EditarPontoModal({ ponto, onClose, onSalvo }: { ponto: PontoRisco; onCl
               <label className="text-xs font-medium text-muted-foreground">Rota</label>
               <input value={rota} onChange={(e) => setRota(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
+            <CidadeBairroFields cidade={cidade} bairro={bairro} onCidade={setCidade} onBairro={setBairro} conhecidos={conhecidos} />
             <div>
-              <label className="text-xs font-medium text-muted-foreground">PDV de referência</label>
+              <label className="text-xs font-medium text-muted-foreground">PDV de referência <span className="font-normal">(opcional)</span></label>
               <input value={pdvReferencia} onChange={(e) => setPdvReferencia(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
             <div>
@@ -245,17 +285,21 @@ export default function SegurancaRotasRisco() {
 
   const [form, setForm] = useState({
     titulo: '', tipo: 'ponto' as TipoPonto, severidade: 'baixo' as Severidade,
-    rodovia: '', velocidade: '', rota: '', pdvReferencia: '', mapsUrl: '', latitude: '', longitude: '',
+    rodovia: '', velocidade: '', rota: '', pdvReferencia: '', cidade: '', bairro: '', mapsUrl: '', latitude: '', longitude: '',
   })
   const [salvando, setSalvando] = useState(false)
   const [msg, setMsg] = useState('')
+  const [conhecidos, setConhecidos] = useState<{ cidades: string[]; porCidade: Map<string, string[]> }>({ cidades: [], porCidade: new Map() })
 
   const carregar = useCallback(async () => {
     if (!usuario?.filial) return
     setCarregando(true)
-    const [p, s] = await Promise.all([listarPontosRisco(usuario.filial), listarSugestoes(usuario.filial, 'pendente')])
+    const [p, s, c] = await Promise.all([
+      listarPontosRisco(usuario.filial), listarSugestoes(usuario.filial, 'pendente'), buscarCidadesBairrosConhecidos(usuario.filial),
+    ])
     setPontos(p)
     setSugestoes(s)
+    setConhecidos(c)
     setCarregando(false)
   }, [usuario?.filial])
 
@@ -277,11 +321,12 @@ export default function SegurancaRotasRisco() {
       filial: usuario.filial, titulo: form.titulo.trim(), tipo: form.tipo, severidade: form.severidade,
       rodovia: form.rodovia.trim() || null, velocidade_segura: form.velocidade.trim() || null,
       rota: form.rota.trim() || null, pdv_referencia: form.pdvReferencia.trim() || null,
+      cidade: form.cidade.trim() || null, bairro: form.bairro.trim() || null,
       latitude: lat, longitude: lng, maps_url: mapsUrl,
     })
     setSalvando(false)
     if (error) { setMsg(`Erro ao criar: ${error}`); return }
-    setForm({ titulo: '', tipo: 'ponto', severidade: 'baixo', rodovia: '', velocidade: '', rota: '', pdvReferencia: '', mapsUrl: '', latitude: '', longitude: '' })
+    setForm({ titulo: '', tipo: 'ponto', severidade: 'baixo', rodovia: '', velocidade: '', rota: '', pdvReferencia: '', cidade: '', bairro: '', mapsUrl: '', latitude: '', longitude: '' })
     setMsg('✅ Ponto de risco criado.')
     carregar()
   }
@@ -297,7 +342,7 @@ export default function SegurancaRotasRisco() {
           <Route className="h-6 w-6 text-primary" /> Rotas de Risco
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Pontos de risco por rota — aviso automático ao motorista (ao importar o BEES) e consulta pela Aurora. Motoristas também sugerem pontos direto pelo WhatsApp.
+          Pontos de risco por cidade/bairro (ou PDV) — aviso automático ao motorista ao importar Escala do dia ou o BEES, e consulta pela Aurora. Motoristas também sugerem pontos direto pelo WhatsApp.
         </p>
       </div>
 
@@ -315,8 +360,8 @@ export default function SegurancaRotasRisco() {
           <div className="text-2xl font-bold mt-1 text-amber-600">{sugestoes.length}</div>
         </div>
         <div className="bg-white border rounded-2xl p-4">
-          <div className="text-xs text-muted-foreground font-semibold uppercase">Com PDV de referência</div>
-          <div className="text-2xl font-bold mt-1">{pontos.filter((p) => p.pdv_referencia).length}</div>
+          <div className="text-xs text-muted-foreground font-semibold uppercase">Com cidade/bairro ou PDV</div>
+          <div className="text-2xl font-bold mt-1">{pontos.filter((p) => p.cidade || p.pdv_referencia).length}</div>
         </div>
       </div>
 
@@ -387,8 +432,13 @@ export default function SegurancaRotasRisco() {
               <label className="text-xs font-medium text-muted-foreground">Rota</label>
               <input value={form.rota} onChange={(e) => setForm((f) => ({ ...f, rota: e.target.value }))} placeholder="Ex.: Cascavel → Toledo" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
+            <CidadeBairroFields
+              cidade={form.cidade} bairro={form.bairro}
+              onCidade={(v) => setForm((f) => ({ ...f, cidade: v }))} onBairro={(v) => setForm((f) => ({ ...f, bairro: v }))}
+              conhecidos={conhecidos}
+            />
             <div>
-              <label className="text-xs font-medium text-muted-foreground">PDV de referência</label>
+              <label className="text-xs font-medium text-muted-foreground">PDV de referência <span className="font-normal">(opcional — alternativa à cidade/bairro)</span></label>
               <input value={form.pdvReferencia} onChange={(e) => setForm((f) => ({ ...f, pdvReferencia: e.target.value }))} placeholder="Código do PDV mais próximo" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
             <div>
@@ -439,6 +489,7 @@ export default function SegurancaRotasRisco() {
                     <div><span className="text-muted-foreground">Tipo: </span><b>{p.tipo === 'ponto' ? 'Ponto' : 'Trecho'}</b></div>
                     <div><span className="text-muted-foreground">Rodovia: </span><b>{p.rodovia ?? '—'}</b></div>
                     <div><span className="text-muted-foreground">Vel. segura: </span><b>{p.velocidade_segura ?? '—'}</b></div>
+                    <div><span className="text-muted-foreground">Cidade/bairro: </span><b>{p.cidade ? `${p.cidade}${p.bairro ? ` · ${p.bairro}` : ''}` : '—'}</b></div>
                     <div><span className="text-muted-foreground">PDV ref.: </span><b>{p.pdv_referencia ?? '—'}</b></div>
                   </div>
                   {p.maps_url && <a href={p.maps_url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-primary mt-2 inline-block">Abrir no Maps →</a>}
@@ -449,9 +500,9 @@ export default function SegurancaRotasRisco() {
         </div>
       </div>
 
-      {aprovarAlvo && <AprovarModal sugestao={aprovarAlvo} onClose={() => setAprovarAlvo(null)} onAprovado={() => { setAprovarAlvo(null); carregar() }} />}
+      {aprovarAlvo && <AprovarModal sugestao={aprovarAlvo} conhecidos={conhecidos} onClose={() => setAprovarAlvo(null)} onAprovado={() => { setAprovarAlvo(null); carregar() }} />}
       {rejeitarAlvo && <RejeitarModal sugestao={rejeitarAlvo} onClose={() => setRejeitarAlvo(null)} onRejeitado={() => { setRejeitarAlvo(null); carregar() }} />}
-      {editarAlvo && <EditarPontoModal ponto={editarAlvo} onClose={() => setEditarAlvo(null)} onSalvo={() => { setEditarAlvo(null); carregar() }} />}
+      {editarAlvo && <EditarPontoModal ponto={editarAlvo} conhecidos={conhecidos} onClose={() => setEditarAlvo(null)} onSalvo={() => { setEditarAlvo(null); carregar() }} />}
     </div>
   )
 }

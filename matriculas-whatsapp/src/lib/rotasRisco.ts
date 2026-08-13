@@ -19,6 +19,8 @@ export interface PontoRisco {
   velocidade_segura: string | null
   rota: string | null
   pdv_referencia: string | null
+  cidade: string | null
+  bairro: string | null
   latitude: number | null
   longitude: number | null
   maps_url: string | null
@@ -53,6 +55,65 @@ function normalizarCodigoPdv(s: string): string {
 function normalizarMatricula(s: string): string {
   return s.trim().replace(/^0+/, '') || '0'
 }
+function normalizarTexto(s: string): string {
+  return s.normalize('NFD').replace(/\p{Mn}/gu, '').toUpperCase().trim()
+}
+
+// escalas_tml.cidades_entregas vem como "PETROPOLIS (22)" ou, quando o mapa
+// passa por mais de uma cidade, "PATY DO ALFERES (17) / PETROPOLIS (1)". O
+// número entre parênteses é a quantidade de entregas — varia a cada import
+// (mesmo mapa, dias diferentes = número diferente), então nunca deve entrar
+// na comparação, só o nome antes dele.
+export function parseCidadesEntregas(raw: string | null): string[] {
+  if (!raw) return []
+  return raw.split('/').map((s) => s.replace(/\(\d+\)\s*$/, '').trim()).filter(Boolean)
+}
+
+// escalas_tml.regiao_entregas vem como "[PET]: ITAIPAVA (16) / PEDRO DO RIO
+// (3) / [PAT]: CENTRO (8)" — um bloco "[SIGLA]:" por cidade, cada um seguido
+// da lista de bairros com contagem. Ignora as siglas (não precisamos delas
+// pra casar, o nome da cidade já vem separado em cidades_entregas) e devolve
+// só os nomes de bairro, sem o número.
+export function parseBairrosEntregas(raw: string | null): string[] {
+  if (!raw) return []
+  const semSiglas = raw.replace(/\[[^\]]{1,8}\]:\s*/g, '')
+  return semSiglas.split('/').map((s) => s.replace(/\(\d+\)\s*$/, '').trim()).filter(Boolean)
+}
+
+export interface CidadeBairro { cidade: string; bairro: string | null }
+
+// Cidades/bairros já vistos nos últimos imports de Escala do dia — usado
+// como autocomplete no cadastro do ponto de risco, pra evitar erro de
+// digitação (o mesmo tipo de bug que já travou o cruzamento por nome de
+// atividade em DTO e por código de PDV aqui mesmo).
+export async function buscarCidadesBairrosConhecidos(filial: string, diasAtras = 90): Promise<{ cidades: string[]; porCidade: Map<string, string[]> }> {
+  const desde = new Date()
+  desde.setDate(desde.getDate() - diasAtras)
+  const desdeISO = desde.toISOString().slice(0, 10)
+  const { data, error } = await supabase
+    .from('escalas_tml')
+    .select('cidades_entregas, regiao_entregas')
+    .eq('filial', filial)
+    .gte('data_entrega', desdeISO)
+    .not('cidades_entregas', 'is', null)
+  if (error) { console.error('buscarCidadesBairrosConhecidos error:', error.message); return { cidades: [], porCidade: new Map() } }
+
+  const cidadesSet = new Set<string>()
+  const porCidade = new Map<string, Set<string>>()
+  for (const row of data ?? []) {
+    const cidades = parseCidadesEntregas(row.cidades_entregas)
+    const bairros = parseBairrosEntregas(row.regiao_entregas)
+    for (const c of cidades) {
+      cidadesSet.add(c)
+      if (!porCidade.has(c)) porCidade.set(c, new Set())
+      for (const b of bairros) porCidade.get(c)!.add(b)
+    }
+  }
+  return {
+    cidades: [...cidadesSet].sort(),
+    porCidade: new Map([...porCidade.entries()].map(([c, bs]) => [c, [...bs].sort()])),
+  }
+}
 
 export async function listarPontosRisco(filial: string): Promise<PontoRisco[]> {
   const { data, error } = await supabase
@@ -73,6 +134,8 @@ export interface NovoPontoInput {
   velocidade_segura: string | null
   rota: string | null
   pdv_referencia: string | null
+  cidade: string | null
+  bairro: string | null
   latitude: number | null
   longitude: number | null
   maps_url: string | null
@@ -210,14 +273,112 @@ export async function avisarMotoristasRotaRisco(filial: string, data: string): P
   return { enviados, erros }
 }
 
+// ── Cruzamento por cidade/bairro (Escala do dia — 03.11.49.02) ────────────
+// Faz mais sentido que PDV pra maioria dos pontos: usa "Cidades +Entregas"/
+// "Região +Entregas", que já vêm salvos em escalas_tml a cada import de
+// Escala do dia em Distribuição > TML — sem precisar de import novo.
+
+interface EscalaRegiaoDia { mapa: number; matricula: number | null; cidades: string[]; bairros: string[] }
+
+async function buscarEscalasComRegiaoDoDia(filial: string, data: string): Promise<EscalaRegiaoDia[]> {
+  const { data: escalas, error } = await supabase
+    .from('escalas_tml')
+    .select('mapa, matricula, cidades_entregas, regiao_entregas')
+    .eq('filial', filial).eq('data_entrega', data)
+  if (error) { console.error('buscarEscalasComRegiaoDoDia error:', error.message); return [] }
+  return (escalas ?? []).map((e) => ({
+    mapa: e.mapa, matricula: e.matricula,
+    cidades: parseCidadesEntregas(e.cidades_entregas),
+    bairros: parseBairrosEntregas(e.regiao_entregas),
+  }))
+}
+
+function pontoBateComRegiao(ponto: PontoRisco, cidades: string[], bairros: string[]): boolean {
+  if (!ponto.cidade) return false
+  const cidadeOk = cidades.some((c) => normalizarTexto(c) === normalizarTexto(ponto.cidade as string))
+  if (!cidadeOk) return false
+  if (!ponto.bairro) return true // só cidade cadastrada — qualquer bairro dela já basta
+  return bairros.some((b) => normalizarTexto(b) === normalizarTexto(ponto.bairro as string))
+}
+
+export function montarMensagemAvisoRotaRiscoRegiao(ponto: PontoRisco): string {
+  const linhas = [
+    `🚧 *Atenção — Rota de Risco*`,
+    ``,
+    `Seu mapa de hoje passa por ${ponto.bairro ? `${ponto.bairro} (${ponto.cidade})` : ponto.cidade}, onde tem um ponto sinalizado: *${ponto.titulo}*`,
+  ]
+  if (ponto.rodovia) linhas.push(`Rodovia: ${ponto.rodovia}`)
+  if (ponto.velocidade_segura) linhas.push(`Velocidade segura: *${ponto.velocidade_segura}*`)
+  linhas.push('', 'Redobre a atenção nesse trecho.')
+  return linhas.join('\n')
+}
+
+// Disparado no import de "Escala do dia (03.11.49.02)" em Distribuição >
+// TML — é ali que cidades_entregas/regiao_entregas chegam. Mesmo dedupe
+// (rotas_risco_avisos) do cruzamento por PDV, então um ponto com PDV E
+// cidade/bairro cadastrados não manda o aviso em duplicidade se os dois
+// baterem no mesmo dia.
+export async function avisarMotoristasRotaRiscoPorRegiao(filial: string, data: string): Promise<{ enviados: number; erros: string[] }> {
+  const pontos = (await listarPontosRisco(filial)).filter((p) => p.cidade)
+  if (pontos.length === 0) return { enviados: 0, erros: [] }
+
+  const escalas = await buscarEscalasComRegiaoDoDia(filial, data)
+  if (escalas.length === 0) return { enviados: 0, erros: [] }
+
+  const [{ data: matriculasCad }, { data: rosterTml }, { data: jaAvisados }] = await Promise.all([
+    supabase.from('matriculas').select('numero, whatsapp').eq('filial', filial).eq('ativo', true),
+    supabase.from('motoristas_sala_tml').select('matricula, telefone').eq('filial', filial),
+    supabase.from('rotas_risco_avisos').select('matricula, ponto_id').eq('filial', filial).eq('data', data),
+  ])
+  const telefonePorNumero = new Map((matriculasCad ?? []).map((m) => [normalizarMatricula(String(m.numero)), m.whatsapp as string | null]))
+  const telefonePorMatriculaTml = new Map((rosterTml ?? []).map((r) => [r.matricula, r.telefone as string | null]))
+  const avisadoSet = new Set((jaAvisados ?? []).map((a) => `${a.matricula}|${a.ponto_id}`))
+
+  const erros: string[] = []
+  let enviados = 0
+  for (const escala of escalas) {
+    if (escala.matricula == null || (escala.cidades.length === 0 && escala.bairros.length === 0)) continue
+    for (const ponto of pontos) {
+      if (!pontoBateComRegiao(ponto, escala.cidades, escala.bairros)) continue
+      const chave = `${escala.matricula}|${ponto.id}`
+      if (avisadoSet.has(chave)) continue
+
+      const telefone = telefonePorNumero.get(normalizarMatricula(String(escala.matricula))) ?? telefonePorMatriculaTml.get(escala.matricula) ?? null
+      if (!telefone) { erros.push(`Matrícula ${escala.matricula} sem telefone cadastrado (ponto "${ponto.titulo}")`); continue }
+
+      const envio = await enviarMensagemWhatsApp(telefone, montarMensagemAvisoRotaRiscoRegiao(ponto))
+      if (!envio.sucesso) { erros.push(`Falha ao avisar matrícula ${escala.matricula}: ${envio.erro}`); continue }
+
+      await supabase.from('rotas_risco_avisos').upsert(
+        { filial, data, matricula: String(escala.matricula), ponto_id: ponto.id },
+        { onConflict: 'filial,data,matricula,ponto_id' },
+      )
+      avisadoSet.add(chave)
+      enviados++
+      await aguardarEntreEnvios()
+    }
+  }
+  return { enviados, erros }
+}
+
 // ── Consulta pela Aurora (sob demanda, por número de mapa) ────────────────
 
 export async function pontosRiscoPorMapa(filial: string, data: string, mapa: number): Promise<PontoRisco[]> {
-  const visitas = await buscarVisitasBeesDoDia(filial, data)
-  const pdvsDoMapa = new Set(visitas.filter((v) => v.mapa === mapa).map((v) => normalizarCodigoPdv(v.pdv_codigo)))
-  if (pdvsDoMapa.size === 0) return []
   const pontos = await listarPontosRisco(filial)
-  return pontos.filter((p) => p.pdv_referencia && pdvsDoMapa.has(normalizarCodigoPdv(p.pdv_referencia)))
+
+  const [visitas, escalas] = await Promise.all([
+    buscarVisitasBeesDoDia(filial, data),
+    buscarEscalasComRegiaoDoDia(filial, data),
+  ])
+
+  const pdvsDoMapa = new Set(visitas.filter((v) => v.mapa === mapa).map((v) => normalizarCodigoPdv(v.pdv_codigo)))
+  const escalaDoMapa = escalas.find((e) => e.mapa === mapa)
+
+  return pontos.filter((p) => {
+    if (p.pdv_referencia && pdvsDoMapa.has(normalizarCodigoPdv(p.pdv_referencia))) return true
+    if (escalaDoMapa && pontoBateComRegiao(p, escalaDoMapa.cidades, escalaDoMapa.bairros)) return true
+    return false
+  })
 }
 
 const SEV_ORDEM: Record<Severidade, number> = { alto: 0, moderado: 1, baixo: 2 }

@@ -3532,12 +3532,39 @@ function normalizarCodigoPdvRota(s: string): string {
 const SEV_LABEL_ROTA: Record<string, string> = { alto: 'Alto', moderado: 'Moderado', baixo: 'Baixo' }
 const SEV_ORDEM_ROTA: Record<string, number> = { alto: 0, moderado: 1, baixo: 2 }
 
+function normalizarTextoRota(s: string): string {
+  return s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim()
+}
+// Mesmo parser de src/lib/rotasRisco.ts — "Cidades +Entregas"/"Região
+// +Entregas" (escalas_tml, colunas AK/AL do 03.11.49.02) trazem contagem
+// entre parênteses que muda a cada import; nunca entra na comparação.
+function parseCidadesEntregasRota(raw: string | null): string[] {
+  if (!raw) return []
+  return raw.split('/').map((s) => s.replace(/\(\d+\)\s*$/, '').trim()).filter(Boolean)
+}
+function parseBairrosEntregasRota(raw: string | null): string[] {
+  if (!raw) return []
+  return raw.replace(/\[[^\]]{1,8}\]:\s*/g, '').split('/').map((s) => s.replace(/\(\d+\)\s*$/, '').trim()).filter(Boolean)
+}
+
 async function pontosRiscoPorMapaAurora(filial: string, data: string, mapa: number): Promise<{ titulo: string; severidade: string; velocidade_segura: string | null }[]> {
-  const { data: visitas } = await supabase.from('distribuicao_bees_visitas').select('mapa, pdv_codigo').eq('filial', filial).eq('data', data)
+  const [{ data: visitas }, { data: escalas }, { data: pontos }] = await Promise.all([
+    supabase.from('distribuicao_bees_visitas').select('mapa, pdv_codigo').eq('filial', filial).eq('data', data),
+    supabase.from('escalas_tml').select('mapa, cidades_entregas, regiao_entregas').eq('filial', filial).eq('data_entrega', data).eq('mapa', mapa),
+    supabase.from('rotas_risco_pontos').select('titulo, severidade, velocidade_segura, pdv_referencia, cidade, bairro').eq('filial', filial).eq('ativo', true),
+  ])
   const pdvsDoMapa = new Set((visitas ?? []).filter((v: any) => v.mapa === mapa).map((v: any) => normalizarCodigoPdvRota(v.pdv_codigo)))
-  if (pdvsDoMapa.size === 0) return []
-  const { data: pontos } = await supabase.from('rotas_risco_pontos').select('titulo, severidade, velocidade_segura, pdv_referencia').eq('filial', filial).eq('ativo', true)
-  return (pontos ?? []).filter((p: any) => p.pdv_referencia && pdvsDoMapa.has(normalizarCodigoPdvRota(p.pdv_referencia)))
+  const escalaDoMapa = (escalas ?? [])[0] as { cidades_entregas: string | null; regiao_entregas: string | null } | undefined
+  const cidades = parseCidadesEntregasRota(escalaDoMapa?.cidades_entregas ?? null)
+  const bairros = parseBairrosEntregasRota(escalaDoMapa?.regiao_entregas ?? null)
+
+  return (pontos ?? []).filter((p: any) => {
+    if (p.pdv_referencia && pdvsDoMapa.has(normalizarCodigoPdvRota(p.pdv_referencia))) return true
+    if (p.cidade && cidades.some((c) => normalizarTextoRota(c) === normalizarTextoRota(p.cidade))) {
+      return !p.bairro || bairros.some((b) => normalizarTextoRota(b) === normalizarTextoRota(p.bairro))
+    }
+    return false
+  })
 }
 
 function montarMensagemPontosDoMapaAurora(mapa: number, pontos: { titulo: string; severidade: string; velocidade_segura: string | null }[]): string {

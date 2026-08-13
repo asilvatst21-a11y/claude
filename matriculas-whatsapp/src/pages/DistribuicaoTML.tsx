@@ -19,6 +19,7 @@ import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_TML_PAUSADOS } from '../lib/whatsappStatus'
 import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorTelefone, buscarStatusColaboradoresPorMatricula, podeEnviarPara } from '../lib/statusAtivo'
 import { executarChecagemHotspot } from '../lib/telemetriaHotspot'
+import { avisarMotoristasRotaRiscoPorRegiao } from '../lib/rotasRisco'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
@@ -451,13 +452,32 @@ export default function DistribuicaoTML() {
         { onConflict: 'filial,mapa' }
       )
       if (error) throw new Error(error.message)
-      alert(`${escalas.length} registro(s) de escala importado(s) — data: ${formatarDataBR(dataEscalaDefinitiva)}.`)
+
+      // Aviso ao motorista de Segurança → Rotas de Risco (pontos cadastrados
+      // por cidade/bairro): cidades_entregas/regiao_entregas acabaram de
+      // entrar em escalas_tml nesse mesmo upsert, então é aqui — e não no
+      // BEES — que dá pra cruzar. Não bloqueia o import se falhar.
+      let avisoRotaRisco = ''
+      try {
+        const { enviados, erros } = await avisarMotoristasRotaRiscoPorRegiao(usuario.filial, dataEscalaDefinitiva)
+        if (erros.length > 0) {
+          console.error('[Escala TML] falhas no aviso de Rotas de Risco:', erros)
+          avisoRotaRisco = `\n\n🛣️ Rotas de Risco: ${enviados} aviso(s) enviado(s).\n${erros.join('\n')}`
+        } else if (enviados > 0) {
+          avisoRotaRisco = `\n\n🛣️ Rotas de Risco: ${enviados} motorista(s) avisado(s) sobre ponto de risco na rota (cidade/bairro).`
+        }
+      } catch (e) {
+        console.error('[Escala TML] falha em Rotas de Risco:', e)
+      }
+
+      alert(`${escalas.length} registro(s) de escala importado(s) — data: ${formatarDataBR(dataEscalaDefinitiva)}.${avisoRotaRisco}`)
       await fetchStatusSaida()
       await fetchPendentes()
 
-      // Confere rotas de risco de telemetria pra essa mesma data — só manda
-      // WhatsApp de verdade se "Envio automático" estiver ativo (config e
-      // preview agora ficam em Segurança → Telemetria → aba "Rotas de Risco").
+      // Confere rotas de risco de telemetria (feature separada, hotspot de
+      // velocidade) pra essa mesma data — só manda WhatsApp de verdade se
+      // "Envio automático" estiver ativo (config e preview em Segurança →
+      // Telemetria → aba "Rotas de Risco").
       try {
         await executarChecagemHotspot(usuario.filial, dataEscalaDefinitiva, false)
       } catch (e) {
