@@ -2254,8 +2254,6 @@ export default function Telemetria() {
               </div>
             </div>
           )}
-
-          {/* ── Rotas de Risco Tab ───────────────────────────────────────── */}
         </>
       )}
 

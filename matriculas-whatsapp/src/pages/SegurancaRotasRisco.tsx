@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Route, Loader2, MapPin, Check, X, Pencil } from 'lucide-react'
+import { MapContainer, TileLayer, useMap } from 'react-leaflet'
+import L from 'leaflet'
+import 'leaflet/dist/leaflet.css'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
@@ -13,6 +16,81 @@ const SEV_CSS: Record<Severidade, string> = {
   baixo: 'bg-green-50 text-green-700 border-green-200',
   moderado: 'bg-amber-50 text-amber-700 border-amber-200',
   alto: 'bg-red-50 text-red-700 border-red-200',
+}
+const SEV_COR: Record<Severidade, string> = { baixo: '#16a34a', moderado: '#f59e0b', alto: '#dc2626' }
+const SEV_RAIO: Record<Severidade, number> = { baixo: 8, moderado: 10, alto: 13 }
+
+// Mapa visual com todos os pontos que têm coordenada — cor e tamanho do
+// círculo pela severidade, igual ao mapa de calor já usado em Telemetria
+// (mesma lib, Leaflet). Ponto sem lat/lng não tem como aparecer aqui —
+// listado à parte, pra lembrar de completar o cadastro.
+function MarcadoresRisco({ pontos }: { pontos: PontoRisco[] }) {
+  const map = useMap()
+  useEffect(() => {
+    const camada = L.layerGroup()
+    for (const p of pontos) {
+      if (p.latitude == null || p.longitude == null) continue
+      const marcador = L.circleMarker([p.latitude, p.longitude], {
+        radius: SEV_RAIO[p.severidade],
+        color: '#fff',
+        weight: 2,
+        fillColor: SEV_COR[p.severidade],
+        fillOpacity: 0.85,
+      })
+      const local = [p.bairro, p.cidade].filter(Boolean).join(' · ') || p.rota || p.rodovia || ''
+      marcador.bindPopup(
+        `<div style="font-size:12.5px; line-height:1.5;">` +
+        `<b>${p.titulo}</b><br/>` +
+        `<span style="color:${SEV_COR[p.severidade]}; font-weight:700; text-transform:uppercase; font-size:11px;">${SEV_LABEL[p.severidade]}</span>` +
+        (local ? `<br/>${local}` : '') +
+        (p.velocidade_segura ? `<br/>Velocidade segura: ${p.velocidade_segura}` : '') +
+        `</div>`
+      )
+      marcador.addTo(camada)
+    }
+    camada.addTo(map)
+    return () => { map.removeLayer(camada) }
+  }, [map, pontos])
+  return null
+}
+
+function MapaRotasRisco({ pontos }: { pontos: PontoRisco[] }) {
+  const comCoordenada = pontos.filter((p) => p.latitude != null && p.longitude != null)
+  const semCoordenada = pontos.length - comCoordenada.length
+  const centro = useMemo<[number, number]>(() => {
+    if (comCoordenada.length === 0) return [-15.78, -47.93] // centro do Brasil, fallback sem pontos
+    const lat = comCoordenada.reduce((s, p) => s + (p.latitude as number), 0) / comCoordenada.length
+    const lng = comCoordenada.reduce((s, p) => s + (p.longitude as number), 0) / comCoordenada.length
+    return [lat, lng]
+  }, [comCoordenada])
+
+  return (
+    <div className="bg-white border rounded-2xl overflow-hidden">
+      <div className="px-5 py-4 border-b">
+        <h2 className="font-semibold text-sm">Mapa de calor por severidade</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Todos os pontos com coordenada cadastrada, coloridos por severidade. <span className="text-red-600 font-semibold">● Alto</span> · <span className="text-amber-600 font-semibold">● Moderado</span> · <span className="text-green-600 font-semibold">● Baixo</span>
+        </p>
+      </div>
+      <div className="p-5">
+        {comCoordenada.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-8 text-center">Nenhum ponto com latitude/longitude cadastrada ainda.</p>
+        ) : (
+          <div style={{ height: 420, borderRadius: 12, overflow: 'hidden' }}>
+            <MapContainer center={centro} zoom={comCoordenada.length > 1 ? 10 : 13} style={{ height: '100%', width: '100%' }} scrollWheelZoom>
+              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
+              <MarcadoresRisco pontos={comCoordenada} />
+            </MapContainer>
+          </div>
+        )}
+        {semCoordenada > 0 && (
+          <p className="text-xs text-amber-700 mt-2">
+            ⚠️ {semCoordenada} ponto(s) sem latitude/longitude não aparecem no mapa — só com cidade/bairro/PDV não dá pra posicionar. Edite o ponto e preencha a coordenada (ou cole o link do Maps) pra ele entrar aqui.
+          </p>
+        )}
+      </div>
+    </div>
+  )
 }
 
 // Autocomplete de cidade/bairro puxado dos últimos imports de Escala do dia
@@ -470,6 +548,8 @@ export default function SegurancaRotasRisco() {
           </div>
         </div>
       </div>
+
+      <MapaRotasRisco pontos={pontos} />
 
       {/* Lista de pontos */}
       <div className="bg-white border rounded-2xl overflow-hidden">
