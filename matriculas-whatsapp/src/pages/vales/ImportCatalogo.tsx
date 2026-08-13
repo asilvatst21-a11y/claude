@@ -388,8 +388,11 @@ export default function ImportCatalogoPage() {
       }
       // Backfill de lastro: só esse campo, produto já existente com
       // descrição igual — não sobrescreve nada revisado manualmente.
-      for (let i = 0; i < catalogoLastroBackfill.length; i += BATCH) {
-        const { error } = await valesSupabase.from('produtos').upsert(catalogoLastroBackfill.slice(i, i + BATCH), { onConflict: 'codigo' })
+      // update (não upsert): a linha já existe, e um upsert monta um INSERT
+      // por baixo, que exige "descricao" (not null) mesmo indo cair no
+      // ON CONFLICT DO UPDATE.
+      for (const { codigo, lastro } of catalogoLastroBackfill) {
+        const { error } = await valesSupabase.from('produtos').update({ lastro }).eq('codigo', codigo)
         if (error) throw new Error(error.message)
       }
 
