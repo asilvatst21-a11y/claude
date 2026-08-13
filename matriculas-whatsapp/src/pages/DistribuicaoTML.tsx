@@ -869,10 +869,16 @@ export default function DistribuicaoTML() {
       const mapas = comMapa.map((c) => c.mapa)
       const { data: escalas } = await supabase
         .from('escalas_tml')
-        .select('mapa, matricula')
+        .select('mapa, matricula, data_entrega')
         .eq('filial', usuario.filial)
         .in('mapa', mapas.length > 0 ? mapas : [-1])
-      const matriculaPorMapa = new Map((escalas ?? []).map((e) => [e.mapa, e.matricula]))
+      // Chave por mapa+data, não só mapa: o número do mapa se repete em dias
+      // diferentes (mesmo padrão de escalas_tml usado em todo o resto do
+      // app), então indexar só por mapa pega a matrícula — e por tabela, a
+      // sala — de outro dia quando o mesmo número reaparece. Foi isso que
+      // fez colaboradores aparecerem numa sala que não é a deles.
+      const matriculaPorMapaData = new Map((escalas ?? []).map((e) => [`${e.mapa}|${e.data_entrega}`, e.matricula]))
+      const matriculaPorMapa = { get: (mapa: number, data: string | null) => (data ? matriculaPorMapaData.get(`${mapa}|${data}`) : undefined) }
 
       const { data: metaParamsRaw } = await supabase
         .from('tml_meta_matinal')
@@ -883,7 +889,7 @@ export default function DistribuicaoTML() {
       // Sala vem do cadastro de motoristas (mesma base usada na carta de
       // controle), não da coluna EQUIPE da planilha de checklist — exceto nas
       // linhas sem mapa (fallback), que não têm como fazer esse vínculo.
-      const matriculas = [...new Set([...matriculaPorMapa.values()].filter((m): m is number => m != null))]
+      const matriculas = [...new Set([...matriculaPorMapaData.values()].filter((m): m is number => m != null))]
       const { data: roster } = await supabase
         .from('motoristas_sala_tml')
         .select('matricula, sala')
@@ -895,7 +901,7 @@ export default function DistribuicaoTML() {
       // combinação sala+data presente no checklist importado (com ou sem mapa).
       const datasComSala = [...new Set([
         ...comMapa.map((c) => {
-          const matricula = matriculaPorMapa.get(c.mapa) ?? null
+          const matricula = matriculaPorMapa.get(c.mapa, c.data) ?? null
           const sala = matricula != null ? salaPorMatricula.get(matricula) ?? null : null
           return isSalaTML(sala) && c.data ? `${sala}|${c.data}` : null
         }),
@@ -945,7 +951,7 @@ export default function DistribuicaoTML() {
       let semHorario = 0
       let semSala = 0
       const linhas = comMapa.map((c) => {
-        const matricula = matriculaPorMapa.get(c.mapa) ?? null
+        const matricula = matriculaPorMapa.get(c.mapa, c.data) ?? null
         const sala = matricula != null ? salaPorMatricula.get(matricula) ?? null : null
         if (!isSalaTML(sala)) semSala++
         if (!c.horarioInicio) semHorario++
