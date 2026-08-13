@@ -187,32 +187,56 @@ async function importarBaseMapa(file: File, filial: string): Promise<{ contagem:
   return { contagem: equipe.length, mensagem: `Data: ${data}. Motorista e ajudantes aparecerão na confirmação; território e fixação de motorista atualizados na Frota.` }
 }
 
-interface DiffProduto { codigo: number; descricaoAtual: string | null; descricaoNova: string }
+interface LinhaCatalogo { codigo: number; descricao: string; lastro: number | null }
+interface DiffProduto { codigo: number; descricaoAtual: string | null; descricaoNova: string; lastro: number | null }
 
-// Lê um CSV de estoque/catálogo (ex.: exportação "Estoque Consolidado" do
-// Promax) e extrai código + descrição pelas colunas de cabeçalho "Item" e
-// "Descrição" — não depende de posição fixa de coluna, então funciona tanto
-// nesse relatório quanto em outros exports com layout parecido.
-function parseCatalogoCsv(texto: string): { codigo: number; descricao: string }[] {
+const semAcentoCatalogo = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
+
+// Casa colunas pelo NOME do cabeçalho (não por posição fixa), então serve
+// tanto pro relatório "Estoque Consolidado" do Promax (colunas Item/
+// Descrição) quanto pra planilha de cadastro de produtos com Lastro
+// (colunas Código/Descrição/.../Lastro) — mesma lógica pros dois formatos.
+function extrairCatalogo(headerCells: unknown[], rows: unknown[][]): LinhaCatalogo[] {
+  const hdr = headerCells.map(h => semAcentoCatalogo(String(h ?? '').trim().toLowerCase()))
+  const iItem = hdr.findIndex(h => h === 'item' || h === 'codigo')
+  const iDesc = hdr.findIndex(h => h.startsWith('descri'))
+  const iLastro = hdr.findIndex(h => h === 'lastro')
+  if (iItem < 0 || iDesc < 0) {
+    throw new Error('Não encontrei as colunas "Código"/"Item" e "Descrição" no cabeçalho do arquivo. Confira se é o arquivo certo.')
+  }
+  const porCodigo = new Map<number, LinhaCatalogo>()
+  for (const row of rows) {
+    const codigo = parseInt(String(row[iItem] ?? '').trim())
+    const descricao = String(row[iDesc] ?? '').trim()
+    if (!codigo || !descricao) continue
+    const lastroBruto = iLastro >= 0 ? parseInt(String(row[iLastro] ?? '').trim()) : NaN
+    porCodigo.set(codigo, { codigo, descricao, lastro: Number.isFinite(lastroBruto) && lastroBruto > 0 ? lastroBruto : null })
+  }
+  return [...porCodigo.values()] // último ganha se o código repetir (ex.: vários lotes)
+}
+
+// CSV/TXT (ex.: exportação "Estoque Consolidado" do Promax — sem Lastro).
+function parseCatalogoCsv(texto: string): LinhaCatalogo[] {
   const linhas = texto.replace(/^\uFEFF/, '').split(/\r?\n/).filter(l => l.trim())
   if (linhas.length < 2) throw new Error('Arquivo CSV sem dados.')
   const delim = linhas[0].includes(';') ? ';' : ','
-  const semAcento = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '')
-  const hdr = linhas[0].split(delim).map(h => semAcento(h.trim().toLowerCase()))
-  const iItem = hdr.findIndex(h => h === 'item' || h === 'codigo' || h === 'código')
-  const iDesc = hdr.findIndex(h => h.startsWith('descri'))
-  if (iItem < 0 || iDesc < 0) {
-    throw new Error('Não encontrei as colunas "Item" e "Descrição" no cabeçalho do CSV. Confira se é o arquivo certo.')
-  }
-  const porCodigo = new Map<number, string>()
-  for (const linha of linhas.slice(1)) {
-    const cols = linha.split(delim)
-    const codigo = parseInt((cols[iItem] ?? '').trim())
-    const descricao = (cols[iDesc] ?? '').trim()
-    if (!codigo || !descricao) continue
-    porCodigo.set(codigo, descricao) // último ganha se o código repetir (ex.: vários lotes)
-  }
-  return [...porCodigo.entries()].map(([codigo, descricao]) => ({ codigo, descricao }))
+  const rows = linhas.slice(1).map(l => l.split(delim))
+  return extrairCatalogo(linhas[0].split(delim), rows)
+}
+
+// XLSX (ex.: cadastro de produtos com a coluna Lastro).
+function parseCatalogoXlsx(buffer: ArrayBuffer): LinhaCatalogo[] {
+  const wb = XLSX.read(buffer, { type: 'array', raw: true })
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: '', raw: true })
+  if (rows.length < 2) throw new Error('Planilha sem dados.')
+  return extrairCatalogo(rows[0], rows.slice(1))
+}
+
+function parseCatalogoArquivo(file: File): Promise<LinhaCatalogo[]> {
+  const nome = file.name.toLowerCase()
+  if (nome.endsWith('.xlsx') || nome.endsWith('.xls')) return file.arrayBuffer().then(parseCatalogoXlsx)
+  return file.text().then(parseCatalogoCsv)
 }
 
 // Descrições de estoque às vezes vêm cortadas num campo de largura fixa
@@ -237,6 +261,7 @@ export default function ImportCatalogoPage() {
   const [catalogoNovos, setCatalogoNovos] = useState<DiffProduto[]>([])
   const [catalogoDivergentes, setCatalogoDivergentes] = useState<DiffProduto[]>([])
   const [catalogoIguaisCount, setCatalogoIguaisCount] = useState(0)
+  const [catalogoLastroBackfill, setCatalogoLastroBackfill] = useState<{ codigo: number; lastro: number }[]>([])
   const [catalogoSelecionados, setCatalogoSelecionados] = useState<Set<number>>(new Set())
   const [catalogoResultado, setCatalogoResultado] = useState('')
 
@@ -296,29 +321,39 @@ export default function ImportCatalogoPage() {
     setCatalogoResultado('')
     setCatalogoNovos([])
     setCatalogoDivergentes([])
+    setCatalogoLastroBackfill([])
     setCatalogoSelecionados(new Set())
     try {
-      const texto = await file.text()
-      const linhas = parseCatalogoCsv(texto)
+      const linhas = await parseCatalogoArquivo(file)
       if (linhas.length === 0) throw new Error('Nenhuma linha com código e descrição encontrada no arquivo.')
 
       const codigos = linhas.map(l => l.codigo)
-      const { data: existentes, error } = await valesSupabase.from('produtos').select('codigo, descricao').in('codigo', codigos)
+      const { data: existentes, error } = await valesSupabase.from('produtos').select('codigo, descricao, lastro').in('codigo', codigos)
       if (error) throw new Error(error.message)
-      const atualPorCodigo = new Map((existentes ?? []).map(p => [p.codigo, p.descricao as string]))
+      const atualPorCodigo = new Map((existentes ?? []).map(p => [p.codigo, p as { descricao: string; lastro: number | null }]))
 
       const novos: DiffProduto[] = []
       const divergentes: DiffProduto[] = []
+      const lastroBackfill: { codigo: number; lastro: number }[] = []
       let iguais = 0
-      for (const { codigo, descricao } of linhas) {
+      for (const { codigo, descricao, lastro } of linhas) {
         const atual = atualPorCodigo.get(codigo)
-        if (atual === undefined) novos.push({ codigo, descricaoAtual: null, descricaoNova: descricao })
-        else if (atual !== descricao) divergentes.push({ codigo, descricaoAtual: atual, descricaoNova: descricao })
-        else iguais++
+        if (atual === undefined) {
+          novos.push({ codigo, descricaoAtual: null, descricaoNova: descricao, lastro })
+        } else if (atual.descricao !== descricao) {
+          divergentes.push({ codigo, descricaoAtual: atual.descricao, descricaoNova: descricao, lastro })
+        } else {
+          iguais++
+          // Descrição já bate — se a planilha trouxe um lastro novo/diferente
+          // do que já está salvo, atualiza só esse campo automaticamente
+          // (dado complementar, não pisa em revisão manual de descrição).
+          if (lastro != null && lastro !== atual.lastro) lastroBackfill.push({ codigo, lastro })
+        }
       }
       setCatalogoNovos(novos.sort((a, b) => a.codigo - b.codigo))
       setCatalogoDivergentes(divergentes.sort((a, b) => a.codigo - b.codigo))
       setCatalogoIguaisCount(iguais)
+      setCatalogoLastroBackfill(lastroBackfill)
       setCatalogoFase('pronto')
     } catch (e) {
       setCatalogoErro(e instanceof Error ? e.message : String(e))
@@ -342,20 +377,31 @@ export default function ImportCatalogoPage() {
       const aplicar = [
         ...catalogoNovos,
         ...catalogoDivergentes.filter(d => catalogoSelecionados.has(d.codigo)),
-      ].map(d => ({ codigo: d.codigo, descricao: d.descricaoNova }))
+      ].map(d => ({ codigo: d.codigo, descricao: d.descricaoNova, lastro: d.lastro }))
 
-      if (aplicar.length === 0) throw new Error('Nada selecionado pra aplicar.')
+      if (aplicar.length === 0 && catalogoLastroBackfill.length === 0) throw new Error('Nada selecionado pra aplicar.')
 
       const BATCH = 500
       for (let i = 0; i < aplicar.length; i += BATCH) {
         const { error } = await valesSupabase.from('produtos').upsert(aplicar.slice(i, i + BATCH), { onConflict: 'codigo' })
         if (error) throw new Error(error.message)
       }
+      // Backfill de lastro: só esse campo, produto já existente com
+      // descrição igual — não sobrescreve nada revisado manualmente.
+      for (let i = 0; i < catalogoLastroBackfill.length; i += BATCH) {
+        const { error } = await valesSupabase.from('produtos').upsert(catalogoLastroBackfill.slice(i, i + BATCH), { onConflict: 'codigo' })
+        if (error) throw new Error(error.message)
+      }
 
-      setCatalogoResultado(`✅ ${aplicar.length} produto(s) atualizado(s)/adicionado(s) no catálogo.`)
+      const totalLastro = catalogoLastroBackfill.length
+      setCatalogoResultado(
+        `✅ ${aplicar.length} produto(s) atualizado(s)/adicionado(s) no catálogo` +
+        (totalLastro > 0 ? `, ${totalLastro} com lastro atualizado à parte.` : '.')
+      )
       setCatalogoFase('ok')
       setCatalogoNovos([])
       setCatalogoDivergentes([])
+      setCatalogoLastroBackfill([])
       setCatalogoSelecionados(new Set())
     } catch (e) {
       setCatalogoErro(e instanceof Error ? e.message : String(e))
@@ -498,15 +544,18 @@ export default function ImportCatalogoPage() {
             <h2 className="font-semibold">Atualizar catálogo de produtos</h2>
             <p className="text-sm text-muted-foreground">
               Suba um CSV com as colunas <strong>Item</strong> (código) e <strong>Descrição</strong> — por exemplo, o
-              relatório de Estoque Consolidado do Promax. O sistema mostra o que vai mudar antes de aplicar:
-              produtos novos entram automaticamente; produtos que já existem com descrição diferente ficam
-              marcados pra você revisar e escolher quais aplicar (a descrição de estoque às vezes vem cortada,
-              então não aplicamos essas por padrão).
+              relatório de Estoque Consolidado do Promax — ou uma planilha .xlsx de cadastro de produtos com as
+              colunas <strong>Código</strong>, <strong>Descrição</strong> e <strong>Lastro</strong> (caixas por
+              camada fechada de pallet, usado no ⓘ da Conferência Digital). O sistema mostra o que vai mudar antes
+              de aplicar: produtos novos entram automaticamente; produtos que já existem com descrição diferente
+              ficam marcados pra você revisar e escolher quais aplicar (a descrição de estoque às vezes vem
+              cortada, então não aplicamos essas por padrão); lastro novo/diferente de um produto já cadastrado com
+              a mesma descrição é aplicado direto, sem precisar marcar.
             </p>
           </div>
         </div>
 
-        <input ref={refCatalogo} type="file" accept=".csv,.txt" className="hidden"
+        <input ref={refCatalogo} type="file" accept=".csv,.txt,.xlsx,.xls" className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) handleCatalogoFile(f); e.target.value = '' }} />
 
         <button
@@ -538,10 +587,17 @@ export default function ImportCatalogoPage() {
             <p className="text-xs text-muted-foreground">
               {catalogoNovos.length} novo(s), {catalogoDivergentes.length} divergente(s), {catalogoIguaisCount} já igual(is) ao catálogo — de {catalogoNovos.length + catalogoDivergentes.length + catalogoIguaisCount} linha(s) lidas do arquivo.
             </p>
-            {catalogoNovos.length === 0 && catalogoDivergentes.length === 0 ? (
+            {catalogoNovos.length === 0 && catalogoDivergentes.length === 0 && catalogoLastroBackfill.length === 0 ? (
               <p className="text-xs text-muted-foreground">Nenhuma novidade — o catálogo já bate com esse arquivo.</p>
             ) : (
               <>
+                {catalogoLastroBackfill.length > 0 && (
+                  <div className="rounded border border-blue-200 bg-blue-50 p-3 text-xs">
+                    <p className="font-medium text-blue-800">
+                      {catalogoLastroBackfill.length} produto(s) só com o lastro atualizado (descrição já bate — aplica direto, sem precisar marcar)
+                    </p>
+                  </div>
+                )}
                 {catalogoNovos.length > 0 && (
                   <div className="rounded border border-green-200 bg-green-50 p-3 text-xs">
                     <p className="font-medium text-green-800 mb-1">{catalogoNovos.length} produto(s) novo(s) — serão adicionados</p>
@@ -580,11 +636,11 @@ export default function ImportCatalogoPage() {
                 )}
                 <button
                   onClick={aplicarAtualizacaoCatalogo}
-                  disabled={catalogoFase !== 'pronto' || (catalogoNovos.length === 0 && catalogoSelecionados.size === 0)}
+                  disabled={catalogoFase !== 'pronto' || (catalogoNovos.length === 0 && catalogoSelecionados.size === 0 && catalogoLastroBackfill.length === 0)}
                   className="flex items-center gap-2 px-4 py-2 text-sm rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
                 >
                   <CheckCircle2 className="h-4 w-4" />
-                  Aplicar {catalogoNovos.length + catalogoSelecionados.size} atualização(ões)
+                  Aplicar {catalogoNovos.length + catalogoSelecionados.size + catalogoLastroBackfill.length} atualização(ões)
                 </button>
               </>
             )}

@@ -2,13 +2,13 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { Link } from 'react-router-dom'
 import {
   Package, Check, ChevronRight, ChevronLeft, Loader2, Search, Building2,
-  AlertTriangle, CheckCircle2, ArrowLeft, Truck, X, Recycle, Share, MoreVertical, PlusSquare, Smartphone,
+  AlertTriangle, CheckCircle2, ArrowLeft, Truck, X, Recycle, Share, MoreVertical, PlusSquare, Smartphone, Info,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { enviarMensagemGrupo } from '../lib/zapi'
 import {
   buscarBaiasDoMapa, iniciarBaia, marcarItem, registrarDivergencia, finalizarBaia, pularBaia,
-  montarMensagemDivergencia, buscarPessoasConferencia, PORTA_LABEL, MOTIVOS_PULAR_BAIA,
+  montarMensagemDivergencia, buscarPessoasConferencia, buscarLastroProdutos, PORTA_LABEL, MOTIVOS_PULAR_BAIA,
   type BaiaConf, type ItemConf, type PortaConf, type PessoaConferencia,
 } from '../lib/conferencia'
 import { ENVIOS_CONFERENCIA_DIVERGENCIA_PAUSADOS } from '../lib/whatsappStatus'
@@ -83,6 +83,8 @@ export default function ConferenciaDigital() {
   const [buscaProdutoAberta, setBuscaProdutoAberta] = useState(false)
   const [produtoSelecionado, setProdutoSelecionado] = useState<(ItemConf & { baiaRotulo: string }) | null>(null)
   const [pularAberto, setPularAberto] = useState(false)
+  const [lastroPorCodigo, setLastroPorCodigo] = useState<Map<string, number>>(new Map())
+  const [lastroAberto, setLastroAberto] = useState<string | null>(null)
 
   useEffect(() => {
     supabase.from('filiais').select('nome').order('nome').then(({ data }) => {
@@ -98,6 +100,14 @@ export default function ConferenciaDigital() {
     if (!filial) return
     buscarPessoasConferencia(filial).then(setPessoas).catch(() => setPessoas([]))
   }, [filial])
+
+  // Lastro dos produtos que aparecem nas baias do mapa — só pros códigos
+  // que realmente estão na tela, não o catálogo inteiro.
+  useEffect(() => {
+    const codigos = [...new Set(baias.flatMap((b) => b.itens.map((it) => it.codigo)))]
+    if (codigos.length === 0) { setLastroPorCodigo(new Map()); return }
+    buscarLastroProdutos(codigos).then(setLastroPorCodigo).catch(() => setLastroPorCodigo(new Map()))
+  }, [baias])
 
   const sugestoes = useMemo(() => {
     const termo = normalizarBusca(nome)
@@ -478,8 +488,13 @@ export default function ConferenciaDigital() {
 
       <div className="flex-1 p-3 space-y-2 pb-28">
         {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 flex items-start gap-2"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{erro}</div>}
-        {baia?.itens.map((it) => (
-          <div key={it.id} className={`flex items-center gap-3 p-3 rounded-2xl border transition ${it.divergencia ? 'bg-red-50 border-red-200' : it.conferido ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
+        {baia?.itens.map((it) => {
+          const lastro = it.codigo ? lastroPorCodigo.get(it.codigo) : undefined
+          const lastroInfo = lastro && it.quantidade != null
+            ? { lastros: Math.floor(it.quantidade / lastro), avulsas: it.quantidade % lastro }
+            : null
+          return (
+          <div key={it.id} className={`relative flex items-center gap-3 p-3 rounded-2xl border transition ${it.divergencia ? 'bg-red-50 border-red-200' : it.conferido ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
             <button onClick={() => toggleItem(it)} className={`w-8 h-8 shrink-0 rounded-lg border-2 grid place-items-center transition ${it.divergencia ? 'border-red-400 bg-red-400' : it.conferido ? 'border-green-600 bg-green-600' : 'border-gray-300'}`}>
               {it.divergencia ? <AlertTriangle className="h-4 w-4 text-white" /> : it.conferido ? <Check className="h-5 w-5 text-white" /> : null}
             </button>
@@ -487,6 +502,16 @@ export default function ConferenciaDigital() {
               <div className={`text-sm font-semibold leading-tight ${it.conferido && !it.divergencia ? 'text-gray-500 line-through' : ''}`}>{it.descricao ?? it.codigo ?? 'Item'}</div>
               <div className="flex items-center gap-2 mt-1.5">
                 {it.codigo && <span className="text-[11px] text-gray-400 font-semibold tabular-nums">Cód. {it.codigo}</span>}
+                {lastro != null && (
+                  <button
+                    onClick={() => setLastroAberto((prev) => (prev === it.id ? null : it.id))}
+                    aria-label="Quantos por lastro"
+                    aria-expanded={lastroAberto === it.id}
+                    className={`w-4 h-4 shrink-0 rounded-full border grid place-items-center text-[9px] font-bold italic leading-none ${lastroAberto === it.id ? 'bg-brand-600 border-brand-600 text-white' : 'border-brand-400 text-brand-600'}`}
+                  >
+                    i
+                  </button>
+                )}
                 {it.tipo && <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${it.tipo.toLowerCase().startsWith('retorn') ? 'bg-brand-100 text-brand-700' : 'bg-gray-100 text-gray-500'}`}>{it.tipo}</span>}
                 <button onClick={() => setDivItem(it)} className="text-[11px] font-bold text-red-600 ml-auto">Divergência</button>
               </div>
@@ -496,8 +521,20 @@ export default function ConferenciaDigital() {
               <div className="text-2xl font-extrabold leading-none tabular-nums">{it.quantidade ?? '—'}</div>
               <div className="text-[10px] text-gray-400 uppercase font-bold tracking-wide">{it.unidade ?? ''}</div>
             </div>
+            {lastro != null && lastroAberto === it.id && (
+              <div className="absolute left-3 right-3 top-full mt-1.5 z-10 rounded-xl bg-brand-700 text-white text-xs px-3 py-2 shadow-lg flex items-center gap-2">
+                <Info className="h-3.5 w-3.5 shrink-0 opacity-80" />
+                <span>
+                  Lastro deste item: <b>{lastro} {it.unidade ?? 'cx'}</b>.
+                  {lastroInfo && (
+                    <> {it.quantidade} {it.unidade ?? 'cx'} = <b>{lastroInfo.lastros} lastro{lastroInfo.lastros === 1 ? '' : 's'}</b>{lastroInfo.avulsas > 0 ? <> + <b>{lastroInfo.avulsas} avulsa{lastroInfo.avulsas === 1 ? '' : 's'}</b></> : ''}.</>
+                  )}
+                </span>
+              </div>
+            )}
           </div>
-        ))}
+          )
+        })}
       </div>
 
       <div className="fixed bottom-0 inset-x-0 bg-white border-t px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] space-y-2">

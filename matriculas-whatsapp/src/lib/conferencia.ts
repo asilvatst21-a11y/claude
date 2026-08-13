@@ -236,6 +236,22 @@ export async function importarRetornaveis(
   return { mapas: mapasDistintos.length, itens: itemRows.length }
 }
 
+// Lastro (caixas por camada fechada de pallet) por código de produto —
+// cadastro em `produtos`, preenchido pelo import de catálogo. Só entram no
+// mapa os códigos com lastro cadastrado; produto sem lastro simplesmente
+// não mostra o ⓘ na conferência.
+export async function buscarLastroProdutos(codigos: (string | null)[]): Promise<Map<string, number>> {
+  const numeros = [...new Set(codigos.map((c) => Number(c)).filter((n) => Number.isFinite(n) && n > 0))]
+  const mapa = new Map<string, number>()
+  if (numeros.length === 0) return mapa
+  const { data, error } = await supabase.from('produtos').select('codigo, lastro').in('codigo', numeros)
+  if (error) { console.error('buscarLastroProdutos error:', error.message); return mapa }
+  for (const p of data ?? []) {
+    if (p.lastro != null) mapa.set(String(p.codigo), p.lastro)
+  }
+  return mapa
+}
+
 // ── Página do ajudante ────────────────────────────────────────────────────
 export async function buscarBaiasDoMapa(filial: string, mapa: number, data: string): Promise<BaiaConf[]> {
   const { data: baias, error: eBaias } = await supabase
