@@ -486,8 +486,14 @@ export async function perguntarSobrePontoRiscoParaMotoristasDoDia(filial: string
     )
     if (!envio.sucesso) { erros.push(`Falha ao perguntar pra matrícula ${m.matricula}: ${envio.erro}`); continue }
 
+    // filial vai no contexto porque já sabemos ela aqui (motoristasDoDia é
+    // por filial) — sem isso, api/zapi-webhook.ts precisa redescobrir a
+    // filial só pelo telefone no momento do relato, e se o telefone não bate
+    // com nada em motoristas_sala_tml (cadastro desatualizado, formato
+    // diferente etc.) cai num fallback que pega uma filial arbitrária, e a
+    // sugestão nunca aparece pro supervisor certo.
     await supabase.from('aurora_sessoes').upsert(
-      { telefone: m.telefone, estado: 'aguardando_relato_ponto_risco', contexto: { texto: null, viaAudio: false, latitude: null, longitude: null, aguardandoLocalizacaoOpcional: false }, criado_em: new Date().toISOString() },
+      { telefone: m.telefone, estado: 'aguardando_relato_ponto_risco', contexto: { texto: null, viaAudio: false, latitude: null, longitude: null, aguardandoLocalizacaoOpcional: false, filial }, criado_em: new Date().toISOString() },
       { onConflict: 'telefone' },
     )
     perguntados++

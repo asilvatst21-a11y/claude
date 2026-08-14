@@ -3599,13 +3599,20 @@ function montarMensagemPontosDoMapaAurora(mapa: number, pontos: { titulo: string
 }
 
 // Igual descobrirSalaColaborador, mas também traz a matrícula — usada só
-// pra vincular o relato de ponto de risco a quem mandou.
+// pra vincular o relato de ponto de risco a quem mandou. Checa duas bases
+// independentes (motoristas_sala_tml e matriculas) antes de desistir — um
+// telefone desatualizado numa das duas não deve fazer a filial cair no
+// fallback arbitrário de filialDoTelefoneOuPadrao.
 async function descobrirMotoristaPorTelefone(remetente: string): Promise<{ filial: string; matricula: string | null; nome: string | null } | null> {
   const digitos = ultimosDigitos(remetente)
   if (!digitos) return null
   const { data: colaboradores } = await supabase.from('motoristas_sala_tml').select('filial, matricula, nome, telefone').not('telefone', 'is', null)
   const colab = (colaboradores ?? []).find((c: any) => ultimosDigitos(c.telefone) === digitos)
-  return colab ? { filial: colab.filial, matricula: colab.matricula != null ? String(colab.matricula) : null, nome: colab.nome ?? null } : null
+  if (colab) return { filial: colab.filial, matricula: colab.matricula != null ? String(colab.matricula) : null, nome: colab.nome ?? null }
+
+  const { data: cadastrados } = await supabase.from('matriculas').select('filial, numero, nome, whatsapp').eq('ativo', true).not('whatsapp', 'is', null)
+  const cad = (cadastrados ?? []).find((c: any) => ultimosDigitos(c.whatsapp) === digitos)
+  return cad ? { filial: cad.filial, matricula: cad.numero != null ? String(cad.numero) : null, nome: cad.nome ?? null } : null
 }
 
 const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
@@ -3921,8 +3928,8 @@ async function tratarAurora(
       return { ok: true, action: 'aurora-rota-risco-respondido' }
     }
     if (sessao.estado === 'aguardando_relato_ponto_risco') {
-      const ctx = { texto: null, viaAudio: false, latitude: null, longitude: null, aguardandoLocalizacaoOpcional: false, ...(sessao.contexto ?? {}) } as {
-        texto: string | null; viaAudio: boolean; latitude: number | null; longitude: number | null; aguardandoLocalizacaoOpcional: boolean
+      const ctx = { texto: null, viaAudio: false, latitude: null, longitude: null, aguardandoLocalizacaoOpcional: false, filial: null, ...(sessao.contexto ?? {}) } as {
+        texto: string | null; viaAudio: boolean; latitude: number | null; longitude: number | null; aguardandoLocalizacaoOpcional: boolean; filial: string | null
       }
 
       // "Não teve nada" na pergunta proativa (fora do fluxo pelo menu) —
@@ -3971,7 +3978,12 @@ async function tratarAurora(
 
       // Relato + (localização ou já perguntamos e seguiu) → registra.
       const motorista = await descobrirMotoristaPorTelefone(remetente)
-      const filial = motorista?.filial ?? await filialDoTelefoneOuPadrao(remetente)
+      // ctx.filial vem preenchido quando essa sessão nasceu da pergunta
+      // proativa (perguntarSobrePontoRiscoParaMotoristasDoDia já sabia a
+      // filial certa) — prioriza isso sobre redescobrir pelo telefone, que
+      // cai numa filial arbitrária se o telefone não bater em nenhum
+      // cadastro (ver comentário em filialDoTelefoneOuPadrao).
+      const filial = ctx.filial ?? motorista?.filial ?? await filialDoTelefoneOuPadrao(remetente)
       await supabase.from('rotas_risco_sugestoes').insert({
         filial, matricula: motorista?.matricula ?? null, nome_motorista: motorista?.nome ?? senderName ?? null,
         telefone: remetente, relato_texto: ctx.texto, via_audio: ctx.viaAudio,
