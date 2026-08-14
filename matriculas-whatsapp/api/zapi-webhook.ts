@@ -3950,7 +3950,14 @@ async function tratarAurora(
           const transcrito = await transcreverAudio(extrairAudioUrl(body))
           if (transcrito) { conteudo = transcrito; viaAudio = true }
         }
-        if (conteudo) { ctx.texto = conteudo; ctx.viaAudio = viaAudio }
+        // "Oi"/"menu"/etc. não é o relato — é só o motorista retomando a
+        // conversa (ex.: reabriu o WhatsApp e mandou "oi" antes de digitar
+        // o que viu). Sem esse filtro, a saudação virava a descrição do
+        // ponto de risco (relato_texto = "Oi"), travava aguardando
+        // localização e a resposta real seguinte era ignorada — porque daí
+        // pra frente o código só olha se ctx.texto já está preenchido, sem
+        // corrigir.
+        if (conteudo && !ehSaudacaoAurora(conteudo)) { ctx.texto = conteudo; ctx.viaAudio = viaAudio }
       }
 
       // Localização chegou mas ainda falta o relato — pede o relato, sem
