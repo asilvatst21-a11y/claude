@@ -3551,7 +3551,7 @@ async function pontosRiscoPorMapaAurora(filial: string, data: string, mapa: numb
   const [{ data: visitas }, { data: escalas }, { data: pontos }] = await Promise.all([
     supabase.from('distribuicao_bees_visitas').select('mapa, pdv_codigo').eq('filial', filial).eq('data', data),
     supabase.from('escalas_tml').select('mapa, cidades_entregas, regiao_entregas').eq('filial', filial).eq('data_entrega', data).eq('mapa', mapa),
-    supabase.from('rotas_risco_pontos').select('titulo, severidade, velocidade_segura, pdv_referencia, cidade, bairro').eq('filial', filial).eq('ativo', true),
+    supabase.from('rotas_risco_pontos').select('titulo, severidade, velocidade_segura, pdv_referencia, cidades_bairros').eq('filial', filial).eq('ativo', true),
   ])
   const pdvsDoMapa = new Set((visitas ?? []).filter((v: any) => v.mapa === mapa).map((v: any) => normalizarCodigoPdvRota(v.pdv_codigo)))
   const escalaDoMapa = (escalas ?? [])[0] as { cidades_entregas: string | null; regiao_entregas: string | null } | undefined
@@ -3560,10 +3560,13 @@ async function pontosRiscoPorMapaAurora(filial: string, data: string, mapa: numb
 
   return (pontos ?? []).filter((p: any) => {
     if (p.pdv_referencia && pdvsDoMapa.has(normalizarCodigoPdvRota(p.pdv_referencia))) return true
-    if (p.cidade && cidades.some((c) => normalizarTextoRota(c) === normalizarTextoRota(p.cidade))) {
-      return !p.bairro || bairros.some((b) => normalizarTextoRota(b) === normalizarTextoRota(p.bairro))
-    }
-    return false
+    // Um ponto pode ter vários pares de cidade/bairro (rotas diferentes que
+    // passam pelo mesmo trecho) — basta um par bater.
+    const pares = (p.cidades_bairros ?? []) as { cidade: string; bairro: string | null }[]
+    return pares.some((par) => {
+      if (!par.cidade || !cidades.some((c) => normalizarTextoRota(c) === normalizarTextoRota(par.cidade))) return false
+      return !par.bairro || bairros.some((b) => normalizarTextoRota(b) === normalizarTextoRota(par.bairro as string))
+    })
   })
 }
 

@@ -19,8 +19,7 @@ export interface PontoRisco {
   velocidade_segura: string | null
   rota: string | null
   pdv_referencia: string | null
-  cidade: string | null
-  bairro: string | null
+  cidades_bairros: CidadeBairro[]
   latitude: number | null
   longitude: number | null
   maps_url: string | null
@@ -146,8 +145,7 @@ export interface NovoPontoInput {
   velocidade_segura: string | null
   rota: string | null
   pdv_referencia: string | null
-  cidade: string | null
-  bairro: string | null
+  cidades_bairros: CidadeBairro[]
   latitude: number | null
   longitude: number | null
   maps_url: string | null
@@ -305,19 +303,30 @@ async function buscarEscalasComRegiaoDoDia(filial: string, data: string): Promis
   }))
 }
 
-function pontoBateComRegiao(ponto: PontoRisco, cidades: string[], bairros: string[]): boolean {
-  if (!ponto.cidade) return false
-  const cidadeOk = cidades.some((c) => normalizarTexto(c) === normalizarTexto(ponto.cidade as string))
-  if (!cidadeOk) return false
-  if (!ponto.bairro) return true // só cidade cadastrada — qualquer bairro dela já basta
-  return bairros.some((b) => normalizarTexto(b) === normalizarTexto(ponto.bairro as string))
+// Um ponto pode ter vários pares de cidade/bairro cadastrados (ex.: duas
+// rotas diferentes que passam pelo mesmo trecho físico) — basta UM par bater
+// com a cidade/bairro do mapa do dia. Devolve o par que bateu (pra usar no
+// aviso), não só um booleano.
+function parQueBateComRegiao(ponto: PontoRisco, cidades: string[], bairros: string[]): CidadeBairro | null {
+  for (const par of ponto.cidades_bairros) {
+    if (!par.cidade) continue
+    const cidadeOk = cidades.some((c) => normalizarTexto(c) === normalizarTexto(par.cidade))
+    if (!cidadeOk) continue
+    if (!par.bairro) return par // só cidade cadastrada — qualquer bairro dela já basta
+    if (bairros.some((b) => normalizarTexto(b) === normalizarTexto(par.bairro as string))) return par
+  }
+  return null
 }
 
-export function montarMensagemAvisoRotaRiscoRegiao(ponto: PontoRisco): string {
+function pontoBateComRegiao(ponto: PontoRisco, cidades: string[], bairros: string[]): boolean {
+  return parQueBateComRegiao(ponto, cidades, bairros) != null
+}
+
+export function montarMensagemAvisoRotaRiscoRegiao(ponto: PontoRisco, par: CidadeBairro): string {
   const linhas = [
     `🚧 *Atenção — Rota de Risco*`,
     ``,
-    `Seu mapa de hoje passa por ${ponto.bairro ? `${ponto.bairro} (${ponto.cidade})` : ponto.cidade}, onde tem um ponto sinalizado: *${ponto.titulo}*`,
+    `Seu mapa de hoje passa por ${par.bairro ? `${par.bairro} (${par.cidade})` : par.cidade}, onde tem um ponto sinalizado: *${ponto.titulo}*`,
   ]
   if (ponto.rodovia) linhas.push(`Rodovia: ${ponto.rodovia}`)
   if (ponto.velocidade_segura) linhas.push(`Velocidade segura: *${ponto.velocidade_segura}*`)
@@ -331,7 +340,7 @@ export function montarMensagemAvisoRotaRiscoRegiao(ponto: PontoRisco): string {
 // cidade/bairro cadastrados não manda o aviso em duplicidade se os dois
 // baterem no mesmo dia.
 export async function avisarMotoristasRotaRiscoPorRegiao(filial: string, data: string): Promise<{ enviados: number; erros: string[] }> {
-  const pontos = (await listarPontosRisco(filial)).filter((p) => p.cidade)
+  const pontos = (await listarPontosRisco(filial)).filter((p) => p.cidades_bairros.length > 0)
   if (pontos.length === 0) return { enviados: 0, erros: [] }
 
   const escalas = await buscarEscalasComRegiaoDoDia(filial, data)
@@ -351,14 +360,15 @@ export async function avisarMotoristasRotaRiscoPorRegiao(filial: string, data: s
   for (const escala of escalas) {
     if (escala.matricula == null || (escala.cidades.length === 0 && escala.bairros.length === 0)) continue
     for (const ponto of pontos) {
-      if (!pontoBateComRegiao(ponto, escala.cidades, escala.bairros)) continue
+      const par = parQueBateComRegiao(ponto, escala.cidades, escala.bairros)
+      if (!par) continue
       const chave = `${escala.matricula}|${ponto.id}`
       if (avisadoSet.has(chave)) continue
 
       const telefone = telefonePorNumero.get(normalizarMatricula(String(escala.matricula))) ?? telefonePorMatriculaTml.get(escala.matricula) ?? null
       if (!telefone) { erros.push(`Matrícula ${escala.matricula} sem telefone cadastrado (ponto "${ponto.titulo}")`); continue }
 
-      const envio = await enviarMensagemWhatsApp(telefone, montarMensagemAvisoRotaRiscoRegiao(ponto))
+      const envio = await enviarMensagemWhatsApp(telefone, montarMensagemAvisoRotaRiscoRegiao(ponto, par))
       if (!envio.sucesso) { erros.push(`Falha ao avisar matrícula ${escala.matricula}: ${envio.erro}`); continue }
 
       await supabase.from('rotas_risco_avisos').upsert(
