@@ -896,15 +896,24 @@ export default function DistribuicaoTML() {
       const metaParams = metaParamsRaw ?? []
 
       // Sala vem do cadastro de motoristas (mesma base usada na carta de
-      // controle), não da coluna EQUIPE da planilha de checklist — exceto nas
-      // linhas sem mapa (fallback), que não têm como fazer esse vínculo.
+      // controle), não da coluna EQUIPE da planilha de checklist — inclusive
+      // nas linhas sem mapa (fallback): antes essas linhas confiavam cegamente
+      // na EQUIPE da própria planilha, e se o cadastro do motorista mudou de
+      // sala depois da última vez que ele apareceu com mapa nessa base, a
+      // EQUIPE do relatório pode estar desatualizada — casando por nome
+      // (normalizado) em vez de matrícula, já que a planilha sem mapa não
+      // traz matrícula nenhuma.
       const matriculas = [...new Set([...matriculaPorMapaData.values()].filter((m): m is number => m != null))]
-      const { data: roster } = await supabase
-        .from('motoristas_sala_tml')
-        .select('matricula, sala')
-        .eq('filial', usuario.filial)
-        .in('matricula', matriculas.length > 0 ? matriculas : [-1])
+      const [{ data: roster }, { data: rosterCompleto }] = await Promise.all([
+        supabase.from('motoristas_sala_tml').select('matricula, sala').eq('filial', usuario.filial)
+          .in('matricula', matriculas.length > 0 ? matriculas : [-1]),
+        semMapa.length > 0
+          ? supabase.from('motoristas_sala_tml').select('nome, sala').eq('filial', usuario.filial)
+          : Promise.resolve({ data: [] as { nome: string; sala: string }[] }),
+      ])
       const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
+      const normalizarNome = (s: string) => s.normalize('NFD').replace(/\p{Mn}/gu, '').toUpperCase().trim()
+      const salaPorNome = new Map((rosterCompleto ?? []).map((r) => [normalizarNome(r.nome), r.sala]))
 
       // Busca o horário REAL de fim da matinal (registrado no timer) pra cada
       // combinação sala+data presente no checklist importado (com ou sem mapa).
@@ -914,7 +923,11 @@ export default function DistribuicaoTML() {
           const sala = matricula != null ? salaPorMatricula.get(matricula) ?? null : null
           return isSalaTML(sala) && c.data ? `${sala}|${c.data}` : null
         }),
-        ...semMapa.map((c) => (isSalaTML(c.sala) && c.data ? `${c.sala}|${c.data}` : null)),
+        ...semMapa.map((c) => {
+          const salaCadastro = c.nome ? salaPorNome.get(normalizarNome(c.nome)) : null
+          const sala = isSalaTML(salaCadastro) ? salaCadastro : c.sala
+          return isSalaTML(sala) && c.data ? `${sala}|${c.data}` : null
+        }),
       ].filter((x): x is string => x != null))]
       const salasNecessarias = [...new Set(datasComSala.map((k) => k.split('|')[0]))]
       const datasNecessarias = [...new Set(datasComSala.map((k) => k.split('|')[1]))]
@@ -1013,7 +1026,8 @@ export default function DistribuicaoTML() {
       // completo as linhas sem mapa do(s) dia(s) presentes neste arquivo,
       // pra não duplicar a cada reimportação.
       const linhasSemMapa = semMapa.map((c) => {
-        const sala = c.sala as SalaTML
+        const salaCadastro = c.nome ? salaPorNome.get(normalizarNome(c.nome)) : null
+        const sala = (isSalaTML(salaCadastro) ? salaCadastro : c.sala) as SalaTML
         const horarioFinalMatinal = horarioFinalEfetivoPorChave.get(`${sala}|${c.data}`) ?? horarioFinalMatinalPadrao(sala, c.data as string, metaParams)
         const tempoDeslocamento = tempoDeslocamentoComMatinalReal(horarioFinalMatinal, c.horarioInicio as string)
         return {
