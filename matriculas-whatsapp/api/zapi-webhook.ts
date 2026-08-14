@@ -3335,16 +3335,28 @@ const AURORA_TTL_MIN = 30
 
 interface AuroraSessao { id: string; telefone: string; estado: string; contexto: any; criado_em: string }
 
+// Casa por últimos dígitos, não igualdade exata de telefone — mesmo motivo
+// de tratarConversaMotorista (linha ~1593): quem semeia a sessão às vezes é
+// um telefone digitado manualmente em cadastro (matriculas.whatsapp,
+// motoristas_sala_tml.telefone), sem o "55" na frente, diferente do que
+// chega no payload do webhook. Igualdade exata fazia a sessão nunca ser
+// achada — ex.: a pergunta proativa de Rotas de Risco (perguntarSobrePonto-
+// RiscoParaMotoristasDoDia) grava com o telefone do cadastro, e a resposta
+// do motorista ("sim") chegava com o remetente no formato do payload, então
+// caía direto no menu em vez de continuar o relato.
 async function buscarSessaoAurora(remetente: string): Promise<AuroraSessao | null> {
-  const { data, error } = await supabase.from('aurora_sessoes').select('*').eq('telefone', remetente).maybeSingle()
-  if (error) console.error('buscarSessaoAurora error:', error.message)
-  if (!data) return null
-  const expirada = Date.now() - new Date(data.criado_em).getTime() > AURORA_TTL_MIN * 60_000
+  const digitos = ultimosDigitos(remetente)
+  if (!digitos) return null
+  const { data, error } = await supabase.from('aurora_sessoes').select('*').order('criado_em', { ascending: false })
+  if (error) { console.error('buscarSessaoAurora error:', error.message); return null }
+  const sessao = (data ?? []).find((s: any) => ultimosDigitos(s.telefone) === digitos) as AuroraSessao | undefined
+  if (!sessao) return null
+  const expirada = Date.now() - new Date(sessao.criado_em).getTime() > AURORA_TTL_MIN * 60_000
   if (expirada) {
-    await supabase.from('aurora_sessoes').delete().eq('id', data.id)
+    await supabase.from('aurora_sessoes').delete().eq('id', sessao.id)
     return null
   }
-  return data as AuroraSessao
+  return sessao
 }
 
 // Retorna o erro (se houver) pra quem chama poder avisar o usuário — sem
@@ -3362,8 +3374,17 @@ async function definirEstadoAurora(remetente: string, estado: string, contexto: 
 }
 
 async function encerrarSessaoAurora(remetente: string): Promise<void> {
-  const { error } = await supabase.from('aurora_sessoes').delete().eq('telefone', remetente)
-  if (error) console.error('encerrarSessaoAurora error:', error.message)
+  // Mesma lógica de casamento por últimos dígitos de buscarSessaoAurora —
+  // sem isso, uma sessão semeada com telefone em formato diferente do
+  // remetente nunca era encontrada pra apagar.
+  const digitos = ultimosDigitos(remetente)
+  if (!digitos) return
+  const { data, error } = await supabase.from('aurora_sessoes').select('id, telefone')
+  if (error) { console.error('encerrarSessaoAurora error:', error.message); return }
+  const ids = (data ?? []).filter((s: any) => ultimosDigitos(s.telefone) === digitos).map((s: any) => s.id)
+  if (ids.length === 0) return
+  const { error: erroDelete } = await supabase.from('aurora_sessoes').delete().in('id', ids)
+  if (erroDelete) console.error('encerrarSessaoAurora error:', erroDelete.message)
 }
 
 function ehSaudacaoAurora(texto: string): boolean {
