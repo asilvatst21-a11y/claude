@@ -3984,12 +3984,17 @@ async function tratarAurora(
       // cai numa filial arbitrária se o telefone não bater em nenhum
       // cadastro (ver comentário em filialDoTelefoneOuPadrao).
       const filial = ctx.filial ?? motorista?.filial ?? await filialDoTelefoneOuPadrao(remetente)
-      await supabase.from('rotas_risco_sugestoes').insert({
+      const { error: erroSugestao } = await supabase.from('rotas_risco_sugestoes').insert({
         filial, matricula: motorista?.matricula ?? null, nome_motorista: motorista?.nome ?? senderName ?? null,
         telefone: remetente, relato_texto: ctx.texto, via_audio: ctx.viaAudio,
         latitude: ctx.latitude, longitude: ctx.longitude,
       })
       await encerrarSessaoAurora(remetente)
+      if (erroSugestao) {
+        console.error('aurora-rota-risco insert error:', erroSugestao.message)
+        await enviar(remetente, 'Ih, deu um problema aqui pra salvar seu relato. Pode tentar de novo daqui a pouco? Se continuar falhando, avisa o time de Segurança.')
+        return { ok: false, action: 'aurora-rota-risco-erro-insert' }
+      }
       await enviar(remetente, '✅ Registrado! Assim que o time de Segurança confirmar, esse ponto entra no aviso automático pra quem passar por ali. Valeu por avisar 🙏')
       return { ok: true, action: 'aurora-rota-risco-registrado' }
     }
