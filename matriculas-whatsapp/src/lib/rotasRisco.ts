@@ -133,7 +133,11 @@ export async function listarPontosRisco(filial: string): Promise<PontoRisco[]> {
     .eq('filial', filial).eq('ativo', true)
     .order('severidade', { ascending: false }).order('created_at', { ascending: false })
   if (error) { console.error('listarPontosRisco error:', error.message); return [] }
-  return data ?? []
+  // cidades_bairros pode vir null/undefined se a migração
+  // supabase-migration-rotas-risco-multi-cidade.sql ainda não rodou nessa
+  // base (coluna nova) — sem isso, qualquer `.length`/`.map` no valor
+  // quebra a tela inteira em vez de só não filtrar por cidade/bairro.
+  return (data ?? []).map((p) => ({ ...p, cidades_bairros: p.cidades_bairros ?? [] }))
 }
 
 export interface NovoPontoInput {
