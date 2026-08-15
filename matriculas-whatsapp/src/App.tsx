@@ -24,6 +24,7 @@ import Frota from './pages/Frota'
 import FrotaIV from './pages/FrotaIV'
 import FrotaPlacas from './pages/FrotaPlacas'
 import FrotaLeve from './pages/FrotaLeve'
+import ConsumoCombustivel from './pages/frota/ConsumoCombustivel'
 import RoteirizacaoTerritorio from './pages/RoteirizacaoTerritorio'
 import Home from './pages/Home'
 import Disparos from './pages/Disparos'
@@ -182,6 +183,7 @@ export default function App() {
             <Route path="/frota/iv" element={<FrotaIV />} />
             <Route path="/frota/placas" element={<FrotaPlacas />} />
             <Route path="/frota/leve" element={<FrotaLeve />} />
+            <Route path="/frota/consumo-combustivel" element={<ConsumoCombustivel />} />
             <Route path="/frota/roteirizacao" element={<RoteirizacaoTerritorio />} />
             <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
             <Route path="/armazem/operadores" element={<ArmazemOperadores />} />

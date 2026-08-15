@@ -70,6 +70,7 @@ const frotaItems = [
   { permKey: 'frota', to: '/frota/iv',     label: 'IV — DU', icon: BarChart2 },
   { permKey: 'frota', to: '/frota/placas', label: 'Placas', icon: Settings },
   { permKey: 'frota', to: '/frota/leve',   label: 'Frota Leve', icon: Truck },
+  { permKey: 'frota', to: '/frota/consumo-combustivel', label: 'Consumo de Combustível', icon: Gauge },
 ]
 
 const armazemItems = [

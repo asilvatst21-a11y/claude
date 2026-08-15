@@ -1,0 +1,361 @@
+import { useCallback, useEffect, useState } from 'react'
+import { useDropzone } from 'react-dropzone'
+import { Fuel, Upload, Loader2, TrendingDown, TrendingUp, Clock, DollarSign, Route } from 'lucide-react'
+import { useAuth } from '../../lib/auth'
+import {
+  parseAbastecimentoCsv, importarAbastecimentos, parseTelemetriaCsv, importarTelemetria,
+  buscarRankingConsumo, buscarPorModelo, buscarPorCentroCusto, buscarImpactoRS, buscarIdleTime, buscarKmlPorRota,
+  type RankingMotorista, type KmlPorGrupo, type ImpactoRS, type IdleMotorista, type KmlPorRota,
+} from '../../lib/consumoCombustivel'
+
+function hojeIso(): string { return new Date().toISOString().slice(0, 10) }
+function diasAtrasIso(n: number): string { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10) }
+
+function fmtPct(p: number | null): string { return p == null ? '—' : `${Math.round(p * 100)}%` }
+function corPct(p: number | null): string {
+  if (p == null) return 'text-muted-foreground'
+  if (p >= 1) return 'text-green-600'
+  if (p >= 0.85) return 'text-amber-600'
+  return 'text-red-600'
+}
+function pillPct(p: number | null): string {
+  if (p == null) return 'bg-gray-100 text-gray-500'
+  if (p >= 1) return 'bg-green-50 text-green-700 border-green-200'
+  if (p >= 0.85) return 'bg-amber-50 text-amber-700 border-amber-200'
+  return 'bg-red-50 text-red-700 border-red-200'
+}
+
+function Dropzone({ label, onDrop, uploading, accept }: { label: string; onDrop: (files: File[]) => void; uploading: boolean; accept: string }) {
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept: { 'text/csv': [accept] }, multiple: false })
+  return (
+    <div {...getRootProps()} className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-colors ${isDragActive ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-brand-400 hover:bg-gray-50'}`}>
+      <input {...getInputProps()} />
+      {uploading ? <Loader2 size={22} className="mx-auto text-brand-500 animate-spin" /> : <Upload size={22} className="mx-auto text-gray-400 mb-1" />}
+      <p className="text-sm text-gray-600 mt-1">{uploading ? 'Importando…' : label}</p>
+    </div>
+  )
+}
+
+export default function ConsumoCombustivel() {
+  const { usuario } = useAuth()
+  const [dataIni, setDataIni] = useState(diasAtrasIso(45))
+  const [dataFim, setDataFim] = useState(hojeIso())
+  const [carregando, setCarregando] = useState(true)
+  const [uploadingAbastecimento, setUploadingAbastecimento] = useState(false)
+  const [uploadingTelemetria, setUploadingTelemetria] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [visaoRanking, setVisaoRanking] = useState<'pct' | 'kml'>('pct')
+
+  const [ranking, setRanking] = useState<{ porPct: RankingMotorista[]; porKml: RankingMotorista[]; kmlMedioFrota: number | null; pctDentroDaMeta: number | null; diasUteis: number } | null>(null)
+  const [porModelo, setPorModelo] = useState<KmlPorGrupo[]>([])
+  const [porCentroCusto, setPorCentroCusto] = useState<KmlPorGrupo[]>([])
+  const [impacto, setImpacto] = useState<{ porMotorista: ImpactoRS[]; totalPeriodo: number; precoMedioLitro: number | null } | null>(null)
+  const [idle, setIdle] = useState<{ porMotorista: IdleMotorista[]; totalHorasFrota: number } | null>(null)
+  const [porRota, setPorRota] = useState<KmlPorRota[]>([])
+
+  const carregar = useCallback(async () => {
+    if (!usuario?.filial) return
+    setCarregando(true)
+    const [r, m, c, i, idl, rt] = await Promise.all([
+      buscarRankingConsumo(usuario.filial, dataIni, dataFim),
+      buscarPorModelo(usuario.filial, dataIni, dataFim),
+      buscarPorCentroCusto(usuario.filial, dataIni, dataFim),
+      buscarImpactoRS(usuario.filial, dataIni, dataFim),
+      buscarIdleTime(usuario.filial, dataIni, dataFim),
+      buscarKmlPorRota(usuario.filial, dataIni, dataFim),
+    ])
+    setRanking(r); setPorModelo(m); setPorCentroCusto(c); setImpacto(i); setIdle(idl); setPorRota(rt)
+    setCarregando(false)
+  }, [usuario?.filial, dataIni, dataFim])
+
+  useEffect(() => { carregar() }, [carregar])
+
+  const onDropAbastecimento = useCallback((files: File[]) => {
+    if (!usuario?.filial || !files[0]) return
+    setUploadingAbastecimento(true)
+    setMsg('')
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      try {
+        const texto = (e.target?.result as string) ?? ''
+        const rows = parseAbastecimentoCsv(texto, usuario.filial)
+        if (rows.length === 0) { setMsg('Nenhuma linha reconhecida no relatório de abastecimento.'); return }
+        const erro = await importarAbastecimentos(rows)
+        if (erro) { setMsg(`Erro ao importar: ${erro}`); return }
+        setMsg(`✅ ${rows.length} abastecimentos importados.`)
+        await carregar()
+      } catch (err) {
+        setMsg(`Erro inesperado: ${String(err)}`)
+      } finally {
+        setUploadingAbastecimento(false)
+      }
+    }
+    reader.readAsText(files[0])
+  }, [usuario?.filial, carregar])
+
+  const onDropTelemetria = useCallback((files: File[]) => {
+    if (!usuario?.filial || !files[0]) return
+    setUploadingTelemetria(true)
+    setMsg('')
+    const reader = new FileReader()
+    reader.onload = async (e) => {
+      try {
+        const texto = (e.target?.result as string) ?? ''
+        const rows = parseTelemetriaCsv(texto, usuario.filial)
+        if (rows.length === 0) { setMsg('Nenhuma linha reconhecida no Boletim do Veículo.'); return }
+        const erro = await importarTelemetria(rows)
+        if (erro) { setMsg(`Erro ao importar: ${erro}`); return }
+        setMsg(`✅ ${rows.length} linhas de telemetria importadas.`)
+        await carregar()
+      } catch (err) {
+        setMsg(`Erro inesperado: ${String(err)}`)
+      } finally {
+        setUploadingTelemetria(false)
+      }
+    }
+    // Boletim do Veículo vem em ISO-8859-1 — acentuação quebra em UTF-8.
+    reader.readAsText(files[0], 'ISO-8859-1')
+  }, [usuario?.filial, carregar])
+
+  if (!usuario) return null
+  const listaRanking = visaoRanking === 'pct' ? (ranking?.porPct ?? []) : (ranking?.porKml ?? [])
+
+  return (
+    <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto">
+      <div>
+        <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+          <Fuel className="h-6 w-6 text-primary" /> Consumo de Combustível
+        </h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Ranking de Km/L por motorista — cruza a telemetria diária (Boletim do Veículo) com a meta de cada modelo de veículo (relatório de abastecimento).
+        </p>
+      </div>
+
+      {/* Import */}
+      <div className="bg-white border rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b">
+          <h2 className="font-semibold text-sm">Importar relatórios</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Os dois relatórios são independentes — importe cada um sempre que tiver um novo período.</p>
+        </div>
+        <div className="p-5 grid sm:grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">Relatório de abastecimento (cartão combustível, .csv)</p>
+            <Dropzone label="Arraste o relatório de abastecimento (.csv)" onDrop={onDropAbastecimento} uploading={uploadingAbastecimento} accept=".csv" />
+          </div>
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">Boletim do Veículo (telemetria/rastreador, .csv)</p>
+            <Dropzone label="Arraste o Boletim do Veículo (.csv)" onDrop={onDropTelemetria} uploading={uploadingTelemetria} accept=".csv" />
+          </div>
+        </div>
+        {msg && <p className="text-sm px-5 pb-4">{msg}</p>}
+      </div>
+
+      {/* Período */}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-xs font-medium text-muted-foreground">Período:</span>
+        <input type="date" value={dataIni} onChange={(e) => setDataIni(e.target.value)} className="text-sm border border-gray-200 rounded-lg px-3 py-1.5" />
+        <span className="text-gray-400 text-sm">até</span>
+        <input type="date" value={dataFim} onChange={(e) => setDataFim(e.target.value)} className="text-sm border border-gray-200 rounded-lg px-3 py-1.5" />
+      </div>
+
+      {carregando ? (
+        <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+      ) : (
+        <>
+          <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 text-xs text-muted-foreground">
+            <b className="text-foreground">Método:</b> caminhões são compartilhados por vários motoristas — o ranking usa a telemetria diária (motorista identificado por CPF a cada dia), não "km desde o último abastecimento" (que somaria km de outras pessoas na mesma placa). Só entram motoristas com pelo menos 5 dias úteis de telemetria no período.
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="bg-white border rounded-2xl p-4">
+              <div className="text-xs text-muted-foreground font-semibold uppercase">Km/L médio da frota</div>
+              <div className="text-2xl font-bold mt-1">{ranking?.kmlMedioFrota?.toFixed(2) ?? '—'}</div>
+            </div>
+            <div className="bg-white border rounded-2xl p-4">
+              <div className="text-xs text-muted-foreground font-semibold uppercase">Dias dentro da meta</div>
+              <div className="text-2xl font-bold mt-1">{fmtPct(ranking?.pctDentroDaMeta ?? null)}</div>
+            </div>
+            <div className="bg-white border rounded-2xl p-4">
+              <div className="text-xs text-muted-foreground font-semibold uppercase">Dias úteis analisados</div>
+              <div className="text-2xl font-bold mt-1">{ranking?.diasUteis ?? 0}</div>
+            </div>
+            <div className="bg-white border rounded-2xl p-4">
+              <div className="text-xs text-muted-foreground font-semibold uppercase">Motoristas no ranking</div>
+              <div className="text-2xl font-bold mt-1">{ranking?.porPct.length ?? 0}</div>
+            </div>
+          </div>
+
+          {/* Top5 / Bottom5 */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="bg-white border rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b flex items-center gap-2">
+                <TrendingUp className="h-4 w-4 text-green-600" />
+                <h2 className="font-semibold text-sm">Top 5 — melhor % da meta</h2>
+              </div>
+              <div className="divide-y">
+                {(ranking?.porPct ?? []).slice(0, 5).map((r, i) => (
+                  <div key={r.nome} className="px-5 py-2.5 flex items-center gap-3 text-sm">
+                    <span className="h-6 w-6 rounded-full bg-green-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{r.nome}</div>
+                      <div className="text-xs text-muted-foreground">{r.kmlMedio.toFixed(2)} km/L médio · {r.dias} dias</div>
+                    </div>
+                    <span className={`text-sm font-bold ${corPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white border rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b flex items-center gap-2">
+                <TrendingDown className="h-4 w-4 text-red-600" />
+                <h2 className="font-semibold text-sm">Bottom 5 — pior % da meta</h2>
+              </div>
+              <div className="divide-y">
+                {[...(ranking?.porPct ?? [])].slice(-5).reverse().map((r, i) => (
+                  <div key={r.nome} className="px-5 py-2.5 flex items-center gap-3 text-sm">
+                    <span className="h-6 w-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{(ranking?.porPct.length ?? 0) - i}</span>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium truncate">{r.nome}</div>
+                      <div className="text-xs text-muted-foreground">{r.kmlMedio.toFixed(2)} km/L médio · {r.dias} dias</div>
+                    </div>
+                    <span className={`text-sm font-bold ${corPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Ranking completo */}
+          <div className="bg-white border rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="font-semibold text-sm">Ranking geral por motorista ({ranking?.porPct.length ?? 0})</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Mínimo de 5 dias úteis no período</p>
+              </div>
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 text-xs font-semibold">
+                <button onClick={() => setVisaoRanking('pct')} className={`px-3 py-1.5 rounded-md ${visaoRanking === 'pct' ? 'bg-white shadow text-brand-700' : 'text-muted-foreground'}`}>Por % da meta</button>
+                <button onClick={() => setVisaoRanking('kml')} className={`px-3 py-1.5 rounded-md ${visaoRanking === 'kml' ? 'bg-white shadow text-brand-700' : 'text-muted-foreground'}`}>Por Km/L bruto</button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-muted-foreground uppercase text-left border-b">
+                    <th className="px-5 py-2 font-semibold">#</th>
+                    <th className="px-2 py-2 font-semibold">Motorista</th>
+                    <th className="px-2 py-2 font-semibold">Dias</th>
+                    <th className="px-2 py-2 font-semibold">Km/L médio</th>
+                    <th className="px-2 py-2 font-semibold">% da meta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listaRanking.map((r, i) => (
+                    <tr key={r.nome} className="border-b last:border-0 hover:bg-gray-50">
+                      <td className="px-5 py-2 text-muted-foreground font-bold">{i + 1}</td>
+                      <td className="px-2 py-2">{r.nome}</td>
+                      <td className="px-2 py-2">{r.dias}</td>
+                      <td className="px-2 py-2 font-mono font-semibold">{r.kmlMedio.toFixed(2)}</td>
+                      <td className="px-2 py-2">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Por modelo / centro de custo */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="bg-white border rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b"><h2 className="font-semibold text-sm">Por modelo de veículo</h2></div>
+              <div className="p-5 space-y-2">
+                {porModelo.map((m) => (
+                  <div key={m.grupo} className="flex items-center justify-between text-sm">
+                    <span>{m.grupo}</span>
+                    <span className="text-muted-foreground">{m.dias} dias · <b className="text-foreground">{m.kmlMedio.toFixed(2)} km/L</b>{m.meta != null && ` (meta ${m.meta.toFixed(2)})`}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white border rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b"><h2 className="font-semibold text-sm">Por centro de custo</h2></div>
+              <div className="p-5 space-y-2">
+                {porCentroCusto.map((c) => (
+                  <div key={c.grupo} className="flex items-center justify-between text-sm">
+                    <span>{c.grupo || '(sem centro)'}</span>
+                    <span className="text-muted-foreground">{c.dias} dias · <b className="text-foreground">{c.kmlMedio.toFixed(2)} km/L</b></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Impacto R$ / Idle time */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="bg-white border rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-red-600" />
+                <div>
+                  <h2 className="font-semibold text-sm">Impacto em R$ (abaixo da meta)</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Total no período: <b className="text-foreground">R$ {impacto?.totalPeriodo.toFixed(2) ?? '0,00'}</b>
+                    {impacto?.precoMedioLitro != null && ` · litro médio R$ ${impacto.precoMedioLitro.toFixed(2)}`}
+                  </p>
+                </div>
+              </div>
+              <div className="divide-y max-h-72 overflow-y-auto">
+                {(impacto?.porMotorista ?? []).filter((m) => m.impactoRS > 0).slice(0, 8).map((m) => (
+                  <div key={m.nome} className="px-5 py-2 flex items-center justify-between text-sm">
+                    <span className="truncate">{m.nome}</span>
+                    <span className="font-semibold text-red-600 shrink-0">R$ {m.impactoRS.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white border rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b flex items-center gap-2">
+                <Clock className="h-4 w-4 text-amber-600" />
+                <div>
+                  <h2 className="font-semibold text-sm">Motor ligado parado (idle)</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">Total da frota: <b className="text-foreground">{idle?.totalHorasFrota.toFixed(1) ?? '0'} horas</b></p>
+                </div>
+              </div>
+              <div className="divide-y max-h-72 overflow-y-auto">
+                {(idle?.porMotorista ?? []).slice(0, 8).map((m) => (
+                  <div key={m.nome} className="px-5 py-2 flex items-center justify-between text-sm">
+                    <span className="truncate">{m.nome}</span>
+                    <span className="font-semibold text-amber-600 shrink-0">{m.minutosMediaDia.toFixed(1)} min/dia</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Por rota */}
+          <div className="bg-white border rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b flex items-center gap-2">
+              <Route className="h-4 w-4 text-brand-600" />
+              <div>
+                <h2 className="font-semibold text-sm">Km/L por cidade de entrega</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Cidade com mais entregas no dia (Escala do dia) — mínimo de 3 dias por cidade</p>
+              </div>
+            </div>
+            {porRota.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-5 py-6 text-center">Sem dados suficientes de rota nesse período — confira se a Escala do dia foi importada.</p>
+            ) : (
+              <div className="p-5 space-y-2">
+                {porRota.map((r) => (
+                  <div key={r.cidade} className="flex items-center justify-between text-sm">
+                    <span>{r.cidade}</span>
+                    <span className="text-muted-foreground">{r.dias} dias · <b className="text-foreground">{r.kmlMedio.toFixed(2)} km/L</b></span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
