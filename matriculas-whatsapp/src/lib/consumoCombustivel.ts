@@ -258,30 +258,84 @@ function referenciaPorPlaca(abastecimentos: AbastecimentoInsert[]): Map<string, 
   return ref
 }
 
-// ── Dias úteis de telemetria (1 motorista identificado, deslocamento e
-// consumo reais) — base de todo o ranking ──────────────────────────────
+// ── Motorista por placa+dia, via 03.11.49.02 (Escala do dia) ───────────
+// Mais confiável que o campo MOTORISTAS do Boletim do Veículo: a Escala é
+// a designação oficial de quem rodou aquela placa naquele dia, enquanto o
+// Boletim só lista quem logou no rastreador (fica em branco ou some do dia
+// inteiro quando o caminhão é dividido e o motorista não identifica —
+// derrubava dias reais do ranking).
+
+async function motoristaPorPlacaDia(filial: string, dataIni: string, dataFim: string): Promise<Map<string, number>> {
+  const linhas: { placa: string; data_entrega: string; matricula: number | null }[] = []
+  for (let inicio = 0; ; inicio += PAGINA) {
+    const { data, error } = await supabase
+      .from('escalas_tml')
+      .select('placa, data_entrega, matricula')
+      .eq('filial', filial).gte('data_entrega', dataIni).lte('data_entrega', dataFim)
+      .not('placa', 'is', null).not('matricula', 'is', null)
+      .range(inicio, inicio + PAGINA - 1)
+    if (error) { console.error('motoristaPorPlacaDia error:', error.message); break }
+    linhas.push(...(data ?? []))
+    if (!data || data.length < PAGINA) break
+  }
+  // Uma placa pode ter mais de um mapa no mesmo dia — tudo bem, desde que
+  // seja sempre o mesmo motorista. Se aparecer matrícula diferente pro
+  // mesmo par placa+dia, não dá pra saber qual rodou quanto: descarta.
+  const porChave = new Map<string, Set<number>>()
+  for (const l of linhas) {
+    if (l.matricula == null) continue
+    const chave = `${l.placa}|${l.data_entrega}`
+    if (!porChave.has(chave)) porChave.set(chave, new Set())
+    porChave.get(chave)!.add(l.matricula)
+  }
+  const resultado = new Map<string, number>()
+  for (const [chave, matriculas] of porChave) {
+    if (matriculas.size === 1) resultado.set(chave, [...matriculas][0])
+  }
+  return resultado
+}
+
+async function nomePorMatricula(filial: string): Promise<Map<number, string>> {
+  const [{ data: roster }, { data: cadastrados }] = await Promise.all([
+    supabase.from('motoristas_sala_tml').select('matricula, nome').eq('filial', filial),
+    supabase.from('matriculas').select('numero, nome').eq('filial', filial).eq('ativo', true),
+  ])
+  const mapa = new Map<number, string>()
+  for (const c of cadastrados ?? []) {
+    const num = Number(c.numero)
+    if (c.nome && Number.isFinite(num)) mapa.set(num, c.nome)
+  }
+  // motoristas_sala_tml por último: é a base mais usada pra identificar
+  // quem dirige TML, então prevalece sobre `matriculas` quando os dois têm
+  // a mesma matrícula cadastrada.
+  for (const r of roster ?? []) {
+    if (r.nome && r.matricula != null) mapa.set(r.matricula, r.nome)
+  }
+  return mapa
+}
+
+// ── Dias úteis de telemetria (motorista vindo da Escala do dia, deslocamento
+// e consumo reais) — base de todo o ranking ─────────────────────────────
 
 export interface DiaUtilMotorista {
   nome: string; placa: string; dia: string; kml: number; distancia: number
   modelo: string | null; meta: number | null; centroCusto: string | null; idleSegundos: number | null
 }
 
-function extrairMotoristaUnico(raw: string | null): string | null {
-  if (!raw || raw.includes(',')) return null // dia com mais de 1 motorista: sem como atribuir com segurança
-  const m = raw.match(/^(.*?)\s*-\s*\d+$/)
-  return m ? m[1].trim() : null
-}
-
 async function diasUteisMotorista(filial: string, dataIni: string, dataFim: string): Promise<DiaUtilMotorista[]> {
-  const [abastecimentos, telemetria] = await Promise.all([
+  const [abastecimentos, telemetria, motoristaPorChave, nomes] = await Promise.all([
     listarAbastecimentos(filial, dataIni, dataFim),
     listarTelemetria(filial, dataIni, dataFim),
+    motoristaPorPlacaDia(filial, dataIni, dataFim),
+    nomePorMatricula(filial),
   ])
   const ref = referenciaPorPlaca(abastecimentos)
 
   const dias: DiaUtilMotorista[] = []
   for (const t of telemetria) {
-    const nome = extrairMotoristaUnico(t.motoristas_raw)
+    const matricula = motoristaPorChave.get(`${t.placa}|${t.dia}`)
+    if (matricula == null) continue
+    const nome = nomes.get(matricula)
     if (!nome) continue
     if ((t.distancia_percorrida ?? 0) < 30) continue
     if (!t.consumo_combustivel_litros || t.consumo_combustivel_litros <= 0) continue
