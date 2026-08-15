@@ -440,24 +440,32 @@ function calcularDiasPorIntervalo(
     const diasOrdenados = [...new Set(diasBrutos)].sort()
     const r = ref.get(placa)
 
-    let dataAnterior = '0000-00-00'
+    // O primeiro abastecimento visto no período só serve pra ANCORAR o
+    // início do intervalo seguinte — não fecha intervalo nenhum sozinho.
+    // Sem isso, os dias de telemetria anteriores a ele (rodados com o
+    // tanque cheio de um abastecimento que a gente não viu) eram divididos
+    // pelos litros desse primeiro abastecimento, que só encheu uma fração
+    // do tanque — Km/L inflado artificialmente (chegava a 500%+ da meta).
+    let dataAnterior: string | null = null
     for (const a of abast) {
-      const diasIntervalo = diasOrdenados.filter((d) => d > dataAnterior && d <= a.data)
-      const kmIntervalo = diasIntervalo.reduce((s, d) => s + (distanciaPorChave.get(`${placa}|${d}`) ?? 0), 0)
-      if (kmIntervalo > 0) {
-        const kmlIntervalo = kmIntervalo / (a.litros as number)
-        for (const d of diasIntervalo) {
-          const distanciaDia = distanciaPorChave.get(`${placa}|${d}`) ?? 0
-          if (distanciaDia < 30) continue
-          const matricula = motoristaPorChave.get(`${placa}|${d}`)
-          if (matricula == null) continue
-          const nome = nomes.get(matricula)
-          if (!nome) continue
-          resultado.push({
-            nome, placa, dia: d, kml: kmlIntervalo, distancia: distanciaDia,
-            modelo: r?.modelo ?? null, meta: r?.meta ?? null, centroCusto: r?.centroCusto ?? null,
-            idleSegundos: idlePorChave.get(`${placa}|${d}`) ?? null,
-          })
+      if (dataAnterior != null) {
+        const diasIntervalo = diasOrdenados.filter((d) => d > (dataAnterior as string) && d <= a.data)
+        const kmIntervalo = diasIntervalo.reduce((s, d) => s + (distanciaPorChave.get(`${placa}|${d}`) ?? 0), 0)
+        if (kmIntervalo > 0) {
+          const kmlIntervalo = kmIntervalo / (a.litros as number)
+          for (const d of diasIntervalo) {
+            const distanciaDia = distanciaPorChave.get(`${placa}|${d}`) ?? 0
+            if (distanciaDia < 30) continue
+            const matricula = motoristaPorChave.get(`${placa}|${d}`)
+            if (matricula == null) continue
+            const nome = nomes.get(matricula)
+            if (!nome) continue
+            resultado.push({
+              nome, placa, dia: d, kml: kmlIntervalo, distancia: distanciaDia,
+              modelo: r?.modelo ?? null, meta: r?.meta ?? null, centroCusto: r?.centroCusto ?? null,
+              idleSegundos: idlePorChave.get(`${placa}|${d}`) ?? null,
+            })
+          }
         }
       }
       dataAnterior = a.data
