@@ -183,6 +183,10 @@ export default function ConsumoCombustivel() {
 
   if (!usuario) return null
   const listaRanking = visaoRanking === 'pct' ? (ranking?.porPct ?? []) : (ranking?.porKml ?? [])
+  const idlePorNome = new Map((idle?.porMotorista ?? []).map((m) => [m.nome, m]))
+  const idleMedioFrota = idle && idle.porMotorista.length > 0
+    ? idle.porMotorista.reduce((s, m) => s + m.minutosMediaDia, 0) / idle.porMotorista.length
+    : null
 
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto">
@@ -372,6 +376,7 @@ export default function ConsumoCombustivel() {
                     <th className="px-2 py-2 font-semibold">Dias</th>
                     <th className="px-2 py-2 font-semibold">Km/L médio</th>
                     <th className="px-2 py-2 font-semibold">% da meta</th>
+                    <th className="px-2 py-2 font-semibold">Idle méd/dia</th>
                     <th className="px-2 py-2 font-semibold"></th>
                   </tr>
                 </thead>
@@ -382,6 +387,9 @@ export default function ConsumoCombustivel() {
                     const variacao = pcts.length >= 2 ? Math.max(...pcts) - Math.min(...pcts) : 0
                     const melhor = pcts.length >= 2 ? r.porPlaca.reduce((a, b) => ((b.pctMeta ?? 0) > (a.pctMeta ?? 0) ? b : a)) : null
                     const pior = pcts.length >= 2 ? r.porPlaca.reduce((a, b) => ((b.pctMeta ?? 0) < (a.pctMeta ?? 0) ? b : a)) : null
+                    const idleInfo = idlePorNome.get(r.nome) ?? null
+                    const idleAlto = idleInfo != null && idleMedioFrota != null && idleInfo.minutosMediaDia > idleMedioFrota * 1.3
+                    const idleExplicaConsumo = idleAlto && r.pctMeta != null && r.pctMeta < 1
                     return (
                       <>
                         <tr
@@ -402,12 +410,19 @@ export default function ConsumoCombustivel() {
                             <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
                           </td>
                           <td className="px-2 py-2">
+                            {idleInfo ? (
+                              <span className={`font-mono ${idleAlto ? 'text-amber-600 font-semibold' : 'text-muted-foreground'}`}>{idleInfo.minutosMediaDia.toFixed(0)} min</span>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="px-2 py-2">
                             {r.amostraPequena && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 whitespace-nowrap">Amostra pequena</span>}
                           </td>
                         </tr>
                         {aberto && (
                           <tr key={`${r.nome}-detalhe`} className="border-b last:border-0">
-                            <td colSpan={6} className="p-0">
+                            <td colSpan={7} className="p-0">
                               <div className="bg-brand-50 px-5 py-4 pl-12">
                                 <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Placas rodadas no período</div>
                                 <div className="bg-white border rounded-lg overflow-hidden">
@@ -440,6 +455,12 @@ export default function ConsumoCombustivel() {
                                   <div className="flex items-start gap-2 text-xs text-muted-foreground bg-white border rounded-lg px-3 py-2 mt-2.5">
                                     <Info className="h-3.5 w-3.5 text-brand-600 shrink-0 mt-0.5" />
                                     <span>Rende bem mais na <b className="text-foreground font-mono">{melhor.placa}</b> ({melhor.kmlMedio.toFixed(2)} km/L) do que na <b className="text-foreground font-mono">{pior.placa}</b> ({pior.kmlMedio.toFixed(2)} km/L) — a média geral fica no meio das duas.</span>
+                                  </div>
+                                )}
+                                {idleExplicaConsumo && idleInfo && (
+                                  <div className="flex items-start gap-2 text-xs text-muted-foreground bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-2.5">
+                                    <Clock className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
+                                    <span>Fica com motor ligado parado <b className="text-foreground">{idleInfo.minutosMediaDia.toFixed(0)} min/dia</b>, bem acima da média da frota ({idleMedioFrota!.toFixed(0)} min/dia) — pode estar puxando o Km/L pra baixo da meta.</span>
                                   </div>
                                 )}
                               </div>
