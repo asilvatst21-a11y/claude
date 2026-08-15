@@ -366,10 +366,12 @@ async function diasUteisMotorista(filial: string, dataIni: string, dataFim: stri
 // ── Ranking por motorista ───────────────────────────────────────────────
 
 export interface RankingMotorista {
-  nome: string; dias: number; kmlMedio: number; pctMeta: number | null; kmTotal: number
+  nome: string; dias: number; kmlMedio: number; pctMeta: number | null; kmTotal: number; amostraPequena: boolean
 }
 
-const MIN_DIAS_RANKING = 10
+// Só um aviso visual agora, não filtra mais ninguém de fora — abaixo disso
+// a posição no ranking pode estar distorcida por poucos dias de dado.
+export const MIN_DIAS_CONFIAVEL = 10
 
 export async function buscarRankingConsumo(filial: string, dataIni: string, dataFim: string): Promise<{
   porPct: RankingMotorista[]; porKml: RankingMotorista[]; kmlMedioFrota: number | null; pctDentroDaMeta: number | null; diasUteis: number
@@ -385,11 +387,10 @@ export async function buscarRankingConsumo(filial: string, dataIni: string, data
 
   const ranking: RankingMotorista[] = []
   for (const [nome, linhas] of porNome) {
-    if (linhas.length < MIN_DIAS_RANKING) continue
     const kmlMedio = linhas.reduce((s, l) => s + l.kml, 0) / linhas.length
     const pctMeta = linhas.reduce((s, l) => s + l.kml / (l.meta as number), 0) / linhas.length
     const kmTotal = linhas.reduce((s, l) => s + l.distancia, 0)
-    ranking.push({ nome, dias: linhas.length, kmlMedio, pctMeta, kmTotal })
+    ranking.push({ nome, dias: linhas.length, kmlMedio, pctMeta, kmTotal, amostraPequena: linhas.length < MIN_DIAS_CONFIAVEL })
   }
 
   const kmlMedioFrota = dias.length > 0 ? dias.reduce((s, d) => s + d.kml, 0) / dias.length : null
@@ -480,7 +481,7 @@ export async function buscarIdleTime(filial: string, dataIni: string, dataFim: s
     porNome.get(d.nome)!.push(d)
   }
   const porMotorista = [...porNome.entries()]
-    .filter(([, linhas]) => linhas.length >= MIN_DIAS_RANKING)
+    .filter(([, linhas]) => linhas.length >= MIN_DIAS_CONFIAVEL)
     .map(([nome, linhas]) => {
       const totalSeg = linhas.reduce((s, l) => s + (l.idleSegundos ?? 0), 0)
       return { nome, minutosMediaDia: totalSeg / linhas.length / 60, horasTotal: totalSeg / 3600 }

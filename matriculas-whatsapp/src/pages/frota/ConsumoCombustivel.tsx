@@ -5,6 +5,7 @@ import { useAuth } from '../../lib/auth'
 import {
   parseAbastecimentoCsv, importarAbastecimentos, parseTelemetriaCsv, importarTelemetria,
   buscarRankingConsumo, buscarPorModelo, buscarPorCentroCusto, buscarImpactoRS, buscarIdleTime, buscarKmlPorRota,
+  MIN_DIAS_CONFIAVEL,
   type RankingMotorista, type KmlPorGrupo, type ImpactoRS, type IdleMotorista, type KmlPorRota,
 } from '../../lib/consumoCombustivel'
 
@@ -163,7 +164,7 @@ export default function ConsumoCombustivel() {
       ) : (
         <>
           <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 text-xs text-muted-foreground">
-            <b className="text-foreground">Método:</b> caminhões são compartilhados por vários motoristas — o ranking usa a telemetria diária (motorista identificado por CPF a cada dia), não "km desde o último abastecimento" (que somaria km de outras pessoas na mesma placa). Só entram motoristas com pelo menos 10 dias úteis de telemetria no período.
+            <b className="text-foreground">Método:</b> caminhões são compartilhados por vários motoristas — o ranking usa a telemetria diária (motorista identificado por CPF a cada dia), não "km desde o último abastecimento" (que somaria km de outras pessoas na mesma placa). Motoristas com menos de {MIN_DIAS_CONFIAVEL} dias úteis de telemetria aparecem marcados como "amostra pequena" — a posição deles no ranking pode não representar o mês todo.
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -230,7 +231,7 @@ export default function ConsumoCombustivel() {
             <div className="px-5 py-4 border-b flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <h2 className="font-semibold text-sm">Ranking geral por motorista ({ranking?.porPct.length ?? 0})</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Mínimo de 10 dias úteis no período</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Motoristas com menos de {MIN_DIAS_CONFIAVEL} dias úteis ficam marcados como amostra pequena</p>
               </div>
               <div className="flex gap-1 bg-gray-100 rounded-lg p-1 text-xs font-semibold">
                 <button onClick={() => setVisaoRanking('pct')} className={`px-3 py-1.5 rounded-md ${visaoRanking === 'pct' ? 'bg-white shadow text-brand-700' : 'text-muted-foreground'}`}>Por % da meta</button>
@@ -246,17 +247,21 @@ export default function ConsumoCombustivel() {
                     <th className="px-2 py-2 font-semibold">Dias</th>
                     <th className="px-2 py-2 font-semibold">Km/L médio</th>
                     <th className="px-2 py-2 font-semibold">% da meta</th>
+                    <th className="px-2 py-2 font-semibold"></th>
                   </tr>
                 </thead>
                 <tbody>
                   {listaRanking.map((r, i) => (
-                    <tr key={r.nome} className="border-b last:border-0 hover:bg-gray-50">
+                    <tr key={r.nome} className={`border-b last:border-0 hover:bg-gray-50 ${r.amostraPequena ? 'opacity-60' : ''}`}>
                       <td className="px-5 py-2 text-muted-foreground font-bold">{i + 1}</td>
                       <td className="px-2 py-2">{r.nome}</td>
                       <td className="px-2 py-2">{r.dias}</td>
                       <td className="px-2 py-2 font-mono font-semibold">{r.kmlMedio.toFixed(2)}</td>
                       <td className="px-2 py-2">
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
+                      </td>
+                      <td className="px-2 py-2">
+                        {r.amostraPequena && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 whitespace-nowrap">Amostra pequena</span>}
                       </td>
                     </tr>
                   ))}
