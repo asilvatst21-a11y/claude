@@ -3715,15 +3715,43 @@ async function responderMeuConsumo(remetente: string, filial: string, matricula:
     await enviar(remetente, `Você foi quem mais rodou a placa *${placa}* em ${rotulo}, mas ainda não tenho abastecimento e telemetria suficientes pra calcular a média dela com confiança.`)
     return
   }
+
+  const pct = resultado.meta ? resultado.kml / resultado.meta : null
+  const statusEmoji = pct == null ? '' : pct >= 1 ? ' 🟢' : pct >= 0.85 ? ' 🟡' : ' 🔴'
+
   const linhas = [
     `🚛 *Sua média de combustível — ${rotulo} (até ${formatarDataBRSimples(fim)})*`,
     ``,
-    `Você foi quem mais rodou a placa *${placa}* nesse período.`,
-    `Km/L médio da placa: *${resultado.kml.toFixed(2)}*${resultado.meta ? ` (meta: ${resultado.meta.toFixed(2)})` : ' (meta não cadastrada pra essa placa)'}`,
+    `Você mais dirigiu a placa: *${placa}*`,
+    `Km/L real: *${resultado.kml.toFixed(2)}*`,
   ]
-  if (resultado.meta) linhas.push(`Isso é *${Math.round((resultado.kml / resultado.meta) * 100)}%* da meta.`)
-  linhas.push(``, `_Conta parcial do mês em andamento — pode mudar até fechar._`)
+  if (resultado.meta) {
+    linhas.push(`Km/L meta: *${resultado.meta.toFixed(2)}*`)
+    linhas.push(`Desempenho: *${Math.round(pct! * 100)}% da meta*${statusEmoji}`)
+  } else {
+    linhas.push(`Meta: _não cadastrada pra essa placa_`)
+  }
+
+  if (pct != null && pct < 0.6) {
+    linhas.push(``, `💡 Pra melhorar o consumo:`, ...sortearDicasConsumo(2).map((d) => `• ${d}`))
+  }
+
+  linhas.push(``, `_Conta parcial do mês em andamento — atualiza conforme novos abastecimentos entram._`)
   await enviar(remetente, linhas.join('\n'))
+}
+
+const DICAS_CONSUMO = [
+  'Evite acelerar e frear bruscamente — dirigir suave economiza bastante combustível',
+  'Antecipe o trânsito e mantenha uma velocidade constante, principalmente na rodovia',
+  'Evite deixar o motor ligado parado por muito tempo (idle) — desligue em paradas longas',
+  'Confira a calibragem dos pneus regularmente — pneu murcho aumenta o consumo',
+  'Reduza a marcha lenta prolongada e troque de marcha na faixa de rotação econômica',
+  'Evite excesso de peso e itens desnecessários no veículo quando possível',
+]
+
+function sortearDicasConsumo(n: number): string[] {
+  const embaralhado = [...DICAS_CONSUMO].sort(() => Math.random() - 0.5)
+  return embaralhado.slice(0, n)
 }
 
 const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
