@@ -22,12 +22,6 @@ function mesParaIntervalo(mes: string): { inicio: string; fim: string } {
 }
 
 function fmtPct(p: number | null): string { return p == null ? '—' : `${Math.round(p * 100)}%` }
-function corPct(p: number | null): string {
-  if (p == null) return 'text-muted-foreground'
-  if (p >= 1) return 'text-green-600'
-  if (p >= 0.85) return 'text-amber-600'
-  return 'text-red-600'
-}
 function pillPct(p: number | null): string {
   if (p == null) return 'bg-gray-100 text-gray-500'
   if (p >= 1) return 'bg-green-50 text-green-700 border-green-200'
@@ -257,184 +251,10 @@ export default function ConsumoCombustivel() {
               <div className="text-2xl font-bold mt-1">{ranking?.porPct.length ?? 0}</div>
             </div>
           </div>
-
-          {/* Top5 / Bottom5 */}
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="bg-white border rounded-2xl overflow-hidden">
-              <div className="px-5 py-4 border-b flex items-center gap-2">
-                <TrendingUp className="h-4 w-4 text-green-600" />
-                <h2 className="font-semibold text-sm">Top 5 — melhor % da meta</h2>
-              </div>
-              <div className="divide-y">
-                {(ranking?.porPct ?? []).slice(0, 5).map((r, i) => (
-                  <div key={r.nome} className="px-5 py-2.5 flex items-center gap-3 text-sm">
-                    <span className="h-6 w-6 rounded-full bg-green-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{r.nome}</div>
-                      <div className="text-xs text-muted-foreground">{r.kmlMedio.toFixed(2)} km/L médio · {r.dias} dias</div>
-                    </div>
-                    <span className={`text-sm font-bold ${corPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="bg-white border rounded-2xl overflow-hidden">
-              <div className="px-5 py-4 border-b flex items-center gap-2">
-                <TrendingDown className="h-4 w-4 text-red-600" />
-                <h2 className="font-semibold text-sm">Bottom 5 — pior % da meta</h2>
-              </div>
-              <div className="divide-y">
-                {[...(ranking?.porPct ?? [])].slice(-5).reverse().map((r, i) => (
-                  <div key={r.nome} className="px-5 py-2.5 flex items-center gap-3 text-sm">
-                    <span className="h-6 w-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{(ranking?.porPct.length ?? 0) - i}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-medium truncate">{r.nome}</div>
-                      <div className="text-xs text-muted-foreground">{r.kmlMedio.toFixed(2)} km/L médio · {r.dias} dias</div>
-                    </div>
-                    <span className={`text-sm font-bold ${corPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Ranking completo */}
-          <div className="bg-white border rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b flex items-center justify-between gap-3 flex-wrap">
-              <div>
-                <h2 className="font-semibold text-sm">Ranking geral por motorista ({ranking?.porPct.length ?? 0})</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Motoristas com menos de {MIN_DIAS_CONFIAVEL} dias úteis ficam marcados como amostra pequena</p>
-              </div>
-              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 text-xs font-semibold">
-                <button onClick={() => setVisaoRanking('pct')} className={`px-3 py-1.5 rounded-md ${visaoRanking === 'pct' ? 'bg-white shadow text-brand-700' : 'text-muted-foreground'}`}>Por % da meta</button>
-                <button onClick={() => setVisaoRanking('kml')} className={`px-3 py-1.5 rounded-md ${visaoRanking === 'kml' ? 'bg-white shadow text-brand-700' : 'text-muted-foreground'}`}>Por Km/L bruto</button>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-muted-foreground uppercase text-left border-b">
-                    <th className="px-5 py-2 font-semibold">#</th>
-                    <th className="px-2 py-2 font-semibold">Motorista</th>
-                    <th className="px-2 py-2 font-semibold">Dias</th>
-                    <th className="px-2 py-2 font-semibold">Km/L médio</th>
-                    <th className="px-2 py-2 font-semibold">% da meta</th>
-                    <th className="px-2 py-2 font-semibold"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {listaRanking.map((r, i) => (
-                    <tr key={r.nome} className={`border-b last:border-0 hover:bg-gray-50 ${r.amostraPequena ? 'opacity-60' : ''}`}>
-                      <td className="px-5 py-2 text-muted-foreground font-bold">{i + 1}</td>
-                      <td className="px-2 py-2">{r.nome}</td>
-                      <td className="px-2 py-2">{r.dias}</td>
-                      <td className="px-2 py-2 font-mono font-semibold">{r.kmlMedio.toFixed(2)}</td>
-                      <td className="px-2 py-2">
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
-                      </td>
-                      <td className="px-2 py-2">
-                        {r.amostraPequena && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 whitespace-nowrap">Amostra pequena</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Por modelo / centro de custo */}
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="bg-white border rounded-2xl overflow-hidden">
-              <div className="px-5 py-4 border-b"><h2 className="font-semibold text-sm">Por modelo de veículo</h2></div>
-              <div className="p-5 space-y-2">
-                {porModelo.map((m) => (
-                  <div key={m.grupo} className="flex items-center justify-between text-sm">
-                    <span>{m.grupo}</span>
-                    <span className="text-muted-foreground">{m.dias} dias · <b className="text-foreground">{m.kmlMedio.toFixed(2)} km/L</b>{m.meta != null && ` (meta ${m.meta.toFixed(2)})`}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="bg-white border rounded-2xl overflow-hidden">
-              <div className="px-5 py-4 border-b"><h2 className="font-semibold text-sm">Por centro de custo</h2></div>
-              <div className="p-5 space-y-2">
-                {porCentroCusto.map((c) => (
-                  <div key={c.grupo} className="flex items-center justify-between text-sm">
-                    <span>{c.grupo || '(sem centro)'}</span>
-                    <span className="text-muted-foreground">{c.dias} dias · <b className="text-foreground">{c.kmlMedio.toFixed(2)} km/L</b></span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Impacto R$ / Idle time */}
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="bg-white border rounded-2xl overflow-hidden">
-              <div className="px-5 py-4 border-b flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-red-600" />
-                <div>
-                  <h2 className="font-semibold text-sm">Impacto em R$ (abaixo da meta)</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Total no período: <b className="text-foreground">R$ {impacto?.totalPeriodo.toFixed(2) ?? '0,00'}</b>
-                    {impacto?.precoMedioLitro != null && ` · litro médio R$ ${impacto.precoMedioLitro.toFixed(2)}`}
-                  </p>
-                </div>
-              </div>
-              <div className="divide-y max-h-72 overflow-y-auto">
-                {(impacto?.porMotorista ?? []).filter((m) => m.impactoRS > 0).slice(0, 8).map((m) => (
-                  <div key={m.nome} className="px-5 py-2 flex items-center justify-between text-sm">
-                    <span className="truncate">{m.nome}</span>
-                    <span className="font-semibold text-red-600 shrink-0">R$ {m.impactoRS.toFixed(2)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="bg-white border rounded-2xl overflow-hidden">
-              <div className="px-5 py-4 border-b flex items-center gap-2">
-                <Clock className="h-4 w-4 text-amber-600" />
-                <div>
-                  <h2 className="font-semibold text-sm">Motor ligado parado (idle)</h2>
-                  <p className="text-xs text-muted-foreground mt-0.5">Total da frota: <b className="text-foreground">{idle?.totalHorasFrota.toFixed(1) ?? '0'} horas</b></p>
-                </div>
-              </div>
-              <div className="divide-y max-h-72 overflow-y-auto">
-                {(idle?.porMotorista ?? []).slice(0, 8).map((m) => (
-                  <div key={m.nome} className="px-5 py-2 flex items-center justify-between text-sm">
-                    <span className="truncate">{m.nome}</span>
-                    <span className="font-semibold text-amber-600 shrink-0">{m.minutosMediaDia.toFixed(1)} min/dia</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          {/* Por rota */}
-          <div className="bg-white border rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b flex items-center gap-2">
-              <Route className="h-4 w-4 text-brand-600" />
-              <div>
-                <h2 className="font-semibold text-sm">Km/L por cidade de entrega</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Cidade com mais entregas no dia (Escala do dia) — mínimo de 3 dias por cidade</p>
-              </div>
-            </div>
-            {porRota.length === 0 ? (
-              <p className="text-sm text-muted-foreground px-5 py-6 text-center">Sem dados suficientes de rota nesse período — confira se a Escala do dia foi importada.</p>
-            ) : (
-              <div className="p-5 space-y-2">
-                {porRota.map((r) => (
-                  <div key={r.cidade} className="flex items-center justify-between text-sm">
-                    <span>{r.cidade}</span>
-                    <span className="text-muted-foreground">{r.dias} dias · <b className="text-foreground">{r.kmlMedio.toFixed(2)} km/L</b></span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
         </>
       )}
 
-      {/* Ranking por placa */}
+      {/* 1. Ranking por placa */}
       <div className="bg-white border rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b flex items-center justify-between gap-3 flex-wrap">
           <div>
@@ -487,6 +307,186 @@ export default function ConsumoCombustivel() {
           </div>
         )}
       </div>
+
+      {/* 2. Top5 / Bottom5 — por placa */}
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="bg-white border rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-green-600" />
+            <h2 className="font-semibold text-sm">Top 5 placas — melhor Km/L</h2>
+          </div>
+          <div className="divide-y">
+            {rankingPlacas.slice(0, 5).map((r, i) => (
+              <div key={r.placa} className="px-5 py-2.5 flex items-center gap-3 text-sm">
+                <span className="h-6 w-6 rounded-full bg-green-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium font-mono truncate">{r.placa}</div>
+                  <div className="text-xs text-muted-foreground truncate">{r.modelo ?? '—'} · {r.dias} dias · {r.motoristaPrincipal ?? '—'}</div>
+                </div>
+                <span className="text-sm font-bold text-brand-700">{r.kmlMedio.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="bg-white border rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b flex items-center gap-2">
+            <TrendingDown className="h-4 w-4 text-red-600" />
+            <h2 className="font-semibold text-sm">Bottom 5 placas — pior Km/L</h2>
+          </div>
+          <div className="divide-y">
+            {[...rankingPlacas].slice(-5).reverse().map((r, i) => (
+              <div key={r.placa} className="px-5 py-2.5 flex items-center gap-3 text-sm">
+                <span className="h-6 w-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{rankingPlacas.length - i}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium font-mono truncate">{r.placa}</div>
+                  <div className="text-xs text-muted-foreground truncate">{r.modelo ?? '—'} · {r.dias} dias · {r.motoristaPrincipal ?? '—'}</div>
+                </div>
+                <span className="text-sm font-bold text-red-600">{r.kmlMedio.toFixed(2)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {carregando ? null : (
+        <>
+          {/* 3. Ranking geral por motorista */}
+          <div className="bg-white border rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h2 className="font-semibold text-sm">Ranking geral por motorista ({ranking?.porPct.length ?? 0})</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Motoristas com menos de {MIN_DIAS_CONFIAVEL} dias úteis ficam marcados como amostra pequena</p>
+              </div>
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 text-xs font-semibold">
+                <button onClick={() => setVisaoRanking('pct')} className={`px-3 py-1.5 rounded-md ${visaoRanking === 'pct' ? 'bg-white shadow text-brand-700' : 'text-muted-foreground'}`}>Por % da meta</button>
+                <button onClick={() => setVisaoRanking('kml')} className={`px-3 py-1.5 rounded-md ${visaoRanking === 'kml' ? 'bg-white shadow text-brand-700' : 'text-muted-foreground'}`}>Por Km/L bruto</button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-muted-foreground uppercase text-left border-b">
+                    <th className="px-5 py-2 font-semibold">#</th>
+                    <th className="px-2 py-2 font-semibold">Motorista</th>
+                    <th className="px-2 py-2 font-semibold">Dias</th>
+                    <th className="px-2 py-2 font-semibold">Km/L médio</th>
+                    <th className="px-2 py-2 font-semibold">% da meta</th>
+                    <th className="px-2 py-2 font-semibold"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listaRanking.map((r, i) => (
+                    <tr key={r.nome} className={`border-b last:border-0 hover:bg-gray-50 ${r.amostraPequena ? 'opacity-60' : ''}`}>
+                      <td className="px-5 py-2 text-muted-foreground font-bold">{i + 1}</td>
+                      <td className="px-2 py-2">{r.nome}</td>
+                      <td className="px-2 py-2">{r.dias}</td>
+                      <td className="px-2 py-2 font-mono font-semibold">{r.kmlMedio.toFixed(2)}</td>
+                      <td className="px-2 py-2">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
+                      </td>
+                      <td className="px-2 py-2">
+                        {r.amostraPequena && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 whitespace-nowrap">Amostra pequena</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 4. Por cidade */}
+          <div className="bg-white border rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b flex items-center gap-2">
+              <Route className="h-4 w-4 text-brand-600" />
+              <div>
+                <h2 className="font-semibold text-sm">Km/L por cidade de entrega</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">Cidade com mais entregas no dia (Escala do dia) — mínimo de 3 dias por cidade</p>
+              </div>
+            </div>
+            {porRota.length === 0 ? (
+              <p className="text-sm text-muted-foreground px-5 py-6 text-center">Sem dados suficientes de rota nesse período — confira se a Escala do dia foi importada.</p>
+            ) : (
+              <div className="p-5 space-y-2">
+                {porRota.map((r) => (
+                  <div key={r.cidade} className="flex items-center justify-between text-sm">
+                    <span>{r.cidade}</span>
+                    <span className="text-muted-foreground">{r.dias} dias · <b className="text-foreground">{r.kmlMedio.toFixed(2)} km/L</b></span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* 5. Por modelo / por sala */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="bg-white border rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b"><h2 className="font-semibold text-sm">Por modelo de veículo</h2></div>
+              <div className="p-5 space-y-2">
+                {porModelo.map((m) => (
+                  <div key={m.grupo} className="flex items-center justify-between text-sm">
+                    <span>{m.grupo}</span>
+                    <span className="text-muted-foreground">{m.dias} dias · <b className="text-foreground">{m.kmlMedio.toFixed(2)} km/L</b>{m.meta != null && ` (meta ${m.meta.toFixed(2)})`}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white border rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b"><h2 className="font-semibold text-sm">Por sala</h2></div>
+              <div className="p-5 space-y-2">
+                {porCentroCusto.map((c) => (
+                  <div key={c.grupo} className="flex items-center justify-between text-sm">
+                    <span>{c.grupo || '(sem sala)'}</span>
+                    <span className="text-muted-foreground">{c.dias} dias · <b className="text-foreground">{c.kmlMedio.toFixed(2)} km/L</b></span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 6. Impacto R$ / motor ligado parado */}
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div className="bg-white border rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b flex items-center gap-2">
+                <DollarSign className="h-4 w-4 text-red-600" />
+                <div>
+                  <h2 className="font-semibold text-sm">Impacto em R$ (abaixo da meta)</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Total no período: <b className="text-foreground">R$ {impacto?.totalPeriodo.toFixed(2) ?? '0,00'}</b>
+                    {impacto?.precoMedioLitro != null && ` · litro médio R$ ${impacto.precoMedioLitro.toFixed(2)}`}
+                  </p>
+                </div>
+              </div>
+              <div className="divide-y max-h-72 overflow-y-auto">
+                {(impacto?.porMotorista ?? []).filter((m) => m.impactoRS > 0).slice(0, 8).map((m) => (
+                  <div key={m.nome} className="px-5 py-2 flex items-center justify-between text-sm">
+                    <span className="truncate">{m.nome}</span>
+                    <span className="font-semibold text-red-600 shrink-0">R$ {m.impactoRS.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white border rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b flex items-center gap-2">
+                <Clock className="h-4 w-4 text-amber-600" />
+                <div>
+                  <h2 className="font-semibold text-sm">Motor ligado parado (idle)</h2>
+                  <p className="text-xs text-muted-foreground mt-0.5">Total da frota: <b className="text-foreground">{idle?.totalHorasFrota.toFixed(1) ?? '0'} horas</b></p>
+                </div>
+              </div>
+              <div className="divide-y max-h-72 overflow-y-auto">
+                {(idle?.porMotorista ?? []).length === 0 ? (
+                  <p className="text-sm text-muted-foreground px-5 py-6 text-center">Sem dado de motor ligado parado nesse período.</p>
+                ) : (idle?.porMotorista ?? []).slice(0, 8).map((m) => (
+                  <div key={m.nome} className="px-5 py-2 flex items-center justify-between text-sm">
+                    <span className="truncate">{m.nome} <span className="text-xs text-muted-foreground">({m.dias} dias)</span></span>
+                    <span className="font-semibold text-amber-600 shrink-0">{m.minutosMediaDia.toFixed(1)} min/dia</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Meta de Km/L por placa */}
       <div className="bg-white border rounded-2xl overflow-hidden">

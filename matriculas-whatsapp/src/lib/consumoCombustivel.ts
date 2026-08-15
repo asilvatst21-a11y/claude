@@ -696,21 +696,35 @@ export async function buscarImpactoRS(filial: string, dataIni: string, dataFim: 
 
 // ── Tempo parado com motor ligado (idle) ────────────────────────────────
 
-export interface IdleMotorista { nome: string; minutosMediaDia: number; horasTotal: number }
+export interface IdleMotorista { nome: string; dias: number; minutosMediaDia: number; horasTotal: number }
 
+// Não depende do intervalo entre abastecimentos (diferente do Km/L) — o
+// tempo parado com motor ligado é um valor direto do dia, não precisa de
+// litros pra significar nada. Usar diasUteisMotorista aqui (como era antes)
+// prendia o idle aos mesmos dias "fechados" do Km/L, que são bem mais raros
+// — por isso ficava sempre zerado. Só precisa de: distância real do dia
+// (pra confirmar que rodou de verdade) + motorista via Escala do dia.
 export async function buscarIdleTime(filial: string, dataIni: string, dataFim: string): Promise<{ porMotorista: IdleMotorista[]; totalHorasFrota: number }> {
-  const dias = await diasUteisMotorista(filial, dataIni, dataFim)
-  const porNome = new Map<string, DiaUtilMotorista[]>()
-  for (const d of dias) {
-    if (d.idleSegundos == null) continue
-    if (!porNome.has(d.nome)) porNome.set(d.nome, [])
-    porNome.get(d.nome)!.push(d)
+  const [telemetria, motoristaPorChave, nomes] = await Promise.all([
+    listarTelemetria(filial, dataIni, dataFim),
+    motoristaPorPlacaDia(filial, dataIni, dataFim),
+    nomePorMatricula(filial),
+  ])
+  const porNome = new Map<string, number[]>()
+  for (const t of telemetria) {
+    if (t.parado_ligado_segundos == null) continue
+    if ((t.distancia_percorrida ?? 0) < 30) continue
+    const matricula = motoristaPorChave.get(`${t.placa}|${t.dia}`)
+    if (matricula == null) continue
+    const nome = nomes.get(matricula)
+    if (!nome) continue
+    if (!porNome.has(nome)) porNome.set(nome, [])
+    porNome.get(nome)!.push(t.parado_ligado_segundos)
   }
   const porMotorista = [...porNome.entries()]
-    .filter(([, linhas]) => linhas.length >= MIN_DIAS_CONFIAVEL)
-    .map(([nome, linhas]) => {
-      const totalSeg = linhas.reduce((s, l) => s + (l.idleSegundos ?? 0), 0)
-      return { nome, minutosMediaDia: totalSeg / linhas.length / 60, horasTotal: totalSeg / 3600 }
+    .map(([nome, segundosPorDia]) => {
+      const totalSeg = segundosPorDia.reduce((s, x) => s + x, 0)
+      return { nome, dias: segundosPorDia.length, minutosMediaDia: totalSeg / segundosPorDia.length / 60, horasTotal: totalSeg / 3600 }
     })
     .sort((a, b) => b.minutosMediaDia - a.minutosMediaDia)
   const totalHorasFrota = porMotorista.reduce((s, m) => s + m.horasTotal, 0)
