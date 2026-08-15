@@ -3634,18 +3634,10 @@ async function buscarMotoristaPorMatricula(matricula: string): Promise<{ filial:
 // Mesma lógica de src/lib/consumoCombustivel.ts, duplicada aqui porque
 // esta function roda isolada (não importa src/lib). A resposta não é uma
 // média pessoal direta — é a média da PLACA que o motorista mais rodou no
-// mês fechado, porque boa parte da frota ainda não tem histórico diário
-// suficiente por pessoa (caminhão compartilhado, cada dia precisa de
-// abastecimento ancorando antes e depois pra fechar o Km/L com confiança).
-
-function mesFechadoAtualAurora(): { inicio: string; fim: string } {
-  const hoje = new Date()
-  const ano = hoje.getUTCFullYear()
-  const mes = hoje.getUTCMonth()
-  const inicio = new Date(Date.UTC(ano, mes - 1, 1))
-  const fim = new Date(Date.UTC(ano, mes, 0))
-  return { inicio: inicio.toISOString().slice(0, 10), fim: fim.toISOString().slice(0, 10) }
-}
+// mês (do dia 1 até hoje — usa mesAtualRange, já existente mais abaixo),
+// porque boa parte da frota ainda não tem histórico diário suficiente por
+// pessoa (caminhão compartilhado, cada dia precisa de abastecimento
+// ancorando antes e depois pra fechar o Km/L com confiança).
 
 function subtrairDiasAurora(iso: string, n: number): string {
   const d = new Date(`${iso}T00:00:00Z`)
@@ -3712,24 +3704,25 @@ async function kmlMedioDaPlacaNoMes(filial: string, placa: string, inicio: strin
 // Monta e envia a resposta de "minha média" — usado tanto quando o telefone
 // já identifica o motorista quanto quando ele precisou digitar a matrícula.
 async function responderMeuConsumo(remetente: string, filial: string, matricula: string): Promise<void> {
-  const { inicio, fim } = mesFechadoAtualAurora()
+  const { inicio, fim, rotulo } = mesAtualRange()
   const placa = await placaMaisRodadaPeloMotorista(filial, matricula, inicio, fim)
   if (!placa) {
-    await enviar(remetente, `Ainda não achei registro seu no mês fechado (${formatarDataBRSimples(inicio)} a ${formatarDataBRSimples(fim)}) pra calcular uma média. Assim que tiver mais histórico, pergunta de novo.`)
+    await enviar(remetente, `Ainda não achei registro seu em ${rotulo} pra calcular uma média. Assim que tiver mais histórico, pergunta de novo.`)
     return
   }
   const resultado = await kmlMedioDaPlacaNoMes(filial, placa, inicio, fim)
   if (!resultado) {
-    await enviar(remetente, `Você foi quem mais rodou a placa *${placa}* esse mês, mas ainda não tenho abastecimento e telemetria suficientes pra calcular a média dela com confiança.`)
+    await enviar(remetente, `Você foi quem mais rodou a placa *${placa}* em ${rotulo}, mas ainda não tenho abastecimento e telemetria suficientes pra calcular a média dela com confiança.`)
     return
   }
   const linhas = [
-    `🚛 *Sua média de combustível — ${formatarDataBRSimples(inicio)} a ${formatarDataBRSimples(fim)}*`,
+    `🚛 *Sua média de combustível — ${rotulo} (até ${formatarDataBRSimples(fim)})*`,
     ``,
     `Você foi quem mais rodou a placa *${placa}* nesse período.`,
     `Km/L médio da placa: *${resultado.kml.toFixed(2)}*${resultado.meta ? ` (meta: ${resultado.meta.toFixed(2)})` : ' (meta não cadastrada pra essa placa)'}`,
   ]
   if (resultado.meta) linhas.push(`Isso é *${Math.round((resultado.kml / resultado.meta) * 100)}%* da meta.`)
+  linhas.push(``, `_Conta parcial do mês em andamento — pode mudar até fechar._`)
   await enviar(remetente, linhas.join('\n'))
 }
 
