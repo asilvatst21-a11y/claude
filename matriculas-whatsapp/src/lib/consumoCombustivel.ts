@@ -474,9 +474,24 @@ function calcularDiasPorIntervalo(
   return resultado
 }
 
+// Dias no início do período sem um abastecimento anterior visível ficavam
+// sem âncora pra fechar intervalo nenhum (o primeiro abastecimento do
+// período só ANCORA, não fecha — ver comentário em calcularDiasPorIntervalo)
+// e eram descartados inteiros, mesmo pra quem realmente rodou. Busca
+// abastecimentos com folga pra trás do início do período só pra servir de
+// âncora — os dias considerados no ranking continuam limitados a
+// dataIni..dataFim (vêm da telemetria/GEOTAB, que não usa essa folga).
+const FOLGA_ANCORA_DIAS = 60
+
+function subtrairDias(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - n)
+  return d.toISOString().slice(0, 10)
+}
+
 async function diasUteisMotorista(filial: string, dataIni: string, dataFim: string): Promise<DiaUtilMotorista[]> {
   const [abastecimentos, telemetriaBoletim, distanciaGeotab, motoristaPorChave, nomes] = await Promise.all([
-    listarAbastecimentos(filial, dataIni, dataFim),
+    listarAbastecimentos(filial, subtrairDias(dataIni, FOLGA_ANCORA_DIAS), dataFim),
     listarTelemetria(filial, dataIni, dataFim),
     listarDistanciaGeotab(filial, dataIni, dataFim),
     motoristaPorPlacaDia(filial, dataIni, dataFim),
