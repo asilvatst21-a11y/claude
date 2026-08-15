@@ -770,3 +770,93 @@ export async function buscarKmlPorRota(filial: string, dataIni: string, dataFim:
     .map(([cidade, linhas]) => ({ cidade, dias: linhas.length, kmlMedio: linhas.reduce((s, l) => s + l.kml, 0) / linhas.length }))
     .sort((a, b) => a.kmlMedio - b.kmlMedio)
 }
+
+// ── Ranking por placa (mês fechado) + "minha média" pelo bot ───────────
+// O ranking por motorista sofre quando a pessoa roda muitos caminhões
+// diferentes (cada placa+dia precisa da própria âncora de abastecimento).
+// O ranking por placa acumula muito mais dias por linha — é a base mais
+// confiável pra apontar caminhão problemático, e também o que o bot usa
+// pra responder "qual minha média": a média não é da pessoa, é da placa
+// que ela mais rodou no mês fechado (mais robusta que tentar achar um
+// histórico direto por motorista).
+
+export function mesFechadoAtual(): { inicio: string; fim: string } {
+  const hoje = new Date()
+  const ano = hoje.getUTCFullYear()
+  const mes = hoje.getUTCMonth() // 0-based; mês atual
+  const inicio = new Date(Date.UTC(ano, mes - 1, 1))
+  const fim = new Date(Date.UTC(ano, mes, 0)) // dia 0 do mês atual = último dia do mês anterior
+  return { inicio: inicio.toISOString().slice(0, 10), fim: fim.toISOString().slice(0, 10) }
+}
+
+function mediaKmlPonderada(linhas: DiaUtilMotorista[]): number {
+  const kmTotal = linhas.reduce((s, l) => s + l.distancia, 0)
+  const litrosTotal = linhas.reduce((s, l) => s + l.distancia / l.kml, 0)
+  return litrosTotal > 0 ? kmTotal / litrosTotal : linhas.reduce((s, l) => s + l.kml, 0) / linhas.length
+}
+
+export interface RankingPlaca {
+  placa: string; modelo: string | null; dias: number; kmlMedio: number; pctMeta: number | null; kmTotal: number
+  motoristaPrincipal: string | null; diasMotoristaPrincipal: number
+}
+
+export async function buscarRankingPorPlacaMesFechado(filial: string): Promise<RankingPlaca[]> {
+  const { inicio, fim } = mesFechadoAtual()
+  const dias = await diasUteisMotorista(filial, inicio, fim)
+
+  const porPlaca = new Map<string, DiaUtilMotorista[]>()
+  for (const d of dias) {
+    if (!porPlaca.has(d.placa)) porPlaca.set(d.placa, [])
+    porPlaca.get(d.placa)!.push(d)
+  }
+
+  const resultado: RankingPlaca[] = []
+  for (const [placa, linhas] of porPlaca) {
+    const kmlMedio = mediaKmlPonderada(linhas)
+    const meta = linhas.find((l) => l.meta != null)?.meta ?? null
+    const porNome = new Map<string, number>()
+    for (const l of linhas) porNome.set(l.nome, (porNome.get(l.nome) ?? 0) + 1)
+    let motoristaPrincipal: string | null = null
+    let diasMotoristaPrincipal = 0
+    for (const [nome, n] of porNome) {
+      if (n > diasMotoristaPrincipal) { motoristaPrincipal = nome; diasMotoristaPrincipal = n }
+    }
+    resultado.push({
+      placa, modelo: linhas[0].modelo, dias: linhas.length, kmlMedio,
+      pctMeta: meta ? kmlMedio / meta : null, kmTotal: linhas.reduce((s, l) => s + l.distancia, 0),
+      motoristaPrincipal, diasMotoristaPrincipal,
+    })
+  }
+  return resultado.sort((a, b) => (b.pctMeta ?? 0) - (a.pctMeta ?? 0))
+}
+
+export interface MinhaMediaPlaca { placa: string; kmlMedio: number; pctMeta: number | null; meta: number | null; diasNaPlaca: number }
+
+// Usado pelo bot (Aurora) — "qual minha média" responde pela placa que o
+// motorista mais dirigiu no mês fechado, não por uma média pessoal direta
+// (que pode não ter amostra nenhuma pra boa parte da frota).
+export async function buscarMinhaMediaPlaca(filial: string, matricula: string): Promise<MinhaMediaPlaca | null> {
+  const { inicio, fim } = mesFechadoAtual()
+  const matriculaNorm = normalizarMatricula(matricula)
+  if (!matriculaNorm) return null
+  const [dias, nomes] = await Promise.all([diasUteisMotorista(filial, inicio, fim), nomePorMatricula(filial)])
+  const nome = nomes.get(matriculaNorm)
+  if (!nome) return null
+
+  const diasDele = dias.filter((d) => d.nome === nome)
+  if (diasDele.length === 0) return null
+
+  const porPlaca = new Map<string, DiaUtilMotorista[]>()
+  for (const d of diasDele) {
+    if (!porPlaca.has(d.placa)) porPlaca.set(d.placa, [])
+    porPlaca.get(d.placa)!.push(d)
+  }
+  let melhorPlaca = ''
+  let melhorLinhas: DiaUtilMotorista[] = []
+  for (const [placa, linhas] of porPlaca) {
+    if (linhas.length > melhorLinhas.length) { melhorPlaca = placa; melhorLinhas = linhas }
+  }
+  const kmlMedio = mediaKmlPonderada(melhorLinhas)
+  const meta = melhorLinhas.find((l) => l.meta != null)?.meta ?? null
+  return { placa: melhorPlaca, kmlMedio, pctMeta: meta ? kmlMedio / meta : null, meta, diasNaPlaca: melhorLinhas.length }
+}

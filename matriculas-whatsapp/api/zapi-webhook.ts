@@ -3410,6 +3410,7 @@ const AURORA_CATEGORIAS: OpcaoZ[] = [
   { id: 'aurora_cat:financeiro', title: '💰 Financeiro' },
   { id: 'aurora_cat:armazem', title: '📦 Armazém' },
   { id: 'aurora_cat:seguranca', title: '🦺 Segurança' },
+  { id: 'aurora_cat:frota', title: '🚛 Frota' },
   { id: 'aurora_cat:sugestoes', title: '💬 Sugestões' },
 ]
 
@@ -3428,6 +3429,7 @@ const AURORA_SUBMENUS: Record<string, OpcaoZ[]> = {
     { id: 'aurora_item:pontos_risco_mapa', title: 'Pontos de risco da minha rota' },
     { id: 'aurora_item:sugerir_ponto_risco', title: 'Sinalizar um ponto de risco' },
   ],
+  frota: [{ id: 'aurora_item:meu_consumo', title: 'Minha média de combustível' }],
   sugestoes: [{ id: 'aurora_item:enviar_sugestao', title: 'Enviar uma sugestão' }],
 }
 
@@ -3615,6 +3617,85 @@ async function descobrirMotoristaPorTelefone(remetente: string): Promise<{ filia
   return cad ? { filial: cad.filial, matricula: cad.numero != null ? String(cad.numero) : null, nome: cad.nome ?? null } : null
 }
 
+// ── Consumo de Combustível — "minha média" pelo bot ────────────────────
+// Mesma lógica de src/lib/consumoCombustivel.ts, duplicada aqui porque
+// esta function roda isolada (não importa src/lib). A resposta não é uma
+// média pessoal direta — é a média da PLACA que o motorista mais rodou no
+// mês fechado, porque boa parte da frota ainda não tem histórico diário
+// suficiente por pessoa (caminhão compartilhado, cada dia precisa de
+// abastecimento ancorando antes e depois pra fechar o Km/L com confiança).
+
+function mesFechadoAtualAurora(): { inicio: string; fim: string } {
+  const hoje = new Date()
+  const ano = hoje.getUTCFullYear()
+  const mes = hoje.getUTCMonth()
+  const inicio = new Date(Date.UTC(ano, mes - 1, 1))
+  const fim = new Date(Date.UTC(ano, mes, 0))
+  return { inicio: inicio.toISOString().slice(0, 10), fim: fim.toISOString().slice(0, 10) }
+}
+
+function subtrairDiasAurora(iso: string, n: number): string {
+  const d = new Date(`${iso}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - n)
+  return d.toISOString().slice(0, 10)
+}
+
+async function placaMaisRodadaPeloMotorista(filial: string, matricula: string, inicio: string, fim: string): Promise<string | null> {
+  const matriculaNum = Number(matricula)
+  if (!Number.isFinite(matriculaNum)) return null
+  const { data } = await supabase
+    .from('escalas_tml')
+    .select('placa')
+    .eq('filial', filial).eq('matricula', matriculaNum)
+    .gte('data_entrega', inicio).lte('data_entrega', fim)
+    .not('placa', 'is', null)
+  if (!data || data.length === 0) return null
+  const contagem = new Map<string, number>()
+  for (const r of data as any[]) contagem.set(r.placa, (contagem.get(r.placa) ?? 0) + 1)
+  return [...contagem.entries()].sort((a, b) => b[1] - a[1])[0][0]
+}
+
+// Km/L médio da placa no mês fechado — distância real (Boletim do Veículo
+// ou GEOTAB) somada por intervalo entre abastecimentos, dividida pelos
+// litros comprados; descarta intervalo com Km/L implausível (abastecimento
+// parcial fechando um intervalo longo). Mesma conta do painel.
+async function kmlMedioDaPlacaNoMes(filial: string, placa: string, inicio: string, fim: string): Promise<{ kml: number; meta: number | null } | null> {
+  const inicioAncora = subtrairDiasAurora(inicio, 60)
+  const [{ data: abastecimentos }, { data: telemetria }, { data: geotab }, { data: metaRow }] = await Promise.all([
+    supabase.from('combustivel_abastecimentos').select('data, litros').eq('filial', filial).eq('placa', placa).gte('data', inicioAncora).lte('data', fim).order('data'),
+    supabase.from('frota_telemetria_diaria').select('dia, distancia_percorrida').eq('filial', filial).eq('placa', placa).gte('dia', inicio).lte('dia', fim),
+    supabase.from('frota_distancia_diaria_geotab').select('dia, distancia_km').eq('filial', filial).eq('placa', placa).gte('dia', inicio).lte('dia', fim),
+    supabase.from('frota_meta_km_litro').select('meta_km_litro').eq('filial', filial).eq('placa', placa).maybeSingle(),
+  ])
+  const meta = metaRow?.meta_km_litro != null && metaRow.meta_km_litro > 0 ? metaRow.meta_km_litro : null
+
+  const distanciaPorDia = new Map<string, number>()
+  for (const t of (telemetria ?? []) as any[]) { if (t.distancia_percorrida != null) distanciaPorDia.set(t.dia, t.distancia_percorrida) }
+  for (const g of (geotab ?? []) as any[]) { if (!distanciaPorDia.has(g.dia)) distanciaPorDia.set(g.dia, g.distancia_km) }
+  const diasOrdenados = [...distanciaPorDia.keys()].sort()
+
+  const abast = ((abastecimentos ?? []) as any[]).filter((a) => a.litros && a.litros > 0).sort((a, b) => a.data.localeCompare(b.data))
+  if (abast.length === 0) return null
+
+  const teto = meta != null ? meta * 1.8 : 9
+  let kmTotal = 0
+  let litrosTotal = 0
+  let dataAnterior: string | null = null
+  for (const a of abast) {
+    if (dataAnterior != null) {
+      const diasIntervalo = diasOrdenados.filter((d) => d > (dataAnterior as string) && d <= a.data)
+      const kmIntervalo = diasIntervalo.reduce((s, d) => s + (distanciaPorDia.get(d) ?? 0), 0)
+      if (kmIntervalo > 0) {
+        const kmlIntervalo = kmIntervalo / a.litros
+        if (kmlIntervalo <= teto) { kmTotal += kmIntervalo; litrosTotal += a.litros }
+      }
+    }
+    dataAnterior = a.data
+  }
+  if (litrosTotal === 0) return null
+  return { kml: kmTotal / litrosTotal, meta }
+}
+
 const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
 
 // Mês calendário atual (dia 1 até hoje) — reinicia todo dia 1º.
@@ -3789,6 +3870,37 @@ async function tratarItemAurora(remetente: string, senderName: string, itemId: s
     await enviar(remetente, `💰 Pra consultar seu variável/pontuação (identificação pelo CPF), acesse:\n${linkAutoatendimento('/variavel-armazem')}`)
     await perguntarProximoPasso(remetente)
     return { ok: true, action: 'aurora-link-variavel' }
+  }
+  if (itemId === 'aurora_item:meu_consumo') {
+    const motorista = await descobrirMotoristaPorTelefone(remetente)
+    if (!motorista?.matricula) {
+      await enviar(remetente, 'Não consegui te identificar pelo seu número — confere se seu telefone está certo no cadastro, ou fala com seu supervisor.')
+      await perguntarProximoPasso(remetente)
+      return { ok: true, action: 'aurora-consumo-sem-identificacao' }
+    }
+    const { inicio, fim } = mesFechadoAtualAurora()
+    const placa = await placaMaisRodadaPeloMotorista(motorista.filial, motorista.matricula, inicio, fim)
+    if (!placa) {
+      await enviar(remetente, `Ainda não achei registro seu no mês fechado (${formatarDataBRSimples(inicio)} a ${formatarDataBRSimples(fim)}) pra calcular uma média. Assim que tiver mais histórico, pergunta de novo.`)
+      await perguntarProximoPasso(remetente)
+      return { ok: true, action: 'aurora-consumo-sem-mapa' }
+    }
+    const resultado = await kmlMedioDaPlacaNoMes(motorista.filial, placa, inicio, fim)
+    if (!resultado) {
+      await enviar(remetente, `Você foi quem mais rodou a placa *${placa}* esse mês, mas ainda não tenho abastecimento e telemetria suficientes pra calcular a média dela com confiança.`)
+      await perguntarProximoPasso(remetente)
+      return { ok: true, action: 'aurora-consumo-sem-media' }
+    }
+    const linhas = [
+      `🚛 *Sua média de combustível — ${formatarDataBRSimples(inicio)} a ${formatarDataBRSimples(fim)}*`,
+      ``,
+      `Você foi quem mais rodou a placa *${placa}* nesse período.`,
+      `Km/L médio da placa: *${resultado.kml.toFixed(2)}*${resultado.meta ? ` (meta: ${resultado.meta.toFixed(2)})` : ' (meta não cadastrada pra essa placa)'}`,
+    ]
+    if (resultado.meta) linhas.push(`Isso é *${Math.round((resultado.kml / resultado.meta) * 100)}%* da meta.`)
+    await enviar(remetente, linhas.join('\n'))
+    await perguntarProximoPasso(remetente)
+    return { ok: true, action: 'aurora-consumo-respondido' }
   }
   if (itemId === 'aurora_item:lastro') {
     await definirEstadoAurora(remetente, 'aguardando_produto_lastro')

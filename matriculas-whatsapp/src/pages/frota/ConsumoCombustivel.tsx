@@ -6,10 +6,11 @@ import {
   parseAbastecimentoCsv, importarAbastecimentos, parseTelemetriaCsv, importarTelemetria,
   parseViagensGeotabXlsx, importarDistanciaDiariaGeotab,
   buscarRankingConsumo, buscarPorModelo, buscarPorCentroCusto, buscarImpactoRS, buscarIdleTime, buscarKmlPorRota,
-  buscarMetasPlaca, salvarMetaPlaca,
+  buscarMetasPlaca, salvarMetaPlaca, buscarRankingPorPlacaMesFechado, mesFechadoAtual,
   MIN_DIAS_CONFIAVEL,
-  type RankingMotorista, type KmlPorGrupo, type ImpactoRS, type IdleMotorista, type KmlPorRota, type MetaPlaca,
+  type RankingMotorista, type KmlPorGrupo, type ImpactoRS, type IdleMotorista, type KmlPorRota, type MetaPlaca, type RankingPlaca,
 } from '../../lib/consumoCombustivel'
+import { formatarDataBR } from '../../lib/utils'
 
 function hojeIso(): string { return new Date().toISOString().slice(0, 10) }
 function diasAtrasIso(n: number): string { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10) }
@@ -59,6 +60,8 @@ export default function ConsumoCombustivel() {
   const [metas, setMetas] = useState<MetaPlaca[]>([])
   const [carregandoMetas, setCarregandoMetas] = useState(true)
   const [salvandoMeta, setSalvandoMeta] = useState<string | null>(null)
+  const [rankingPlacas, setRankingPlacas] = useState<RankingPlaca[]>([])
+  const [carregandoPlacas, setCarregandoPlacas] = useState(true)
 
   const carregar = useCallback(async () => {
     if (!usuario?.filial) return
@@ -86,6 +89,15 @@ export default function ConsumoCombustivel() {
 
   useEffect(() => { carregarMetas() }, [carregarMetas])
 
+  const carregarPlacas = useCallback(async () => {
+    if (!usuario?.filial) return
+    setCarregandoPlacas(true)
+    setRankingPlacas(await buscarRankingPorPlacaMesFechado(usuario.filial))
+    setCarregandoPlacas(false)
+  }, [usuario?.filial])
+
+  useEffect(() => { carregarPlacas() }, [carregarPlacas])
+
   function onEditarMeta(placa: string, valor: string) {
     const num = Number(valor.replace(',', '.'))
     setMetas((prev) => prev.map((m) => (m.placa === placa ? { ...m, meta: isNaN(num) ? 0 : num } : m)))
@@ -96,7 +108,7 @@ export default function ConsumoCombustivel() {
     setSalvandoMeta(item.placa)
     await salvarMetaPlaca(usuario.filial, item.placa, item.modelo, item.meta, usuario.nome ?? usuario.login)
     setSalvandoMeta(null)
-    await carregar()
+    await Promise.all([carregar(), carregarPlacas()])
   }
 
   const onDropAbastecimento = useCallback((files: File[]) => {
@@ -112,7 +124,7 @@ export default function ConsumoCombustivel() {
         const erro = await importarAbastecimentos(rows)
         if (erro) { setMsg(`Erro ao importar: ${erro}`); return }
         setMsg(`✅ ${rows.length} abastecimentos importados.`)
-        await Promise.all([carregar(), carregarMetas()])
+        await Promise.all([carregar(), carregarMetas(), carregarPlacas()])
       } catch (err) {
         setMsg(`Erro inesperado: ${String(err)}`)
       } finally {
@@ -120,7 +132,7 @@ export default function ConsumoCombustivel() {
       }
     }
     reader.readAsText(files[0])
-  }, [usuario?.filial, carregar, carregarMetas])
+  }, [usuario?.filial, carregar, carregarMetas, carregarPlacas])
 
   const onDropTelemetria = useCallback((files: File[]) => {
     if (!usuario?.filial || !files[0]) return
@@ -135,7 +147,7 @@ export default function ConsumoCombustivel() {
         const erro = await importarTelemetria(rows)
         if (erro) { setMsg(`Erro ao importar: ${erro}`); return }
         setMsg(`✅ ${rows.length} linhas de telemetria importadas.`)
-        await carregar()
+        await Promise.all([carregar(), carregarPlacas()])
       } catch (err) {
         setMsg(`Erro inesperado: ${String(err)}`)
       } finally {
@@ -144,7 +156,7 @@ export default function ConsumoCombustivel() {
     }
     // Boletim do Veículo vem em ISO-8859-1 — acentuação quebra em UTF-8.
     reader.readAsText(files[0], 'ISO-8859-1')
-  }, [usuario?.filial, carregar])
+  }, [usuario?.filial, carregar, carregarPlacas])
 
   const onDropGeotab = useCallback((files: File[]) => {
     if (!usuario?.filial || !files[0]) return
@@ -157,14 +169,14 @@ export default function ConsumoCombustivel() {
         const erro = await importarDistanciaDiariaGeotab(rows)
         if (erro) { setMsg(`Erro ao importar: ${erro}`); return }
         setMsg(`✅ ${rows.length} dias de distância (GEOTAB) importados.`)
-        await carregar()
+        await Promise.all([carregar(), carregarPlacas()])
       } catch (err) {
         setMsg(`Erro inesperado: ${String(err)}`)
       } finally {
         setUploadingGeotab(false)
       }
     })
-  }, [usuario?.filial, carregar])
+  }, [usuario?.filial, carregar, carregarPlacas])
 
   if (!usuario) return null
   const listaRanking = visaoRanking === 'pct' ? (ranking?.porPct ?? []) : (ranking?.porKml ?? [])
@@ -413,6 +425,50 @@ export default function ConsumoCombustivel() {
           </div>
         </>
       )}
+
+      {/* Ranking por placa (mês fechado) */}
+      <div className="bg-white border rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b">
+          <h2 className="font-semibold text-sm">Ranking por placa — {formatarDataBR(mesFechadoAtual().inicio)} a {formatarDataBR(mesFechadoAtual().fim)} (mês fechado)</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Mais robusto que o ranking por motorista — cada placa acumula muito mais dias. "Motorista principal" é quem mais rodou aquela placa no mês; é essa a base usada quando o motorista pergunta pro bot qual é a média dele.</p>
+        </div>
+        {carregandoPlacas ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : rankingPlacas.length === 0 ? (
+          <p className="text-sm text-muted-foreground px-5 py-6 text-center">Sem dados suficientes no mês fechado ainda.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-muted-foreground uppercase text-left border-b">
+                  <th className="px-5 py-2 font-semibold">#</th>
+                  <th className="px-2 py-2 font-semibold">Placa</th>
+                  <th className="px-2 py-2 font-semibold">Modelo</th>
+                  <th className="px-2 py-2 font-semibold">Dias</th>
+                  <th className="px-2 py-2 font-semibold">Km/L médio</th>
+                  <th className="px-2 py-2 font-semibold">% da meta</th>
+                  <th className="px-2 py-2 font-semibold">Motorista principal</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rankingPlacas.map((r, i) => (
+                  <tr key={r.placa} className="border-b last:border-0 hover:bg-gray-50">
+                    <td className="px-5 py-2 text-muted-foreground font-bold">{i + 1}</td>
+                    <td className="px-2 py-2 font-mono font-semibold">{r.placa}</td>
+                    <td className="px-2 py-2 text-muted-foreground">{r.modelo ?? '—'}</td>
+                    <td className="px-2 py-2">{r.dias}</td>
+                    <td className="px-2 py-2 font-mono font-semibold">{r.kmlMedio.toFixed(2)}</td>
+                    <td className="px-2 py-2">
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
+                    </td>
+                    <td className="px-2 py-2 text-muted-foreground">{r.motoristaPrincipal ?? '—'}{r.motoristaPrincipal && <span className="text-xs"> ({r.diasMotoristaPrincipal} dias)</span>}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* Meta de Km/L por placa */}
       <div className="bg-white border rounded-2xl overflow-hidden">
