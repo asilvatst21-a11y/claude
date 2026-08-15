@@ -6,8 +6,9 @@ import {
   parseAbastecimentoCsv, importarAbastecimentos, parseTelemetriaCsv, importarTelemetria,
   parseViagensGeotabXlsx, importarDistanciaDiariaGeotab,
   buscarRankingConsumo, buscarPorModelo, buscarPorCentroCusto, buscarImpactoRS, buscarIdleTime, buscarKmlPorRota,
+  buscarMetasPlaca, salvarMetaPlaca,
   MIN_DIAS_CONFIAVEL,
-  type RankingMotorista, type KmlPorGrupo, type ImpactoRS, type IdleMotorista, type KmlPorRota,
+  type RankingMotorista, type KmlPorGrupo, type ImpactoRS, type IdleMotorista, type KmlPorRota, type MetaPlaca,
 } from '../../lib/consumoCombustivel'
 
 function hojeIso(): string { return new Date().toISOString().slice(0, 10) }
@@ -55,6 +56,9 @@ export default function ConsumoCombustivel() {
   const [impacto, setImpacto] = useState<{ porMotorista: ImpactoRS[]; totalPeriodo: number; precoMedioLitro: number | null } | null>(null)
   const [idle, setIdle] = useState<{ porMotorista: IdleMotorista[]; totalHorasFrota: number } | null>(null)
   const [porRota, setPorRota] = useState<KmlPorRota[]>([])
+  const [metas, setMetas] = useState<MetaPlaca[]>([])
+  const [carregandoMetas, setCarregandoMetas] = useState(true)
+  const [salvandoMeta, setSalvandoMeta] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!usuario?.filial) return
@@ -73,6 +77,28 @@ export default function ConsumoCombustivel() {
 
   useEffect(() => { carregar() }, [carregar])
 
+  const carregarMetas = useCallback(async () => {
+    if (!usuario?.filial) return
+    setCarregandoMetas(true)
+    setMetas(await buscarMetasPlaca(usuario.filial))
+    setCarregandoMetas(false)
+  }, [usuario?.filial])
+
+  useEffect(() => { carregarMetas() }, [carregarMetas])
+
+  function onEditarMeta(placa: string, valor: string) {
+    const num = Number(valor.replace(',', '.'))
+    setMetas((prev) => prev.map((m) => (m.placa === placa ? { ...m, meta: isNaN(num) ? 0 : num } : m)))
+  }
+
+  async function onSalvarMeta(item: MetaPlaca) {
+    if (!usuario?.filial) return
+    setSalvandoMeta(item.placa)
+    await salvarMetaPlaca(usuario.filial, item.placa, item.modelo, item.meta, usuario.nome ?? usuario.login)
+    setSalvandoMeta(null)
+    await carregar()
+  }
+
   const onDropAbastecimento = useCallback((files: File[]) => {
     if (!usuario?.filial || !files[0]) return
     setUploadingAbastecimento(true)
@@ -86,7 +112,7 @@ export default function ConsumoCombustivel() {
         const erro = await importarAbastecimentos(rows)
         if (erro) { setMsg(`Erro ao importar: ${erro}`); return }
         setMsg(`✅ ${rows.length} abastecimentos importados.`)
-        await carregar()
+        await Promise.all([carregar(), carregarMetas()])
       } catch (err) {
         setMsg(`Erro inesperado: ${String(err)}`)
       } finally {
@@ -94,7 +120,7 @@ export default function ConsumoCombustivel() {
       }
     }
     reader.readAsText(files[0])
-  }, [usuario?.filial, carregar])
+  }, [usuario?.filial, carregar, carregarMetas])
 
   const onDropTelemetria = useCallback((files: File[]) => {
     if (!usuario?.filial || !files[0]) return
@@ -387,6 +413,56 @@ export default function ConsumoCombustivel() {
           </div>
         </>
       )}
+
+      {/* Meta de Km/L por placa */}
+      <div className="bg-white border rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b">
+          <h2 className="font-semibold text-sm">Meta de Km/L por placa</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Cadastro próprio, independente do relatório de abastecimento — usado em todo o cálculo acima. Placa com meta 0 fica de fora do ranking até ser preenchida.</p>
+        </div>
+        {carregandoMetas ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : metas.length === 0 ? (
+          <p className="text-sm text-muted-foreground px-5 py-6 text-center">Nenhuma placa conhecida ainda — importe o relatório de abastecimento primeiro.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-muted-foreground uppercase text-left border-b">
+                  <th className="px-5 py-2 font-semibold">Placa</th>
+                  <th className="px-2 py-2 font-semibold">Modelo</th>
+                  <th className="px-2 py-2 font-semibold">Meta (km/L)</th>
+                  <th className="px-2 py-2 font-semibold"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {metas.map((m) => (
+                  <tr key={m.placa} className={`border-b last:border-0 hover:bg-gray-50 ${m.meta <= 0 ? 'bg-amber-50' : ''}`}>
+                    <td className="px-5 py-2 font-mono font-semibold">{m.placa}</td>
+                    <td className="px-2 py-2 text-muted-foreground">{m.modelo ?? '—'}</td>
+                    <td className="px-2 py-2">
+                      <input
+                        type="number" step="0.01" min="0" value={m.meta}
+                        onChange={(e) => onEditarMeta(m.placa, e.target.value)}
+                        className="w-24 border rounded-lg px-2 py-1 text-sm"
+                      />
+                    </td>
+                    <td className="px-2 py-2">
+                      <button
+                        onClick={() => onSalvarMeta(m)}
+                        disabled={salvandoMeta === m.placa}
+                        className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-primary text-white disabled:opacity-50"
+                      >
+                        {salvandoMeta === m.placa ? 'Salvando…' : 'Salvar'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

@@ -309,6 +309,56 @@ function referenciaPorPlaca(abastecimentos: AbastecimentoInsert[]): Map<string, 
   return ref
 }
 
+// ── Meta de Km/L por placa — cadastro próprio, editável ─────────────────
+// A meta não vem mais do relatório de abastecimento (pode faltar em
+// reimportações, ou mudar com o tempo sem o relatório antigo saber) — vem
+// só daqui. Semeada automaticamente na primeira leitura com o melhor palpite
+// disponível (o que já estava nos abastecimentos importados), placa sem
+// nada conhecido entra com 0 pra ajuste manual.
+
+export interface MetaPlaca { placa: string; modelo: string | null; meta: number }
+
+export async function buscarMetasPlaca(filial: string): Promise<MetaPlaca[]> {
+  const [{ data: cadastradas }, abastecimentos] = await Promise.all([
+    supabase.from('frota_meta_km_litro').select('placa, modelo_veiculo, meta_km_litro').eq('filial', filial),
+    listarAbastecimentos(filial, subtrairDias(hojeIsoUtc(), 365), hojeIsoUtc()),
+  ])
+  const refAbastecimento = referenciaPorPlaca(abastecimentos)
+  const jaTem = new Map((cadastradas ?? []).map((c) => [c.placa, { modelo: c.modelo_veiculo as string | null, meta: c.meta_km_litro as number }]))
+
+  const placas = new Set([...jaTem.keys(), ...refAbastecimento.keys()])
+  const resultado: MetaPlaca[] = []
+  const novasParaSemear: { filial: string; placa: string; modelo_veiculo: string | null; meta_km_litro: number }[] = []
+  for (const placa of placas) {
+    const existente = jaTem.get(placa)
+    if (existente) {
+      resultado.push({ placa, modelo: existente.modelo ?? refAbastecimento.get(placa)?.modelo ?? null, meta: existente.meta })
+      continue
+    }
+    const r = refAbastecimento.get(placa)
+    const metaSemente = r?.meta ?? 0
+    resultado.push({ placa, modelo: r?.modelo ?? null, meta: metaSemente })
+    novasParaSemear.push({ filial, placa, modelo_veiculo: r?.modelo ?? null, meta_km_litro: metaSemente })
+  }
+  if (novasParaSemear.length > 0) {
+    await supabase.from('frota_meta_km_litro').upsert(novasParaSemear, { onConflict: 'filial,placa' })
+  }
+  return resultado.sort((a, b) => a.placa.localeCompare(b.placa))
+}
+
+export async function salvarMetaPlaca(filial: string, placa: string, modelo: string | null, meta: number, atualizadoPor: string | null): Promise<string | null> {
+  const { error } = await supabase.from('frota_meta_km_litro').upsert(
+    { filial, placa, modelo_veiculo: modelo, meta_km_litro: meta, atualizado_em: new Date().toISOString(), atualizado_por: atualizadoPor },
+    { onConflict: 'filial,placa' },
+  )
+  return error?.message ?? null
+}
+
+async function buscarMetasComoMapa(filial: string): Promise<Map<string, number>> {
+  const { data } = await supabase.from('frota_meta_km_litro').select('placa, meta_km_litro').eq('filial', filial)
+  return new Map((data ?? []).map((r) => [r.placa, r.meta_km_litro as number]))
+}
+
 // ── Motorista por placa+dia, via 03.11.49.02 (Escala do dia) ───────────
 // Mais confiável que o campo MOTORISTAS do Boletim do Veículo: a Escala é
 // a designação oficial de quem rodou aquela placa naquele dia, enquanto o
@@ -499,15 +549,27 @@ function subtrairDias(iso: string, n: number): string {
   return d.toISOString().slice(0, 10)
 }
 
+function hojeIsoUtc(): string {
+  return new Date().toISOString().slice(0, 10)
+}
+
 async function diasUteisMotorista(filial: string, dataIni: string, dataFim: string): Promise<DiaUtilMotorista[]> {
-  const [abastecimentos, telemetriaBoletim, distanciaGeotab, motoristaPorChave, nomes] = await Promise.all([
+  const [abastecimentos, telemetriaBoletim, distanciaGeotab, motoristaPorChave, nomes, metasCadastradas] = await Promise.all([
     listarAbastecimentos(filial, subtrairDias(dataIni, FOLGA_ANCORA_DIAS), dataFim),
     listarTelemetria(filial, dataIni, dataFim),
     listarDistanciaGeotab(filial, dataIni, dataFim),
     motoristaPorPlacaDia(filial, dataIni, dataFim),
     nomePorMatricula(filial),
+    buscarMetasComoMapa(filial),
   ])
   const ref = referenciaPorPlaca(abastecimentos)
+  // Meta vem do cadastro próprio (frota_meta_km_litro), não do que o
+  // relatório de abastecimento trouxer — pode faltar em reimportações ou
+  // ficar desatualizado se a meta mudar com o tempo.
+  for (const [placa, r] of ref) {
+    const metaCadastrada = metasCadastradas.get(placa)
+    r.meta = metaCadastrada != null && metaCadastrada > 0 ? metaCadastrada : null
+  }
 
   // Distância diária real, unificando as duas fontes — Boletim tem
   // prioridade quando (raramente) as duas cobrirem a mesma placa+dia.

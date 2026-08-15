@@ -75,6 +75,22 @@ create table if not exists frota_distancia_diaria_geotab (
 );
 create index if not exists idx_frota_distancia_diaria_geotab_filial_dia on frota_distancia_diaria_geotab(filial, dia);
 
+-- Meta de Km/L por placa — cadastro próprio, editável, independente do
+-- relatório de abastecimento (que pode vir sem essa coluna preenchida, ou
+-- com o valor desatualizado se a meta mudar com o tempo). Semeada
+-- automaticamente a partir do que já foi importado; placa sem meta
+-- conhecida entra com 0 pra ajuste manual.
+create table if not exists frota_meta_km_litro (
+  id uuid primary key default gen_random_uuid(),
+  filial text not null,
+  placa text not null,
+  modelo_veiculo text,
+  meta_km_litro numeric not null default 0,
+  atualizado_em timestamptz not null default now(),
+  atualizado_por text,
+  unique (filial, placa)
+);
+
 alter table combustivel_abastecimentos enable row level security;
 drop policy if exists "Acesso total" on combustivel_abastecimentos;
 create policy "Acesso total" on combustivel_abastecimentos for all using (true) with check (true);
@@ -89,3 +105,8 @@ alter table frota_distancia_diaria_geotab enable row level security;
 drop policy if exists "Acesso total" on frota_distancia_diaria_geotab;
 create policy "Acesso total" on frota_distancia_diaria_geotab for all using (true) with check (true);
 grant select, insert, update on frota_distancia_diaria_geotab to anon, authenticated;
+
+alter table frota_meta_km_litro enable row level security;
+drop policy if exists "Acesso total" on frota_meta_km_litro;
+create policy "Acesso total" on frota_meta_km_litro for all using (true) with check (true);
+grant select, insert, update on frota_meta_km_litro to anon, authenticated;
