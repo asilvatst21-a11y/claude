@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Fuel, Upload, Loader2, TrendingDown, TrendingUp, Clock, DollarSign, Route } from 'lucide-react'
+import { Fuel, Upload, Loader2, TrendingDown, TrendingUp, Clock, DollarSign, Route, ChevronRight, Info } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
 import {
   parseAbastecimentoCsv, importarAbastecimentos, parseTelemetriaCsv, importarTelemetria,
@@ -63,6 +63,7 @@ export default function ConsumoCombustivel() {
   const [rankingPlacas, setRankingPlacas] = useState<RankingPlaca[]>([])
   const [carregandoPlacas, setCarregandoPlacas] = useState(true)
   const [mesPlacas, setMesPlacas] = useState(mesAtualParcial().inicio.slice(0, 7))
+  const [motoristaAberto, setMotoristaAberto] = useState<string | null>(null)
 
   const carregar = useCallback(async () => {
     if (!usuario?.filial) return
@@ -375,20 +376,79 @@ export default function ConsumoCombustivel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {listaRanking.map((r, i) => (
-                    <tr key={r.nome} className={`border-b last:border-0 hover:bg-gray-50 ${r.amostraPequena ? 'opacity-60' : ''}`}>
-                      <td className="px-5 py-2 text-muted-foreground font-bold">{i + 1}</td>
-                      <td className="px-2 py-2">{r.nome}</td>
-                      <td className="px-2 py-2">{r.dias}</td>
-                      <td className="px-2 py-2 font-mono font-semibold">{r.kmlMedio.toFixed(2)}</td>
-                      <td className="px-2 py-2">
-                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
-                      </td>
-                      <td className="px-2 py-2">
-                        {r.amostraPequena && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 whitespace-nowrap">Amostra pequena</span>}
-                      </td>
-                    </tr>
-                  ))}
+                  {listaRanking.map((r, i) => {
+                    const aberto = motoristaAberto === r.nome
+                    const pcts = r.porPlaca.map((p) => p.pctMeta).filter((p): p is number => p != null)
+                    const variacao = pcts.length >= 2 ? Math.max(...pcts) - Math.min(...pcts) : 0
+                    const melhor = pcts.length >= 2 ? r.porPlaca.reduce((a, b) => ((b.pctMeta ?? 0) > (a.pctMeta ?? 0) ? b : a)) : null
+                    const pior = pcts.length >= 2 ? r.porPlaca.reduce((a, b) => ((b.pctMeta ?? 0) < (a.pctMeta ?? 0) ? b : a)) : null
+                    return (
+                      <>
+                        <tr
+                          key={r.nome}
+                          onClick={() => setMotoristaAberto(aberto ? null : r.nome)}
+                          className={`border-b last:border-0 hover:bg-gray-50 cursor-pointer ${r.amostraPequena ? 'opacity-60' : ''}`}
+                        >
+                          <td className="px-5 py-2 text-muted-foreground font-bold">{i + 1}</td>
+                          <td className="px-2 py-2">
+                            <div className="flex items-center gap-1.5">
+                              <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground shrink-0 transition-transform ${aberto ? 'rotate-90 text-brand-700' : ''}`} />
+                              {r.nome}
+                            </div>
+                          </td>
+                          <td className="px-2 py-2">{r.dias}</td>
+                          <td className="px-2 py-2 font-mono font-semibold">{r.kmlMedio.toFixed(2)}</td>
+                          <td className="px-2 py-2">
+                            <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
+                          </td>
+                          <td className="px-2 py-2">
+                            {r.amostraPequena && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 whitespace-nowrap">Amostra pequena</span>}
+                          </td>
+                        </tr>
+                        {aberto && (
+                          <tr key={`${r.nome}-detalhe`} className="border-b last:border-0">
+                            <td colSpan={6} className="p-0">
+                              <div className="bg-brand-50 px-5 py-4 pl-12">
+                                <div className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-2">Placas rodadas no período</div>
+                                <div className="bg-white border rounded-lg overflow-hidden">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="text-[10px] text-muted-foreground uppercase text-left bg-brand-50">
+                                        <th className="px-3 py-1.5 font-semibold">Placa</th>
+                                        <th className="px-3 py-1.5 font-semibold">Modelo</th>
+                                        <th className="px-3 py-1.5 font-semibold">Dias</th>
+                                        <th className="px-3 py-1.5 font-semibold">Km/L</th>
+                                        <th className="px-3 py-1.5 font-semibold">% da meta</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {r.porPlaca.map((p) => (
+                                        <tr key={p.placa} className="border-t">
+                                          <td className="px-3 py-1.5 font-mono font-semibold">{p.placa}</td>
+                                          <td className="px-3 py-1.5 text-muted-foreground">{p.modelo ?? '—'}</td>
+                                          <td className="px-3 py-1.5">{p.dias}</td>
+                                          <td className="px-3 py-1.5 font-mono font-semibold">{p.kmlMedio.toFixed(2)}</td>
+                                          <td className="px-3 py-1.5">
+                                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${pillPct(p.pctMeta)}`}>{fmtPct(p.pctMeta)}</span>
+                                          </td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                                {variacao > 0.15 && melhor && pior && (
+                                  <div className="flex items-start gap-2 text-xs text-muted-foreground bg-white border rounded-lg px-3 py-2 mt-2.5">
+                                    <Info className="h-3.5 w-3.5 text-brand-600 shrink-0 mt-0.5" />
+                                    <span>Rende bem mais na <b className="text-foreground font-mono">{melhor.placa}</b> ({melhor.kmlMedio.toFixed(2)} km/L) do que na <b className="text-foreground font-mono">{pior.placa}</b> ({pior.kmlMedio.toFixed(2)} km/L) — a média geral fica no meio das duas.</span>
+                                  </div>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

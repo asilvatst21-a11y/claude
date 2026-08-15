@@ -591,8 +591,11 @@ async function diasUteisMotorista(filial: string, dataIni: string, dataFim: stri
 
 // ── Ranking por motorista ───────────────────────────────────────────────
 
+export interface DetalhePlacaMotorista { placa: string; modelo: string | null; dias: number; kmlMedio: number; pctMeta: number | null }
+
 export interface RankingMotorista {
   nome: string; dias: number; kmlMedio: number; pctMeta: number | null; kmTotal: number; amostraPequena: boolean
+  porPlaca: DetalhePlacaMotorista[]
 }
 
 // Só um aviso visual agora, não filtra mais ninguém de fora — abaixo disso
@@ -616,7 +619,23 @@ export async function buscarRankingConsumo(filial: string, dataIni: string, data
     const kmlMedio = linhas.reduce((s, l) => s + l.kml, 0) / linhas.length
     const pctMeta = linhas.reduce((s, l) => s + l.kml / (l.meta as number), 0) / linhas.length
     const kmTotal = linhas.reduce((s, l) => s + l.distancia, 0)
-    ranking.push({ nome, dias: linhas.length, kmlMedio, pctMeta, kmTotal, amostraPequena: linhas.length < MIN_DIAS_CONFIAVEL })
+
+    // Detalhe por placa — pra ver se ele rende diferente de um modelo pro
+    // outro, em vez de só a média combinada de tudo que ele rodou.
+    const porPlacaMap = new Map<string, DiaUtilMotorista[]>()
+    for (const l of linhas) {
+      if (!porPlacaMap.has(l.placa)) porPlacaMap.set(l.placa, [])
+      porPlacaMap.get(l.placa)!.push(l)
+    }
+    const porPlaca: DetalhePlacaMotorista[] = [...porPlacaMap.entries()]
+      .map(([placa, ls]) => ({
+        placa, modelo: ls[0].modelo, dias: ls.length,
+        kmlMedio: ls.reduce((s, x) => s + x.kml, 0) / ls.length,
+        pctMeta: ls.reduce((s, x) => s + x.kml / (x.meta as number), 0) / ls.length,
+      }))
+      .sort((a, b) => b.dias - a.dias)
+
+    ranking.push({ nome, dias: linhas.length, kmlMedio, pctMeta, kmTotal, amostraPequena: linhas.length < MIN_DIAS_CONFIAVEL, porPlaca })
   }
 
   const kmlMedioFrota = dias.length > 0 ? dias.reduce((s, d) => s + d.kml, 0) / dias.length : null
