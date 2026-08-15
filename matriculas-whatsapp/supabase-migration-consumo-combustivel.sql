@@ -57,6 +57,24 @@ create table if not exists frota_telemetria_diaria (
 );
 create index if not exists idx_frota_telemetria_diaria_filial_dia on frota_telemetria_diaria(filial, dia);
 
+-- Distância diária real (GEOTAB, "Relatório detalhado de viagens" — soma
+-- das viagens do dia por placa) para veículos que o Boletim do Veículo não
+-- rastreia. Sem litros por dia, então o Km/L desses veículos não vem
+-- diário como o Boletim — é calculado por INTERVALO ENTRE ABASTECIMENTOS
+-- (km real do intervalo, via soma da distância diária aqui ÷ litros do
+-- abastecimento que fechou o intervalo), e cada dia do intervalo herda
+-- esse Km/L do intervalo, atribuído ao motorista do dia via Escala do dia.
+create table if not exists frota_distancia_diaria_geotab (
+  id uuid primary key default gen_random_uuid(),
+  filial text not null,
+  placa text not null,
+  dia date not null,
+  distancia_km numeric,
+  importado_em timestamptz not null default now(),
+  unique (filial, placa, dia)
+);
+create index if not exists idx_frota_distancia_diaria_geotab_filial_dia on frota_distancia_diaria_geotab(filial, dia);
+
 alter table combustivel_abastecimentos enable row level security;
 drop policy if exists "Acesso total" on combustivel_abastecimentos;
 create policy "Acesso total" on combustivel_abastecimentos for all using (true) with check (true);
@@ -66,3 +84,8 @@ alter table frota_telemetria_diaria enable row level security;
 drop policy if exists "Acesso total" on frota_telemetria_diaria;
 create policy "Acesso total" on frota_telemetria_diaria for all using (true) with check (true);
 grant select, insert, update on frota_telemetria_diaria to anon, authenticated;
+
+alter table frota_distancia_diaria_geotab enable row level security;
+drop policy if exists "Acesso total" on frota_distancia_diaria_geotab;
+create policy "Acesso total" on frota_distancia_diaria_geotab for all using (true) with check (true);
+grant select, insert, update on frota_distancia_diaria_geotab to anon, authenticated;

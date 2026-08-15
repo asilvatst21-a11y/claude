@@ -1,3 +1,4 @@
+import * as XLSX from 'xlsx'
 import { supabase } from './supabase'
 import { parseCidadesEntregas } from './rotasRisco'
 
@@ -188,6 +189,56 @@ export async function importarTelemetria(rows: TelemetriaInsert[]): Promise<stri
   return null
 }
 
+// ── Distância diária (GEOTAB — "Relatório detalhado de viagens") ───────
+// Cobre veículos que o Boletim do Veículo não rastreia. É um relatório por
+// VIAGEM (várias linhas por dia), sem litros — a distância diária é a soma
+// das viagens do dia; o Km/L desses veículos vem de calcularDiasGeotab
+// (por intervalo entre abastecimentos), não daqui diretamente.
+
+export interface DistanciaDiariaGeotabInsert { filial: string; placa: string; dia: string; distancia_km: number }
+
+function dataJsParaIso(d: unknown): string | null {
+  if (!(d instanceof Date) || isNaN(d.getTime())) return null
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+export function parseViagensGeotabXlsx(buffer: ArrayBuffer, filial: string): DistanciaDiariaGeotabInsert[] {
+  const wb = XLSX.read(buffer, { type: 'array', cellDates: true })
+  const sheet = wb.Sheets['Report'] ?? wb.Sheets[wb.SheetNames[0]]
+  const linhas = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: null }) as unknown[][]
+
+  const headerIdx = linhas.findIndex((l) => l[0] === 'Dispositivo')
+  if (headerIdx === -1) return []
+  const header = linhas[headerIdx] as string[]
+  const iPlaca = header.indexOf('Dispositivo')
+  const iInicio = header.indexOf('Data de início')
+  const iDistancia = header.indexOf('Distância')
+
+  // Soma as viagens (linhas) do mesmo dia — o relatório vem com uma linha
+  // por trecho, não uma por dia.
+  const porChave = new Map<string, { filial: string; placa: string; dia: string; distancia_km: number }>()
+  for (const linha of linhas.slice(headerIdx + 1)) {
+    const placa = String(linha[iPlaca] ?? '').trim()
+    const dia = dataJsParaIso(linha[iInicio])
+    const distancia = typeof linha[iDistancia] === 'number' ? (linha[iDistancia] as number) : null
+    if (!placa || !dia || distancia == null) continue
+    const chave = `${placa}|${dia}`
+    const atual = porChave.get(chave)
+    if (atual) atual.distancia_km += distancia
+    else porChave.set(chave, { filial, placa, dia, distancia_km: distancia })
+  }
+  return [...porChave.values()]
+}
+
+export async function importarDistanciaDiariaGeotab(rows: DistanciaDiariaGeotabInsert[]): Promise<string | null> {
+  for (let i = 0; i < rows.length; i += 200) {
+    const lote = rows.slice(i, i + 200)
+    const { error } = await supabase.from('frota_distancia_diaria_geotab').upsert(lote, { onConflict: 'filial,placa,dia' })
+    if (error) return error.message
+  }
+  return null
+}
+
 // ── Leitura (com paginação — nenhuma tabela aqui deve ficar presa ao
 // limite padrão de 1000 linhas do PostgREST) ───────────────────────────
 
@@ -335,32 +386,112 @@ export interface DiaUtilMotorista {
   modelo: string | null; meta: number | null; centroCusto: string | null; idleSegundos: number | null
 }
 
+interface DistanciaDiariaRow { placa: string; dia: string; distancia_km: number }
+
+async function listarDistanciaGeotab(filial: string, dataIni: string, dataFim: string): Promise<DistanciaDiariaRow[]> {
+  const linhas: DistanciaDiariaRow[] = []
+  for (let inicio = 0; ; inicio += PAGINA) {
+    const { data, error } = await supabase
+      .from('frota_distancia_diaria_geotab')
+      .select('placa, dia, distancia_km')
+      .eq('filial', filial).gte('dia', dataIni).lte('dia', dataFim)
+      .range(inicio, inicio + PAGINA - 1)
+    if (error) { console.error('listarDistanciaGeotab error:', error.message); break }
+    linhas.push(...(data ?? []))
+    if (!data || data.length < PAGINA) break
+  }
+  return linhas
+}
+
+// Km/L não vem pronto de nenhuma fonte de telemetria — nem o "MÉDIA CONSUMO"
+// do Boletim, nem qualquer relatório GEOTAB. As duas só entram como
+// DISTÂNCIA DIÁRIA REAL; o Km/L é sempre calculado aqui, por INTERVALO
+// ENTRE ABASTECIMENTOS (km real do intervalo ÷ litros comprados no
+// abastecimento que fechou o intervalo) — mesmo valor pros dias do
+// intervalo, mas atribuído dia a dia ao motorista certo via Escala do dia.
+// Evita depender do sensor de combustível de cada rastreador (fontes
+// diferentes, calibração diferente) e usa o litro realmente comprado.
+function calcularDiasPorIntervalo(
+  abastecimentos: AbastecimentoInsert[],
+  distanciaPorChave: Map<string, number>,
+  idlePorChave: Map<string, number | null>,
+  motoristaPorChave: Map<string, string>,
+  nomes: Map<string, string>,
+  ref: Map<string, RefPlaca>,
+): DiaUtilMotorista[] {
+  const diasPorPlaca = new Map<string, string[]>()
+  for (const chave of distanciaPorChave.keys()) {
+    const [placa, dia] = chave.split('|')
+    if (!diasPorPlaca.has(placa)) diasPorPlaca.set(placa, [])
+    diasPorPlaca.get(placa)!.push(dia)
+  }
+
+  const abastPorPlaca = new Map<string, AbastecimentoInsert[]>()
+  for (const a of abastecimentos) {
+    if (!a.litros || a.litros <= 0) continue
+    if (!abastPorPlaca.has(a.placa)) abastPorPlaca.set(a.placa, [])
+    abastPorPlaca.get(a.placa)!.push(a)
+  }
+
+  const resultado: DiaUtilMotorista[] = []
+  for (const [placa, diasBrutos] of diasPorPlaca) {
+    const abast = (abastPorPlaca.get(placa) ?? []).slice().sort((a, b) => a.data.localeCompare(b.data))
+    if (abast.length === 0) continue
+    const diasOrdenados = [...new Set(diasBrutos)].sort()
+    const r = ref.get(placa)
+
+    let dataAnterior = '0000-00-00'
+    for (const a of abast) {
+      const diasIntervalo = diasOrdenados.filter((d) => d > dataAnterior && d <= a.data)
+      const kmIntervalo = diasIntervalo.reduce((s, d) => s + (distanciaPorChave.get(`${placa}|${d}`) ?? 0), 0)
+      if (kmIntervalo > 0) {
+        const kmlIntervalo = kmIntervalo / (a.litros as number)
+        for (const d of diasIntervalo) {
+          const distanciaDia = distanciaPorChave.get(`${placa}|${d}`) ?? 0
+          if (distanciaDia < 30) continue
+          const matricula = motoristaPorChave.get(`${placa}|${d}`)
+          if (matricula == null) continue
+          const nome = nomes.get(matricula)
+          if (!nome) continue
+          resultado.push({
+            nome, placa, dia: d, kml: kmlIntervalo, distancia: distanciaDia,
+            modelo: r?.modelo ?? null, meta: r?.meta ?? null, centroCusto: r?.centroCusto ?? null,
+            idleSegundos: idlePorChave.get(`${placa}|${d}`) ?? null,
+          })
+        }
+      }
+      dataAnterior = a.data
+    }
+  }
+  return resultado
+}
+
 async function diasUteisMotorista(filial: string, dataIni: string, dataFim: string): Promise<DiaUtilMotorista[]> {
-  const [abastecimentos, telemetria, motoristaPorChave, nomes] = await Promise.all([
+  const [abastecimentos, telemetriaBoletim, distanciaGeotab, motoristaPorChave, nomes] = await Promise.all([
     listarAbastecimentos(filial, dataIni, dataFim),
     listarTelemetria(filial, dataIni, dataFim),
+    listarDistanciaGeotab(filial, dataIni, dataFim),
     motoristaPorPlacaDia(filial, dataIni, dataFim),
     nomePorMatricula(filial),
   ])
   const ref = referenciaPorPlaca(abastecimentos)
 
-  const dias: DiaUtilMotorista[] = []
-  for (const t of telemetria) {
-    const matricula = motoristaPorChave.get(`${t.placa}|${t.dia}`)
-    if (matricula == null) continue
-    const nome = nomes.get(matricula)
-    if (!nome) continue
-    if ((t.distancia_percorrida ?? 0) < 30) continue
-    if (!t.consumo_combustivel_litros || t.consumo_combustivel_litros <= 0) continue
-    if (t.media_consumo_kml == null) continue
-    const r = ref.get(t.placa)
-    dias.push({
-      nome, placa: t.placa, dia: t.dia, kml: t.media_consumo_kml, distancia: t.distancia_percorrida ?? 0,
-      modelo: r?.modelo ?? null, meta: r?.meta ?? null, centroCusto: r?.centroCusto ?? null,
-      idleSegundos: t.parado_ligado_segundos,
-    })
+  // Distância diária real, unificando as duas fontes — Boletim tem
+  // prioridade quando (raramente) as duas cobrirem a mesma placa+dia.
+  const distanciaPorChave = new Map<string, number>()
+  const idlePorChave = new Map<string, number | null>()
+  for (const t of telemetriaBoletim) {
+    if (t.distancia_percorrida == null) continue
+    const chave = `${t.placa}|${t.dia}`
+    distanciaPorChave.set(chave, t.distancia_percorrida)
+    idlePorChave.set(chave, t.parado_ligado_segundos)
   }
-  return dias
+  for (const g of distanciaGeotab) {
+    const chave = `${g.placa}|${g.dia}`
+    if (!distanciaPorChave.has(chave)) distanciaPorChave.set(chave, g.distancia_km)
+  }
+
+  return calcularDiasPorIntervalo(abastecimentos, distanciaPorChave, idlePorChave, motoristaPorChave, nomes, ref)
 }
 
 // ── Ranking por motorista ───────────────────────────────────────────────

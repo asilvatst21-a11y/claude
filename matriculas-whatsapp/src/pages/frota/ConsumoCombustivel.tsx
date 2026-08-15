@@ -4,6 +4,7 @@ import { Fuel, Upload, Loader2, TrendingDown, TrendingUp, Clock, DollarSign, Rou
 import { useAuth } from '../../lib/auth'
 import {
   parseAbastecimentoCsv, importarAbastecimentos, parseTelemetriaCsv, importarTelemetria,
+  parseViagensGeotabXlsx, importarDistanciaDiariaGeotab,
   buscarRankingConsumo, buscarPorModelo, buscarPorCentroCusto, buscarImpactoRS, buscarIdleTime, buscarKmlPorRota,
   MIN_DIAS_CONFIAVEL,
   type RankingMotorista, type KmlPorGrupo, type ImpactoRS, type IdleMotorista, type KmlPorRota,
@@ -26,8 +27,8 @@ function pillPct(p: number | null): string {
   return 'bg-red-50 text-red-700 border-red-200'
 }
 
-function Dropzone({ label, onDrop, uploading, accept }: { label: string; onDrop: (files: File[]) => void; uploading: boolean; accept: string }) {
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept: { 'text/csv': [accept] }, multiple: false })
+function Dropzone({ label, onDrop, uploading, mime, ext }: { label: string; onDrop: (files: File[]) => void; uploading: boolean; mime: string; ext: string }) {
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({ onDrop, accept: { [mime]: [ext] }, multiple: false })
   return (
     <div {...getRootProps()} className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-colors ${isDragActive ? 'border-brand-500 bg-brand-50' : 'border-gray-200 hover:border-brand-400 hover:bg-gray-50'}`}>
       <input {...getInputProps()} />
@@ -44,6 +45,7 @@ export default function ConsumoCombustivel() {
   const [carregando, setCarregando] = useState(true)
   const [uploadingAbastecimento, setUploadingAbastecimento] = useState(false)
   const [uploadingTelemetria, setUploadingTelemetria] = useState(false)
+  const [uploadingGeotab, setUploadingGeotab] = useState(false)
   const [msg, setMsg] = useState('')
   const [visaoRanking, setVisaoRanking] = useState<'pct' | 'kml'>('pct')
 
@@ -118,6 +120,26 @@ export default function ConsumoCombustivel() {
     reader.readAsText(files[0], 'ISO-8859-1')
   }, [usuario?.filial, carregar])
 
+  const onDropGeotab = useCallback((files: File[]) => {
+    if (!usuario?.filial || !files[0]) return
+    setUploadingGeotab(true)
+    setMsg('')
+    files[0].arrayBuffer().then(async (buffer) => {
+      try {
+        const rows = parseViagensGeotabXlsx(buffer, usuario.filial)
+        if (rows.length === 0) { setMsg('Nenhuma linha reconhecida no relatório de viagens (GEOTAB).'); return }
+        const erro = await importarDistanciaDiariaGeotab(rows)
+        if (erro) { setMsg(`Erro ao importar: ${erro}`); return }
+        setMsg(`✅ ${rows.length} dias de distância (GEOTAB) importados.`)
+        await carregar()
+      } catch (err) {
+        setMsg(`Erro inesperado: ${String(err)}`)
+      } finally {
+        setUploadingGeotab(false)
+      }
+    })
+  }, [usuario?.filial, carregar])
+
   if (!usuario) return null
   const listaRanking = visaoRanking === 'pct' ? (ranking?.porPct ?? []) : (ranking?.porKml ?? [])
 
@@ -136,16 +158,20 @@ export default function ConsumoCombustivel() {
       <div className="bg-white border rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b">
           <h2 className="font-semibold text-sm">Importar relatórios</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Os dois relatórios são independentes — importe cada um sempre que tiver um novo período.</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Os relatórios são independentes — importe cada um sempre que tiver um novo período. O Km/L nunca vem pronto de nenhum deles: é sempre calculado aqui (distância real ÷ litros comprados por intervalo entre abastecimentos).</p>
         </div>
-        <div className="p-5 grid sm:grid-cols-2 gap-4">
+        <div className="p-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
             <p className="text-xs font-medium text-gray-500 mb-2">Relatório de abastecimento (cartão combustível, .csv)</p>
-            <Dropzone label="Arraste o relatório de abastecimento (.csv)" onDrop={onDropAbastecimento} uploading={uploadingAbastecimento} accept=".csv" />
+            <Dropzone label="Arraste o relatório de abastecimento (.csv)" onDrop={onDropAbastecimento} uploading={uploadingAbastecimento} mime="text/csv" ext=".csv" />
           </div>
           <div>
             <p className="text-xs font-medium text-gray-500 mb-2">Boletim do Veículo (telemetria/rastreador, .csv)</p>
-            <Dropzone label="Arraste o Boletim do Veículo (.csv)" onDrop={onDropTelemetria} uploading={uploadingTelemetria} accept=".csv" />
+            <Dropzone label="Arraste o Boletim do Veículo (.csv)" onDrop={onDropTelemetria} uploading={uploadingTelemetria} mime="text/csv" ext=".csv" />
+          </div>
+          <div>
+            <p className="text-xs font-medium text-gray-500 mb-2">Relatório de viagens (GEOTAB, distância diária, .xlsx)</p>
+            <Dropzone label="Arraste o relatório de viagens (.xlsx)" onDrop={onDropGeotab} uploading={uploadingGeotab} mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ext=".xlsx" />
           </div>
         </div>
         {msg && <p className="text-sm px-5 pb-4">{msg}</p>}
@@ -164,7 +190,7 @@ export default function ConsumoCombustivel() {
       ) : (
         <>
           <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 text-xs text-muted-foreground">
-            <b className="text-foreground">Método:</b> caminhões são compartilhados por vários motoristas — o ranking usa a telemetria diária (motorista identificado por CPF a cada dia), não "km desde o último abastecimento" (que somaria km de outras pessoas na mesma placa). Motoristas com menos de {MIN_DIAS_CONFIAVEL} dias úteis de telemetria aparecem marcados como "amostra pequena" — a posição deles no ranking pode não representar o mês todo.
+            <b className="text-foreground">Método:</b> o motorista de cada dia vem da Escala do dia (03.11.49.02), não do rastreador — caminhões são compartilhados por vários motoristas, e o rastreador só sabe quem logou nele, não quem devia estar dirigindo. O Km/L é sempre calculado aqui: distância real do dia (Boletim do Veículo ou GEOTAB) somada por intervalo entre abastecimentos, dividida pelos litros comprados naquele intervalo — nunca o valor que a telemetria já traz pronta. Motoristas com menos de {MIN_DIAS_CONFIAVEL} dias úteis aparecem marcados como "amostra pequena" — a posição deles no ranking pode não representar o mês todo.
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
