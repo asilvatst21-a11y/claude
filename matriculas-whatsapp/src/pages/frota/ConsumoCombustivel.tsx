@@ -462,6 +462,7 @@ export default function ConsumoCombustivel() {
                   <th className="px-2 py-2 font-semibold">Modelo</th>
                   <th className="px-2 py-2 font-semibold">Dias</th>
                   <th className="px-2 py-2 font-semibold">Km/L real</th>
+                  <th className="px-2 py-2 font-semibold">Km/L meta</th>
                   <th className="px-2 py-2 font-semibold">% da meta</th>
                   <th className="px-2 py-2 font-semibold">Motorista principal</th>
                 </tr>
@@ -474,6 +475,7 @@ export default function ConsumoCombustivel() {
                     <td className="px-2 py-2 text-muted-foreground">{r.modelo ?? '—'}</td>
                     <td className="px-2 py-2">{r.dias}</td>
                     <td className="px-2 py-2 font-mono font-bold text-base text-brand-700">{r.kmlMedio.toFixed(2)}</td>
+                    <td className="px-2 py-2 font-mono text-muted-foreground">{r.meta != null ? r.meta.toFixed(2) : '—'}</td>
                     <td className="px-2 py-2">
                       <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
                     </td>

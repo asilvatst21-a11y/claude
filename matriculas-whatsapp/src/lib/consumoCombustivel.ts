@@ -796,7 +796,7 @@ function mediaKmlPonderada(linhas: DiaUtilMotorista[]): number {
 }
 
 export interface RankingPlaca {
-  placa: string; modelo: string | null; dias: number; kmlMedio: number; pctMeta: number | null; kmTotal: number
+  placa: string; modelo: string | null; dias: number; kmlMedio: number; meta: number | null; pctMeta: number | null; kmTotal: number
   motoristaPrincipal: string | null; diasMotoristaPrincipal: number
 }
 
@@ -821,7 +821,7 @@ export async function buscarRankingPorPlaca(filial: string, inicio: string, fim:
       if (n > diasMotoristaPrincipal) { motoristaPrincipal = nome; diasMotoristaPrincipal = n }
     }
     resultado.push({
-      placa, modelo: linhas[0].modelo, dias: linhas.length, kmlMedio,
+      placa, modelo: linhas[0].modelo, dias: linhas.length, kmlMedio, meta,
       pctMeta: meta ? kmlMedio / meta : null, kmTotal: linhas.reduce((s, l) => s + l.distancia, 0),
       motoristaPrincipal, diasMotoristaPrincipal,
     })
