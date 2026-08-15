@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
+import { formatarDataBR } from '../lib/utils'
 import type { Usuario, Filial, DtoAvaliador } from '../types'
 import { SECOES_SISTEMA } from '../types'
-import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2, Lock } from 'lucide-react'
+import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2, Lock, MessageSquare } from 'lucide-react'
 import { listarGrupos, type GrupoZApi } from '../lib/zapi'
 import {
   listarUsuarios, criarUsuario, atualizarUsuario, removerUsuario,
@@ -22,7 +23,7 @@ const AVALIADORES_PADRAO = [
 
 const SENHA_PADRAO = 'LOG20123'
 
-type AbaTipo = 'filiais' | 'usuarios' | 'avaliadores'
+type AbaTipo = 'filiais' | 'usuarios' | 'avaliadores' | 'sugestoes'
 
 export default function Admin() {
   const { usuario } = useAuth()
@@ -83,11 +84,113 @@ export default function Admin() {
         >
           Avaliadores DTO
         </button>
+        <button
+          onClick={() => setAba('sugestoes')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            aba === 'sugestoes' ? 'border-accent-500 text-accent-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Sugestões
+        </button>
       </div>
 
       {aba === 'usuarios'    && <AbaUsuarios    usuarios={usuarios} filiais={filiais} recarregar={carregar} usuarioAtual={usuario} />}
       {aba === 'filiais'     && <AbaFiliais     filiais={filiais} recarregar={carregar} />}
       {aba === 'avaliadores' && <AbaAvaliadores avaliadores={avaliadores} filiais={filiais} filialAtual={usuario.filial} recarregar={carregar} />}
+      {aba === 'sugestoes'   && <AbaSugestoes />}
+    </div>
+  )
+}
+
+type SugestaoRow = {
+  id: string
+  filial: string
+  mapa: number | null
+  data: string | null
+  nome: string | null
+  telefone: string
+  resposta: string | null
+  respondida_em: string | null
+  created_at: string
+}
+
+function AbaSugestoes() {
+  const [sugestoes, setSugestoes] = useState<SugestaoRow[]>([])
+  const [carregando, setCarregando] = useState(true)
+  const [busca, setBusca] = useState('')
+
+  useEffect(() => {
+    (async () => {
+      setCarregando(true)
+      const { data } = await supabase
+        .from('conferencia_sugestoes')
+        .select('id, filial, mapa, data, nome, telefone, resposta, respondida_em, created_at')
+        .eq('status', 'respondida')
+        .not('resposta', 'is', null)
+        .order('respondida_em', { ascending: false })
+      setSugestoes((data as SugestaoRow[]) ?? [])
+      setCarregando(false)
+    })()
+  }, [])
+
+  const filtradas = sugestoes.filter((s) => {
+    if (!busca.trim()) return true
+    const q = busca.toLowerCase()
+    return (s.resposta ?? '').toLowerCase().includes(q) || (s.nome ?? '').toLowerCase().includes(q) || s.filial.toLowerCase().includes(q)
+  })
+
+  if (carregando) {
+    return (
+      <div className="p-8 text-center text-gray-400">
+        <Loader2 className="animate-spin mx-auto" size={22} />
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <p className="text-sm text-gray-500 mb-4">
+        Sugestões enviadas pelos colaboradores pela opção "💬 Sugestões" da Aurora — sobre qualquer processo, não só a Conferência Digital.
+      </p>
+      <div className="flex items-center gap-3 mb-4">
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Buscar por nome, filial ou texto..."
+            className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm"
+          />
+        </div>
+        <span className="text-xs text-gray-500 whitespace-nowrap">
+          {filtradas.length} sugestão{filtradas.length === 1 ? '' : 'ões'}
+        </span>
+      </div>
+      {filtradas.length === 0 ? (
+        <div className="text-center text-gray-400 py-12 text-sm">
+          {busca.trim() ? 'Nenhuma sugestão encontrada para essa busca.' : 'Nenhuma sugestão recebida ainda.'}
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtradas.map((s) => (
+            <div key={s.id} className="border border-gray-200 rounded-lg p-4 bg-white">
+              <div className="flex items-center justify-between gap-3 mb-2 flex-wrap">
+                <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
+                  <MessageSquare size={14} className="text-accent-500 shrink-0" />
+                  {s.nome || 'Anônimo'}
+                  <span className="text-gray-300">·</span>
+                  <span className="text-xs font-normal text-gray-500">{s.filial}</span>
+                </div>
+                <span className="text-xs text-gray-400">{formatarDataBR(s.respondida_em ?? s.created_at)}</span>
+              </div>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{s.resposta}</p>
+              {s.mapa != null && (
+                <p className="text-xs text-gray-400 mt-2">Origem: mapa {s.mapa}{s.data ? ` (${formatarDataBR(s.data)})` : ''}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }
