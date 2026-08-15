@@ -3617,6 +3617,19 @@ async function descobrirMotoristaPorTelefone(remetente: string): Promise<{ filia
   return cad ? { filial: cad.filial, matricula: cad.numero != null ? String(cad.numero) : null, nome: cad.nome ?? null } : null
 }
 
+// Igual descobrirMotoristaPorTelefone, mas pela matrícula digitada — usado
+// quando o telefone de quem mandou a mensagem não bate com ninguém (a
+// pessoa está falando de um número que não é o dela). A filial vem daqui,
+// não do telefone (que sabemos ser de outra pessoa nesse caso).
+async function buscarMotoristaPorMatricula(matricula: string): Promise<{ filial: string; nome: string | null } | null> {
+  const matriculaNum = Number(matricula)
+  if (!Number.isFinite(matriculaNum)) return null
+  const { data: colab } = await supabase.from('motoristas_sala_tml').select('filial, nome').eq('matricula', matriculaNum).maybeSingle()
+  if (colab) return { filial: colab.filial, nome: colab.nome ?? null }
+  const { data: cad } = await supabase.from('matriculas').select('filial, nome').eq('numero', matricula).eq('ativo', true).maybeSingle()
+  return cad ? { filial: cad.filial, nome: cad.nome ?? null } : null
+}
+
 // ── Consumo de Combustível — "minha média" pelo bot ────────────────────
 // Mesma lógica de src/lib/consumoCombustivel.ts, duplicada aqui porque
 // esta function roda isolada (não importa src/lib). A resposta não é uma
@@ -3694,6 +3707,30 @@ async function kmlMedioDaPlacaNoMes(filial: string, placa: string, inicio: strin
   }
   if (litrosTotal === 0) return null
   return { kml: kmTotal / litrosTotal, meta }
+}
+
+// Monta e envia a resposta de "minha média" — usado tanto quando o telefone
+// já identifica o motorista quanto quando ele precisou digitar a matrícula.
+async function responderMeuConsumo(remetente: string, filial: string, matricula: string): Promise<void> {
+  const { inicio, fim } = mesFechadoAtualAurora()
+  const placa = await placaMaisRodadaPeloMotorista(filial, matricula, inicio, fim)
+  if (!placa) {
+    await enviar(remetente, `Ainda não achei registro seu no mês fechado (${formatarDataBRSimples(inicio)} a ${formatarDataBRSimples(fim)}) pra calcular uma média. Assim que tiver mais histórico, pergunta de novo.`)
+    return
+  }
+  const resultado = await kmlMedioDaPlacaNoMes(filial, placa, inicio, fim)
+  if (!resultado) {
+    await enviar(remetente, `Você foi quem mais rodou a placa *${placa}* esse mês, mas ainda não tenho abastecimento e telemetria suficientes pra calcular a média dela com confiança.`)
+    return
+  }
+  const linhas = [
+    `🚛 *Sua média de combustível — ${formatarDataBRSimples(inicio)} a ${formatarDataBRSimples(fim)}*`,
+    ``,
+    `Você foi quem mais rodou a placa *${placa}* nesse período.`,
+    `Km/L médio da placa: *${resultado.kml.toFixed(2)}*${resultado.meta ? ` (meta: ${resultado.meta.toFixed(2)})` : ' (meta não cadastrada pra essa placa)'}`,
+  ]
+  if (resultado.meta) linhas.push(`Isso é *${Math.round((resultado.kml / resultado.meta) * 100)}%* da meta.`)
+  await enviar(remetente, linhas.join('\n'))
 }
 
 const MESES_PT = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro']
@@ -3874,31 +3911,14 @@ async function tratarItemAurora(remetente: string, senderName: string, itemId: s
   if (itemId === 'aurora_item:meu_consumo') {
     const motorista = await descobrirMotoristaPorTelefone(remetente)
     if (!motorista?.matricula) {
-      await enviar(remetente, 'Não consegui te identificar pelo seu número — confere se seu telefone está certo no cadastro, ou fala com seu supervisor.')
-      await perguntarProximoPasso(remetente)
-      return { ok: true, action: 'aurora-consumo-sem-identificacao' }
+      // Telefone não bate com ninguém — comum quando a pessoa fala de um
+      // número que não é o cadastrado (celular emprestado, chip novo etc.).
+      // Pede a matrícula em vez de simplesmente desistir.
+      await definirEstadoAurora(remetente, 'aguardando_matricula_consumo')
+      await enviar(remetente, '🔢 Não te reconheci por esse número — pode me passar sua *matrícula*?')
+      return { ok: true, action: 'aurora-consumo-pede-matricula' }
     }
-    const { inicio, fim } = mesFechadoAtualAurora()
-    const placa = await placaMaisRodadaPeloMotorista(motorista.filial, motorista.matricula, inicio, fim)
-    if (!placa) {
-      await enviar(remetente, `Ainda não achei registro seu no mês fechado (${formatarDataBRSimples(inicio)} a ${formatarDataBRSimples(fim)}) pra calcular uma média. Assim que tiver mais histórico, pergunta de novo.`)
-      await perguntarProximoPasso(remetente)
-      return { ok: true, action: 'aurora-consumo-sem-mapa' }
-    }
-    const resultado = await kmlMedioDaPlacaNoMes(motorista.filial, placa, inicio, fim)
-    if (!resultado) {
-      await enviar(remetente, `Você foi quem mais rodou a placa *${placa}* esse mês, mas ainda não tenho abastecimento e telemetria suficientes pra calcular a média dela com confiança.`)
-      await perguntarProximoPasso(remetente)
-      return { ok: true, action: 'aurora-consumo-sem-media' }
-    }
-    const linhas = [
-      `🚛 *Sua média de combustível — ${formatarDataBRSimples(inicio)} a ${formatarDataBRSimples(fim)}*`,
-      ``,
-      `Você foi quem mais rodou a placa *${placa}* nesse período.`,
-      `Km/L médio da placa: *${resultado.kml.toFixed(2)}*${resultado.meta ? ` (meta: ${resultado.meta.toFixed(2)})` : ' (meta não cadastrada pra essa placa)'}`,
-    ]
-    if (resultado.meta) linhas.push(`Isso é *${Math.round((resultado.kml / resultado.meta) * 100)}%* da meta.`)
-    await enviar(remetente, linhas.join('\n'))
+    await responderMeuConsumo(remetente, motorista.filial, motorista.matricula)
     await perguntarProximoPasso(remetente)
     return { ok: true, action: 'aurora-consumo-respondido' }
   }
@@ -3998,6 +4018,32 @@ async function tratarAurora(
       await enviar(remetente, resposta)
       await perguntarProximoPasso(remetente)
       return { ok: true, action: 'aurora-matricula-respondido' }
+    }
+    if (sessao.estado === 'aguardando_matricula_consumo') {
+      let conteudo = texto.trim()
+      if (!conteudo && temAudioSemTexto(body)) {
+        const transcrito = await transcreverAudio(extrairAudioUrl(body))
+        if (!transcrito) {
+          await enviar(remetente, 'Não consegui entender o áudio. Pode escrever sua matrícula?')
+          return { ok: true, action: 'aurora-consumo-matricula-audio-falhou' }
+        }
+        conteudo = transcrito
+      }
+      const matriculaMatch = conteudo.match(/\d{1,7}/)
+      if (!matriculaMatch) {
+        await enviar(remetente, '🔢 Não entendi. Envie só o número da sua matrícula.')
+        return { ok: true, action: 'aurora-consumo-matricula-repete' }
+      }
+      const matricula = matriculaMatch[0]
+      const motorista = await buscarMotoristaPorMatricula(matricula)
+      if (!motorista) {
+        await enviar(remetente, `Não achei a matrícula *${matricula}* cadastrada. Confere o número, ou fala com seu supervisor.`)
+        await perguntarProximoPasso(remetente)
+        return { ok: true, action: 'aurora-consumo-matricula-nao-encontrada' }
+      }
+      await responderMeuConsumo(remetente, motorista.filial, matricula)
+      await perguntarProximoPasso(remetente)
+      return { ok: true, action: 'aurora-consumo-matricula-respondido' }
     }
     if (sessao.estado === 'aguardando_produto_lastro') {
       let conteudo = texto.trim()
