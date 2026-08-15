@@ -265,7 +265,18 @@ function referenciaPorPlaca(abastecimentos: AbastecimentoInsert[]): Map<string, 
 // inteiro quando o caminhão é dividido e o motorista não identifica —
 // derrubava dias reais do ranking).
 
-async function motoristaPorPlacaDia(filial: string, dataIni: string, dataFim: string): Promise<Map<string, number>> {
+// Matrícula sempre normalizada pra string nas duas funções abaixo — o
+// Supabase serializa BIGINT (motoristas_sala_tml.matricula) como string
+// pro client JS, mas INTEGER (escalas_tml.matricula) como number. Comparar
+// os dois tipos direto (ou usar como chave de Map sem normalizar) nunca
+// bate, e todo mundo cai fora do ranking silenciosamente.
+function normalizarMatricula(v: unknown): string | null {
+  if (v == null) return null
+  const s = String(v).trim().replace(/^0+/, '')
+  return s || null
+}
+
+async function motoristaPorPlacaDia(filial: string, dataIni: string, dataFim: string): Promise<Map<string, string>> {
   const linhas: { placa: string; data_entrega: string; matricula: number | null }[] = []
   for (let inicio = 0; ; inicio += PAGINA) {
     const { data, error } = await supabase
@@ -281,35 +292,37 @@ async function motoristaPorPlacaDia(filial: string, dataIni: string, dataFim: st
   // Uma placa pode ter mais de um mapa no mesmo dia — tudo bem, desde que
   // seja sempre o mesmo motorista. Se aparecer matrícula diferente pro
   // mesmo par placa+dia, não dá pra saber qual rodou quanto: descarta.
-  const porChave = new Map<string, Set<number>>()
+  const porChave = new Map<string, Set<string>>()
   for (const l of linhas) {
-    if (l.matricula == null) continue
+    const matricula = normalizarMatricula(l.matricula)
+    if (!matricula) continue
     const chave = `${l.placa}|${l.data_entrega}`
     if (!porChave.has(chave)) porChave.set(chave, new Set())
-    porChave.get(chave)!.add(l.matricula)
+    porChave.get(chave)!.add(matricula)
   }
-  const resultado = new Map<string, number>()
+  const resultado = new Map<string, string>()
   for (const [chave, matriculas] of porChave) {
     if (matriculas.size === 1) resultado.set(chave, [...matriculas][0])
   }
   return resultado
 }
 
-async function nomePorMatricula(filial: string): Promise<Map<number, string>> {
+async function nomePorMatricula(filial: string): Promise<Map<string, string>> {
   const [{ data: roster }, { data: cadastrados }] = await Promise.all([
     supabase.from('motoristas_sala_tml').select('matricula, nome').eq('filial', filial),
     supabase.from('matriculas').select('numero, nome').eq('filial', filial).eq('ativo', true),
   ])
-  const mapa = new Map<number, string>()
+  const mapa = new Map<string, string>()
   for (const c of cadastrados ?? []) {
-    const num = Number(c.numero)
-    if (c.nome && Number.isFinite(num)) mapa.set(num, c.nome)
+    const matricula = normalizarMatricula(c.numero)
+    if (c.nome && matricula) mapa.set(matricula, c.nome)
   }
   // motoristas_sala_tml por último: é a base mais usada pra identificar
   // quem dirige TML, então prevalece sobre `matriculas` quando os dois têm
   // a mesma matrícula cadastrada.
   for (const r of roster ?? []) {
-    if (r.nome && r.matricula != null) mapa.set(r.matricula, r.nome)
+    const matricula = normalizarMatricula(r.matricula)
+    if (r.nome && matricula) mapa.set(matricula, r.nome)
   }
   return mapa
 }
