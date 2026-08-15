@@ -446,6 +446,15 @@ function calcularDiasPorIntervalo(
     // tanque cheio de um abastecimento que a gente não viu) eram divididos
     // pelos litros desse primeiro abastecimento, que só encheu uma fração
     // do tanque — Km/L inflado artificialmente (chegava a 500%+ da meta).
+    // Teto de plausibilidade: um abastecimento pequeno (completar o tanque,
+    // não enchê-lo) fechando um intervalo longo dá Km/L impossível — ex.:
+    // 36L fechando 13 dias de um caminhão rodando ~690km vira "19 km/L".
+    // Sem abastecimento de referência nesse intervalo pra saber que aquele
+    // foi parcial, o jeito é descartar intervalo cujo Km/L calculado passa
+    // muito da meta do veículo (ou de um teto genérico, se a meta não for
+    // conhecida) — mesmo limite usado antes pra sinalizar abastecimento com
+    // hodômetro suspeito.
+    const tetoKml = r?.meta != null ? r.meta * 1.8 : 9
     let dataAnterior: string | null = null
     for (const a of abast) {
       if (dataAnterior != null) {
@@ -453,6 +462,7 @@ function calcularDiasPorIntervalo(
         const kmIntervalo = diasIntervalo.reduce((s, d) => s + (distanciaPorChave.get(`${placa}|${d}`) ?? 0), 0)
         if (kmIntervalo > 0) {
           const kmlIntervalo = kmIntervalo / (a.litros as number)
+          if (kmlIntervalo > tetoKml) { dataAnterior = a.data; continue }
           for (const d of diasIntervalo) {
             const distanciaDia = distanciaPorChave.get(`${placa}|${d}`) ?? 0
             if (distanciaDia < 30) continue
