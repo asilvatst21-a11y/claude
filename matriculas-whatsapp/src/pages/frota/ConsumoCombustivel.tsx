@@ -10,10 +10,16 @@ import {
   MIN_DIAS_CONFIAVEL,
   type RankingMotorista, type KmlPorGrupo, type ImpactoRS, type IdleMotorista, type KmlPorRota, type MetaPlaca, type RankingPlaca,
 } from '../../lib/consumoCombustivel'
-import { formatarDataBR } from '../../lib/utils'
 
 function hojeIso(): string { return new Date().toISOString().slice(0, 10) }
 function diasAtrasIso(n: number): string { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10) }
+
+// "2026-08" -> { inicio: "2026-08-01", fim: "2026-08-31" }
+function mesParaIntervalo(mes: string): { inicio: string; fim: string } {
+  const [ano, m] = mes.split('-').map(Number)
+  const ultimoDia = new Date(Date.UTC(ano, m, 0)).getUTCDate()
+  return { inicio: `${mes}-01`, fim: `${mes}-${String(ultimoDia).padStart(2, '0')}` }
+}
 
 function fmtPct(p: number | null): string { return p == null ? '—' : `${Math.round(p * 100)}%` }
 function corPct(p: number | null): string {
@@ -62,6 +68,7 @@ export default function ConsumoCombustivel() {
   const [salvandoMeta, setSalvandoMeta] = useState<string | null>(null)
   const [rankingPlacas, setRankingPlacas] = useState<RankingPlaca[]>([])
   const [carregandoPlacas, setCarregandoPlacas] = useState(true)
+  const [mesPlacas, setMesPlacas] = useState(mesAtualParcial().inicio.slice(0, 7))
 
   const carregar = useCallback(async () => {
     if (!usuario?.filial) return
@@ -92,9 +99,10 @@ export default function ConsumoCombustivel() {
   const carregarPlacas = useCallback(async () => {
     if (!usuario?.filial) return
     setCarregandoPlacas(true)
-    setRankingPlacas(await buscarRankingPorPlaca(usuario.filial))
+    const { inicio, fim } = mesParaIntervalo(mesPlacas)
+    setRankingPlacas(await buscarRankingPorPlaca(usuario.filial, inicio, fim))
     setCarregandoPlacas(false)
-  }, [usuario?.filial])
+  }, [usuario?.filial, mesPlacas])
 
   useEffect(() => { carregarPlacas() }, [carregarPlacas])
 
@@ -426,16 +434,24 @@ export default function ConsumoCombustivel() {
         </>
       )}
 
-      {/* Ranking por placa (mês fechado) */}
+      {/* Ranking por placa */}
       <div className="bg-white border rounded-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b">
-          <h2 className="font-semibold text-sm">Ranking por placa — {formatarDataBR(mesAtualParcial().inicio)} a {formatarDataBR(mesAtualParcial().fim)} (mês em andamento)</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Mais robusto que o ranking por motorista — cada placa acumula muito mais dias. Acumulado parcial (dia 1 até hoje), muda conforme o mês avança. "Motorista principal" é quem mais rodou aquela placa no período; é essa a base usada quando o motorista pergunta pro bot qual é a média dele.</p>
+        <div className="px-5 py-4 border-b flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h2 className="font-semibold text-sm">Ranking por placa</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Ordenado pelo Km/L real — mais robusto que o ranking por motorista, cada placa acumula muito mais dias. "Motorista principal" é quem mais rodou aquela placa no período; é essa a base usada quando o motorista pergunta pro bot qual é a média dele.
+            </p>
+          </div>
+          <input
+            type="month" value={mesPlacas} onChange={(e) => setMesPlacas(e.target.value)}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
+          />
         </div>
         {carregandoPlacas ? (
           <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
         ) : rankingPlacas.length === 0 ? (
-          <p className="text-sm text-muted-foreground px-5 py-6 text-center">Sem dados suficientes no mês fechado ainda.</p>
+          <p className="text-sm text-muted-foreground px-5 py-6 text-center">Sem dados suficientes nesse mês ainda.</p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -445,7 +461,7 @@ export default function ConsumoCombustivel() {
                   <th className="px-2 py-2 font-semibold">Placa</th>
                   <th className="px-2 py-2 font-semibold">Modelo</th>
                   <th className="px-2 py-2 font-semibold">Dias</th>
-                  <th className="px-2 py-2 font-semibold">Km/L médio</th>
+                  <th className="px-2 py-2 font-semibold">Km/L real</th>
                   <th className="px-2 py-2 font-semibold">% da meta</th>
                   <th className="px-2 py-2 font-semibold">Motorista principal</th>
                 </tr>
@@ -457,7 +473,7 @@ export default function ConsumoCombustivel() {
                     <td className="px-2 py-2 font-mono font-semibold">{r.placa}</td>
                     <td className="px-2 py-2 text-muted-foreground">{r.modelo ?? '—'}</td>
                     <td className="px-2 py-2">{r.dias}</td>
-                    <td className="px-2 py-2 font-mono font-semibold">{r.kmlMedio.toFixed(2)}</td>
+                    <td className="px-2 py-2 font-mono font-bold text-base text-brand-700">{r.kmlMedio.toFixed(2)}</td>
                     <td className="px-2 py-2">
                       <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>{fmtPct(r.pctMeta)}</span>
                     </td>

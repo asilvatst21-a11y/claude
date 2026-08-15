@@ -800,8 +800,7 @@ export interface RankingPlaca {
   motoristaPrincipal: string | null; diasMotoristaPrincipal: number
 }
 
-export async function buscarRankingPorPlaca(filial: string): Promise<RankingPlaca[]> {
-  const { inicio, fim } = mesAtualParcial()
+export async function buscarRankingPorPlaca(filial: string, inicio: string, fim: string): Promise<RankingPlaca[]> {
   const dias = await diasUteisMotorista(filial, inicio, fim)
 
   const porPlaca = new Map<string, DiaUtilMotorista[]>()
@@ -827,7 +826,10 @@ export async function buscarRankingPorPlaca(filial: string): Promise<RankingPlac
       motoristaPrincipal, diasMotoristaPrincipal,
     })
   }
-  return resultado.sort((a, b) => (b.pctMeta ?? 0) - (a.pctMeta ?? 0))
+  // Km/L real é o critério principal — % da meta é informação secundária
+  // (varia de vaga em vaga junto com o modelo do veículo, o Km/L bruto é
+  // o que efetivamente mostra quem gasta menos combustível).
+  return resultado.sort((a, b) => b.kmlMedio - a.kmlMedio)
 }
 
 export interface MinhaMediaPlaca { placa: string; kmlMedio: number; pctMeta: number | null; meta: number | null; diasNaPlaca: number }
