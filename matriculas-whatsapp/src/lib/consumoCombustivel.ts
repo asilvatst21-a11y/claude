@@ -771,21 +771,21 @@ export async function buscarKmlPorRota(filial: string, dataIni: string, dataFim:
     .sort((a, b) => a.kmlMedio - b.kmlMedio)
 }
 
-// ── Ranking por placa (mês fechado) + "minha média" pelo bot ───────────
+// ── Ranking por placa (mês em andamento) + "minha média" pelo bot ──────
 // O ranking por motorista sofre quando a pessoa roda muitos caminhões
 // diferentes (cada placa+dia precisa da própria âncora de abastecimento).
 // O ranking por placa acumula muito mais dias por linha — é a base mais
 // confiável pra apontar caminhão problemático, e também o que o bot usa
 // pra responder "qual minha média": a média não é da pessoa, é da placa
-// que ela mais rodou no mês fechado (mais robusta que tentar achar um
-// histórico direto por motorista).
+// que ela mais rodou no mês (mais robusta que tentar achar um histórico
+// direto por motorista). Acumulado do dia 1 até hoje — não espera o mês
+// fechar, então o número é parcial e muda conforme o mês avança.
 
-export function mesFechadoAtual(): { inicio: string; fim: string } {
-  const hoje = new Date()
-  const ano = hoje.getUTCFullYear()
-  const mes = hoje.getUTCMonth() // 0-based; mês atual
-  const inicio = new Date(Date.UTC(ano, mes - 1, 1))
-  const fim = new Date(Date.UTC(ano, mes, 0)) // dia 0 do mês atual = último dia do mês anterior
+export function mesAtualParcial(): { inicio: string; fim: string } {
+  const fim = new Date()
+  const ano = fim.getUTCFullYear()
+  const mes = fim.getUTCMonth()
+  const inicio = new Date(Date.UTC(ano, mes, 1))
   return { inicio: inicio.toISOString().slice(0, 10), fim: fim.toISOString().slice(0, 10) }
 }
 
@@ -800,8 +800,8 @@ export interface RankingPlaca {
   motoristaPrincipal: string | null; diasMotoristaPrincipal: number
 }
 
-export async function buscarRankingPorPlacaMesFechado(filial: string): Promise<RankingPlaca[]> {
-  const { inicio, fim } = mesFechadoAtual()
+export async function buscarRankingPorPlaca(filial: string): Promise<RankingPlaca[]> {
+  const { inicio, fim } = mesAtualParcial()
   const dias = await diasUteisMotorista(filial, inicio, fim)
 
   const porPlaca = new Map<string, DiaUtilMotorista[]>()
@@ -836,7 +836,7 @@ export interface MinhaMediaPlaca { placa: string; kmlMedio: number; pctMeta: num
 // motorista mais dirigiu no mês fechado, não por uma média pessoal direta
 // (que pode não ter amostra nenhuma pra boa parte da frota).
 export async function buscarMinhaMediaPlaca(filial: string, matricula: string): Promise<MinhaMediaPlaca | null> {
-  const { inicio, fim } = mesFechadoAtual()
+  const { inicio, fim } = mesAtualParcial()
   const matriculaNorm = normalizarMatricula(matricula)
   if (!matriculaNorm) return null
   const [dias, nomes] = await Promise.all([diasUteisMotorista(filial, inicio, fim), nomePorMatricula(filial)])

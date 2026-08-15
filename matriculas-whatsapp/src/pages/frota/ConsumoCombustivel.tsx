@@ -6,7 +6,7 @@ import {
   parseAbastecimentoCsv, importarAbastecimentos, parseTelemetriaCsv, importarTelemetria,
   parseViagensGeotabXlsx, importarDistanciaDiariaGeotab,
   buscarRankingConsumo, buscarPorModelo, buscarPorCentroCusto, buscarImpactoRS, buscarIdleTime, buscarKmlPorRota,
-  buscarMetasPlaca, salvarMetaPlaca, buscarRankingPorPlacaMesFechado, mesFechadoAtual,
+  buscarMetasPlaca, salvarMetaPlaca, buscarRankingPorPlaca, mesAtualParcial,
   MIN_DIAS_CONFIAVEL,
   type RankingMotorista, type KmlPorGrupo, type ImpactoRS, type IdleMotorista, type KmlPorRota, type MetaPlaca, type RankingPlaca,
 } from '../../lib/consumoCombustivel'
@@ -92,7 +92,7 @@ export default function ConsumoCombustivel() {
   const carregarPlacas = useCallback(async () => {
     if (!usuario?.filial) return
     setCarregandoPlacas(true)
-    setRankingPlacas(await buscarRankingPorPlacaMesFechado(usuario.filial))
+    setRankingPlacas(await buscarRankingPorPlaca(usuario.filial))
     setCarregandoPlacas(false)
   }, [usuario?.filial])
 
@@ -429,8 +429,8 @@ export default function ConsumoCombustivel() {
       {/* Ranking por placa (mês fechado) */}
       <div className="bg-white border rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b">
-          <h2 className="font-semibold text-sm">Ranking por placa — {formatarDataBR(mesFechadoAtual().inicio)} a {formatarDataBR(mesFechadoAtual().fim)} (mês fechado)</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Mais robusto que o ranking por motorista — cada placa acumula muito mais dias. "Motorista principal" é quem mais rodou aquela placa no mês; é essa a base usada quando o motorista pergunta pro bot qual é a média dele.</p>
+          <h2 className="font-semibold text-sm">Ranking por placa — {formatarDataBR(mesAtualParcial().inicio)} a {formatarDataBR(mesAtualParcial().fim)} (mês em andamento)</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">Mais robusto que o ranking por motorista — cada placa acumula muito mais dias. Acumulado parcial (dia 1 até hoje), muda conforme o mês avança. "Motorista principal" é quem mais rodou aquela placa no período; é essa a base usada quando o motorista pergunta pro bot qual é a média dele.</p>
         </div>
         {carregandoPlacas ? (
           <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
