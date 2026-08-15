@@ -302,7 +302,7 @@ export interface RankingMotorista {
   nome: string; dias: number; kmlMedio: number; pctMeta: number | null; kmTotal: number
 }
 
-const MIN_DIAS_RANKING = 5
+const MIN_DIAS_RANKING = 10
 
 export async function buscarRankingConsumo(filial: string, dataIni: string, dataFim: string): Promise<{
   porPct: RankingMotorista[]; porKml: RankingMotorista[]; kmlMedioFrota: number | null; pctDentroDaMeta: number | null; diasUteis: number

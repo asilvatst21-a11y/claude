@@ -163,7 +163,7 @@ export default function ConsumoCombustivel() {
       ) : (
         <>
           <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 text-xs text-muted-foreground">
-            <b className="text-foreground">Método:</b> caminhões são compartilhados por vários motoristas — o ranking usa a telemetria diária (motorista identificado por CPF a cada dia), não "km desde o último abastecimento" (que somaria km de outras pessoas na mesma placa). Só entram motoristas com pelo menos 5 dias úteis de telemetria no período.
+            <b className="text-foreground">Método:</b> caminhões são compartilhados por vários motoristas — o ranking usa a telemetria diária (motorista identificado por CPF a cada dia), não "km desde o último abastecimento" (que somaria km de outras pessoas na mesma placa). Só entram motoristas com pelo menos 10 dias úteis de telemetria no período.
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -230,7 +230,7 @@ export default function ConsumoCombustivel() {
             <div className="px-5 py-4 border-b flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <h2 className="font-semibold text-sm">Ranking geral por motorista ({ranking?.porPct.length ?? 0})</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Mínimo de 5 dias úteis no período</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Mínimo de 10 dias úteis no período</p>
               </div>
               <div className="flex gap-1 bg-gray-100 rounded-lg p-1 text-xs font-semibold">
                 <button onClick={() => setVisaoRanking('pct')} className={`px-3 py-1.5 rounded-md ${visaoRanking === 'pct' ? 'bg-white shadow text-brand-700' : 'text-muted-foreground'}`}>Por % da meta</button>
