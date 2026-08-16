@@ -238,7 +238,7 @@ export default function ConsumoCombustivel() {
             <b className="text-foreground">Método:</b> o motorista de cada dia vem da Escala do dia (03.11.49.02), não do rastreador — caminhões são compartilhados por vários motoristas, e o rastreador só sabe quem logou nele, não quem devia estar dirigindo. O Km/L é sempre calculado aqui: distância real do dia (Boletim do Veículo ou GEOTAB) somada por intervalo entre abastecimentos, dividida pelos litros comprados naquele intervalo — nunca o valor que a telemetria já traz pronta. Motoristas com menos de {MIN_DIAS_CONFIAVEL} dias úteis aparecem marcados como "amostra pequena" — a posição deles no ranking pode não representar o mês todo.
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-white border rounded-2xl p-4">
               <div className="text-xs text-muted-foreground font-semibold uppercase">Km/L médio da frota</div>
               <div className="text-2xl font-bold mt-1">{ranking?.kmlMedioFrota?.toFixed(2) ?? '—'}</div>
@@ -246,10 +246,6 @@ export default function ConsumoCombustivel() {
             <div className="bg-white border rounded-2xl p-4">
               <div className="text-xs text-muted-foreground font-semibold uppercase">Dias dentro da meta</div>
               <div className="text-2xl font-bold mt-1">{fmtPct(ranking?.pctDentroDaMeta ?? null)}</div>
-            </div>
-            <div className="bg-white border rounded-2xl p-4">
-              <div className="text-xs text-muted-foreground font-semibold uppercase">Dias úteis analisados</div>
-              <div className="text-2xl font-bold mt-1">{ranking?.diasUteis ?? 0}</div>
             </div>
             <div className="bg-white border rounded-2xl p-4">
               <div className="text-xs text-muted-foreground font-semibold uppercase">Motoristas no ranking</div>
