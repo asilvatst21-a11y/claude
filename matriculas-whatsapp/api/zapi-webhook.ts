@@ -3429,7 +3429,10 @@ const AURORA_SUBMENUS: Record<string, OpcaoZ[]> = {
     { id: 'aurora_item:pontos_risco_mapa', title: 'Pontos de risco da minha rota' },
     { id: 'aurora_item:sugerir_ponto_risco', title: 'Sinalizar um ponto de risco' },
   ],
-  frota: [{ id: 'aurora_item:meu_consumo', title: 'Minha média de combustível' }],
+  frota: [
+    { id: 'aurora_item:meu_consumo', title: 'Minha média de combustível' },
+    { id: 'aurora_item:meta_placa', title: 'Meta de Km/L de uma placa' },
+  ],
   sugestoes: [{ id: 'aurora_item:enviar_sugestao', title: 'Enviar uma sugestão' }],
 }
 
@@ -3740,6 +3743,59 @@ async function responderMeuConsumo(remetente: string, filial: string, matricula:
   await enviar(remetente, linhas.join('\n'))
 }
 
+// ── Consumo de Combustível — "meta da placa" pelo bot ──────────────────
+// Motorista digita a placa de qualquer veículo (não precisa ser um que ele
+// dirige) e recebe a meta de Km/L cadastrada. Se digitar errado, procura a
+// placa cadastrada mais parecida (distância de edição) e pede confirmação
+// antes de responder — normalização remove espaço/traço pra tolerar "RTE
+// 0H36" ou "RTE-0H36".
+
+function normalizarPlacaAurora(v: string): string {
+  return v.toUpperCase().replace(/[^A-Z0-9]/g, '')
+}
+
+function distanciaEdicao(a: string, b: string): number {
+  const m = a.length
+  const n = b.length
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0))
+  for (let i = 0; i <= m; i++) dp[i][0] = i
+  for (let j = 0; j <= n; j++) dp[0][j] = j
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1] ? dp[i - 1][j - 1] : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1])
+    }
+  }
+  return dp[m][n]
+}
+
+interface MetaPlacaAurora { placa: string; meta: number | null; modelo: string | null; exata: boolean }
+
+async function buscarMetaPlacaProxima(filial: string, digitada: string): Promise<MetaPlacaAurora | null> {
+  const alvo = normalizarPlacaAurora(digitada)
+  if (alvo.length < 4) return null
+  const { data } = await supabase.from('frota_meta_km_litro').select('placa, meta_km_litro, modelo_veiculo').eq('filial', filial)
+  const registros = (data ?? []) as any[]
+  if (registros.length === 0) return null
+
+  const exata = registros.find((r) => normalizarPlacaAurora(r.placa) === alvo)
+  if (exata) return { placa: exata.placa, meta: exata.meta_km_litro > 0 ? exata.meta_km_litro : null, modelo: exata.modelo_veiculo ?? null, exata: true }
+
+  let melhor: { r: any; dist: number } | null = null
+  for (const r of registros) {
+    const dist = distanciaEdicao(alvo, normalizarPlacaAurora(r.placa))
+    if (!melhor || dist < melhor.dist) melhor = { r, dist }
+  }
+  if (!melhor || melhor.dist > 2) return null
+  return { placa: melhor.r.placa, meta: melhor.r.meta_km_litro > 0 ? melhor.r.meta_km_litro : null, modelo: melhor.r.modelo_veiculo ?? null, exata: false }
+}
+
+function montarRespostaMetaPlaca(info: { placa: string; meta: number | null; modelo: string | null }): string {
+  const linhas = [`🎯 *Meta de Km/L — placa ${info.placa}*`]
+  if (info.modelo) linhas.push(`Modelo: ${info.modelo}`)
+  linhas.push(info.meta != null ? `Meta cadastrada: *${info.meta.toFixed(2)} km/L*` : 'Meta: _ainda não cadastrada pra essa placa_')
+  return linhas.join('\n')
+}
+
 const DICAS_CONSUMO = [
   'Evite acelerar e frear bruscamente — dirigir suave economiza bastante combustível',
   'Antecipe o trânsito e mantenha uma velocidade constante, principalmente na rodovia',
@@ -3943,6 +3999,11 @@ async function tratarItemAurora(remetente: string, senderName: string, itemId: s
     await perguntarProximoPasso(remetente)
     return { ok: true, action: 'aurora-consumo-respondido' }
   }
+  if (itemId === 'aurora_item:meta_placa') {
+    await definirEstadoAurora(remetente, 'aguardando_placa_meta')
+    await enviar(remetente, '🚚 Qual a *placa* do veículo? (ex: RTE0H36)')
+    return { ok: true, action: 'aurora-pede-placa-meta' }
+  }
   if (itemId === 'aurora_item:lastro') {
     await definirEstadoAurora(remetente, 'aguardando_produto_lastro')
     await enviar(remetente, '📦 Me fala o *produto* (ou o *código*) que eu já te digo quantos cabem no lastro.')
@@ -4065,6 +4126,68 @@ async function tratarAurora(
       await responderMeuConsumo(remetente, motorista.filial, matricula)
       await perguntarProximoPasso(remetente)
       return { ok: true, action: 'aurora-consumo-matricula-respondido' }
+    }
+    if (sessao.estado === 'aguardando_placa_meta') {
+      let conteudo = texto.trim()
+      if (!conteudo && temAudioSemTexto(body)) {
+        const transcrito = await transcreverAudio(extrairAudioUrl(body))
+        if (!transcrito) {
+          await enviar(remetente, 'Não consegui entender o áudio. Pode escrever a placa?')
+          return { ok: true, action: 'aurora-meta-placa-audio-falhou' }
+        }
+        conteudo = transcrito
+      }
+      if (!conteudo) {
+        await enviar(remetente, '🚚 Manda a placa do veículo (ex: RTE0H36).')
+        return { ok: true, action: 'aurora-meta-placa-repete' }
+      }
+      const filial = await filialDoTelefoneOuPadrao(remetente)
+      const achado = await buscarMetaPlacaProxima(filial, conteudo)
+      if (!achado) {
+        await enviar(remetente, `Não achei nenhuma placa parecida com *${normalizarPlacaAurora(conteudo)}* cadastrada. Confere a placa e tenta de novo, ou fala com seu supervisor.`)
+        await perguntarProximoPasso(remetente)
+        return { ok: true, action: 'aurora-meta-placa-nao-encontrada' }
+      }
+      if (achado.exata) {
+        await enviar(remetente, montarRespostaMetaPlaca(achado))
+        await perguntarProximoPasso(remetente)
+        return { ok: true, action: 'aurora-meta-placa-respondida' }
+      }
+      await definirEstadoAurora(remetente, 'aguardando_confirmacao_placa_meta', { placa: achado.placa })
+      await enviarBotoes(
+        remetente,
+        `Não achei a placa *${normalizarPlacaAurora(conteudo)}* exatamente — você quis dizer *${achado.placa}*${achado.modelo ? ` (${achado.modelo})` : ''}?`,
+        [{ id: 'sim', label: '✅ Sim, essa' }, { id: 'nao', label: '❌ Não é essa' }],
+      )
+      return { ok: true, action: 'aurora-meta-placa-confirma' }
+    }
+    if (sessao.estado === 'aguardando_confirmacao_placa_meta') {
+      const ctx = (sessao.contexto ?? {}) as { placa?: string }
+      const resposta = extrairResposta(body)
+      if (resposta === 'sim') {
+        if (!ctx.placa) {
+          await definirEstadoAurora(remetente, 'aguardando_placa_meta')
+          await enviar(remetente, 'Perdi a referência da placa — pode digitar de novo?')
+          return { ok: true, action: 'aurora-meta-placa-contexto-perdido' }
+        }
+        const filial = await filialDoTelefoneOuPadrao(remetente)
+        const { data: row } = await supabase.from('frota_meta_km_litro').select('placa, meta_km_litro, modelo_veiculo').eq('filial', filial).eq('placa', ctx.placa).maybeSingle()
+        if (!row) {
+          await enviar(remetente, 'Não encontrei mais essa placa cadastrada. Tenta de novo?')
+          await perguntarProximoPasso(remetente)
+          return { ok: true, action: 'aurora-meta-placa-sumiu' }
+        }
+        await enviar(remetente, montarRespostaMetaPlaca({ placa: row.placa, meta: row.meta_km_litro > 0 ? row.meta_km_litro : null, modelo: row.modelo_veiculo ?? null }))
+        await perguntarProximoPasso(remetente)
+        return { ok: true, action: 'aurora-meta-placa-confirmada' }
+      }
+      if (resposta === 'nao') {
+        await definirEstadoAurora(remetente, 'aguardando_placa_meta')
+        await enviar(remetente, '🚚 Sem problema — manda a placa certinha.')
+        return { ok: true, action: 'aurora-meta-placa-negada' }
+      }
+      await enviar(remetente, 'Responde só *sim* ou *não*, por favor.')
+      return { ok: true, action: 'aurora-meta-placa-confirma-repete' }
     }
     if (sessao.estado === 'aguardando_produto_lastro') {
       let conteudo = texto.trim()
