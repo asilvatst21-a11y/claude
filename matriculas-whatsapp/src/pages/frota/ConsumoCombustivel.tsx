@@ -398,7 +398,7 @@ export default function ConsumoCombustivel() {
                 <div className="text-xl font-bold mt-1">{kgCo2PorKm != null ? kgCo2PorKm.toFixed(2) : '—'}</div>
               </div>
             </div>
-            <div className="px-5 pb-2 text-xs font-semibold text-muted-foreground uppercase">Placas — maiores emissoras do mês</div>
+            <div className="px-5 pb-1 text-xs font-semibold text-muted-foreground uppercase">Ranking de emissão por placa — Km/L real, litros e meta de CO₂</div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -408,17 +408,19 @@ export default function ConsumoCombustivel() {
                     <th className="px-2 py-2 font-semibold">Km/L real</th>
                     <th className="px-2 py-2 font-semibold">Litros</th>
                     <th className="px-2 py-2 font-semibold">CO₂ emitido</th>
+                    <th className="px-2 py-2 font-semibold">Meta CO₂</th>
                     <th className="px-2 py-2 font-semibold">Vs. meta</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rankingPlacasPorCo2.slice(0, 5).map((r) => (
+                  {rankingPlacasPorCo2.map((r) => (
                     <tr key={r.placa} className="border-b last:border-0">
                       <td className="px-5 py-2 font-mono font-semibold">{r.placa}</td>
                       <td className="px-2 py-2 text-muted-foreground">{r.modelo ?? '—'}</td>
                       <td className="px-2 py-2 font-mono">{r.kmlMedio.toFixed(2)}</td>
                       <td className="px-2 py-2 font-mono text-muted-foreground">{Math.round(r.litrosTotal)} L</td>
                       <td className="px-2 py-2 font-mono font-bold">{Math.round(r.co2EmitidoKg)} kg</td>
+                      <td className="px-2 py-2 font-mono text-muted-foreground">{r.co2MetaKg != null ? `${Math.round(r.co2MetaKg)} kg` : '—'}</td>
                       <td className="px-2 py-2">
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>
                           {r.pctMeta == null ? '—' : `${r.pctMeta >= 1 ? '↓' : '↑'} ${Math.abs(Math.round((r.pctMeta - 1) * 100))}%`}
@@ -429,7 +431,45 @@ export default function ConsumoCombustivel() {
                 </tbody>
               </table>
             </div>
-            <div className="px-5 py-3 text-xs text-muted-foreground border-t">Mostrando as 5 placas com maior emissão total no mês — mesmo critério do Top5/Bottom5 de Km/L acima.</div>
+
+            <div className="grid sm:grid-cols-2 gap-4 p-5 pt-4">
+              <div className="border rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b flex items-center gap-2 bg-gray-50">
+                  <Leaf className="h-4 w-4 text-emerald-600" />
+                  <h3 className="font-semibold text-sm">Top 5 placas — menos emissoras</h3>
+                </div>
+                <div className="divide-y">
+                  {[...rankingPlacasPorCo2].reverse().slice(0, 5).map((r, i) => (
+                    <div key={r.placa} className="px-4 py-2.5 flex items-center gap-3 text-sm">
+                      <span className="h-6 w-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium font-mono truncate">{r.placa}</div>
+                        <div className="text-xs text-muted-foreground truncate">{r.modelo ?? '—'} · meta {r.co2MetaKg != null ? `${Math.round(r.co2MetaKg)} kg` : '—'}</div>
+                      </div>
+                      <span className="text-sm font-bold text-emerald-700">{Math.round(r.co2EmitidoKg)} kg</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="border rounded-xl overflow-hidden">
+                <div className="px-4 py-3 border-b flex items-center gap-2 bg-gray-50">
+                  <TrendingUp className="h-4 w-4 text-red-600" />
+                  <h3 className="font-semibold text-sm">Bottom 5 placas — mais emissoras</h3>
+                </div>
+                <div className="divide-y">
+                  {rankingPlacasPorCo2.slice(0, 5).map((r, i) => (
+                    <div key={r.placa} className="px-4 py-2.5 flex items-center gap-3 text-sm">
+                      <span className="h-6 w-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium font-mono truncate">{r.placa}</div>
+                        <div className="text-xs text-muted-foreground truncate">{r.modelo ?? '—'} · meta {r.co2MetaKg != null ? `${Math.round(r.co2MetaKg)} kg` : '—'}</div>
+                      </div>
+                      <span className="text-sm font-bold text-red-600">{Math.round(r.co2EmitidoKg)} kg</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
           </>
         )}
       </div>
