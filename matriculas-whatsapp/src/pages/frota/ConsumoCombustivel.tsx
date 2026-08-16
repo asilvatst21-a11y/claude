@@ -64,6 +64,7 @@ export default function ConsumoCombustivel() {
   const [carregandoPlacas, setCarregandoPlacas] = useState(true)
   const [mesPlacas, setMesPlacas] = useState(mesAtualParcial().inicio.slice(0, 7))
   const [motoristaAberto, setMotoristaAberto] = useState<string | null>(null)
+  const [visaoPlaca, setVisaoPlaca] = useState<'kml' | 'co2'>('kml')
 
   const carregar = useCallback(async () => {
     if (!usuario?.filial) return
@@ -272,19 +273,29 @@ export default function ConsumoCombustivel() {
           <div>
             <h2 className="font-semibold text-sm">Ranking por placa</h2>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Ordenado pelo Km/L real — mais robusto que o ranking por motorista, cada placa acumula muito mais dias. "Motorista principal" é quem mais rodou aquela placa no período; é essa a base usada quando o motorista pergunta pro bot qual é a média dele.
+              {visaoPlaca === 'kml' ? (
+                <>Ordenado pelo Km/L real — mais robusto que o ranking por motorista, cada placa acumula muito mais dias. "Motorista principal" é quem mais rodou aquela placa no período; é essa a base usada quando o motorista pergunta pro bot qual é a média dele.</>
+              ) : (
+                <>Litros do próprio motor de Km/L × {FATOR_CO2_DIESEL_KG_POR_LITRO.toFixed(2)} kg CO₂/litro (fator padrão Diesel S10) — nenhum dado novo, só o que já é calculado acima.</>
+              )}
             </p>
           </div>
-          <input
-            type="month" value={mesPlacas} onChange={(e) => setMesPlacas(e.target.value)}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
-          />
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 text-xs font-semibold">
+              <button onClick={() => setVisaoPlaca('kml')} className={`px-3 py-1.5 rounded-md ${visaoPlaca === 'kml' ? 'bg-white shadow text-brand-700' : 'text-muted-foreground'}`}>Km/L</button>
+              <button onClick={() => setVisaoPlaca('co2')} className={`px-3 py-1.5 rounded-md flex items-center gap-1 ${visaoPlaca === 'co2' ? 'bg-white shadow text-emerald-700' : 'text-muted-foreground'}`}><Leaf className="h-3.5 w-3.5" /> CO₂</button>
+            </div>
+            <input
+              type="month" value={mesPlacas} onChange={(e) => setMesPlacas(e.target.value)}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
+            />
+          </div>
         </div>
         {carregandoPlacas ? (
           <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
         ) : rankingPlacas.length === 0 ? (
           <p className="text-sm text-muted-foreground px-5 py-6 text-center">Sem dados suficientes nesse mês ainda.</p>
-        ) : (
+        ) : visaoPlaca === 'kml' ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -317,61 +328,6 @@ export default function ConsumoCombustivel() {
               </tbody>
             </table>
           </div>
-        )}
-      </div>
-
-      {/* 2. Top5 / Bottom5 — por placa */}
-      <div className="grid sm:grid-cols-2 gap-4">
-        <div className="bg-white border rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-green-600" />
-            <h2 className="font-semibold text-sm">Top 5 placas — melhor Km/L</h2>
-          </div>
-          <div className="divide-y">
-            {rankingPlacas.slice(0, 5).map((r, i) => (
-              <div key={r.placa} className="px-5 py-2.5 flex items-center gap-3 text-sm">
-                <span className="h-6 w-6 rounded-full bg-green-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium font-mono truncate">{r.placa}</div>
-                  <div className="text-xs text-muted-foreground truncate">{r.modelo ?? '—'} · {r.dias} dias · {r.motoristaPrincipal ?? '—'}</div>
-                </div>
-                <span className="text-sm font-bold text-brand-700">{r.kmlMedio.toFixed(2)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="bg-white border rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b flex items-center gap-2">
-            <TrendingDown className="h-4 w-4 text-red-600" />
-            <h2 className="font-semibold text-sm">Bottom 5 placas — pior Km/L</h2>
-          </div>
-          <div className="divide-y">
-            {[...rankingPlacas].slice(-5).reverse().map((r, i) => (
-              <div key={r.placa} className="px-5 py-2.5 flex items-center gap-3 text-sm">
-                <span className="h-6 w-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{rankingPlacas.length - i}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium font-mono truncate">{r.placa}</div>
-                  <div className="text-xs text-muted-foreground truncate">{r.modelo ?? '—'} · {r.dias} dias · {r.motoristaPrincipal ?? '—'}</div>
-                </div>
-                <span className="text-sm font-bold text-red-600">{r.kmlMedio.toFixed(2)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* 2.5 Sustentabilidade — CO₂ */}
-      <div className="bg-white border rounded-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b">
-          <h2 className="font-semibold text-sm flex items-center gap-2"><Leaf className="h-4 w-4 text-emerald-600" /> Sustentabilidade</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Litros do próprio motor de Km/L (mesmo do Ranking por placa acima, mês {mesPlacas}) × {FATOR_CO2_DIESEL_KG_POR_LITRO.toFixed(2)} kg CO₂/litro (fator padrão Diesel S10) — nenhum dado novo, só o que já é calculado.
-          </p>
-        </div>
-        {carregandoPlacas ? (
-          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
-        ) : rankingPlacas.length === 0 ? (
-          <p className="text-sm text-muted-foreground px-5 py-6 text-center">Sem dados suficientes nesse mês ainda.</p>
         ) : (
           <>
             <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -398,12 +354,12 @@ export default function ConsumoCombustivel() {
                 <div className="text-xl font-bold mt-1">{kgCo2PorKm != null ? kgCo2PorKm.toFixed(2) : '—'}</div>
               </div>
             </div>
-            <div className="px-5 pb-1 text-xs font-semibold text-muted-foreground uppercase">Ranking de emissão por placa — Km/L real, litros e meta de CO₂</div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-muted-foreground uppercase text-left border-b">
-                    <th className="px-5 py-2 font-semibold">Placa</th>
+                    <th className="px-5 py-2 font-semibold">#</th>
+                    <th className="px-2 py-2 font-semibold">Placa</th>
                     <th className="px-2 py-2 font-semibold">Modelo</th>
                     <th className="px-2 py-2 font-semibold">Km/L real</th>
                     <th className="px-2 py-2 font-semibold">Litros</th>
@@ -413,9 +369,10 @@ export default function ConsumoCombustivel() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rankingPlacasPorCo2.map((r) => (
+                  {rankingPlacasPorCo2.map((r, i) => (
                     <tr key={r.placa} className="border-b last:border-0">
-                      <td className="px-5 py-2 font-mono font-semibold">{r.placa}</td>
+                      <td className="px-5 py-2 text-muted-foreground font-bold">{i + 1}</td>
+                      <td className="px-2 py-2 font-mono font-semibold">{r.placa}</td>
                       <td className="px-2 py-2 text-muted-foreground">{r.modelo ?? '—'}</td>
                       <td className="px-2 py-2 font-mono">{r.kmlMedio.toFixed(2)}</td>
                       <td className="px-2 py-2 font-mono text-muted-foreground">{Math.round(r.litrosTotal)} L</td>
@@ -431,47 +388,52 @@ export default function ConsumoCombustivel() {
                 </tbody>
               </table>
             </div>
-
-            <div className="grid sm:grid-cols-2 gap-4 p-5 pt-4">
-              <div className="border rounded-xl overflow-hidden">
-                <div className="px-4 py-3 border-b flex items-center gap-2 bg-gray-50">
-                  <Leaf className="h-4 w-4 text-emerald-600" />
-                  <h3 className="font-semibold text-sm">Top 5 placas — menos emissoras</h3>
-                </div>
-                <div className="divide-y">
-                  {[...rankingPlacasPorCo2].reverse().slice(0, 5).map((r, i) => (
-                    <div key={r.placa} className="px-4 py-2.5 flex items-center gap-3 text-sm">
-                      <span className="h-6 w-6 rounded-full bg-emerald-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium font-mono truncate">{r.placa}</div>
-                        <div className="text-xs text-muted-foreground truncate">{r.modelo ?? '—'} · meta {r.co2MetaKg != null ? `${Math.round(r.co2MetaKg)} kg` : '—'}</div>
-                      </div>
-                      <span className="text-sm font-bold text-emerald-700">{Math.round(r.co2EmitidoKg)} kg</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className="border rounded-xl overflow-hidden">
-                <div className="px-4 py-3 border-b flex items-center gap-2 bg-gray-50">
-                  <TrendingUp className="h-4 w-4 text-red-600" />
-                  <h3 className="font-semibold text-sm">Bottom 5 placas — mais emissoras</h3>
-                </div>
-                <div className="divide-y">
-                  {rankingPlacasPorCo2.slice(0, 5).map((r, i) => (
-                    <div key={r.placa} className="px-4 py-2.5 flex items-center gap-3 text-sm">
-                      <span className="h-6 w-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{i + 1}</span>
-                      <div className="flex-1 min-w-0">
-                        <div className="font-medium font-mono truncate">{r.placa}</div>
-                        <div className="text-xs text-muted-foreground truncate">{r.modelo ?? '—'} · meta {r.co2MetaKg != null ? `${Math.round(r.co2MetaKg)} kg` : '—'}</div>
-                      </div>
-                      <span className="text-sm font-bold text-red-600">{Math.round(r.co2EmitidoKg)} kg</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
           </>
         )}
+      </div>
+
+      {/* 2. Top5 / Bottom5 — por placa */}
+      <div className="grid sm:grid-cols-2 gap-4">
+        <div className="bg-white border rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b flex items-center gap-2">
+            {visaoPlaca === 'kml' ? <TrendingUp className="h-4 w-4 text-green-600" /> : <Leaf className="h-4 w-4 text-emerald-600" />}
+            <h2 className="font-semibold text-sm">{visaoPlaca === 'kml' ? 'Top 5 placas — melhor Km/L' : 'Top 5 placas — menos emissoras'}</h2>
+          </div>
+          <div className="divide-y">
+            {(visaoPlaca === 'kml' ? rankingPlacas.slice(0, 5) : [...rankingPlacasPorCo2].reverse().slice(0, 5)).map((r, i) => (
+              <div key={r.placa} className="px-5 py-2.5 flex items-center gap-3 text-sm">
+                <span className={`h-6 w-6 rounded-full text-white text-xs font-bold flex items-center justify-center shrink-0 ${visaoPlaca === 'kml' ? 'bg-green-600' : 'bg-emerald-600'}`}>{i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium font-mono truncate">{r.placa}</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {visaoPlaca === 'kml' ? <>{r.modelo ?? '—'} · {r.dias} dias · {r.motoristaPrincipal ?? '—'}</> : <>{r.modelo ?? '—'} · meta {r.co2MetaKg != null ? `${Math.round(r.co2MetaKg)} kg` : '—'}</>}
+                  </div>
+                </div>
+                <span className={`text-sm font-bold ${visaoPlaca === 'kml' ? 'text-brand-700' : 'text-emerald-700'}`}>{visaoPlaca === 'kml' ? r.kmlMedio.toFixed(2) : `${Math.round(r.co2EmitidoKg)} kg`}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="bg-white border rounded-2xl overflow-hidden">
+          <div className="px-5 py-4 border-b flex items-center gap-2">
+            <TrendingDown className="h-4 w-4 text-red-600" />
+            <h2 className="font-semibold text-sm">{visaoPlaca === 'kml' ? 'Bottom 5 placas — pior Km/L' : 'Bottom 5 placas — mais emissoras'}</h2>
+          </div>
+          <div className="divide-y">
+            {(visaoPlaca === 'kml' ? [...rankingPlacas].slice(-5).reverse() : rankingPlacasPorCo2.slice(0, 5)).map((r, i) => (
+              <div key={r.placa} className="px-5 py-2.5 flex items-center gap-3 text-sm">
+                <span className="h-6 w-6 rounded-full bg-red-600 text-white text-xs font-bold flex items-center justify-center shrink-0">{visaoPlaca === 'kml' ? rankingPlacas.length - i : i + 1}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium font-mono truncate">{r.placa}</div>
+                  <div className="text-xs text-muted-foreground truncate">
+                    {visaoPlaca === 'kml' ? <>{r.modelo ?? '—'} · {r.dias} dias · {r.motoristaPrincipal ?? '—'}</> : <>{r.modelo ?? '—'} · meta {r.co2MetaKg != null ? `${Math.round(r.co2MetaKg)} kg` : '—'}</>}
+                  </div>
+                </div>
+                <span className="text-sm font-bold text-red-600">{visaoPlaca === 'kml' ? r.kmlMedio.toFixed(2) : `${Math.round(r.co2EmitidoKg)} kg`}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       {carregando ? null : (

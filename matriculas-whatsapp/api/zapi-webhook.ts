@@ -3741,6 +3741,24 @@ async function responderMeuConsumo(remetente: string, filial: string, matricula:
   }
   linhas.push(`CO₂ emitido: *${Math.round(resultado.litrosTotal * FATOR_CO2_DIESEL_KG_POR_LITRO)} kg* 🌱`)
 
+  // Comparativo com o mês fechado anterior — mesma placa mais rodada NAQUELE
+  // mês, não necessariamente a mesma de agora (motorista pode ter trocado de
+  // caminhão); se não achar histórico suficiente, some o bloco sem travar a
+  // resposta principal.
+  const anterior = mesAnteriorFechadoRange()
+  const placaAnterior = await placaMaisRodadaPeloMotorista(filial, matricula, anterior.inicio, anterior.fim)
+  const resultadoAnterior = placaAnterior ? await kmlMedioDaPlacaNoMes(filial, placaAnterior, anterior.inicio, anterior.fim) : null
+  if (resultadoAnterior) {
+    const deltaPct = (resultado.kml - resultadoAnterior.kml) / resultadoAnterior.kml
+    const direcao = deltaPct >= 0 ? 'melhor' : 'pior'
+    const emoji = deltaPct >= 0 ? '📈' : '📉'
+    linhas.push(``, `📊 ${anterior.rotulo} (fechado): *${resultadoAnterior.kml.toFixed(2)} km/L*`)
+    linhas.push(`Você está *${Math.abs(Math.round(deltaPct * 100))}% ${direcao}* que o mês passado ${emoji}`)
+    if (placaAnterior !== placa) {
+      linhas.push(`_(mês passado você mais rodou a placa ${placaAnterior})_`)
+    }
+  }
+
   if (pct != null && pct < 0.6) {
     linhas.push(``, `💡 Pra melhorar o consumo:`, ...sortearDicasConsumo(2).map((d) => `• ${d}`))
   }
@@ -3827,6 +3845,21 @@ function mesAtualRange(): { inicio: string; fim: string; rotulo: string } {
   const fim = hojeSPISO()
   const [ano, mes] = fim.split('-').map(Number)
   return { inicio: `${ano}-${String(mes).padStart(2, '0')}-01`, fim, rotulo: `${MESES_PT[mes - 1]}/${String(ano).slice(2)}` }
+}
+
+// Mês calendário ANTERIOR completo (dia 1 ao último dia) — usado pra
+// comparar o resultado parcial do mês atual com o mês fechado anterior.
+function mesAnteriorFechadoRange(): { inicio: string; fim: string; rotulo: string } {
+  const hoje = hojeSPISO()
+  const [ano, mes] = hoje.split('-').map(Number)
+  const anoAnterior = mes === 1 ? ano - 1 : ano
+  const mesAnterior = mes === 1 ? 12 : mes - 1
+  const ultimoDia = new Date(Date.UTC(anoAnterior, mesAnterior, 0)).getUTCDate()
+  return {
+    inicio: `${anoAnterior}-${String(mesAnterior).padStart(2, '0')}-01`,
+    fim: `${anoAnterior}-${String(mesAnterior).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`,
+    rotulo: `${MESES_PT[mesAnterior - 1]}/${String(anoAnterior).slice(2)}`,
+  }
 }
 
 // Histórico por matrícula: soma os mapas em que a pessoa aparece como
