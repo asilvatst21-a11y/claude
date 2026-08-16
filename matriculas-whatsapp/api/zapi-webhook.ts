@@ -3663,11 +3663,16 @@ async function placaMaisRodadaPeloMotorista(filial: string, matricula: string, i
   return [...contagem.entries()].sort((a, b) => b[1] - a[1])[0][0]
 }
 
+// Fator de emissão do Diesel S10 por litro queimado — mesmo valor fixo
+// (~2,68 kg CO₂/L) usado no painel (src/lib/consumoCombustivel.ts). Litro
+// já é o mesmo do Km/L, então CO₂ não depende de nenhum dado novo.
+const FATOR_CO2_DIESEL_KG_POR_LITRO = 2.68
+
 // Km/L médio da placa no mês fechado — distância real (Boletim do Veículo
 // ou GEOTAB) somada por intervalo entre abastecimentos, dividida pelos
 // litros comprados; descarta intervalo com Km/L implausível (abastecimento
 // parcial fechando um intervalo longo). Mesma conta do painel.
-async function kmlMedioDaPlacaNoMes(filial: string, placa: string, inicio: string, fim: string): Promise<{ kml: number; meta: number | null } | null> {
+async function kmlMedioDaPlacaNoMes(filial: string, placa: string, inicio: string, fim: string): Promise<{ kml: number; meta: number | null; litrosTotal: number } | null> {
   const inicioAncora = subtrairDiasAurora(inicio, 60)
   const [{ data: abastecimentos }, { data: telemetria }, { data: geotab }, { data: metaRow }] = await Promise.all([
     supabase.from('combustivel_abastecimentos').select('data, litros').eq('filial', filial).eq('placa', placa).gte('data', inicioAncora).lte('data', fim).order('data'),
@@ -3701,7 +3706,7 @@ async function kmlMedioDaPlacaNoMes(filial: string, placa: string, inicio: strin
     dataAnterior = a.data
   }
   if (litrosTotal === 0) return null
-  return { kml: kmTotal / litrosTotal, meta }
+  return { kml: kmTotal / litrosTotal, meta, litrosTotal }
 }
 
 // Monta e envia a resposta de "minha média" — usado tanto quando o telefone
@@ -3734,6 +3739,7 @@ async function responderMeuConsumo(remetente: string, filial: string, matricula:
   } else {
     linhas.push(`Meta: _não cadastrada pra essa placa_`)
   }
+  linhas.push(`CO₂ emitido: *${Math.round(resultado.litrosTotal * FATOR_CO2_DIESEL_KG_POR_LITRO)} kg* 🌱`)
 
   if (pct != null && pct < 0.6) {
     linhas.push(``, `💡 Pra melhorar o consumo:`, ...sortearDicasConsumo(2).map((d) => `• ${d}`))
@@ -3793,6 +3799,10 @@ function montarRespostaMetaPlaca(info: { placa: string; meta: number | null; mod
   const linhas = [`🎯 *Meta de Km/L — placa ${info.placa}*`]
   if (info.modelo) linhas.push(`Modelo: ${info.modelo}`)
   linhas.push(info.meta != null ? `Meta cadastrada: *${info.meta.toFixed(2)} km/L*` : 'Meta: _ainda não cadastrada pra essa placa_')
+  if (info.meta != null && info.meta > 0) {
+    const metaCo2PorKm = FATOR_CO2_DIESEL_KG_POR_LITRO / info.meta
+    linhas.push(`Meta de emissão: *${metaCo2PorKm.toFixed(2)} kg CO₂/km* 🌱`)
+  }
   return linhas.join('\n')
 }
 

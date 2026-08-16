@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
-import { Fuel, Upload, Loader2, TrendingDown, TrendingUp, Clock, DollarSign, Route, ChevronRight, Info } from 'lucide-react'
+import { Fuel, Upload, Loader2, TrendingDown, TrendingUp, Clock, DollarSign, Route, ChevronRight, Info, Leaf } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
 import {
   parseAbastecimentoCsv, importarAbastecimentos, parseTelemetriaCsv, importarTelemetria,
   parseViagensGeotabXlsx, importarDistanciaDiariaGeotab,
   buscarRankingConsumo, buscarPorModelo, buscarPorCentroCusto, buscarImpactoRS, buscarIdleTime, buscarKmlPorRota,
   buscarMetasPlaca, salvarMetaPlaca, buscarRankingPorPlaca, mesAtualParcial,
-  MIN_DIAS_CONFIAVEL,
+  MIN_DIAS_CONFIAVEL, FATOR_CO2_DIESEL_KG_POR_LITRO,
   type RankingMotorista, type KmlPorGrupo, type ImpactoRS, type IdleMotorista, type KmlPorRota, type MetaPlaca, type RankingPlaca,
 } from '../../lib/consumoCombustivel'
 
@@ -188,6 +188,17 @@ export default function ConsumoCombustivel() {
     ? idle.porMotorista.reduce((s, m) => s + m.minutosMediaDia, 0) / idle.porMotorista.length
     : null
 
+  // Sustentabilidade — reaproveita o mesmo Ranking por placa acima (litros
+  // já saem de lá): nenhuma consulta nova, só soma o que já foi calculado.
+  const co2EmitidoTotalKg = rankingPlacas.reduce((s, r) => s + r.co2EmitidoKg, 0)
+  const litrosTotal = rankingPlacas.reduce((s, r) => s + r.litrosTotal, 0)
+  const kmTotalCo2 = rankingPlacas.reduce((s, r) => s + r.kmTotal, 0)
+  const co2MetaTotalKg = rankingPlacas.reduce((s, r) => s + (r.co2MetaKg ?? 0), 0)
+  const co2EvitadoKg = rankingPlacas.reduce((s, r) => s + (r.co2MetaKg != null ? Math.max(0, r.co2MetaKg - r.co2EmitidoKg) : 0), 0)
+  const co2DeltaPct = co2MetaTotalKg > 0 ? (co2EmitidoTotalKg - co2MetaTotalKg) / co2MetaTotalKg : null
+  const kgCo2PorKm = kmTotalCo2 > 0 ? co2EmitidoTotalKg / kmTotalCo2 : null
+  const rankingPlacasPorCo2 = [...rankingPlacas].sort((a, b) => b.co2EmitidoKg - a.co2EmitidoKg)
+
   return (
     <div className="p-4 sm:p-6 space-y-5 max-w-6xl mx-auto">
       <div>
@@ -347,6 +358,80 @@ export default function ConsumoCombustivel() {
             ))}
           </div>
         </div>
+      </div>
+
+      {/* 2.5 Sustentabilidade — CO₂ */}
+      <div className="bg-white border rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b">
+          <h2 className="font-semibold text-sm flex items-center gap-2"><Leaf className="h-4 w-4 text-emerald-600" /> Sustentabilidade</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Litros do próprio motor de Km/L (mesmo do Ranking por placa acima, mês {mesPlacas}) × {FATOR_CO2_DIESEL_KG_POR_LITRO.toFixed(2)} kg CO₂/litro (fator padrão Diesel S10) — nenhum dado novo, só o que já é calculado.
+          </p>
+        </div>
+        {carregandoPlacas ? (
+          <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
+        ) : rankingPlacas.length === 0 ? (
+          <p className="text-sm text-muted-foreground px-5 py-6 text-center">Sem dados suficientes nesse mês ainda.</p>
+        ) : (
+          <>
+            <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-gray-50 border rounded-xl p-3">
+                <div className="text-xs text-muted-foreground font-semibold uppercase">CO₂ emitido</div>
+                <div className="text-xl font-bold mt-1">{(co2EmitidoTotalKg / 1000).toFixed(2)} <span className="text-sm font-semibold text-muted-foreground">ton</span></div>
+                {co2DeltaPct != null && (
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded-full mt-1 inline-block ${co2DeltaPct <= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-700'}`}>
+                    {co2DeltaPct <= 0 ? '↓' : '↑'} {Math.abs(Math.round(co2DeltaPct * 100))}% vs meta
+                  </span>
+                )}
+              </div>
+              <div className="bg-gray-50 border rounded-xl p-3">
+                <div className="text-xs text-muted-foreground font-semibold uppercase">Litros consumidos</div>
+                <div className="text-xl font-bold mt-1">{Math.round(litrosTotal).toLocaleString('pt-BR')} <span className="text-sm font-semibold text-muted-foreground">L</span></div>
+              </div>
+              <div className="bg-gray-50 border rounded-xl p-3">
+                <div className="text-xs text-muted-foreground font-semibold uppercase">CO₂ evitado</div>
+                <div className="text-xl font-bold mt-1">{(co2EvitadoKg / 1000).toFixed(2)} <span className="text-sm font-semibold text-muted-foreground">ton</span></div>
+                <span className="text-xs text-muted-foreground">placas acima da meta de Km/L</span>
+              </div>
+              <div className="bg-gray-50 border rounded-xl p-3">
+                <div className="text-xs text-muted-foreground font-semibold uppercase">kg CO₂ / km</div>
+                <div className="text-xl font-bold mt-1">{kgCo2PorKm != null ? kgCo2PorKm.toFixed(2) : '—'}</div>
+              </div>
+            </div>
+            <div className="px-5 pb-2 text-xs font-semibold text-muted-foreground uppercase">Placas — maiores emissoras do mês</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-muted-foreground uppercase text-left border-b">
+                    <th className="px-5 py-2 font-semibold">Placa</th>
+                    <th className="px-2 py-2 font-semibold">Modelo</th>
+                    <th className="px-2 py-2 font-semibold">Km/L real</th>
+                    <th className="px-2 py-2 font-semibold">Litros</th>
+                    <th className="px-2 py-2 font-semibold">CO₂ emitido</th>
+                    <th className="px-2 py-2 font-semibold">Vs. meta</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rankingPlacasPorCo2.slice(0, 5).map((r) => (
+                    <tr key={r.placa} className="border-b last:border-0">
+                      <td className="px-5 py-2 font-mono font-semibold">{r.placa}</td>
+                      <td className="px-2 py-2 text-muted-foreground">{r.modelo ?? '—'}</td>
+                      <td className="px-2 py-2 font-mono">{r.kmlMedio.toFixed(2)}</td>
+                      <td className="px-2 py-2 font-mono text-muted-foreground">{Math.round(r.litrosTotal)} L</td>
+                      <td className="px-2 py-2 font-mono font-bold">{Math.round(r.co2EmitidoKg)} kg</td>
+                      <td className="px-2 py-2">
+                        <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>
+                          {r.pctMeta == null ? '—' : `${r.pctMeta >= 1 ? '↓' : '↑'} ${Math.abs(Math.round((r.pctMeta - 1) * 100))}%`}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="px-5 py-3 text-xs text-muted-foreground border-t">Mostrando as 5 placas com maior emissão total no mês — mesmo critério do Top5/Bottom5 de Km/L acima.</div>
+          </>
+        )}
       </div>
 
       {carregando ? null : (

@@ -828,9 +828,17 @@ function mediaKmlPonderada(linhas: DiaUtilMotorista[]): number {
   return litrosTotal > 0 ? kmTotal / litrosTotal : linhas.reduce((s, l) => s + l.kml, 0) / linhas.length
 }
 
+// Fator de emissão do Diesel S10 por litro queimado — valor fixo (IPCC/
+// inventários de frota costumam usar ~2,68 kg CO₂/L), não vem de nenhum
+// relatório importado. O litro em si já é o mesmo usado no Km/L (distância
+// real do intervalo ÷ litros do abastecimento que fechou o intervalo) — não
+// depende de nenhuma coluna nova, só multiplica o que já é calculado.
+export const FATOR_CO2_DIESEL_KG_POR_LITRO = 2.68
+
 export interface RankingPlaca {
   placa: string; modelo: string | null; dias: number; kmlMedio: number; meta: number | null; pctMeta: number | null; kmTotal: number
   motoristaPrincipal: string | null; diasMotoristaPrincipal: number
+  litrosTotal: number; co2EmitidoKg: number; co2MetaKg: number | null
 }
 
 export async function buscarRankingPorPlaca(filial: string, inicio: string, fim: string): Promise<RankingPlaca[]> {
@@ -846,6 +854,8 @@ export async function buscarRankingPorPlaca(filial: string, inicio: string, fim:
   for (const [placa, linhas] of porPlaca) {
     const kmlMedio = mediaKmlPonderada(linhas)
     const meta = linhas.find((l) => l.meta != null)?.meta ?? null
+    const kmTotal = linhas.reduce((s, l) => s + l.distancia, 0)
+    const litrosTotal = kmlMedio > 0 ? kmTotal / kmlMedio : 0
     const porNome = new Map<string, number>()
     for (const l of linhas) porNome.set(l.nome, (porNome.get(l.nome) ?? 0) + 1)
     let motoristaPrincipal: string | null = null
@@ -855,8 +865,10 @@ export async function buscarRankingPorPlaca(filial: string, inicio: string, fim:
     }
     resultado.push({
       placa, modelo: linhas[0].modelo, dias: linhas.length, kmlMedio, meta,
-      pctMeta: meta ? kmlMedio / meta : null, kmTotal: linhas.reduce((s, l) => s + l.distancia, 0),
+      pctMeta: meta ? kmlMedio / meta : null, kmTotal,
       motoristaPrincipal, diasMotoristaPrincipal,
+      litrosTotal, co2EmitidoKg: litrosTotal * FATOR_CO2_DIESEL_KG_POR_LITRO,
+      co2MetaKg: meta ? (kmTotal / meta) * FATOR_CO2_DIESEL_KG_POR_LITRO : null,
     })
   }
   // Km/L real é o critério principal — % da meta é informação secundária
