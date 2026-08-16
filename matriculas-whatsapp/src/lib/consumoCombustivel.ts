@@ -838,7 +838,11 @@ export const FATOR_CO2_DIESEL_KG_POR_LITRO = 2.68
 export interface RankingPlaca {
   placa: string; modelo: string | null; dias: number; kmlMedio: number; meta: number | null; pctMeta: number | null; kmTotal: number
   motoristaPrincipal: string | null; diasMotoristaPrincipal: number
-  litrosTotal: number; co2EmitidoKg: number; co2MetaKg: number | null
+  // co2EmitidoKg é um TOTAL do período (cresce com os dias/km rodados).
+  // metaCo2PorKm é uma TAXA fixa (kg de CO₂ por km, na meta de Km/L da
+  // placa) — não escala com o período, mesma natureza de `meta` (Km/L),
+  // pra não misturar "meta" (constante) com "resultado" (total do mês).
+  litrosTotal: number; co2EmitidoKg: number; metaCo2PorKm: number | null
 }
 
 export async function buscarRankingPorPlaca(filial: string, inicio: string, fim: string): Promise<RankingPlaca[]> {
@@ -868,7 +872,7 @@ export async function buscarRankingPorPlaca(filial: string, inicio: string, fim:
       pctMeta: meta ? kmlMedio / meta : null, kmTotal,
       motoristaPrincipal, diasMotoristaPrincipal,
       litrosTotal, co2EmitidoKg: litrosTotal * FATOR_CO2_DIESEL_KG_POR_LITRO,
-      co2MetaKg: meta ? (kmTotal / meta) * FATOR_CO2_DIESEL_KG_POR_LITRO : null,
+      metaCo2PorKm: meta ? FATOR_CO2_DIESEL_KG_POR_LITRO / meta : null,
     })
   }
   // Km/L real é o critério principal — % da meta é informação secundária

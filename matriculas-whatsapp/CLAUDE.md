@@ -35,3 +35,39 @@ explicitamente nas opções do `toLocaleDateString('pt-BR', ...)`.
 
 Ao adicionar uma nova tela ou campo com data, siga essa convenção desde o
 início usando o helper apropriado.
+
+## Sem textos explicativos/metodológicos nas telas
+
+Não adicione parágrafos explicando "como isso é calculado", "o que significa
+essa métrica" ou "método usado" nas telas (subtítulos de seção, caixas de
+aviso tipo "Método:", texto abaixo de um badge explicando o que ele quer
+dizer). Esse tipo de texto acumula e vira ruído — cria dúvida em vez de
+esclarecer ("aquela interrogação").
+
+A tela deve se explicar sozinha pelo nome da seção, das colunas e dos
+badges/pills. Se um número precisa de explicação pra ser entendido, o
+problema é o número/label estar mal nomeado, não a falta de um parágrafo
+ao lado.
+
+**O que continua permitido** (não é "explicação", é dado):
+
+- Um subtítulo que mostra um valor calculado, ex.: `Total no período: R$
+  1.234,56` ou `Total da frota: 12,4 horas` — isso é resultado, não método.
+- Mensagens de erro/vazio ("Nenhuma placa conhecida ainda — importe o
+  relatório primeiro") — orientam uma ação, não explicam cálculo.
+
+Vale para toda tela nova ou alterada daqui pra frente, não só Consumo de
+Combustível.
+
+## Meta é taxa, resultado é total — não misturar
+
+Quando uma tela mostra uma "meta" ao lado de um "resultado" do período
+(ex.: Km/L meta vs Km/L real, Meta CO₂ vs CO₂ emitido), a meta deve ser
+sempre uma **taxa/constante** (não muda se o período filtrado mudar) — nunca
+um total escalado pelos dias/km do período. Um total-como-meta parece
+comparável ao resultado mas na verdade se move junto com o filtro de data,
+o que confunde quem está lendo.
+
+Exemplo: `metaCo2PorKm` (kg de CO₂ por km, fixo) é a meta certa ao lado de
+`co2EmitidoKg` (total do período) — não `metaKg = (km do período ÷ meta) ×
+fator`, que cresce ou encolhe conforme o período escolhido.

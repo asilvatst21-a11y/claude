@@ -7,7 +7,6 @@ import {
   parseViagensGeotabXlsx, importarDistanciaDiariaGeotab,
   buscarRankingConsumo, buscarPorModelo, buscarPorCentroCusto, buscarImpactoRS, buscarIdleTime, buscarKmlPorRota,
   buscarMetasPlaca, salvarMetaPlaca, buscarRankingPorPlaca, mesAtualParcial,
-  MIN_DIAS_CONFIAVEL, FATOR_CO2_DIESEL_KG_POR_LITRO,
   type RankingMotorista, type KmlPorGrupo, type ImpactoRS, type IdleMotorista, type KmlPorRota, type MetaPlaca, type RankingPlaca,
 } from '../../lib/consumoCombustivel'
 
@@ -191,11 +190,19 @@ export default function ConsumoCombustivel() {
 
   // Sustentabilidade — reaproveita o mesmo Ranking por placa acima (litros
   // já saem de lá): nenhuma consulta nova, só soma o que já foi calculado.
+  // co2MetaTotalKg é derivado aqui (taxa × km do período) só pra somar os
+  // KPIs abaixo — a taxa em si (metaCo2PorKm) é o que aparece na tabela,
+  // pra não misturar "meta" (constante) com "total do mês" (varia com o
+  // período escolhido).
   const co2EmitidoTotalKg = rankingPlacas.reduce((s, r) => s + r.co2EmitidoKg, 0)
   const litrosTotal = rankingPlacas.reduce((s, r) => s + r.litrosTotal, 0)
   const kmTotalCo2 = rankingPlacas.reduce((s, r) => s + r.kmTotal, 0)
-  const co2MetaTotalKg = rankingPlacas.reduce((s, r) => s + (r.co2MetaKg ?? 0), 0)
-  const co2EvitadoKg = rankingPlacas.reduce((s, r) => s + (r.co2MetaKg != null ? Math.max(0, r.co2MetaKg - r.co2EmitidoKg) : 0), 0)
+  const co2MetaTotalKg = rankingPlacas.reduce((s, r) => s + (r.metaCo2PorKm != null ? r.metaCo2PorKm * r.kmTotal : 0), 0)
+  const co2EvitadoKg = rankingPlacas.reduce((s, r) => {
+    if (r.metaCo2PorKm == null) return s
+    const metaTotalPlaca = r.metaCo2PorKm * r.kmTotal
+    return s + Math.max(0, metaTotalPlaca - r.co2EmitidoKg)
+  }, 0)
   const co2DeltaPct = co2MetaTotalKg > 0 ? (co2EmitidoTotalKg - co2MetaTotalKg) / co2MetaTotalKg : null
   const kgCo2PorKm = kmTotalCo2 > 0 ? co2EmitidoTotalKg / kmTotalCo2 : null
   const rankingPlacasPorCo2 = [...rankingPlacas].sort((a, b) => b.co2EmitidoKg - a.co2EmitidoKg)
@@ -215,7 +222,6 @@ export default function ConsumoCombustivel() {
       <div className="bg-white border rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b">
           <h2 className="font-semibold text-sm">Importar relatórios</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Os relatórios são independentes — importe cada um sempre que tiver um novo período. O Km/L nunca vem pronto de nenhum deles: é sempre calculado aqui (distância real ÷ litros comprados por intervalo entre abastecimentos).</p>
         </div>
         <div className="p-5 grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <div>
@@ -246,10 +252,6 @@ export default function ConsumoCombustivel() {
         <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
       ) : (
         <>
-          <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 text-xs text-muted-foreground">
-            <b className="text-foreground">Método:</b> o motorista de cada dia vem da Escala do dia (03.11.49.02), não do rastreador — caminhões são compartilhados por vários motoristas, e o rastreador só sabe quem logou nele, não quem devia estar dirigindo. O Km/L é sempre calculado aqui: distância real do dia (Boletim do Veículo ou GEOTAB) somada por intervalo entre abastecimentos, dividida pelos litros comprados naquele intervalo — nunca o valor que a telemetria já traz pronta. Motoristas com menos de {MIN_DIAS_CONFIAVEL} dias úteis aparecem marcados como "amostra pequena" — a posição deles no ranking pode não representar o mês todo.
-          </div>
-
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="bg-white border rounded-2xl p-4">
               <div className="text-xs text-muted-foreground font-semibold uppercase">Km/L médio da frota</div>
@@ -272,13 +274,6 @@ export default function ConsumoCombustivel() {
         <div className="px-5 py-4 border-b flex items-center justify-between gap-3 flex-wrap">
           <div>
             <h2 className="font-semibold text-sm">Ranking por placa</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {visaoPlaca === 'kml' ? (
-                <>Ordenado pelo Km/L real — mais robusto que o ranking por motorista, cada placa acumula muito mais dias. "Motorista principal" é quem mais rodou aquela placa no período; é essa a base usada quando o motorista pergunta pro bot qual é a média dele.</>
-              ) : (
-                <>Litros do próprio motor de Km/L × {FATOR_CO2_DIESEL_KG_POR_LITRO.toFixed(2)} kg CO₂/litro (fator padrão Diesel S10) — nenhum dado novo, só o que já é calculado acima.</>
-              )}
-            </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
             <div className="flex gap-1 bg-gray-100 rounded-lg p-1 text-xs font-semibold">
@@ -364,7 +359,7 @@ export default function ConsumoCombustivel() {
                     <th className="px-2 py-2 font-semibold">Km/L real</th>
                     <th className="px-2 py-2 font-semibold">Litros</th>
                     <th className="px-2 py-2 font-semibold">CO₂ emitido</th>
-                    <th className="px-2 py-2 font-semibold">Meta CO₂</th>
+                    <th className="px-2 py-2 font-semibold">Meta CO₂ (kg/km)</th>
                     <th className="px-2 py-2 font-semibold">Vs. meta</th>
                   </tr>
                 </thead>
@@ -377,7 +372,7 @@ export default function ConsumoCombustivel() {
                       <td className="px-2 py-2 font-mono">{r.kmlMedio.toFixed(2)}</td>
                       <td className="px-2 py-2 font-mono text-muted-foreground">{Math.round(r.litrosTotal)} L</td>
                       <td className="px-2 py-2 font-mono font-bold">{Math.round(r.co2EmitidoKg)} kg</td>
-                      <td className="px-2 py-2 font-mono text-muted-foreground">{r.co2MetaKg != null ? `${Math.round(r.co2MetaKg)} kg` : '—'}</td>
+                      <td className="px-2 py-2 font-mono text-muted-foreground">{r.metaCo2PorKm != null ? r.metaCo2PorKm.toFixed(2) : '—'}</td>
                       <td className="px-2 py-2">
                         <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${pillPct(r.pctMeta)}`}>
                           {r.pctMeta == null ? '—' : `${r.pctMeta >= 1 ? '↓' : '↑'} ${Math.abs(Math.round((r.pctMeta - 1) * 100))}%`}
@@ -406,7 +401,7 @@ export default function ConsumoCombustivel() {
                 <div className="flex-1 min-w-0">
                   <div className="font-medium font-mono truncate">{r.placa}</div>
                   <div className="text-xs text-muted-foreground truncate">
-                    {visaoPlaca === 'kml' ? <>{r.modelo ?? '—'} · {r.dias} dias · {r.motoristaPrincipal ?? '—'}</> : <>{r.modelo ?? '—'} · meta {r.co2MetaKg != null ? `${Math.round(r.co2MetaKg)} kg` : '—'}</>}
+                    {visaoPlaca === 'kml' ? <>{r.modelo ?? '—'} · {r.dias} dias · {r.motoristaPrincipal ?? '—'}</> : <>{r.modelo ?? '—'} · meta {r.metaCo2PorKm != null ? `${r.metaCo2PorKm.toFixed(2)} kg/km` : '—'}</>}
                   </div>
                 </div>
                 <span className={`text-sm font-bold ${visaoPlaca === 'kml' ? 'text-brand-700' : 'text-emerald-700'}`}>{visaoPlaca === 'kml' ? r.kmlMedio.toFixed(2) : `${Math.round(r.co2EmitidoKg)} kg`}</span>
@@ -426,7 +421,7 @@ export default function ConsumoCombustivel() {
                 <div className="flex-1 min-w-0">
                   <div className="font-medium font-mono truncate">{r.placa}</div>
                   <div className="text-xs text-muted-foreground truncate">
-                    {visaoPlaca === 'kml' ? <>{r.modelo ?? '—'} · {r.dias} dias · {r.motoristaPrincipal ?? '—'}</> : <>{r.modelo ?? '—'} · meta {r.co2MetaKg != null ? `${Math.round(r.co2MetaKg)} kg` : '—'}</>}
+                    {visaoPlaca === 'kml' ? <>{r.modelo ?? '—'} · {r.dias} dias · {r.motoristaPrincipal ?? '—'}</> : <>{r.modelo ?? '—'} · meta {r.metaCo2PorKm != null ? `${r.metaCo2PorKm.toFixed(2)} kg/km` : '—'}</>}
                   </div>
                 </div>
                 <span className="text-sm font-bold text-red-600">{visaoPlaca === 'kml' ? r.kmlMedio.toFixed(2) : `${Math.round(r.co2EmitidoKg)} kg`}</span>
@@ -443,7 +438,6 @@ export default function ConsumoCombustivel() {
             <div className="px-5 py-4 border-b flex items-center justify-between gap-3 flex-wrap">
               <div>
                 <h2 className="font-semibold text-sm">Ranking geral por motorista ({ranking?.porPct.length ?? 0})</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Motoristas com menos de {MIN_DIAS_CONFIAVEL} dias úteis ficam marcados como amostra pequena</p>
               </div>
               <div className="flex gap-1 bg-gray-100 rounded-lg p-1 text-xs font-semibold">
                 <button onClick={() => setVisaoRanking('pct')} className={`px-3 py-1.5 rounded-md ${visaoRanking === 'pct' ? 'bg-white shadow text-brand-700' : 'text-muted-foreground'}`}>Por % da meta</button>
@@ -564,7 +558,6 @@ export default function ConsumoCombustivel() {
               <Route className="h-4 w-4 text-brand-600" />
               <div>
                 <h2 className="font-semibold text-sm">Km/L por cidade de entrega</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">Cidade com mais entregas no dia (Escala do dia) — mínimo de 3 dias por cidade</p>
               </div>
             </div>
             {porRota.length === 0 ? (
@@ -656,7 +649,6 @@ export default function ConsumoCombustivel() {
       <div className="bg-white border rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b">
           <h2 className="font-semibold text-sm">Meta de Km/L por placa</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Cadastro próprio, independente do relatório de abastecimento — usado em todo o cálculo acima. Placa com meta 0 fica de fora do ranking até ser preenchida.</p>
         </div>
         {carregandoMetas ? (
           <div className="flex justify-center py-8"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
