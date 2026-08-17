@@ -12,9 +12,9 @@ import { useAuth } from '../../lib/auth'
 import {
   buscarResumoDia, buscarHistoricoMes, buscarRankingColaboradores, buscarExtratoColaborador,
   buscarComparativoDesempenho, buscarMigracaoClusters, mesAnteriorDe, importarPontuacao, formatarBRL,
-  vincularCpfsPendentes,
+  vincularCpfsPendentes, listarColaboradoresComHistorico, buscarHistoricoMensal,
   type ResumoVariavel, type HistoricoMes, type ColaboradorRanking, type ExtratoColaborador,
-  type ComparativoColaborador, type MigracaoColaborador,
+  type ComparativoColaborador, type MigracaoColaborador, type ColaboradorComHistorico, type HistoricoMensalColaborador,
 } from '../../lib/variavelArmazem'
 import { formatarDataBR } from '../../lib/utils'
 import VariavelTurnoAdmin from './VariavelTurnoAdmin'
@@ -95,9 +95,160 @@ function Colapsavel({
   )
 }
 
+const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+function rotuloMes(mesISO: string): string {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  return `${MESES_ABREV[mes - 1]}/${String(ano).slice(2)}`
+}
+
+// Mês em que o histórico de planilha antiga (sem import diário na tela) foi
+// inserido direto na tabela deixa de dar pra distinguir por aqui — não há
+// coluna "origem". Usa uma data de corte simples: tudo antes do primeiro
+// mês com import diário normal (guardado à parte) conta como "planilha".
+const PRIMEIRO_MES_SISTEMA = '2026-06'
+
+function HistoricoMensalTab({
+  colaboradores, chave, onChave, dados, loading,
+}: {
+  colaboradores: ColaboradorComHistorico[]
+  chave: string
+  onChave: (v: string) => void
+  dados: HistoricoMensalColaborador | null
+  loading: boolean
+}) {
+  const meses = dados?.meses ?? []
+  const mesAtual = meses[meses.length - 1] ?? null
+  const mesAnterior = meses[meses.length - 2] ?? null
+  const pctVsAnterior = mesAtual && mesAnterior && mesAnterior.valorTotal > 0
+    ? ((mesAtual.valorTotal - mesAnterior.valorTotal) / mesAnterior.valorTotal) * 100
+    : null
+  const badgeVsAnterior = variacaoBadge(pctVsAnterior)
+
+  const ultimos6 = meses.slice(-6)
+  const media6 = ultimos6.length > 0 ? ultimos6.reduce((s, m) => s + m.valorTotal, 0) / ultimos6.length : 0
+  const melhorMes = meses.reduce<typeof meses[number] | null>((melhor, m) => (!melhor || m.valorTotal > melhor.valorTotal ? m : melhor), null)
+
+  const mediaSemUltimo = meses.length > 1
+    ? meses.slice(0, -1).reduce((s, m) => s + m.valorTotal, 0) / (meses.length - 1)
+    : null
+  const tendencia = mediaSemUltimo == null || !mesAtual ? null
+    : mesAtual.valorTotal > mediaSemUltimo * 1.05 ? 'up'
+    : mesAtual.valorTotal < mediaSemUltimo * 0.95 ? 'down'
+    : 'flat'
+
+  const maxValor = Math.max(1, ...meses.map((m) => m.valorTotal))
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border rounded-lg p-4 flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-xs text-muted-foreground font-medium mb-1">Colaborador</label>
+          <select
+            value={chave}
+            onChange={(e) => onChave(e.target.value)}
+            className="border rounded-md px-3 py-2 text-sm min-w-[260px] focus:outline-none focus:ring-2 focus:ring-accent-500"
+          >
+            {colaboradores.length === 0 && <option value="">Nenhum colaborador com histórico</option>}
+            {colaboradores.map((c) => <option key={c.chave} value={c.chave}>{c.nome}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center gap-4 ml-auto text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-gray-300" /> Planilha histórica (antes de {rotuloMes(PRIMEIRO_MES_SISTEMA)})</span>
+          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-accent-500" /> Importado no sistema</span>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-muted-foreground text-sm">Carregando...</div>
+      ) : meses.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground text-sm">Sem histórico pra esse colaborador ainda.</div>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="border rounded-lg p-3 bg-white">
+              <div className="text-[11px] text-muted-foreground mb-0.5">Mês atual{mesAtual ? ` (${rotuloMes(mesAtual.mes)})` : ''}</div>
+              <div className="text-lg font-bold tabular-nums">{formatarBRL(mesAtual?.valorTotal ?? 0)}</div>
+              {pctVsAnterior != null && <div className={`text-xs font-semibold ${badgeVsAnterior.cor}`}>{badgeVsAnterior.texto} vs {mesAnterior ? rotuloMes(mesAnterior.mes) : ''}</div>}
+            </div>
+            <div className="border rounded-lg p-3 bg-white">
+              <div className="text-[11px] text-muted-foreground mb-0.5">Média (até 6 meses)</div>
+              <div className="text-lg font-bold tabular-nums">{formatarBRL(media6)}</div>
+            </div>
+            <div className="border rounded-lg p-3 bg-white">
+              <div className="text-[11px] text-muted-foreground mb-0.5">Melhor mês</div>
+              <div className="text-lg font-bold tabular-nums text-green-700">{formatarBRL(melhorMes?.valorTotal ?? 0)}</div>
+              <div className="text-[11px] text-muted-foreground tabular-nums">{melhorMes ? rotuloMes(melhorMes.mes) : '—'}</div>
+            </div>
+            <div className="border rounded-lg p-3 bg-white">
+              <div className="text-[11px] text-muted-foreground mb-0.5">Tendência</div>
+              <div className={`text-lg font-bold ${tendencia === 'up' ? 'text-green-700' : tendencia === 'down' ? 'text-red-600' : 'text-muted-foreground'}`}>
+                {tendencia === 'up' ? 'Evoluindo' : tendencia === 'down' ? 'Caindo' : tendencia === 'flat' ? 'Estável' : '—'}
+              </div>
+            </div>
+          </div>
+
+          <div className="border rounded-lg bg-white p-4">
+            <div className="flex items-end gap-3" style={{ height: 180 }}>
+              {meses.map((m) => {
+                const historicoAntigo = m.mes < PRIMEIRO_MES_SISTEMA
+                return (
+                  <div key={m.mes} className="flex-1 flex flex-col items-center justify-end h-full">
+                    <div className="text-[10px] font-semibold tabular-nums mb-1">{brlCompacto(m.valorTotal)}</div>
+                    <div
+                      className={`w-full max-w-[46px] rounded-t-md ${historicoAntigo ? 'bg-gray-300' : 'bg-accent-500'}`}
+                      style={{ height: `${Math.max(4, (m.valorTotal / maxValor) * 130)}px` }}
+                      title={`${rotuloMes(m.mes)} · ${formatarBRL(m.valorTotal)}`}
+                    />
+                    <div className="text-[11px] text-muted-foreground mt-2 font-medium">{rotuloMes(m.mes)}</div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto border rounded-lg bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Mês</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Valor RV</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Dias lançados</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Variação</th>
+                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Origem</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {[...meses].reverse().map((m, i, arr) => {
+                  const anterior = arr[i + 1]
+                  const pct = anterior && anterior.valorTotal > 0 ? ((m.valorTotal - anterior.valorTotal) / anterior.valorTotal) * 100 : null
+                  const badge = variacaoBadge(pct)
+                  const historicoAntigo = m.mes < PRIMEIRO_MES_SISTEMA
+                  return (
+                    <tr key={m.mes} className="hover:bg-muted/30 transition-colors">
+                      <td className="px-3 py-2 font-medium">{rotuloMes(m.mes)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{formatarBRL(m.valorTotal)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{m.diasLancados}</td>
+                      <td className={`px-3 py-2 text-right font-semibold ${badge.cor}`}>{badge.texto}</td>
+                      <td className="px-3 py-2">
+                        <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full ${historicoAntigo ? 'bg-gray-100 text-gray-600' : 'bg-accent-100 text-accent-700'}`}>
+                          {historicoAntigo ? '📄 Planilha' : '🖥️ Sistema'}
+                        </span>
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function ArmazemVariavel() {
   const { usuario } = useAuth()
-  const [aba, setAba] = useState<'pontuacao' | 'turno'>('pontuacao')
+  const [aba, setAba] = useState<'pontuacao' | 'turno' | 'historico'>('pontuacao')
   const [data, setData] = useState(ontemISO)
   const [resumo, setResumo] = useState<ResumoVariavel | null>(null)
   const [loading, setLoading] = useState(true)
@@ -111,6 +262,14 @@ export default function ArmazemVariavel() {
   const [historico, setHistorico] = useState<HistoricoMes | null>(null)
   const [historicoAnterior, setHistoricoAnterior] = useState<HistoricoMes | null>(null)
   const [loadingHist, setLoadingHist] = useState(true)
+
+  // Histórico Mensal (aba própria): evolução mês a mês de UM colaborador,
+  // juntando o que já foi importado dia a dia com o histórico de planilhas
+  // antigas (inserido direto na mesma tabela, sem tela de import própria).
+  const [colaboradoresHistorico, setColaboradoresHistorico] = useState<ColaboradorComHistorico[]>([])
+  const [chaveHistorico, setChaveHistorico] = useState('')
+  const [evolucaoMensal, setEvolucaoMensal] = useState<HistoricoMensalColaborador | null>(null)
+  const [loadingEvolucao, setLoadingEvolucao] = useState(false)
 
   // Ranking de colaboradores num intervalo de datas específico. O usuário
   // escolhe por qual métrica ordenar (média, total, valor, dias, faltas) e a direção.
@@ -224,6 +383,25 @@ export default function ArmazemVariavel() {
       .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao carregar o extrato.'))
       .finally(() => setLoadingExtrato(false))
   }, [usuario, extratoAlvo, rankIni, rankFim])
+
+  useEffect(() => {
+    if (!usuario || aba !== 'historico') return
+    listarColaboradoresComHistorico(usuario.filial)
+      .then((lista) => {
+        setColaboradoresHistorico(lista)
+        setChaveHistorico((atual) => atual || lista[0]?.chave || '')
+      })
+      .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao carregar os colaboradores.'))
+  }, [usuario, aba])
+
+  useEffect(() => {
+    if (!usuario || !chaveHistorico) { setEvolucaoMensal(null); return }
+    setLoadingEvolucao(true)
+    buscarHistoricoMensal(usuario.filial, chaveHistorico)
+      .then(setEvolucaoMensal)
+      .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao carregar o histórico mensal.'))
+      .finally(() => setLoadingEvolucao(false))
+  }, [usuario, chaveHistorico])
 
   const [vinculando, setVinculando] = useState(false)
 
@@ -358,6 +536,8 @@ export default function ArmazemVariavel() {
           <p className="text-sm text-muted-foreground mt-1">
             {aba === 'pontuacao'
               ? 'Suba o relatório de pontuação do dia — o valor é calculado por cluster e o painel atualiza na hora.'
+              : aba === 'historico'
+              ? 'Evolução mês a mês por colaborador — junta o histórico de planilhas antigas com o que já foi importado no sistema.'
               : 'Atividades com meta por turno, fechadas pelo conferente ou lançadas direto aqui — RV individual por colaborador.'}
           </p>
         </div>
@@ -383,12 +563,26 @@ export default function ArmazemVariavel() {
         >
           Atividades por Turno
         </button>
+        <button
+          onClick={() => setAba('historico')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'historico' ? 'border-accent-600 text-accent-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          Histórico Mensal
+        </button>
       </div>
 
       {aba === 'turno' ? (
         <div className="space-y-4">
           {usuario && <VariavelTurnoAdmin filial={usuario.filial} />}
         </div>
+      ) : aba === 'historico' ? (
+        <HistoricoMensalTab
+          colaboradores={colaboradoresHistorico}
+          chave={chaveHistorico}
+          onChave={setChaveHistorico}
+          dados={evolucaoMensal}
+          loading={loadingEvolucao}
+        />
       ) : (
       <>
 

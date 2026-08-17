@@ -615,6 +615,83 @@ export async function buscarExtratoColaborador(filial: string, dataIni: string, 
   }
 }
 
+// ── Histórico mensal (evolução mês a mês) ────────────────────────────────
+// Sem filtro de data — varre tudo que existir pra aquele colaborador desde o
+// primeiro mês importado (incluindo o histórico de planilhas antigas
+// inserido direto na mesma tabela). Pagina com .range(): sem isso, uma
+// tabela que já passou dos 1000 registros do limite padrão do PostgREST
+// corta o resultado silenciosamente (mesmo bug já corrigido em Gsdpq.tsx).
+const PAGINA_VARIAVEL = 1000
+
+export interface MesHistorico {
+  mes: string // "2026-01"
+  valorTotal: number
+  diasLancados: number
+  pontuacaoMedia: number
+}
+
+export interface HistoricoMensalColaborador {
+  chave: string
+  nome: string
+  meses: MesHistorico[]
+}
+
+export interface ColaboradorComHistorico { chave: string; nome: string }
+
+export async function listarColaboradoresComHistorico(filial: string): Promise<ColaboradorComHistorico[]> {
+  const mapa = new Map<string, string>()
+  for (let inicio = 0; ; inicio += PAGINA_VARIAVEL) {
+    const { data, error } = await supabase.from('variavel_pontuacao')
+      .select('nome_relatorio, colaborador_id')
+      .eq('filial', filial)
+      .range(inicio, inicio + PAGINA_VARIAVEL - 1)
+    if (error) { console.error('listarColaboradoresComHistorico error:', error.message); break }
+    for (const r of data ?? []) {
+      const chave = r.colaborador_id ?? r.nome_relatorio
+      if (!mapa.has(chave)) mapa.set(chave, r.nome_relatorio)
+    }
+    if (!data || data.length < PAGINA_VARIAVEL) break
+  }
+  return [...mapa.entries()].map(([chave, nome]) => ({ chave, nome })).sort((a, b) => a.nome.localeCompare(b.nome))
+}
+
+// `chave` é colaborador_id (UUID) quando o lançamento já foi vinculado ao
+// cadastro, ou o nome do relatório quando ainda não (mesma convenção do
+// ranking/extrato) — filtra num campo ou no outro conforme o formato.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+export async function buscarHistoricoMensal(filial: string, chave: string): Promise<HistoricoMensalColaborador> {
+  const porMesUuid = UUID_RE.test(chave)
+  const linhas: { data: string; total: number; valor: number; nome: string }[] = []
+  for (let inicio = 0; ; inicio += PAGINA_VARIAVEL) {
+    let query = supabase.from('variavel_pontuacao')
+      .select('nome_relatorio, data, total, valor_calculado')
+      .eq('filial', filial)
+      .range(inicio, inicio + PAGINA_VARIAVEL - 1)
+    query = porMesUuid ? query.eq('colaborador_id', chave) : query.eq('nome_relatorio', chave).is('colaborador_id', null)
+    const { data, error } = await query
+    if (error) { console.error('buscarHistoricoMensal error:', error.message); break }
+    for (const r of data ?? []) linhas.push({ data: String(r.data), total: Number(r.total), valor: Number(r.valor_calculado), nome: r.nome_relatorio })
+    if (!data || data.length < PAGINA_VARIAVEL) break
+  }
+
+  const porMes = new Map<string, { valor: number; dias: number; pontos: number }>()
+  for (const l of linhas) {
+    const mes = l.data.slice(0, 7)
+    const acc = porMes.get(mes) ?? { valor: 0, dias: 0, pontos: 0 }
+    acc.valor += l.valor
+    acc.dias += 1
+    acc.pontos += l.total
+    porMes.set(mes, acc)
+  }
+
+  const meses = [...porMes.entries()]
+    .map(([mes, v]) => ({ mes, valorTotal: v.valor, diasLancados: v.dias, pontuacaoMedia: v.dias > 0 ? v.pontos / v.dias : 0 }))
+    .sort((a, b) => a.mes.localeCompare(b.mes))
+
+  return { chave, nome: linhas[0]?.nome ?? '', meses }
+}
+
 // ── Totem (consulta do colaborador) ──────────────────────────────────────
 // A remuneração variável fecha em competência 21→20 (ex.: "07/2026" cobre
 // 21/06/2026 a 20/07/2026 — o rótulo é o mês em que a janela TERMINA), não em
