@@ -290,13 +290,19 @@ function TabelaoMensalTab({ dados, loading }: { dados: TabelaoMensal | null; loa
   }
 
   const mesesOrdenados = todosMeses.filter((m) => mesesVisiveis.has(m))
-  const linhas = (dados?.linhas ?? []).filter((l) => l.nome.toLowerCase().includes(busca.toLowerCase()))
 
   const valorCelula = (porMes: TabelaoMensal['linhas'][number]['porMes'], mes: string): number | null => {
     const v = porMes[mes]
     if (!v) return null
     return valorDoMes(v, metrica, agregacao)
   }
+
+  // Some da lista quem não tem nenhum lançamento em NENHUM dos meses
+  // visíveis no momento — troca o filtro de mês e a lista se ajusta sozinha,
+  // em vez de mostrar uma linha inteira de "—".
+  const linhas = (dados?.linhas ?? [])
+    .filter((l) => l.nome.toLowerCase().includes(busca.toLowerCase()))
+    .filter((l) => mesesOrdenados.some((mes) => l.porMes[mes] != null))
 
   const mediaFrotaPorMes = mesesOrdenados.map((mes) => {
     const valores = (dados?.linhas ?? []).map((l) => valorCelula(l.porMes, mes)).filter((v): v is number => v != null)
