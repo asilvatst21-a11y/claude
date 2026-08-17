@@ -10,7 +10,7 @@ import {
   FileSpreadsheet, ChevronDown, ChevronUp, AlertTriangle, CheckCircle,
   XCircle, Users, ClipboardList, BarChart2, RefreshCw, Shield, Upload,
   Download, Plus, Loader2, Building2, ShieldCheck, Star, Zap, GitBranch,
-  Settings, UserX, Send, Pencil
+  Settings, UserX, Send, Pencil, ChevronRight
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
@@ -727,7 +727,9 @@ export default function Gsdpq() {
   const [novaEquipeValor, setNovaEquipeValor] = useState('')
   const [salvandoEquipe, setSalvandoEquipe] = useState(false)
   const exportVencimentosRef = useRef<HTMLDivElement>(null)
-  const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'colaboradores' | 'questoes' | 'acoes' | 'completo' | 'vencimentos'>('dashboard')
+  const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'colaboradores' | 'questoes' | 'acoes' | 'reincidencias' | 'completo' | 'vencimentos'>('dashboard')
+  const [reincidenciaColab, setReincidenciaColab] = useState('')
+  const [reincidenciaQuestaoAberta, setReincidenciaQuestaoAberta] = useState<string | null>(null)
   const [completoData, setCompletoData] = useState('')
   const [completoColab, setCompletoColab] = useState('')
   const [filtroAcaoColaborador, setFiltroAcaoColaborador] = useState('')
@@ -1322,7 +1324,7 @@ export default function Gsdpq() {
 
           {/* Abas */}
           <div className="flex gap-1 border-b border-gray-200">
-            {([['dashboard', 'Dashboard'], ['colaboradores', 'Por Colaborador'], ['questoes', 'Questões'], ['acoes', 'Ações Disciplinares'], ['completo', 'GSD Completo'], ['vencimentos', 'Vencimentos']] as const).map(([id, label]) => (
+            {([['dashboard', 'Dashboard'], ['colaboradores', 'Por Colaborador'], ['questoes', 'Questões'], ['acoes', 'Ações Disciplinares'], ['reincidencias', 'Reincidências'], ['completo', 'GSD Completo'], ['vencimentos', 'Vencimentos']] as const).map(([id, label]) => (
               <button key={id} onClick={() => setAbaAtiva(id)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${abaAtiva === id ? 'border-accent-500 text-accent-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{label}</button>
             ))}
           </div>
@@ -1759,6 +1761,79 @@ export default function Gsdpq() {
                   </div>
               }
             </div>
+            )
+          })()}
+
+          {/* ── Reincidências ── */}
+          {abaAtiva === 'reincidencias' && (() => {
+            const colaboradoresComReincidencia = resumos.filter(r => r.reincidencias.length > 0).sort((a, b) => a.nome.localeCompare(b.nome))
+            const resumoSelecionado = reincidenciaColab ? resumos.find(r => r.nome === reincidenciaColab) : null
+            return (
+              <div className="space-y-4">
+                <div className="bg-white rounded-xl border border-gray-200 p-4">
+                  <label className="block text-xs text-gray-500 font-medium mb-1">Colaborador</label>
+                  <select
+                    value={reincidenciaColab}
+                    onChange={e => { setReincidenciaColab(e.target.value); setReincidenciaQuestaoAberta(null) }}
+                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500 w-full sm:w-96"
+                  >
+                    <option value="">Selecione...</option>
+                    {colaboradoresComReincidencia.map(r => (
+                      <option key={r.nome} value={r.nome}>{r.nome} ({r.reincidencias.length} pergunta{r.reincidencias.length > 1 ? 's' : ''})</option>
+                    ))}
+                  </select>
+                </div>
+
+                {!resumoSelecionado && (
+                  <p className="text-center py-10 text-gray-400 text-sm">Selecione um colaborador com reincidência.</p>
+                )}
+
+                {resumoSelecionado && resumoSelecionado.reincidencias.map(rec => {
+                  const aberta = reincidenciaQuestaoAberta === rec.questao
+                  const ocorrencias = avaliacoesFiltradas
+                    .filter(av => av.colaborador_nome === reincidenciaColab && av.questao === rec.questao && av.resultado === 'NO')
+                    .sort((a, b) => parseDataAvaliacaoTs(b.data_avaliacao ?? '') - parseDataAvaliacaoTs(a.data_avaliacao ?? ''))
+                  return (
+                    <div key={rec.questao} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                      <button
+                        onClick={() => setReincidenciaQuestaoAberta(aberta ? null : rec.questao)}
+                        className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-gray-50 text-left"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <ChevronRight className={`h-4 w-4 text-gray-400 shrink-0 transition-transform ${aberta ? 'rotate-90' : ''}`} />
+                          <span className="text-sm font-medium text-gray-900 truncate">{rec.questao}</span>
+                        </div>
+                        <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-50 text-red-700 border border-red-200 shrink-0">{rec.vezes}x NO</span>
+                      </button>
+                      {aberta && (
+                        <div className="border-t border-gray-100 divide-y divide-gray-100">
+                          {ocorrencias.map(av => {
+                            const acao = acoes.find(a => a.avaliacao_id === av.id)
+                            return (
+                              <div key={av.id} className="px-4 py-3 flex items-start gap-3">
+                                <div className="text-xs text-gray-500 shrink-0 w-24">{av.data_avaliacao}</div>
+                                <div className="flex-1 min-w-0">
+                                  <span className="text-xs px-2 py-0.5 rounded border font-medium bg-red-50 text-red-700 border-red-200">NO</span>
+                                  {av.observacoes && <p className="text-xs text-gray-400 italic mt-1">"{av.observacoes}"</p>}
+                                </div>
+                                <div className="shrink-0 text-right">
+                                  {acao ? (
+                                    <span className={`text-xs px-2 py-0.5 rounded border font-medium ${COR_ACAO[acao.tipo_acao]}`}>
+                                      {acao.tipo_acao}{acao.dias_suspensao ? ` (${acao.dias_suspensao}d)` : ''}
+                                    </span>
+                                  ) : (
+                                    <span className="text-xs text-gray-400">Sem ação registrada</span>
+                                  )}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             )
           })()}
 
