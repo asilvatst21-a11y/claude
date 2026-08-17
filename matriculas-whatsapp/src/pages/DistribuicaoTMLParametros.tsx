@@ -6,9 +6,11 @@ import { supabase } from '../lib/supabase'
 import { formatarDataBR } from '../lib/utils'
 import {
   DESLOCAMENTO_IDEAL_MIN, DESLOCAMENTO_ESTOURO_MIN, CHECKLIST_IDEAL_MIN, CONFERENCIA_IDEAL_MIN, META_TML_TOTAL_MIN,
-  gatilhoEstouroMinutos, etapaIdealMinutos,
-  type MetaMatinalParam, type GatilhoEstouroParam, type EtapaIdealParam,
+  gatilhoEstouroMinutos, etapaIdealMinutos, SALA_TML_LABEL, type SalaTML,
+  type MetaMatinalParam, type GatilhoEstouroParam, type EtapaIdealParam, type SalaHistoricoParam,
 } from '../lib/tml'
+
+interface MotoristaSalaCadastro { matricula: number; nome: string; sala: string | null }
 
 const DIAS_SEMANA = [
   { dow: 0, label: 'Domingo' },
@@ -56,10 +58,18 @@ export default function DistribuicaoTMLParametros() {
   const [checklistIdealMin, setChecklistIdealMin] = useState(CHECKLIST_IDEAL_MIN)
   const [conferenciaIdealMin, setConferenciaIdealMin] = useState(CONFERENCIA_IDEAL_MIN)
 
+  const [motoristas, setMotoristas] = useState<MotoristaSalaCadastro[]>([])
+  const [salaHistorico, setSalaHistorico] = useState<SalaHistoricoParam[]>([])
+  const [salvandoSala, setSalvandoSala] = useState(false)
+  const [historicoSalaAberto, setHistoricoSalaAberto] = useState(true)
+  const [matriculaSala, setMatriculaSala] = useState('')
+  const [salaNova, setSalaNova] = useState<SalaTML>('COLORADO')
+  const [vigenciaSala, setVigenciaSala] = useState(hojeISO())
+
   const carregar = useCallback(async () => {
     if (!usuario) return
     setLoading(true)
-    const [{ data: meta }, { data: gat }, { data: etp }] = await Promise.all([
+    const [{ data: meta }, { data: gat }, { data: etp }, { data: motoristasRaw }, { data: salaHistoricoRaw }] = await Promise.all([
       supabase
         .from('tml_meta_matinal')
         .select('dia_semana, meta_minutos, vigente_a_partir')
@@ -75,6 +85,16 @@ export default function DistribuicaoTMLParametros() {
         .select('etapa, ideal_minutos, vigente_a_partir')
         .eq('filial', usuario.filial)
         .order('vigente_a_partir', { ascending: false }),
+      supabase
+        .from('motoristas_sala_tml')
+        .select('matricula, nome, sala')
+        .eq('filial', usuario.filial)
+        .order('nome'),
+      supabase
+        .from('motoristas_sala_historico')
+        .select('matricula, sala, vigente_a_partir')
+        .eq('filial', usuario.filial)
+        .order('vigente_a_partir', { ascending: false }),
     ])
     const metaRows = meta ?? []
     const gatRows = gat ?? []
@@ -82,6 +102,8 @@ export default function DistribuicaoTMLParametros() {
     setMetaParams(metaRows)
     setGatilhoParams(gatRows)
     setEtapaParams(etpRows)
+    setMotoristas((motoristasRaw ?? []) as MotoristaSalaCadastro[])
+    setSalaHistorico((salaHistoricoRaw ?? []) as SalaHistoricoParam[])
 
     const hoje = hojeISO()
     const metasIniciais: Record<number, number> = {}
@@ -179,6 +201,29 @@ export default function DistribuicaoTMLParametros() {
     }
   }
 
+  async function salvarSala() {
+    if (!usuario || !matriculaSala) return
+    setSalvandoSala(true)
+    setErro('')
+    setAviso('')
+    try {
+      const { error } = await supabase
+        .from('motoristas_sala_historico')
+        .upsert(
+          { filial: usuario.filial, matricula: Number(matriculaSala), sala: salaNova, vigente_a_partir: vigenciaSala },
+          { onConflict: 'filial,matricula,vigente_a_partir' }
+        )
+      if (error) throw new Error(error.message)
+      const nomeMotorista = motoristas.find((m) => m.matricula === Number(matriculaSala))?.nome ?? matriculaSala
+      setAviso(`${nomeMotorista} passa a valer ${SALA_TML_LABEL[salaNova]} a partir de ${formatarDataBR(vigenciaSala)}. Checklist já registrado antes dessa data não é afetado.`)
+      await carregar()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao salvar troca de sala')
+    } finally {
+      setSalvandoSala(false)
+    }
+  }
+
   return (
     <div className="p-4 sm:p-6 space-y-5 sm:space-y-6 max-w-4xl mx-auto">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -265,6 +310,78 @@ export default function DistribuicaoTMLParametros() {
                             <td className="px-4 py-2 whitespace-nowrap">{formatarDataBR(m.vigente_a_partir)}</td>
                             <td className="px-4 py-2">{DIAS_SEMANA.find((d) => d.dow === m.dia_semana)?.label ?? m.dia_semana}</td>
                             <td className="px-4 py-2 text-right">{m.meta_minutos}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          <div className="border rounded-lg bg-white">
+            <div className="px-4 py-3 border-b">
+              <h2 className="font-semibold text-sm">Sala por motorista — histórico de trocas</h2>
+              <p className="text-xs text-muted-foreground">
+                Cadastro de motoristas só guarda a sala atual de cada um. Quando alguém troca de sala, registre aqui —
+                o checklist já importado antes da troca continua calculado com a sala que valia na época dele; quem
+                nunca trocou não precisa de nada aqui, usa a sala do cadastro normalmente.
+              </p>
+            </div>
+            <div className="p-4 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Motorista</label>
+                  <select value={matriculaSala} onChange={(e) => setMatriculaSala(e.target.value)} className="w-full border rounded-md px-2 py-1.5 text-sm">
+                    <option value="">Selecione...</option>
+                    {motoristas.map((m) => (
+                      <option key={m.matricula} value={m.matricula}>{m.nome} ({m.matricula})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Nova sala</label>
+                  <select value={salaNova} onChange={(e) => setSalaNova(e.target.value as SalaTML)} className="w-full border rounded-md px-2 py-1.5 text-sm">
+                    <option value="COLORADO">{SALA_TML_LABEL.COLORADO}</option>
+                    <option value="SUB-FURIA">{SALA_TML_LABEL['SUB-FURIA']}</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-muted-foreground mb-1">Vigente a partir de</label>
+                  <input type="date" value={vigenciaSala} onChange={(e) => setVigenciaSala(e.target.value)} className="w-full border rounded-md px-2 py-1.5 text-sm" />
+                </div>
+              </div>
+              <button
+                onClick={salvarSala}
+                disabled={salvandoSala || !matriculaSala}
+                className="flex items-center gap-2 px-3 py-2 rounded-md bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white text-sm transition-colors"
+              >
+                {salvandoSala ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Registrar troca de sala
+              </button>
+            </div>
+            {salaHistorico.length > 0 && (
+              <div className="border-t">
+                <button onClick={() => setHistoricoSalaAberto((v) => !v)} className="w-full flex items-center gap-2 px-4 py-2 text-left text-xs font-medium text-muted-foreground">
+                  {historicoSalaAberto ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
+                  Trocas registradas ({salaHistorico.length})
+                </button>
+                {historicoSalaAberto && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Vigente a partir de</th>
+                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Motorista</th>
+                          <th className="text-left px-4 py-2 font-medium text-muted-foreground">Sala</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y">
+                        {salaHistorico.map((h, i) => (
+                          <tr key={`${h.matricula}-${h.vigente_a_partir}-${i}`}>
+                            <td className="px-4 py-2 whitespace-nowrap">{formatarDataBR(h.vigente_a_partir)}</td>
+                            <td className="px-4 py-2">{motoristas.find((m) => m.matricula === h.matricula)?.nome ?? h.matricula}</td>
+                            <td className="px-4 py-2">{SALA_TML_LABEL[h.sala]}</td>
                           </tr>
                         ))}
                       </tbody>

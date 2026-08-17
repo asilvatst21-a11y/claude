@@ -11,6 +11,7 @@ import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer, type Checkli
 import {
   isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, SALA_TML_LABEL, type SalaTML,
   horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal, metaMatinalMinutos, MATINAL_AUTO_FINALIZA_MIN,
+  salaVigenteNaData, type SalaHistoricoParam,
 } from '../lib/tml'
 import { gerarResumoDiario, gerarResumoGerencial, statusSaidaPorSala, mapasPendentes, type StatusGlobalTML, type SemSalaDetalhe, type PendenteTML } from '../lib/tmlResumos'
 import { iniciarConversaMotorista, buscarConversasPorAlertas } from '../lib/tmlConversaMotorista'
@@ -904,23 +905,39 @@ export default function DistribuicaoTML() {
       // (normalizado) em vez de matrícula, já que a planilha sem mapa não
       // traz matrícula nenhuma.
       const matriculas = [...new Set([...matriculaPorMapaData.values()].filter((m): m is number => m != null))]
-      const [{ data: roster }, { data: rosterCompleto }] = await Promise.all([
+      const [{ data: roster }, { data: rosterCompleto }, { data: salaHistoricoRaw }] = await Promise.all([
         supabase.from('motoristas_sala_tml').select('matricula, sala').eq('filial', usuario.filial)
           .in('matricula', matriculas.length > 0 ? matriculas : [-1]),
         semMapa.length > 0
           ? supabase.from('motoristas_sala_tml').select('nome, sala').eq('filial', usuario.filial)
           : Promise.resolve({ data: [] as { nome: string; sala: string }[] }),
+        supabase.from('motoristas_sala_historico').select('matricula, sala, vigente_a_partir').eq('filial', usuario.filial)
+          .in('matricula', matriculas.length > 0 ? matriculas : [-1]),
       ])
       const salaPorMatricula = new Map((roster ?? []).map((r) => [r.matricula, r.sala]))
       const normalizarNome = (s: string) => s.normalize('NFD').replace(/\p{Mn}/gu, '').toUpperCase().trim()
       const salaPorNome = new Map((rosterCompleto ?? []).map((r) => [normalizarNome(r.nome), r.sala]))
+      const salaHistorico = (salaHistoricoRaw ?? []) as SalaHistoricoParam[]
+
+      // Sala do motorista NA DATA do checklist — olha primeiro o histórico de
+      // trocas (motoristas_sala_historico); sem troca registrada pra essa
+      // matrícula, cai no cadastro atual (comportamento de sempre, ninguém
+      // precisa cadastrar nada pra quem nunca trocou de sala).
+      function salaNaData(matricula: number | null, data: string | null): string | null {
+        if (matricula == null) return null
+        if (data) {
+          const vigente = salaVigenteNaData(matricula, data, salaHistorico)
+          if (vigente) return vigente
+        }
+        return salaPorMatricula.get(matricula) ?? null
+      }
 
       // Busca o horário REAL de fim da matinal (registrado no timer) pra cada
       // combinação sala+data presente no checklist importado (com ou sem mapa).
       const datasComSala = [...new Set([
         ...comMapa.map((c) => {
           const matricula = matriculaPorMapa.get(c.mapa, c.data) ?? null
-          const sala = matricula != null ? salaPorMatricula.get(matricula) ?? null : null
+          const sala = salaNaData(matricula, c.data)
           return isSalaTML(sala) && c.data ? `${sala}|${c.data}` : null
         }),
         ...semMapa.map((c) => {
@@ -974,7 +991,7 @@ export default function DistribuicaoTML() {
       let semSala = 0
       const linhas = comMapa.map((c) => {
         const matricula = matriculaPorMapa.get(c.mapa, c.data) ?? null
-        const sala = matricula != null ? salaPorMatricula.get(matricula) ?? null : null
+        const sala = salaNaData(matricula, c.data)
         if (!isSalaTML(sala)) semSala++
         if (!c.horarioInicio) semHorario++
         let tempoDeslocamento: number | null = null

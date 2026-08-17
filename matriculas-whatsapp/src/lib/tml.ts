@@ -109,6 +109,27 @@ export function metaMatinalMinutos(data: string, params?: MetaMatinalParam[]): n
   return dow === 1 || dow === 2 ? 11 : 7;
 }
 
+// Linha de parâmetro de sala vinda de motoristas_sala_historico —
+// motoristas_sala_tml só guarda a sala ATUAL; isso guarda pra quando alguém
+// troca de sala no meio do caminho, versionado por data de vigência (mesmo
+// padrão de MetaMatinalParam/GatilhoEstouroParam).
+export interface SalaHistoricoParam {
+  matricula: number;
+  sala: SalaTML;
+  vigente_a_partir: string;
+}
+
+// Sala vigente do motorista NA DATA informada, olhando o histórico de
+// trocas — não a sala atual do cadastro. Retorna null se não houver
+// nenhuma troca registrada pra essa matrícula (quem chama cai de volta pro
+// cadastro atual nesse caso — ninguém precisa cadastrar nada pra quem nunca
+// trocou de sala).
+export function salaVigenteNaData(matricula: number, data: string, historico?: SalaHistoricoParam[]): SalaTML | null {
+  if (!historico?.length) return null;
+  const vigente = paramVigenteNaData(historico.filter((h) => h.matricula === matricula), data);
+  return vigente ? vigente.sala : null;
+}
+
 // Horário padrão de início da matinal quando ninguém aciona o timer: o fixo
 // da sala, todo santo dia — inclusive sábado. Sábado tem matinal normal
 // (só com meta de duração própria, configurável na aba Parâmetros como
