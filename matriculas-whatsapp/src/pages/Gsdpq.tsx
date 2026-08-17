@@ -216,6 +216,30 @@ function parseDataAvaliacaoTs(s: string): number {
   return 0
 }
 
+// gsdpq_avaliacoes cresce rápido (1 linha por colaborador+data+questão —
+// dezenas de questões por avaliação), passando fácil dos 1000 registros do
+// limite padrão do PostgREST. Um .limit(N) fixo com ordenação ascendente
+// (mais antigo primeiro) travava a busca nos registros mais VELHOS quando a
+// tabela crescia além do limite — a "última avaliação" de boa parte dos
+// colaboradores nunca chegava a ser carregada, marcando gente em dia como
+// vencida. Pagina com .range() até esgotar, igual ao resto do sistema.
+const PAGINA_GSDPQ = 1000
+
+async function buscarTodasAvaliacoesGsd(filial: string): Promise<GsdpqAvaliacao[]> {
+  const linhas: GsdpqAvaliacao[] = []
+  for (let inicio = 0; ; inicio += PAGINA_GSDPQ) {
+    const { data, error } = await supabase
+      .from('gsdpq_avaliacoes')
+      .select('*')
+      .eq('filial', filial)
+      .range(inicio, inicio + PAGINA_GSDPQ - 1)
+    if (error) { console.error('buscarTodasAvaliacoesGsd error:', error.message); break }
+    linhas.push(...((data ?? []) as GsdpqAvaliacao[]))
+    if (!data || data.length < PAGINA_GSDPQ) break
+  }
+  return linhas
+}
+
 function parseGsdpqExcel(buffer: ArrayBuffer): { rows: Omit<GsdpqAvaliacao, 'id' | 'created_at' | 'colaborador_id'>[]; questoes: string[] } {
   const wb = XLSX.read(buffer)
   const ws = wb.Sheets[wb.SheetNames[0]]
@@ -748,14 +772,14 @@ export default function Gsdpq() {
   async function carregarDados() {
     if (!usuario) return
     setCarregando(true)
-    const [{ data: avs }, { data: acs }, { data: colab }, { data: supers }] = await Promise.all([
-      supabase.from('gsdpq_avaliacoes').select('*').eq('filial', usuario.filial).order('data_avaliacao').limit(10000),
+    const [avs, { data: acs }, { data: colab }, { data: supers }] = await Promise.all([
+      buscarTodasAvaliacoesGsd(usuario.filial),
       supabase.from('gsdpq_acoes').select('*').eq('filial', usuario.filial).order('created_at', { ascending: false }),
       supabase.from('gsdpq_colaboradores').select('*').eq('filial', usuario.filial),
       supabase.from('gsdpq_supervisores').select('*').eq('filial', usuario.filial),
     ])
     const colabFuncaoMap = new Map((colab ?? []).map(c => [c.nome.toUpperCase(), c.funcao as string | null]))
-    const todasAvs = (avs ?? []).map(av => ({
+    const todasAvs = avs.map(av => ({
       ...av,
       funcao: av.funcao || colabFuncaoMap.get(av.colaborador_nome.toUpperCase()) || null,
     }))
