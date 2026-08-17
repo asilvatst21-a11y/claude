@@ -730,6 +730,7 @@ export default function Gsdpq() {
   const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'colaboradores' | 'questoes' | 'acoes' | 'completo' | 'vencimentos'>('dashboard')
   const [completoData, setCompletoData] = useState('')
   const [completoColab, setCompletoColab] = useState('')
+  const [filtroAcaoColaborador, setFiltroAcaoColaborador] = useState('')
   const [filtroEquipe, setFiltroEquipe] = useState('Todas')
   const [filtroPeriodo, setFiltroPeriodo] = useState({ de: '', ate: '' })
   const [carregando, setCarregando] = useState(false)
@@ -1315,7 +1316,7 @@ export default function Gsdpq() {
           {comReincidencia > 0 && (
             <div className="bg-orange-50 border border-orange-200 rounded-lg px-4 py-3 flex items-center gap-3 text-sm text-orange-800">
               <AlertTriangle size={18} className="shrink-0 text-orange-500" />
-              <span><strong>{comReincidencia} colaborador{comReincidencia > 1 ? 'es' : ''}</strong> com reincidência no mesmo item de auditoria.</span>
+              <span><strong>{comReincidencia} colaborador{comReincidencia > 1 ? 'es' : ''}</strong> com reincidência na mesma pergunta do GSDPQ.</span>
             </div>
           )}
 
@@ -1718,15 +1719,28 @@ export default function Gsdpq() {
           })()}
 
           {/* ── Ações Disciplinares ── */}
-          {abaAtiva === 'acoes' && (
+          {abaAtiva === 'acoes' && (() => {
+            const colaboradoresComAcao = Array.from(new Set(acoes.map(a => a.colaborador_nome))).sort()
+            const acoesFiltradas = filtroAcaoColaborador
+              ? acoes.filter(a => a.colaborador_nome === filtroAcaoColaborador)
+              : acoes
+            return (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex justify-between items-center">
-                <span className="text-xs text-gray-500 font-medium">{acoes.length} ações registradas</span>
+              <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex flex-wrap gap-3 justify-between items-center">
+                <span className="text-xs text-gray-500 font-medium">{acoesFiltradas.length} ações registradas</span>
+                <select
+                  value={filtroAcaoColaborador}
+                  onChange={e => setFiltroAcaoColaborador(e.target.value)}
+                  className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+                >
+                  <option value="">Todos os colaboradores</option>
+                  {colaboradoresComAcao.map(nome => <option key={nome} value={nome}>{nome}</option>)}
+                </select>
               </div>
-              {acoes.length === 0
+              {acoesFiltradas.length === 0
                 ? <p className="text-center py-10 text-gray-400">Nenhuma ação registrada</p>
                 : <div className="divide-y divide-gray-100">
-                    {acoes.map(a => (
+                    {acoesFiltradas.map(a => (
                       <div key={a.id} className="px-4 py-3 flex items-start gap-3">
                         <span className={`text-xs px-2 py-0.5 rounded border font-medium shrink-0 ${COR_ACAO[a.tipo_acao]}`}>
                           {a.tipo_acao}{a.dias_suspensao ? ` (${a.dias_suspensao}d)` : ''}
@@ -1745,7 +1759,8 @@ export default function Gsdpq() {
                   </div>
               }
             </div>
-          )}
+            )
+          })()}
 
           {/* ── Vencimentos ── */}
           {abaAtiva === 'vencimentos' && (
