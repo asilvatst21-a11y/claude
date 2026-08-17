@@ -12,9 +12,10 @@ import { useAuth } from '../../lib/auth'
 import {
   buscarResumoDia, buscarHistoricoMes, buscarRankingColaboradores, buscarExtratoColaborador,
   buscarComparativoDesempenho, buscarMigracaoClusters, mesAnteriorDe, importarPontuacao, formatarBRL,
-  vincularCpfsPendentes, listarColaboradoresComHistorico, buscarHistoricoMensal,
+  vincularCpfsPendentes, listarColaboradoresComHistorico, buscarHistoricoMensal, buscarTabelaoMensal,
   type ResumoVariavel, type HistoricoMes, type ColaboradorRanking, type ExtratoColaborador,
   type ComparativoColaborador, type MigracaoColaborador, type ColaboradorComHistorico, type HistoricoMensalColaborador,
+  type MesHistorico, type TabelaoMensal,
 } from '../../lib/variavelArmazem'
 import { formatarDataBR } from '../../lib/utils'
 import VariavelTurnoAdmin from './VariavelTurnoAdmin'
@@ -101,11 +102,39 @@ function rotuloMes(mesISO: string): string {
   return `${MESES_ABREV[mes - 1]}/${String(ano).slice(2)}`
 }
 
-// Mês em que o histórico de planilha antiga (sem import diário na tela) foi
-// inserido direto na tabela deixa de dar pra distinguir por aqui — não há
-// coluna "origem". Usa uma data de corte simples: tudo antes do primeiro
-// mês com import diário normal (guardado à parte) conta como "planilha".
-const PRIMEIRO_MES_SISTEMA = '2026-06'
+type Metrica = 'pontos' | 'valor'
+type Agregacao = 'media' | 'total'
+
+function valorDoMes(m: Pick<MesHistorico, 'valorTotal' | 'pontuacaoTotal' | 'pontuacaoMedia' | 'diasLancados'>, metrica: Metrica, agregacao: Agregacao): number {
+  if (metrica === 'pontos') return agregacao === 'total' ? m.pontuacaoTotal : m.pontuacaoMedia
+  if (agregacao === 'total') return m.valorTotal
+  return m.diasLancados > 0 ? m.valorTotal / m.diasLancados : 0
+}
+
+function fmtMetrica(v: number, metrica: Metrica): string {
+  return metrica === 'valor' ? formatarBRL(v) : Math.round(v).toLocaleString('pt-BR')
+}
+
+function fmtMetricaCompacta(v: number, metrica: Metrica): string {
+  return metrica === 'valor' ? brlCompacto(v) : ptsCompacto(v)
+}
+
+function SeletorMetrica({ metrica, onMetrica, agregacao, onAgregacao }: {
+  metrica: Metrica; onMetrica: (v: Metrica) => void; agregacao: Agregacao; onAgregacao: (v: Agregacao) => void
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex bg-muted rounded-md p-0.5 gap-0.5">
+        <button onClick={() => onMetrica('pontos')} className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors ${metrica === 'pontos' ? 'bg-white shadow-sm text-accent-700' : 'text-muted-foreground'}`}>Pontuação</button>
+        <button onClick={() => onMetrica('valor')} className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors ${metrica === 'valor' ? 'bg-white shadow-sm text-accent-700' : 'text-muted-foreground'}`}>Valor RV</button>
+      </div>
+      <div className="flex bg-muted rounded-md p-0.5 gap-0.5">
+        <button onClick={() => onAgregacao('media')} className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors ${agregacao === 'media' ? 'bg-white shadow-sm text-accent-700' : 'text-muted-foreground'}`}>Média</button>
+        <button onClick={() => onAgregacao('total')} className={`px-3 py-1.5 rounded text-xs font-semibold transition-colors ${agregacao === 'total' ? 'bg-white shadow-sm text-accent-700' : 'text-muted-foreground'}`}>Total</button>
+      </div>
+    </div>
+  )
+}
 
 function HistoricoMensalTab({
   colaboradores, chave, onChave, dados, loading,
@@ -116,27 +145,31 @@ function HistoricoMensalTab({
   dados: HistoricoMensalColaborador | null
   loading: boolean
 }) {
+  const [metrica, setMetrica] = useState<Metrica>('valor')
+  const [agregacao, setAgregacao] = useState<Agregacao>('total')
+
   const meses = dados?.meses ?? []
+  const valorMes = (m: MesHistorico) => valorDoMes(m, metrica, agregacao)
   const mesAtual = meses[meses.length - 1] ?? null
   const mesAnterior = meses[meses.length - 2] ?? null
-  const pctVsAnterior = mesAtual && mesAnterior && mesAnterior.valorTotal > 0
-    ? ((mesAtual.valorTotal - mesAnterior.valorTotal) / mesAnterior.valorTotal) * 100
+  const pctVsAnterior = mesAtual && mesAnterior && valorMes(mesAnterior) > 0
+    ? ((valorMes(mesAtual) - valorMes(mesAnterior)) / valorMes(mesAnterior)) * 100
     : null
   const badgeVsAnterior = variacaoBadge(pctVsAnterior)
 
   const ultimos6 = meses.slice(-6)
-  const media6 = ultimos6.length > 0 ? ultimos6.reduce((s, m) => s + m.valorTotal, 0) / ultimos6.length : 0
-  const melhorMes = meses.reduce<typeof meses[number] | null>((melhor, m) => (!melhor || m.valorTotal > melhor.valorTotal ? m : melhor), null)
+  const media6 = ultimos6.length > 0 ? ultimos6.reduce((s, m) => s + valorMes(m), 0) / ultimos6.length : 0
+  const melhorMes = meses.reduce<typeof meses[number] | null>((melhor, m) => (!melhor || valorMes(m) > valorMes(melhor) ? m : melhor), null)
 
   const mediaSemUltimo = meses.length > 1
-    ? meses.slice(0, -1).reduce((s, m) => s + m.valorTotal, 0) / (meses.length - 1)
+    ? meses.slice(0, -1).reduce((s, m) => s + valorMes(m), 0) / (meses.length - 1)
     : null
   const tendencia = mediaSemUltimo == null || !mesAtual ? null
-    : mesAtual.valorTotal > mediaSemUltimo * 1.05 ? 'up'
-    : mesAtual.valorTotal < mediaSemUltimo * 0.95 ? 'down'
+    : valorMes(mesAtual) > mediaSemUltimo * 1.05 ? 'up'
+    : valorMes(mesAtual) < mediaSemUltimo * 0.95 ? 'down'
     : 'flat'
 
-  const maxValor = Math.max(1, ...meses.map((m) => m.valorTotal))
+  const maxValor = Math.max(1, ...meses.map(valorMes))
 
   return (
     <div className="space-y-4">
@@ -152,9 +185,8 @@ function HistoricoMensalTab({
             {colaboradores.map((c) => <option key={c.chave} value={c.chave}>{c.nome}</option>)}
           </select>
         </div>
-        <div className="flex items-center gap-4 ml-auto text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-gray-300" /> Planilha histórica (antes de {rotuloMes(PRIMEIRO_MES_SISTEMA)})</span>
-          <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-accent-500" /> Importado no sistema</span>
+        <div className="ml-auto">
+          <SeletorMetrica metrica={metrica} onMetrica={setMetrica} agregacao={agregacao} onAgregacao={setAgregacao} />
         </div>
       </div>
 
@@ -167,16 +199,16 @@ function HistoricoMensalTab({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="border rounded-lg p-3 bg-white">
               <div className="text-[11px] text-muted-foreground mb-0.5">Mês atual{mesAtual ? ` (${rotuloMes(mesAtual.mes)})` : ''}</div>
-              <div className="text-lg font-bold tabular-nums">{formatarBRL(mesAtual?.valorTotal ?? 0)}</div>
+              <div className="text-lg font-bold tabular-nums">{fmtMetrica(mesAtual ? valorMes(mesAtual) : 0, metrica)}</div>
               {pctVsAnterior != null && <div className={`text-xs font-semibold ${badgeVsAnterior.cor}`}>{badgeVsAnterior.texto} vs {mesAnterior ? rotuloMes(mesAnterior.mes) : ''}</div>}
             </div>
             <div className="border rounded-lg p-3 bg-white">
               <div className="text-[11px] text-muted-foreground mb-0.5">Média (até 6 meses)</div>
-              <div className="text-lg font-bold tabular-nums">{formatarBRL(media6)}</div>
+              <div className="text-lg font-bold tabular-nums">{fmtMetrica(media6, metrica)}</div>
             </div>
             <div className="border rounded-lg p-3 bg-white">
               <div className="text-[11px] text-muted-foreground mb-0.5">Melhor mês</div>
-              <div className="text-lg font-bold tabular-nums text-green-700">{formatarBRL(melhorMes?.valorTotal ?? 0)}</div>
+              <div className="text-lg font-bold tabular-nums text-green-700">{fmtMetrica(melhorMes ? valorMes(melhorMes) : 0, metrica)}</div>
               <div className="text-[11px] text-muted-foreground tabular-nums">{melhorMes ? rotuloMes(melhorMes.mes) : '—'}</div>
             </div>
             <div className="border rounded-lg p-3 bg-white">
@@ -189,20 +221,17 @@ function HistoricoMensalTab({
 
           <div className="border rounded-lg bg-white p-4">
             <div className="flex items-end gap-3" style={{ height: 180 }}>
-              {meses.map((m) => {
-                const historicoAntigo = m.mes < PRIMEIRO_MES_SISTEMA
-                return (
-                  <div key={m.mes} className="flex-1 flex flex-col items-center justify-end h-full">
-                    <div className="text-[10px] font-semibold tabular-nums mb-1">{brlCompacto(m.valorTotal)}</div>
-                    <div
-                      className={`w-full max-w-[46px] rounded-t-md ${historicoAntigo ? 'bg-gray-300' : 'bg-accent-500'}`}
-                      style={{ height: `${Math.max(4, (m.valorTotal / maxValor) * 130)}px` }}
-                      title={`${rotuloMes(m.mes)} · ${formatarBRL(m.valorTotal)}`}
-                    />
-                    <div className="text-[11px] text-muted-foreground mt-2 font-medium">{rotuloMes(m.mes)}</div>
-                  </div>
-                )
-              })}
+              {meses.map((m) => (
+                <div key={m.mes} className="flex-1 flex flex-col items-center justify-end h-full">
+                  <div className="text-[10px] font-semibold tabular-nums mb-1">{fmtMetricaCompacta(valorMes(m), metrica)}</div>
+                  <div
+                    className="w-full max-w-[46px] rounded-t-md bg-accent-500"
+                    style={{ height: `${Math.max(4, (valorMes(m) / maxValor) * 130)}px` }}
+                    title={`${rotuloMes(m.mes)} · ${fmtMetrica(valorMes(m), metrica)}`}
+                  />
+                  <div className="text-[11px] text-muted-foreground mt-2 font-medium">{rotuloMes(m.mes)}</div>
+                </div>
+              ))}
             </div>
           </div>
 
@@ -211,29 +240,22 @@ function HistoricoMensalTab({
               <thead className="bg-muted/50">
                 <tr>
                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Mês</th>
-                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Valor RV</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">{metrica === 'valor' ? 'Valor RV' : 'Pontuação'}</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground">Dias lançados</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground">Variação</th>
-                  <th className="text-left px-3 py-2 font-medium text-muted-foreground">Origem</th>
                 </tr>
               </thead>
               <tbody className="divide-y">
                 {[...meses].reverse().map((m, i, arr) => {
                   const anterior = arr[i + 1]
-                  const pct = anterior && anterior.valorTotal > 0 ? ((m.valorTotal - anterior.valorTotal) / anterior.valorTotal) * 100 : null
+                  const pct = anterior && valorMes(anterior) > 0 ? ((valorMes(m) - valorMes(anterior)) / valorMes(anterior)) * 100 : null
                   const badge = variacaoBadge(pct)
-                  const historicoAntigo = m.mes < PRIMEIRO_MES_SISTEMA
                   return (
                     <tr key={m.mes} className="hover:bg-muted/30 transition-colors">
                       <td className="px-3 py-2 font-medium">{rotuloMes(m.mes)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatarBRL(m.valorTotal)}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">{fmtMetrica(valorMes(m), metrica)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{m.diasLancados}</td>
                       <td className={`px-3 py-2 text-right font-semibold ${badge.cor}`}>{badge.texto}</td>
-                      <td className="px-3 py-2">
-                        <span className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2 py-0.5 rounded-full ${historicoAntigo ? 'bg-gray-100 text-gray-600' : 'bg-accent-100 text-accent-700'}`}>
-                          {historicoAntigo ? '📄 Planilha' : '🖥️ Sistema'}
-                        </span>
-                      </td>
                     </tr>
                   )
                 })}
@@ -246,9 +268,129 @@ function HistoricoMensalTab({
   )
 }
 
+function TabelaoMensalTab({ dados, loading }: { dados: TabelaoMensal | null; loading: boolean }) {
+  const [metrica, setMetrica] = useState<Metrica>('valor')
+  const [agregacao, setAgregacao] = useState<Agregacao>('total')
+  const [mesesVisiveis, setMesesVisiveis] = useState<Set<string>>(new Set())
+  const [busca, setBusca] = useState('')
+
+  const todosMeses = dados?.meses ?? []
+
+  useEffect(() => {
+    if (todosMeses.length > 0) setMesesVisiveis(new Set(todosMeses))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dados])
+
+  function toggleMes(mes: string) {
+    setMesesVisiveis((prev) => {
+      const novo = new Set(prev)
+      if (novo.has(mes)) novo.delete(mes); else novo.add(mes)
+      return novo
+    })
+  }
+
+  const mesesOrdenados = todosMeses.filter((m) => mesesVisiveis.has(m))
+  const linhas = (dados?.linhas ?? []).filter((l) => l.nome.toLowerCase().includes(busca.toLowerCase()))
+
+  const valorCelula = (porMes: TabelaoMensal['linhas'][number]['porMes'], mes: string): number | null => {
+    const v = porMes[mes]
+    if (!v) return null
+    return valorDoMes(v, metrica, agregacao)
+  }
+
+  const mediaFrotaPorMes = mesesOrdenados.map((mes) => {
+    const valores = (dados?.linhas ?? []).map((l) => valorCelula(l.porMes, mes)).filter((v): v is number => v != null)
+    return valores.length > 0 ? valores.reduce((s, v) => s + v, 0) / valores.length : null
+  })
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-white border rounded-lg p-4 space-y-3">
+        <div className="flex items-center flex-wrap gap-2">
+          <label className="text-xs font-semibold text-muted-foreground uppercase mr-1">Meses visíveis</label>
+          {todosMeses.map((mes) => (
+            <button
+              key={mes}
+              onClick={() => toggleMes(mes)}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${mesesVisiveis.has(mes) ? 'bg-accent-500 border-accent-500 text-white' : 'bg-white border text-muted-foreground'}`}
+            >
+              {rotuloMes(mes)}
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center flex-wrap gap-3">
+          <SeletorMetrica metrica={metrica} onMetrica={setMetrica} agregacao={agregacao} onAgregacao={setAgregacao} />
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="🔍 Buscar ajudante..."
+            className="border rounded-md px-3 py-2 text-sm min-w-[220px] focus:outline-none focus:ring-2 focus:ring-accent-500 ml-auto"
+          />
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="text-center py-16 text-muted-foreground text-sm">Carregando...</div>
+      ) : linhas.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground text-sm">Nenhum colaborador encontrado.</div>
+      ) : mesesOrdenados.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground text-sm">Selecione ao menos um mês pra ver a tabela.</div>
+      ) : (
+        <div className="border rounded-lg bg-white overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="sticky left-0 bg-muted/50 text-left px-3 py-2 font-medium text-muted-foreground min-w-[220px]">Ajudante</th>
+                  {mesesOrdenados.map((mes) => (
+                    <th key={mes} className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">{rotuloMes(mes)}</th>
+                  ))}
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Tendência</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {linhas.map((l) => {
+                  const primeiro = valorCelula(l.porMes, mesesOrdenados[0])
+                  const ultimo = valorCelula(l.porMes, mesesOrdenados[mesesOrdenados.length - 1])
+                  const pct = primeiro != null && primeiro > 0 && ultimo != null ? ((ultimo - primeiro) / primeiro) * 100 : null
+                  const badge = variacaoBadge(pct)
+                  return (
+                    <tr key={l.nome} className="hover:bg-muted/30 transition-colors">
+                      <td className="sticky left-0 bg-white px-3 py-2 font-semibold border-r">{l.nome}</td>
+                      {mesesOrdenados.map((mes) => {
+                        const v = valorCelula(l.porMes, mes)
+                        return (
+                          <td key={mes} className="px-3 py-2 text-right tabular-nums font-semibold">
+                            {v == null ? <span className="text-gray-300">—</span> : fmtMetrica(v, metrica)}
+                          </td>
+                        )
+                      })}
+                      <td className={`px-3 py-2 text-right font-semibold ${badge.cor}`}>{badge.texto}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2">
+                  <td className="sticky left-0 bg-muted/50 px-3 py-2 font-bold border-r">Média da frota</td>
+                  {mediaFrotaPorMes.map((v, i) => (
+                    <td key={mesesOrdenados[i]} className="px-3 py-2 text-right font-bold tabular-nums bg-muted/50">{v == null ? '—' : fmtMetrica(v, metrica)}</td>
+                  ))}
+                  <td className="bg-muted/50" />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-t">"—" indica mês sem lançamento pra esse ajudante. Tendência compara o último mês visível com o primeiro.</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ArmazemVariavel() {
   const { usuario } = useAuth()
-  const [aba, setAba] = useState<'pontuacao' | 'turno' | 'historico'>('pontuacao')
+  const [aba, setAba] = useState<'pontuacao' | 'turno' | 'historico' | 'tabelao'>('pontuacao')
   const [data, setData] = useState(ontemISO)
   const [resumo, setResumo] = useState<ResumoVariavel | null>(null)
   const [loading, setLoading] = useState(true)
@@ -270,6 +412,10 @@ export default function ArmazemVariavel() {
   const [chaveHistorico, setChaveHistorico] = useState('')
   const [evolucaoMensal, setEvolucaoMensal] = useState<HistoricoMensalColaborador | null>(null)
   const [loadingEvolucao, setLoadingEvolucao] = useState(false)
+
+  // Tabelão Mensal (aba própria): todos os ajudantes lado a lado, mês a mês.
+  const [tabelaoMensal, setTabelaoMensal] = useState<TabelaoMensal | null>(null)
+  const [loadingTabelao, setLoadingTabelao] = useState(false)
 
   // Ranking de colaboradores num intervalo de datas específico. O usuário
   // escolhe por qual métrica ordenar (média, total, valor, dias, faltas) e a direção.
@@ -402,6 +548,15 @@ export default function ArmazemVariavel() {
       .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao carregar o histórico mensal.'))
       .finally(() => setLoadingEvolucao(false))
   }, [usuario, chaveHistorico])
+
+  useEffect(() => {
+    if (!usuario || aba !== 'tabelao' || tabelaoMensal) return
+    setLoadingTabelao(true)
+    buscarTabelaoMensal(usuario.filial)
+      .then(setTabelaoMensal)
+      .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao carregar o tabelão mensal.'))
+      .finally(() => setLoadingTabelao(false))
+  }, [usuario, aba, tabelaoMensal])
 
   const [vinculando, setVinculando] = useState(false)
 
@@ -537,7 +692,9 @@ export default function ArmazemVariavel() {
             {aba === 'pontuacao'
               ? 'Suba o relatório de pontuação do dia — o valor é calculado por cluster e o painel atualiza na hora.'
               : aba === 'historico'
-              ? 'Evolução mês a mês por colaborador — junta o histórico de planilhas antigas com o que já foi importado no sistema.'
+              ? 'Evolução mês a mês por colaborador.'
+              : aba === 'tabelao'
+              ? 'Todos os ajudantes lado a lado, mês a mês.'
               : 'Atividades com meta por turno, fechadas pelo conferente ou lançadas direto aqui — RV individual por colaborador.'}
           </p>
         </div>
@@ -569,6 +726,12 @@ export default function ArmazemVariavel() {
         >
           Histórico Mensal
         </button>
+        <button
+          onClick={() => setAba('tabelao')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'tabelao' ? 'border-accent-600 text-accent-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
+        >
+          Tabelão Mensal
+        </button>
       </div>
 
       {aba === 'turno' ? (
@@ -583,6 +746,8 @@ export default function ArmazemVariavel() {
           dados={evolucaoMensal}
           loading={loadingEvolucao}
         />
+      ) : aba === 'tabelao' ? (
+        <TabelaoMensalTab dados={tabelaoMensal} loading={loadingTabelao} />
       ) : (
       <>
 

@@ -628,6 +628,7 @@ export interface MesHistorico {
   valorTotal: number
   diasLancados: number
   pontuacaoMedia: number
+  pontuacaoTotal: number
 }
 
 export interface HistoricoMensalColaborador {
@@ -682,10 +683,60 @@ export async function buscarHistoricoMensal(filial: string, chave: string): Prom
   }
 
   const meses = [...porMes.entries()]
-    .map(([mes, v]) => ({ mes, valorTotal: v.valor, diasLancados: v.dias, pontuacaoMedia: v.dias > 0 ? v.pontos / v.dias : 0 }))
+    .map(([mes, v]) => ({ mes, valorTotal: v.valor, diasLancados: v.dias, pontuacaoMedia: v.dias > 0 ? v.pontos / v.dias : 0, pontuacaoTotal: v.pontos }))
     .sort((a, b) => a.mes.localeCompare(b.mes))
 
   return { chave, nome: linhas[0]?.nome ?? '', meses }
+}
+
+// ── Tabelão mensal (todo mundo × todos os meses) ─────────────────────────
+export interface TabelaoLinha {
+  nome: string
+  porMes: Record<string, { valorTotal: number; pontuacaoTotal: number; pontuacaoMedia: number; diasLancados: number }>
+}
+
+export interface TabelaoMensal {
+  meses: string[] // ordenados, todos os meses que existirem pra essa filial
+  linhas: TabelaoLinha[]
+}
+
+export async function buscarTabelaoMensal(filial: string): Promise<TabelaoMensal> {
+  const linhas: { nome: string; data: string; total: number; valor: number }[] = []
+  for (let inicio = 0; ; inicio += PAGINA_VARIAVEL) {
+    const { data, error } = await supabase.from('variavel_pontuacao')
+      .select('nome_relatorio, data, total, valor_calculado')
+      .eq('filial', filial)
+      .range(inicio, inicio + PAGINA_VARIAVEL - 1)
+    if (error) { console.error('buscarTabelaoMensal error:', error.message); break }
+    for (const r of data ?? []) linhas.push({ nome: r.nome_relatorio, data: String(r.data), total: Number(r.total), valor: Number(r.valor_calculado) })
+    if (!data || data.length < PAGINA_VARIAVEL) break
+  }
+
+  const mesesSet = new Set<string>()
+  const porNome = new Map<string, Map<string, { valor: number; pontos: number; dias: number }>>()
+  for (const l of linhas) {
+    const mes = l.data.slice(0, 7)
+    mesesSet.add(mes)
+    if (!porNome.has(l.nome)) porNome.set(l.nome, new Map())
+    const porMes = porNome.get(l.nome)!
+    const acc = porMes.get(mes) ?? { valor: 0, pontos: 0, dias: 0 }
+    acc.valor += l.valor
+    acc.pontos += l.total
+    acc.dias += 1
+    porMes.set(mes, acc)
+  }
+
+  const meses = [...mesesSet].sort()
+  const tabelaoLinhas: TabelaoLinha[] = [...porNome.entries()]
+    .map(([nome, porMes]) => ({
+      nome,
+      porMes: Object.fromEntries([...porMes.entries()].map(([mes, v]) => [
+        mes, { valorTotal: v.valor, pontuacaoTotal: v.pontos, pontuacaoMedia: v.dias > 0 ? v.pontos / v.dias : 0, diasLancados: v.dias },
+      ])),
+    }))
+    .sort((a, b) => a.nome.localeCompare(b.nome))
+
+  return { meses, linhas: tabelaoLinhas }
 }
 
 // ── Totem (consulta do colaborador) ──────────────────────────────────────
