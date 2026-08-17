@@ -109,20 +109,21 @@ export function metaMatinalMinutos(data: string, params?: MetaMatinalParam[]): n
   return dow === 1 || dow === 2 ? 11 : 7;
 }
 
-// Horário padrão de início da matinal quando ninguém aciona o timer: o
-// fixo da sala em dias normais. Sábado normalmente não tem matinal, então
-// o deslocamento passa a contar a partir das 7h, igual pra todas as salas.
+// Horário padrão de início da matinal quando ninguém aciona o timer: o fixo
+// da sala, todo santo dia — inclusive sábado. Sábado tem matinal normal
+// (só com meta de duração própria, configurável na aba Parâmetros como
+// qualquer outro dia), não um horário universal diferente por sala.
 export function horarioInicioMatinalPadrao(sala: SalaTML, data: string): string {
-  if (diaDaSemana(data) === 6) return "07:00";
+  void data
   return REGRAS_TML[sala].matinal;
 }
 
 // Horário padrão de término da matinal quando ninguém aciona o timer:
-// início padrão + meta de duração do dia. Sábado não soma duração (sem
-// matinal esperada, o marco é só a própria 7h).
+// início padrão da sala + meta de duração do dia (a vigente em Parâmetros
+// pra aquele dia da semana, com fallback fixo se não houver nenhuma
+// cadastrada) — mesma conta em todo dia da semana, sábado incluso.
 export function horarioFinalMatinalPadrao(sala: SalaTML, data: string, params?: MetaMatinalParam[]): string {
   const inicio = horarioInicioMatinalPadrao(sala, data);
-  if (diaDaSemana(data) === 6) return inicio;
   return minutosParaHorario(horarioParaMinutos(inicio) + metaMatinalMinutos(data, params));
 }
 
