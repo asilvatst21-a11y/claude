@@ -638,38 +638,34 @@ export interface HistoricoMensalColaborador {
 
 export interface ColaboradorComHistorico { chave: string; nome: string }
 
+// Agrupa sempre por nome_relatorio, nunca por colaborador_id — uma mesma
+// pessoa pode ter parte dos lançamentos vinculados ao cadastro (colaborador_id
+// preenchido, ex.: depois de "Vincular CPFs") e parte não (ex.: o histórico
+// de planilha antiga, importado sem cadastro), e usar colaborador_id ?? nome
+// como chave fazia essas duas metades caírem em chaves diferentes — a mesma
+// pessoa aparecia duplicada na lista, cada entrada com só parte do valor.
 export async function listarColaboradoresComHistorico(filial: string): Promise<ColaboradorComHistorico[]> {
-  const mapa = new Map<string, string>()
+  const nomes = new Set<string>()
   for (let inicio = 0; ; inicio += PAGINA_VARIAVEL) {
     const { data, error } = await supabase.from('variavel_pontuacao')
-      .select('nome_relatorio, colaborador_id')
+      .select('nome_relatorio')
       .eq('filial', filial)
       .range(inicio, inicio + PAGINA_VARIAVEL - 1)
     if (error) { console.error('listarColaboradoresComHistorico error:', error.message); break }
-    for (const r of data ?? []) {
-      const chave = r.colaborador_id ?? r.nome_relatorio
-      if (!mapa.has(chave)) mapa.set(chave, r.nome_relatorio)
-    }
+    for (const r of data ?? []) nomes.add(r.nome_relatorio)
     if (!data || data.length < PAGINA_VARIAVEL) break
   }
-  return [...mapa.entries()].map(([chave, nome]) => ({ chave, nome })).sort((a, b) => a.nome.localeCompare(b.nome))
+  return [...nomes].map((nome) => ({ chave: nome, nome })).sort((a, b) => a.nome.localeCompare(b.nome))
 }
 
-// `chave` é colaborador_id (UUID) quando o lançamento já foi vinculado ao
-// cadastro, ou o nome do relatório quando ainda não (mesma convenção do
-// ranking/extrato) — filtra num campo ou no outro conforme o formato.
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
 export async function buscarHistoricoMensal(filial: string, chave: string): Promise<HistoricoMensalColaborador> {
-  const porMesUuid = UUID_RE.test(chave)
   const linhas: { data: string; total: number; valor: number; nome: string }[] = []
   for (let inicio = 0; ; inicio += PAGINA_VARIAVEL) {
-    let query = supabase.from('variavel_pontuacao')
+    const { data, error } = await supabase.from('variavel_pontuacao')
       .select('nome_relatorio, data, total, valor_calculado')
       .eq('filial', filial)
+      .eq('nome_relatorio', chave)
       .range(inicio, inicio + PAGINA_VARIAVEL - 1)
-    query = porMesUuid ? query.eq('colaborador_id', chave) : query.eq('nome_relatorio', chave).is('colaborador_id', null)
-    const { data, error } = await query
     if (error) { console.error('buscarHistoricoMensal error:', error.message); break }
     for (const r of data ?? []) linhas.push({ data: String(r.data), total: Number(r.total), valor: Number(r.valor_calculado), nome: r.nome_relatorio })
     if (!data || data.length < PAGINA_VARIAVEL) break
