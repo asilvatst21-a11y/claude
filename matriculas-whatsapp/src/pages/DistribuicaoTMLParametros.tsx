@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase'
 import { formatarDataBR } from '../lib/utils'
 import {
   DESLOCAMENTO_IDEAL_MIN, DESLOCAMENTO_ESTOURO_MIN, CHECKLIST_IDEAL_MIN, CONFERENCIA_IDEAL_MIN, META_TML_TOTAL_MIN,
-  gatilhoEstouroMinutos, etapaIdealMinutos, SALA_TML_LABEL, type SalaTML,
+  gatilhoEstouroMinutos, etapaIdealMinutos, salaVigenteNaData, isSalaTML, SALA_TML_LABEL, type SalaTML,
   type MetaMatinalParam, type GatilhoEstouroParam, type EtapaIdealParam, type SalaHistoricoParam,
 } from '../lib/tml'
 
@@ -63,8 +63,11 @@ export default function DistribuicaoTMLParametros() {
   const [salvandoSala, setSalvandoSala] = useState(false)
   const [historicoSalaAberto, setHistoricoSalaAberto] = useState(true)
   const [matriculaSala, setMatriculaSala] = useState('')
-  const [salaNova, setSalaNova] = useState<SalaTML>('COLORADO')
-  const [vigenciaSala, setVigenciaSala] = useState(hojeISO())
+  const [mesSala, setMesSala] = useState(hojeISO().slice(0, 7))
+  const [quinzena1Sala, setQuinzena1Sala] = useState<SalaTML>('COLORADO')
+  const [quinzena2Sala, setQuinzena2Sala] = useState<SalaTML>('COLORADO')
+  const [quinzena1SalaOriginal, setQuinzena1SalaOriginal] = useState<SalaTML>('COLORADO')
+  const [quinzena2SalaOriginal, setQuinzena2SalaOriginal] = useState<SalaTML>('COLORADO')
 
   const carregar = useCallback(async () => {
     if (!usuario) return
@@ -125,6 +128,22 @@ export default function DistribuicaoTMLParametros() {
   }, [usuario])
 
   useEffect(() => { carregar() }, [carregar])
+
+  // Pré-preenche as duas quinzenas do mês escolhido com o que já está
+  // vigente hoje pra esse motorista (histórico, senão cadastro atual) — o
+  // usuário só muda o que realmente trocou.
+  useEffect(() => {
+    if (!matriculaSala) return
+    const matricula = Number(matriculaSala)
+    const salaCadastro = motoristas.find((m) => m.matricula === matricula)?.sala
+    const fallback: SalaTML = isSalaTML(salaCadastro) ? salaCadastro : 'COLORADO'
+    const sala1 = salaVigenteNaData(matricula, `${mesSala}-01`, salaHistorico) ?? fallback
+    const sala2 = salaVigenteNaData(matricula, `${mesSala}-16`, salaHistorico) ?? fallback
+    setQuinzena1Sala(sala1)
+    setQuinzena2Sala(sala2)
+    setQuinzena1SalaOriginal(sala1)
+    setQuinzena2SalaOriginal(sala2)
+  }, [matriculaSala, mesSala, salaHistorico, motoristas])
 
   async function salvarMetas() {
     if (!usuario) return
@@ -207,15 +226,24 @@ export default function DistribuicaoTMLParametros() {
     setErro('')
     setAviso('')
     try {
+      const matricula = Number(matriculaSala)
+      const linhas: { filial: string; matricula: number; sala: SalaTML; vigente_a_partir: string }[] = []
+      if (quinzena1Sala !== quinzena1SalaOriginal) {
+        linhas.push({ filial: usuario.filial, matricula, sala: quinzena1Sala, vigente_a_partir: `${mesSala}-01` })
+      }
+      if (quinzena2Sala !== quinzena2SalaOriginal) {
+        linhas.push({ filial: usuario.filial, matricula, sala: quinzena2Sala, vigente_a_partir: `${mesSala}-16` })
+      }
+      if (linhas.length === 0) {
+        setAviso('Nada mudou nas duas quinzenas — nenhuma troca registrada.')
+        return
+      }
       const { error } = await supabase
         .from('motoristas_sala_historico')
-        .upsert(
-          { filial: usuario.filial, matricula: Number(matriculaSala), sala: salaNova, vigente_a_partir: vigenciaSala },
-          { onConflict: 'filial,matricula,vigente_a_partir' }
-        )
+        .upsert(linhas, { onConflict: 'filial,matricula,vigente_a_partir' })
       if (error) throw new Error(error.message)
-      const nomeMotorista = motoristas.find((m) => m.matricula === Number(matriculaSala))?.nome ?? matriculaSala
-      setAviso(`${nomeMotorista} passa a valer ${SALA_TML_LABEL[salaNova]} a partir de ${formatarDataBR(vigenciaSala)}. Checklist já registrado antes dessa data não é afetado.`)
+      const nomeMotorista = motoristas.find((m) => m.matricula === matricula)?.nome ?? matriculaSala
+      setAviso(`${nomeMotorista}: sala atualizada pras quinzenas alteradas de ${mesSala.split('-').reverse().join('/')}. Checklist já registrado antes de cada quinzena não é afetado.`)
       await carregar()
     } catch (err) {
       setErro(err instanceof Error ? err.message : 'Erro ao salvar troca de sala')
@@ -330,7 +358,7 @@ export default function DistribuicaoTMLParametros() {
               </p>
             </div>
             <div className="p-4 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs text-muted-foreground mb-1">Motorista</label>
                   <select value={matriculaSala} onChange={(e) => setMatriculaSala(e.target.value)} className="w-full border rounded-md px-2 py-1.5 text-sm">
@@ -341,23 +369,34 @@ export default function DistribuicaoTMLParametros() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-muted-foreground mb-1">Nova sala</label>
-                  <select value={salaNova} onChange={(e) => setSalaNova(e.target.value as SalaTML)} className="w-full border rounded-md px-2 py-1.5 text-sm">
-                    <option value="COLORADO">{SALA_TML_LABEL.COLORADO}</option>
-                    <option value="SUB-FURIA">{SALA_TML_LABEL['SUB-FURIA']}</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-muted-foreground mb-1">Vigente a partir de</label>
-                  <input type="date" value={vigenciaSala} onChange={(e) => setVigenciaSala(e.target.value)} className="w-full border rounded-md px-2 py-1.5 text-sm" />
+                  <label className="block text-xs text-muted-foreground mb-1">Mês</label>
+                  <input type="month" value={mesSala} onChange={(e) => setMesSala(e.target.value)} className="w-full border rounded-md px-2 py-1.5 text-sm" />
                 </div>
               </div>
+              {matriculaSala && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">1ª quinzena (01 a 15)</label>
+                    <select value={quinzena1Sala} onChange={(e) => setQuinzena1Sala(e.target.value as SalaTML)} className="w-full border rounded-md px-2 py-1.5 text-sm">
+                      <option value="COLORADO">{SALA_TML_LABEL.COLORADO}</option>
+                      <option value="SUB-FURIA">{SALA_TML_LABEL['SUB-FURIA']}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">2ª quinzena (16 ao fim do mês)</label>
+                    <select value={quinzena2Sala} onChange={(e) => setQuinzena2Sala(e.target.value as SalaTML)} className="w-full border rounded-md px-2 py-1.5 text-sm">
+                      <option value="COLORADO">{SALA_TML_LABEL.COLORADO}</option>
+                      <option value="SUB-FURIA">{SALA_TML_LABEL['SUB-FURIA']}</option>
+                    </select>
+                  </div>
+                </div>
+              )}
               <button
                 onClick={salvarSala}
                 disabled={salvandoSala || !matriculaSala}
                 className="flex items-center gap-2 px-3 py-2 rounded-md bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white text-sm transition-colors"
               >
-                {salvandoSala ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Registrar troca de sala
+                {salvandoSala ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />} Salvar quinzenas
               </button>
             </div>
             {salaHistorico.length > 0 && (
