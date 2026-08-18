@@ -134,6 +134,7 @@ export default function FrotaIVAL() {
   // Filtros aplicados às três abas.
   const [filtroPlaca, setFiltroPlaca] = useState('')
   const [filtroMotivo, setFiltroMotivo] = useState<MotivoTrocaPlaca | 'SEM_MOTIVO' | ''>('')
+  const [filtroMes, setFiltroMes] = useState('')
 
   useEffect(() => {
     if (!usuario) return
@@ -151,14 +152,21 @@ export default function FrotaIVAL() {
     return [...set].sort()
   }, [trocas])
 
+  const mesesConhecidos = useMemo(() => {
+    const set = new Set<string>()
+    for (const t of trocas) set.add(t.data.slice(0, 7))
+    return [...set].sort()
+  }, [trocas])
+
   const trocasFiltradas = useMemo(() => {
     return trocas.filter((t) => {
       if (filtroPlaca && t.placaGerado !== filtroPlaca && t.placaCarregado !== filtroPlaca) return false
       if (filtroMotivo === 'SEM_MOTIVO' && t.motivo) return false
       if (filtroMotivo && filtroMotivo !== 'SEM_MOTIVO' && t.motivo !== filtroMotivo) return false
+      if (filtroMes && t.data.slice(0, 7) !== filtroMes) return false
       return true
     })
-  }, [trocas, filtroPlaca, filtroMotivo])
+  }, [trocas, filtroPlaca, filtroMotivo, filtroMes])
 
   const semMotivo = useMemo(() => trocasFiltradas.filter((t) => !t.motivo).length, [trocasFiltradas])
   const comManutencao = useMemo(() => trocasFiltradas.filter((t) => t.motivo === 'MANUTENCAO').length, [trocasFiltradas])
@@ -234,8 +242,15 @@ export default function FrotaIVAL() {
                 {MOTIVOS_TROCA_PLACA.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
             </div>
-            {(filtroPlaca || filtroMotivo) && (
-              <button onClick={() => { setFiltroPlaca(''); setFiltroMotivo('') }} className="text-xs font-semibold text-muted-foreground hover:text-foreground px-2 py-1.5">Limpar filtros</button>
+            <div>
+              <label className="text-xs font-semibold text-gray-600 block mb-1">Mês</label>
+              <select value={filtroMes} onChange={(e) => setFiltroMes(e.target.value)} className="text-sm border rounded-lg px-3 py-1.5 min-w-[120px]">
+                <option value="">Todos</option>
+                {mesesConhecidos.map((m) => <option key={m} value={m}>{rotuloMes(m)}</option>)}
+              </select>
+            </div>
+            {(filtroPlaca || filtroMotivo || filtroMes) && (
+              <button onClick={() => { setFiltroPlaca(''); setFiltroMotivo(''); setFiltroMes('') }} className="text-xs font-semibold text-muted-foreground hover:text-foreground px-2 py-1.5">Limpar filtros</button>
             )}
           </div>
 
