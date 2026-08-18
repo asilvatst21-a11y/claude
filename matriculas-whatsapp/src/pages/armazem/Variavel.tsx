@@ -18,7 +18,6 @@ import {
   type MesHistorico, type TabelaoMensal,
 } from '../../lib/variavelArmazem'
 import { formatarDataBR } from '../../lib/utils'
-import { buscarTrocasPlacaArmazem, type TrocaPlaca } from '../../lib/trocaPlacaManutenco'
 import VariavelTurnoAdmin from './VariavelTurnoAdmin'
 
 // A importação é sempre referente a D-1 (dia anterior); a data já vem
@@ -462,7 +461,7 @@ function TabelaoMensalTab({ dados, loading }: { dados: TabelaoMensal | null; loa
 
 export default function ArmazemVariavel() {
   const { usuario } = useAuth()
-  const [aba, setAba] = useState<'pontuacao' | 'turno' | 'historico' | 'tabelao' | 'trocas'>('pontuacao')
+  const [aba, setAba] = useState<'pontuacao' | 'turno' | 'historico' | 'tabelao'>('pontuacao')
   const [data, setData] = useState(ontemISO)
   const [resumo, setResumo] = useState<ResumoVariavel | null>(null)
   const [loading, setLoading] = useState(true)
@@ -488,10 +487,6 @@ export default function ArmazemVariavel() {
   // Tabelão Mensal (aba própria): todos os ajudantes lado a lado, mês a mês.
   const [tabelaoMensal, setTabelaoMensal] = useState<TabelaoMensal | null>(null)
   const [loadingTabelao, setLoadingTabelao] = useState(false)
-
-  // Trocas de Placa por Manutenção (IV armazém)
-  const [trocasPlaca, setTrocasPlaca] = useState<TrocaPlaca[]>([])
-  const [loadingTrocas, setLoadingTrocas] = useState(false)
 
   // Ranking de colaboradores num intervalo de datas específico. O usuário
   // escolhe por qual métrica ordenar (média, total, valor, dias, faltas) e a direção.
@@ -633,16 +628,6 @@ export default function ArmazemVariavel() {
       .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao carregar o tabelão mensal.'))
       .finally(() => setLoadingTabelao(false))
   }, [usuario, aba, tabelaoMensal])
-
-  // Trocas de Placa por Manutenção
-  useEffect(() => {
-    if (!usuario || aba !== 'trocas' || trocasPlaca.length > 0) return
-    setLoadingTrocas(true)
-    buscarTrocasPlacaArmazem(usuario.filial)
-      .then(setTrocasPlaca)
-      .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao carregar trocas de placa.'))
-      .finally(() => setLoadingTrocas(false))
-  }, [usuario, aba, trocasPlaca.length])
 
   const [vinculando, setVinculando] = useState(false)
 
@@ -818,13 +803,6 @@ export default function ArmazemVariavel() {
         >
           Tabelão Mensal
         </button>
-        <button
-          onClick={() => setAba('trocas')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-2 ${aba === 'trocas' ? 'border-accent-600 text-accent-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}
-        >
-          <ArrowDownUp className="h-4 w-4" />
-          Trocas de Placa
-        </button>
       </div>
 
       {aba === 'turno' ? (
@@ -841,62 +819,6 @@ export default function ArmazemVariavel() {
         />
       ) : aba === 'tabelao' ? (
         <TabelaoMensalTab dados={tabelaoMensal} loading={loadingTabelao} />
-      ) : aba === 'trocas' ? (
-        <div className="space-y-4">
-          {loadingTrocas ? (
-            <div className="text-center py-12 text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" />Carregando trocas de placa...</div>
-          ) : trocasPlaca.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">Nenhuma troca de placa encontrada no histórico.</div>
-          ) : (
-            <>
-              <div className="grid sm:grid-cols-3 gap-4">
-                <div className="border rounded-lg bg-white p-4">
-                  <p className="text-xs text-muted-foreground mb-1">Total de Trocas</p>
-                  <p className="text-2xl font-bold text-accent-700">{trocasPlaca.length}</p>
-                </div>
-                <div className="border rounded-lg bg-white p-4">
-                  <p className="text-xs text-muted-foreground mb-1">Período</p>
-                  <p className="text-sm font-semibold">{formatarDataBR(trocasPlaca[0]?.data)} a {formatarDataBR(trocasPlaca[trocasPlaca.length - 1]?.data)}</p>
-                </div>
-                <div className="border rounded-lg bg-white p-4">
-                  <p className="text-xs text-muted-foreground mb-1">Dias Únicos</p>
-                  <p className="text-2xl font-bold text-accent-700">{new Set(trocasPlaca.map(t => t.data)).size}</p>
-                </div>
-              </div>
-              <div className="border rounded-lg bg-white overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead className="border-b bg-muted">
-                    <tr>
-                      <th className="px-4 py-2 text-left font-semibold">Data</th>
-                      <th className="px-4 py-2 text-left font-semibold">Mapa</th>
-                      <th className="px-4 py-2 text-left font-semibold">Placa Gerado</th>
-                      <th className="px-4 py-2 text-center font-semibold">→</th>
-                      <th className="px-4 py-2 text-left font-semibold">Placa Carregado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {trocasPlaca.map((troca, i) => (
-                      <tr key={i} className={i % 2 === 0 ? 'bg-white' : 'bg-muted/30'}>
-                        <td className="px-4 py-2 text-muted-foreground">{formatarDataBR(troca.data)}</td>
-                        <td className="px-4 py-2 font-semibold text-foreground">{troca.mapa}</td>
-                        <td className="px-4 py-2"><code className="text-xs bg-muted px-2 py-1 rounded font-semibold">{troca.placaGerado}</code></td>
-                        <td className="px-4 py-2 text-center text-muted-foreground">→</td>
-                        <td className="px-4 py-2"><code className="text-xs bg-muted px-2 py-1 rounded font-semibold">{troca.placaCarregado}</code></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <div className="border rounded-lg bg-blue-50 border-blue-200 p-3 text-xs text-blue-700 flex gap-2">
-                <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold">Analisando OS...</p>
-                  <p>Correlacione com as OS noturnas (22h-06h) para vincular a manutenção. Download dos dados: <code className="text-[11px] bg-white px-1 rounded">trocas_placa_gerado_carregado.csv</code></p>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
       ) : (
       <>
 

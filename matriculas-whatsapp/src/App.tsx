@@ -22,6 +22,7 @@ import ConferenciaDigital from './pages/ConferenciaDigital'
 import DistribuicaoConferencia from './pages/DistribuicaoConferencia'
 import Frota from './pages/Frota'
 import FrotaIV from './pages/FrotaIV'
+import FrotaIVAL from './pages/FrotaIVAL'
 import FrotaPlacas from './pages/FrotaPlacas'
 import FrotaLeve from './pages/FrotaLeve'
 import ConsumoCombustivel from './pages/frota/ConsumoCombustivel'
@@ -181,6 +182,7 @@ export default function App() {
             <Route path="/distribuicao/fechamento-dia" element={<FechamentoDia />} />
             <Route path="/frota" element={<Frota />} />
             <Route path="/frota/iv" element={<FrotaIV />} />
+            <Route path="/frota/iv-al" element={<FrotaIVAL />} />
             <Route path="/frota/placas" element={<FrotaPlacas />} />
             <Route path="/frota/leve" element={<FrotaLeve />} />
             <Route path="/frota/consumo-combustivel" element={<ConsumoCombustivel />} />

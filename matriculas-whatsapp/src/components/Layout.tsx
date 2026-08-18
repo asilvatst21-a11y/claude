@@ -5,7 +5,7 @@ import {
   Shield, ClipboardList, Activity, FileText, Flag, Gauge, Clock, GitBranch, CalendarClock,
   UserCheck, Upload, FileSpreadsheet, Package, Settings, ChevronLeft, ChevronRight, ChevronDown,
   Wallet, Menu, X, Truck, Boxes, Timer, Home, Send, SlidersHorizontal,
-  ShieldCheck, Fuel, Scale, Route, ClipboardCheck, GraduationCap, AlertTriangle, MapPin, TestTube2, Target,
+  ShieldCheck, Fuel, Scale, Route, ClipboardCheck, GraduationCap, AlertTriangle, MapPin, TestTube2, Target, ArrowDownUp,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 
@@ -68,6 +68,7 @@ const distribuicaoItems = [
 const frotaItems = [
   { permKey: 'frota', to: '/frota',        label: 'Frota',  icon: Fuel,     end: true },
   { permKey: 'frota', to: '/frota/iv',     label: 'IV — DU', icon: BarChart2 },
+  { permKey: 'frota', to: '/frota/iv-al',  label: 'IV — AL', icon: ArrowDownUp },
   { permKey: 'frota', to: '/frota/placas', label: 'Placas', icon: Settings },
   { permKey: 'frota', to: '/frota/leve',   label: 'Frota Leve', icon: Truck },
   { permKey: 'frota', to: '/frota/consumo-combustivel', label: 'Consumo de Combustível', icon: Gauge },
