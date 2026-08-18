@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
-import type { Usuario, Filial, DtoAvaliador } from '../types'
+import type { Usuario, Filial, DtoAvaliador, GsdpqColaborador } from '../types'
 import { SECOES_SISTEMA } from '../types'
-import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2, Lock, MessageSquare } from 'lucide-react'
+import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2, Lock, MessageSquare, ClipboardCheck, X } from 'lucide-react'
 import { listarGrupos, type GrupoZApi } from '../lib/zapi'
 import {
   listarUsuarios, criarUsuario, atualizarUsuario, removerUsuario,
@@ -23,7 +23,7 @@ const AVALIADORES_PADRAO = [
 
 const SENHA_PADRAO = 'LOG20123'
 
-type AbaTipo = 'filiais' | 'usuarios' | 'avaliadores' | 'sugestoes'
+type AbaTipo = 'filiais' | 'usuarios' | 'avaliadores' | 'sugestoes' | 'gsdpq'
 
 export default function Admin() {
   const { usuario } = useAuth()
@@ -92,12 +92,21 @@ export default function Admin() {
         >
           Sugestões
         </button>
+        <button
+          onClick={() => setAba('gsdpq')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            aba === 'gsdpq' ? 'border-accent-500 text-accent-600' : 'border-transparent text-gray-500 hover:text-gray-700'
+          }`}
+        >
+          Lançar GSDPQ
+        </button>
       </div>
 
       {aba === 'usuarios'    && <AbaUsuarios    usuarios={usuarios} filiais={filiais} recarregar={carregar} usuarioAtual={usuario} />}
       {aba === 'filiais'     && <AbaFiliais     filiais={filiais} recarregar={carregar} />}
       {aba === 'avaliadores' && <AbaAvaliadores avaliadores={avaliadores} filiais={filiais} filialAtual={usuario.filial} recarregar={carregar} />}
       {aba === 'sugestoes'   && <AbaSugestoes />}
+      {aba === 'gsdpq'       && <AbaGsdpqManual filiais={filiais} filialAtual={usuario.filial} registradoPor={usuario.nome ?? usuario.login} />}
     </div>
   )
 }
@@ -191,6 +200,213 @@ function AbaSugestoes() {
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+function AbaGsdpqManual({
+  filiais, filialAtual, registradoPor,
+}: {
+  filiais: Filial[]
+  filialAtual: string
+  registradoPor: string
+}) {
+  const [filialFiltro, setFilialFiltro] = useState(filialAtual)
+  const [colaboradores, setColaboradores] = useState<GsdpqColaborador[]>([])
+  const [carregandoColab, setCarregandoColab] = useState(true)
+  const [dataRealizacao, setDataRealizacao] = useState(() => new Date().toISOString().slice(0, 10))
+  const [motoristaId, setMotoristaId] = useState('')
+  const [ajudanteIds, setAjudanteIds] = useState<string[]>([])
+  const [ajudanteParaAdicionar, setAjudanteParaAdicionar] = useState('')
+  const [salvando, setSalvando] = useState(false)
+  const [mensagem, setMensagem] = useState<{ tipo: 'sucesso' | 'erro'; texto: string } | null>(null)
+
+  useEffect(() => {
+    setCarregandoColab(true)
+    supabase.from('gsdpq_colaboradores').select('*').eq('filial', filialFiltro).eq('status', 'TRABALHANDO').order('nome')
+      .then(({ data }) => {
+        setColaboradores((data ?? []) as GsdpqColaborador[])
+        setCarregandoColab(false)
+      })
+    setMotoristaId('')
+    setAjudanteIds([])
+  }, [filialFiltro])
+
+  const colaboradoresDisponiveis = colaboradores.filter((c) => c.id !== motoristaId && !ajudanteIds.includes(c.id))
+
+  function adicionarAjudante() {
+    if (!ajudanteParaAdicionar) return
+    setAjudanteIds((prev) => [...prev, ajudanteParaAdicionar])
+    setAjudanteParaAdicionar('')
+  }
+
+  function removerAjudante(id: string) {
+    setAjudanteIds((prev) => prev.filter((a) => a !== id))
+  }
+
+  async function lancar() {
+    if (!motoristaId) { setMensagem({ tipo: 'erro', texto: 'Selecione o motorista.' }); return }
+    setSalvando(true)
+    setMensagem(null)
+    try {
+      // Usa o mesmo conjunto de perguntas da avaliação mais recente já
+      // importada nessa filial — não tem "lista oficial" fixa no sistema,
+      // as perguntas vêm de qual planilha foi importada por último.
+      const { data: maxRow } = await supabase
+        .from('gsdpq_avaliacoes')
+        .select('data_avaliacao')
+        .eq('filial', filialFiltro)
+        .order('data_avaliacao', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (!maxRow?.data_avaliacao) {
+        setMensagem({ tipo: 'erro', texto: 'Não encontrei nenhuma avaliação de GSDPQ anterior nessa filial pra saber quais perguntas usar. Importe pelo menos uma planilha de GSDPQ antes.' })
+        return
+      }
+      const { data: questoesRaw } = await supabase
+        .from('gsdpq_avaliacoes')
+        .select('questao')
+        .eq('filial', filialFiltro)
+        .eq('data_avaliacao', maxRow.data_avaliacao)
+      const questoes = [...new Set((questoesRaw ?? []).map((q) => q.questao as string))]
+      if (questoes.length === 0) {
+        setMensagem({ tipo: 'erro', texto: 'Não encontrei nenhuma pergunta na última avaliação importada.' })
+        return
+      }
+
+      const idsSelecionados = [motoristaId, ...ajudanteIds]
+      const selecionados = colaboradores.filter((c) => idsSelecionados.includes(c.id))
+
+      const linhas = selecionados.flatMap((colab) =>
+        questoes.map((questao) => ({
+          filial: filialFiltro,
+          colaborador_nome: colab.nome,
+          colaborador_id: colab.id,
+          realizado_por: registradoPor,
+          equipe: colab.equipe,
+          funcao: colab.funcao,
+          data_avaliacao: dataRealizacao,
+          questao,
+          resultado: 'OK',
+          observacoes: null,
+        }))
+      )
+
+      for (let i = 0; i < linhas.length; i += 200) {
+        const lote = linhas.slice(i, i + 200)
+        const { error } = await supabase.from('gsdpq_avaliacoes').upsert(lote, { onConflict: 'filial,colaborador_nome,data_avaliacao,questao' })
+        if (error) throw new Error(error.message)
+      }
+
+      setMensagem({ tipo: 'sucesso', texto: `✅ GSDPQ lançado (100% OK) pra ${selecionados.length} colaborador(es) em ${formatarDataBR(dataRealizacao)} — ${questoes.length} pergunta(s) cada.` })
+      setMotoristaId('')
+      setAjudanteIds([])
+    } catch (err) {
+      setMensagem({ tipo: 'erro', texto: err instanceof Error ? err.message : 'Erro ao lançar GSDPQ.' })
+    } finally {
+      setSalvando(false)
+    }
+  }
+
+  return (
+    <div className="max-w-2xl">
+      <div className="flex items-center gap-2 mb-4">
+        <div className="relative">
+          <label className="text-sm text-gray-500 font-medium mr-2">Filial:</label>
+          <select
+            value={filialFiltro}
+            onChange={(e) => setFilialFiltro(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            {filiais.map((f) => <option key={f.id} value={f.nome}>{f.nome}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
+        <div className="flex items-start gap-2 text-sm text-gray-500">
+          <ClipboardCheck size={16} className="text-accent-500 shrink-0 mt-0.5" />
+          <p>
+            Lança uma avaliação de GSDPQ pra quem já foi conferido fora da planilha normal — sobe automaticamente como
+            100% OK (todas as perguntas da última avaliação importada, sem nenhum NO). Entra igual a qualquer outra
+            avaliação, sem marcação especial — conta pro vencimento e pro histórico normalmente.
+          </p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Data da realização</label>
+          <input
+            type="date"
+            value={dataRealizacao}
+            onChange={(e) => setDataRealizacao(e.target.value)}
+            className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Motorista</label>
+          <select
+            value={motoristaId}
+            onChange={(e) => setMotoristaId(e.target.value)}
+            disabled={carregandoColab}
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+          >
+            <option value="">{carregandoColab ? 'Carregando...' : 'Selecione...'}</option>
+            {colaboradores.filter((c) => !ajudanteIds.includes(c.id)).map((c) => (
+              <option key={c.id} value={c.id}>{c.nome}{c.funcao ? ` — ${c.funcao}` : ''}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Ajudante(s)</label>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {ajudanteIds.map((id) => {
+              const colab = colaboradores.find((c) => c.id === id)
+              return (
+                <span key={id} className="inline-flex items-center gap-1.5 bg-brand-50 text-brand-700 text-sm px-2.5 py-1 rounded-full">
+                  {colab?.nome ?? id}
+                  <button onClick={() => removerAjudante(id)} className="hover:text-brand-900"><X size={13} /></button>
+                </span>
+              )
+            })}
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={ajudanteParaAdicionar}
+              onChange={(e) => setAjudanteParaAdicionar(e.target.value)}
+              disabled={carregandoColab}
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
+            >
+              <option value="">{carregandoColab ? 'Carregando...' : 'Selecione...'}</option>
+              {colaboradoresDisponiveis.map((c) => (
+                <option key={c.id} value={c.id}>{c.nome}{c.funcao ? ` — ${c.funcao}` : ''}</option>
+              ))}
+            </select>
+            <button
+              onClick={adicionarAjudante}
+              disabled={!ajudanteParaAdicionar}
+              className="px-3 py-2 rounded-lg border text-sm text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+            >
+              <Plus size={16} />
+            </button>
+          </div>
+        </div>
+
+        {mensagem && (
+          <div className={`text-sm rounded-lg px-3 py-2 ${mensagem.tipo === 'sucesso' ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+            {mensagem.texto}
+          </div>
+        )}
+
+        <button
+          onClick={lancar}
+          disabled={salvando || !motoristaId}
+          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white font-medium text-sm transition-colors"
+        >
+          {salvando ? <Loader2 size={16} className="animate-spin" /> : <ClipboardCheck size={16} />} Lançar GSDPQ (100% OK)
+        </button>
+      </div>
     </div>
   )
 }
