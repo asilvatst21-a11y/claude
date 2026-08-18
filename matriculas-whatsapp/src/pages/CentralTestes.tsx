@@ -15,6 +15,7 @@ import {
 } from '../lib/jornada'
 import { montarMensagemDivergencia, type ItemConf } from '../lib/conferencia'
 import { montarMensagemAgendamentoVisita, montarMensagemAvisoMotoristaPdv } from '../lib/pdvSeguranca'
+import { montarMensagemAvisoRotaRiscoRegiao, type PontoRisco, type CidadeBairro } from '../lib/rotasRisco'
 
 function hojeISO(): string {
   return new Date().toISOString().slice(0, 10)
@@ -239,6 +240,27 @@ const SESSOES: SessaoTeste[] = [
         quandoDispara: 'A cada import do BEES em Jornada e Rota, quando o mapa do motorista passa por um PDV com caso aprovado.',
         destino: 'Celular do motorista',
         gerar: () => montarMensagemAvisoMotoristaPdv('279861', 'Acesso / Escada / Rampa irregular (exemplo)'),
+      },
+    ],
+  },
+  {
+    nome: 'Rotas de Risco (Segurança)',
+    icon: ShieldAlert,
+    itens: [
+      {
+        id: 'rota-risco-aviso-motorista',
+        titulo: 'Ponto de risco na rota → motorista',
+        quandoDispara: 'A cada import da Escala do dia (03.11.49.02) em Distribuição TML, quando a cidade/bairro do mapa do motorista bate com um ponto de risco cadastrado.',
+        destino: 'Celular do motorista',
+        gerar: () => montarMensagemAvisoRotaRiscoRegiao(
+          {
+            id: 'exemplo', filial: 'exemplo', titulo: 'Trecho com histórico de assaltos (exemplo)', tipo: 'trecho',
+            severidade: 'alto', rodovia: 'RJ-125', velocidade_segura: '40 km/h', rota: null, pdv_referencia: null,
+            cidades_bairros: [], latitude: null, longitude: null, maps_url: null, origem: 'manual', sugestao_id: null,
+            ativo: true, created_at: new Date().toISOString(),
+          } as PontoRisco,
+          { cidade: 'PETROPOLIS', bairro: 'ITAIPAVA' } as CidadeBairro
+        ),
       },
     ],
   },
