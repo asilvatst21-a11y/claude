@@ -532,6 +532,84 @@ export function parseSaidaBuffer(buffer: ArrayBuffer): SaidaTML[] {
   return out;
 }
 
+export interface TrocaPlacaTML {
+  mapa: number;
+  data: string | null; // data da fase "Gerado"
+  placaGerado: string;
+  placaCarregado: string;
+}
+
+function isFaseGerado(value: unknown): boolean {
+  return normalize(value) === "gerado";
+}
+function isFaseCarregado(value: unknown): boolean {
+  return normalize(value) === "carregado";
+}
+
+// Placas "coringa" que não representam uma troca real por manutenção:
+// CRW.. são veículos reserva usados só na fase inicial, e REC.. são
+// recargas (2ª viagem) que trocam de placa naturalmente ao longo do dia.
+function isPlacaIgnorada(placa: string): boolean {
+  return placa.includes("CRW") || placa.includes("REC");
+}
+
+/**
+ * 03.11.20 — mesma planilha de portaria, mas olhando as fases "Gerado" e
+ * "Carregado" de cada mapa: quando a placa do mapa muda entre essas duas
+ * fases (e nenhuma das duas é CRW/REC), é sinal de troca de veículo por
+ * manutenção durante o carregamento (IV — AL / Apoio Logístico).
+ */
+export function parseTrocaPlacaBuffer(buffer: ArrayBuffer): TrocaPlacaTML[] {
+  const rows = readSheetRows(buffer, "03.11.20");
+
+  let headerRow = -1;
+  for (let i = 0; i < Math.min(rows.length, 20); i++) {
+    if (normalize(rows[i][COL_FASE]) === "fase") {
+      headerRow = i;
+      break;
+    }
+  }
+  if (headerRow === -1) return [];
+
+  const header = rows[headerRow].map(normalize);
+  const mapaIdx = header.findIndex((c) => c.includes("mapa"));
+  const dtOperIdx = header.findIndex(
+    (c) => c.includes("dtoper") || c.includes("dt oper") || c.includes("data oper") || c.includes("data saida"),
+  );
+  if (mapaIdx === -1) return [];
+
+  const porMapa = new Map<number, { gerado?: string; carregado?: string; data?: string | null }>();
+
+  for (let i = headerRow + 1; i < rows.length; i++) {
+    const row = rows[i];
+    const mapa = Number(row[mapaIdx]);
+    if (!mapa || isNaN(mapa)) continue;
+
+    const placa = String(row[COL_PLACA] ?? "").trim();
+    if (!placa) continue;
+
+    if (isFaseGerado(row[COL_FASE])) {
+      const info = porMapa.get(mapa) ?? {};
+      info.gerado = placa;
+      info.data = dtOperIdx !== -1 ? excelDateToISO(row[dtOperIdx]) : null;
+      porMapa.set(mapa, info);
+    } else if (isFaseCarregado(row[COL_FASE])) {
+      const info = porMapa.get(mapa) ?? {};
+      info.carregado = placa;
+      porMapa.set(mapa, info);
+    }
+  }
+
+  const out: TrocaPlacaTML[] = [];
+  for (const [mapa, info] of porMapa) {
+    if (!info.gerado || !info.carregado) continue;
+    if (info.gerado === info.carregado) continue;
+    if (isPlacaIgnorada(info.gerado) || isPlacaIgnorada(info.carregado)) continue;
+    out.push({ mapa, data: info.data ?? null, placaGerado: info.gerado, placaCarregado: info.carregado });
+  }
+  return out;
+}
+
 export interface BeesMapaAgregado {
   mapa: number;
   data: string | null;

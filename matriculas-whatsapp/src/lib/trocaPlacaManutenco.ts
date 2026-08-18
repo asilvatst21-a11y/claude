@@ -16,66 +16,40 @@ export interface OsNoturna {
   horario: number // hora (0-23)
 }
 
-// Buscar trocas de placa do 031120 (Mapa em Gerado vs Carregado)
-// Filtra CRW e REC automaticamente
+// Buscar trocas de placa do 031120 (Mapa em Gerado vs Carregado), já
+// filtradas e persistidas no import (ver handleSaida em DistribuicaoTML.tsx).
 export async function buscarTrocasPlacaArmazem(filial: string, dataInicio?: string, dataFim?: string): Promise<TrocaPlaca[]> {
   const PAGINA = 1000
   const trocas: TrocaPlaca[] = []
-  const mapasAgrupados = new Map<number, { gerado?: string; carregado?: string; data?: string }>()
 
-  // Paginar pois pode ter muitos dados
   for (let offset = 0; ; offset += PAGINA) {
     let query = supabase
-      .from('mapa_fase')
-      .select('mapa, data_operacao, placa, fase')
+      .from('frota_iv_al_trocas_placa')
+      .select('mapa, data, placa_gerado, placa_carregado')
       .eq('filial', filial)
-      .in('fase', ['Gerado', 'Carregado'])
-      .order('mapa')
-      .order('data_operacao')
+      .order('data')
       .range(offset, offset + PAGINA - 1)
 
-    if (dataInicio) query = query.gte('data_operacao', dataInicio)
-    if (dataFim) query = query.lte('data_operacao', dataFim)
+    if (dataInicio) query = query.gte('data', dataInicio)
+    if (dataFim) query = query.lte('data', dataFim)
 
     const { data, error } = await query
-
     if (error) throw new Error(error.message)
     if (!data?.length) break
 
     for (const row of data) {
-      // Filtrar CRW e REC
-      if (row.placa?.includes('CRW') || row.placa?.includes('REC')) continue
-
-      const mapa = row.mapa
-      if (!mapasAgrupados.has(mapa)) {
-        mapasAgrupados.set(mapa, {})
-      }
-      const info = mapasAgrupados.get(mapa)!
-
-      if (row.fase?.trim() === 'Gerado') {
-        info.gerado = row.placa
-        info.data = row.data_operacao
-      } else if (row.fase?.trim() === 'Carregado') {
-        info.carregado = row.placa
-      }
+      trocas.push({
+        mapa: row.mapa,
+        data: row.data,
+        placaGerado: row.placa_gerado,
+        placaCarregado: row.placa_carregado,
+      })
     }
 
     if (data.length < PAGINA) break
   }
 
-  // Extrair trocas onde placa mudou
-  for (const [mapa, info] of mapasAgrupados) {
-    if (info.gerado && info.carregado && info.gerado !== info.carregado && info.data) {
-      trocas.push({
-        mapa,
-        data: info.data,
-        placaGerado: info.gerado,
-        placaCarregado: info.carregado,
-      })
-    }
-  }
-
-  return trocas.sort((a, b) => a.data.localeCompare(b.data))
+  return trocas
 }
 
 // Buscar OS noturnas (22h-06h) para um período

@@ -7,7 +7,7 @@ import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { enviarListaOpcoesWhatsApp, enviarMensagemWhatsApp, enviarMensagemGrupo, enviarImagemGrupo, aguardarEntreEnvios, variarTexto } from '../lib/zapi'
 import { serieCartaControleCDD, renderCartaControlePNG } from '../lib/tmlCartaControle'
-import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer, type ChecklistTML } from '../lib/tmlParser'
+import { parseEscalaBuffer, parseSaidaBuffer, parseChecklistBuffer, parseTrocaPlacaBuffer, type ChecklistTML } from '../lib/tmlParser'
 import {
   isSalaTML, horarioLimite, atrasoMinutos, saidaInvalida, SALA_TML_LABEL, type SalaTML,
   horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal, metaMatinalMinutos, MATINAL_AUTO_FINALIZA_MIN,
@@ -551,6 +551,24 @@ export default function DistribuicaoTML() {
         { onConflict: 'filial,mapa' }
       )
       if (upsertErr) throw new Error(upsertErr.message)
+
+      // IV — AL (Apoio Logístico): trocas de placa entre a fase "Gerado" e
+      // a fase "Carregado" do mesmo arquivo — sinal de troca de veículo por
+      // manutenção durante o carregamento (CRW/REC já saem filtrados).
+      const trocasPlaca = parseTrocaPlacaBuffer(buffer)
+      if (trocasPlaca.length > 0) {
+        await supabase.from('frota_iv_al_trocas_placa').upsert(
+          trocasPlaca.map((t) => ({
+            filial: usuario.filial,
+            mapa: t.mapa,
+            data: t.data,
+            placa_gerado: t.placaGerado,
+            placa_carregado: t.placaCarregado,
+            importado_em: new Date().toISOString(),
+          })),
+          { onConflict: 'filial,mapa' }
+        )
+      }
 
       const mapas = saidasComData.map((s) => s.mapa)
 
