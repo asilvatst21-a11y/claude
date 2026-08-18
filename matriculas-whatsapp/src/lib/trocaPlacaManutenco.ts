@@ -81,9 +81,9 @@ export async function buscarTrocasPlacaArmazem(filial: string, dataInicio?: stri
 // Buscar OS noturnas (22h-06h) para um período
 // Retorna dados estruturados prontos para correlacionar
 export async function buscarOsNoturnas(
-  filial: string,
-  dataInicio: string,
-  dataFim: string
+  _filial: string,
+  _dataInicio: string,
+  _dataFim: string
 ): Promise<OsNoturna[]> {
   // Nota: essa função é um placeholder para a implementação futura
   // Por enquanto, retorna um array vazio
