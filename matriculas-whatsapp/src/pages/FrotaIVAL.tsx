@@ -4,9 +4,15 @@ import { AlertTriangle, ArrowDownUp, ArrowLeft, Building2, Loader2, X } from 'lu
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
-  buscarTrocasPlacaArmazem, salvarMotivoTroca, MOTIVOS_TROCA_PLACA,
+  buscarTrocasPlacaArmazem, salvarMotivoTroca, rankingPlacas, trocasPorMes, MOTIVOS_TROCA_PLACA,
   type TrocaPlaca, type MotivoTrocaPlaca,
 } from '../lib/trocaPlacaManutenco'
+
+const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
+function rotuloMes(mesISO: string): string {
+  const [ano, mes] = mesISO.split('-').map(Number)
+  return `${MESES_ABREV[mes - 1]}/${String(ano).slice(2)}`
+}
 
 function labelMotivo(motivo: MotivoTrocaPlaca): string {
   return MOTIVOS_TROCA_PLACA.find((m) => m.value === motivo)?.label ?? motivo
@@ -114,13 +120,20 @@ function ModalMotivo({
   )
 }
 
+type Aba = 'trocas' | 'ranking' | 'mensal'
+
 export default function FrotaIVAL() {
   const { usuario } = useAuth()
+  const [aba, setAba] = useState<Aba>('trocas')
   const [trocas, setTrocas] = useState<TrocaPlaca[]>([])
   const [carregando, setCarregando] = useState(true)
   const [erro, setErro] = useState('')
   const [trocaSelecionada, setTrocaSelecionada] = useState<TrocaPlaca | null>(null)
   const [salvando, setSalvando] = useState(false)
+
+  // Filtros aplicados às três abas.
+  const [filtroPlaca, setFiltroPlaca] = useState('')
+  const [filtroMotivo, setFiltroMotivo] = useState<MotivoTrocaPlaca | 'SEM_MOTIVO' | ''>('')
 
   useEffect(() => {
     if (!usuario) return
@@ -132,9 +145,27 @@ export default function FrotaIVAL() {
       .finally(() => setCarregando(false))
   }, [usuario])
 
-  const semMotivo = useMemo(() => trocas.filter((t) => !t.motivo).length, [trocas])
-  const comManutencao = useMemo(() => trocas.filter((t) => t.motivo === 'MANUTENCAO').length, [trocas])
-  const outros = useMemo(() => trocas.filter((t) => t.motivo && t.motivo !== 'MANUTENCAO').length, [trocas])
+  const placasConhecidas = useMemo(() => {
+    const set = new Set<string>()
+    for (const t of trocas) { set.add(t.placaGerado); set.add(t.placaCarregado) }
+    return [...set].sort()
+  }, [trocas])
+
+  const trocasFiltradas = useMemo(() => {
+    return trocas.filter((t) => {
+      if (filtroPlaca && t.placaGerado !== filtroPlaca && t.placaCarregado !== filtroPlaca) return false
+      if (filtroMotivo === 'SEM_MOTIVO' && t.motivo) return false
+      if (filtroMotivo && filtroMotivo !== 'SEM_MOTIVO' && t.motivo !== filtroMotivo) return false
+      return true
+    })
+  }, [trocas, filtroPlaca, filtroMotivo])
+
+  const semMotivo = useMemo(() => trocasFiltradas.filter((t) => !t.motivo).length, [trocasFiltradas])
+  const comManutencao = useMemo(() => trocasFiltradas.filter((t) => t.motivo === 'MANUTENCAO').length, [trocasFiltradas])
+  const outros = useMemo(() => trocasFiltradas.filter((t) => t.motivo && t.motivo !== 'MANUTENCAO').length, [trocasFiltradas])
+
+  const ranking = useMemo(() => rankingPlacas(trocasFiltradas), [trocasFiltradas])
+  const mensal = useMemo(() => trocasPorMes(trocasFiltradas), [trocasFiltradas])
 
   async function salvar(mapa: number, motivo: MotivoTrocaPlaca, osNumero: string | null, osDescricao: string | null) {
     if (!usuario) return
@@ -181,10 +212,37 @@ export default function FrotaIVAL() {
         </div>
       ) : (
         <div className="space-y-4">
+          <div className="flex gap-1 border-b">
+            <button onClick={() => setAba('trocas')} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'trocas' ? 'border-brand-600 text-brand-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Trocas</button>
+            <button onClick={() => setAba('ranking')} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'ranking' ? 'border-brand-600 text-brand-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Ranking de Placas</button>
+            <button onClick={() => setAba('mensal')} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'mensal' ? 'border-brand-600 text-brand-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Mês a Mês</button>
+          </div>
+
+          <div className="flex flex-wrap gap-3 items-end">
+            <div>
+              <label className="text-xs font-semibold text-gray-600 block mb-1">Placa</label>
+              <select value={filtroPlaca} onChange={(e) => setFiltroPlaca(e.target.value)} className="text-sm border rounded-lg px-3 py-1.5 min-w-[140px]">
+                <option value="">Todas</option>
+                {placasConhecidas.map((p) => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-600 block mb-1">Motivo</label>
+              <select value={filtroMotivo} onChange={(e) => setFiltroMotivo(e.target.value as MotivoTrocaPlaca | 'SEM_MOTIVO' | '')} className="text-sm border rounded-lg px-3 py-1.5 min-w-[160px]">
+                <option value="">Todos</option>
+                <option value="SEM_MOTIVO">Sem motivo</option>
+                {MOTIVOS_TROCA_PLACA.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+            </div>
+            {(filtroPlaca || filtroMotivo) && (
+              <button onClick={() => { setFiltroPlaca(''); setFiltroMotivo('') }} className="text-xs font-semibold text-muted-foreground hover:text-foreground px-2 py-1.5">Limpar filtros</button>
+            )}
+          </div>
+
           <div className="grid sm:grid-cols-4 gap-4">
             <div className="border rounded-xl bg-white p-4">
               <p className="text-xs text-muted-foreground mb-1">Total no período</p>
-              <p className="text-2xl font-bold text-brand-700">{trocas.length}</p>
+              <p className="text-2xl font-bold text-brand-700">{trocasFiltradas.length}</p>
             </div>
             <div className="border rounded-xl bg-white p-4">
               <p className="text-xs text-muted-foreground mb-1">Sem motivo classificado</p>
@@ -200,45 +258,118 @@ export default function FrotaIVAL() {
             </div>
           </div>
 
-          <div className="border rounded-xl bg-white overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="border-b bg-gray-50">
-                  <tr>
-                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Data</th>
-                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Mapa</th>
-                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Placa Gerado → Carregado</th>
-                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Motivo</th>
-                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">OS</th>
-                    <th className="px-4 py-2"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {trocas.map((troca, i) => (
-                    <tr key={troca.mapa} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
-                      <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{formatarDataBR(troca.data)}</td>
-                      <td className="px-4 py-2 font-semibold text-gray-900 whitespace-nowrap">{troca.mapa}</td>
-                      <td className="px-4 py-2 whitespace-nowrap">
-                        <code className="text-xs bg-gray-100 px-2 py-1 rounded font-semibold">{troca.placaGerado}</code>
-                        <span className="text-muted-foreground mx-1.5">→</span>
-                        <code className="text-xs bg-gray-100 px-2 py-1 rounded font-semibold">{troca.placaCarregado}</code>
-                      </td>
-                      <td className="px-4 py-2"><PillMotivo motivo={troca.motivo} /></td>
-                      <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{troca.osNumero ? `OS ${troca.osNumero}` : '—'}</td>
-                      <td className="px-4 py-2 text-right whitespace-nowrap">
-                        <button
-                          onClick={() => setTrocaSelecionada(troca)}
-                          className="text-xs font-semibold px-3 py-1.5 rounded-lg border hover:bg-gray-50"
-                        >
-                          {troca.motivo ? 'Editar' : 'Classificar'}
-                        </button>
-                      </td>
+          {aba === 'trocas' ? (
+            <div className="border rounded-xl bg-white overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Data</th>
+                      <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Mapa</th>
+                      <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Placa Gerado → Carregado</th>
+                      <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Motivo</th>
+                      <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">OS</th>
+                      <th className="px-4 py-2"></th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {trocasFiltradas.map((troca, i) => (
+                      <tr key={troca.mapa} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{formatarDataBR(troca.data)}</td>
+                        <td className="px-4 py-2 font-semibold text-gray-900 whitespace-nowrap">{troca.mapa}</td>
+                        <td className="px-4 py-2 whitespace-nowrap">
+                          <code className="text-xs bg-gray-100 px-2 py-1 rounded font-semibold">{troca.placaGerado}</code>
+                          <span className="text-muted-foreground mx-1.5">→</span>
+                          <code className="text-xs bg-gray-100 px-2 py-1 rounded font-semibold">{troca.placaCarregado}</code>
+                        </td>
+                        <td className="px-4 py-2"><PillMotivo motivo={troca.motivo} /></td>
+                        <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{troca.osNumero ? `OS ${troca.osNumero}` : '—'}</td>
+                        <td className="px-4 py-2 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => setTrocaSelecionada(troca)}
+                            className="text-xs font-semibold px-3 py-1.5 rounded-lg border hover:bg-gray-50"
+                          >
+                            {troca.motivo ? 'Editar' : 'Classificar'}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {trocasFiltradas.length === 0 && (
+                      <tr><td colSpan={6} className="px-4 py-8 text-center text-muted-foreground">Nenhuma troca com esse filtro.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
+          ) : aba === 'ranking' ? (
+            <div className="border rounded-xl bg-white overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Placa</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Total</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Manutenção</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Ajuste de Fixação</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Mudança de Perfil</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Outro</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Sem motivo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ranking.map((r, i) => (
+                      <tr key={r.placa} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                        <td className="px-4 py-2 whitespace-nowrap"><code className="text-xs bg-gray-100 px-2 py-1 rounded font-semibold">{r.placa}</code></td>
+                        <td className="px-4 py-2 text-right font-bold tabular-nums">{r.total}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-red-700">{r.porMotivo.MANUTENCAO || '—'}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{r.porMotivo.AJUSTE_FIXACAO || '—'}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{r.porMotivo.MUDANCA_PERFIL || '—'}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{r.porMotivo.OUTRO || '—'}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-amber-700">{r.semMotivo || '—'}</td>
+                      </tr>
+                    ))}
+                    {ranking.length === 0 && (
+                      <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Nenhuma troca com esse filtro.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : (
+            <div className="border rounded-xl bg-white overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="border-b bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Mês</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Total</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Manutenção</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Ajuste de Fixação</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Mudança de Perfil</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Outro</th>
+                      <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Sem motivo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mensal.map((m, i) => (
+                      <tr key={m.mes} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                        <td className="px-4 py-2 font-semibold text-gray-900 whitespace-nowrap">{rotuloMes(m.mes)}</td>
+                        <td className="px-4 py-2 text-right font-bold tabular-nums">{m.total}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-red-700">{m.porMotivo.MANUTENCAO || '—'}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{m.porMotivo.AJUSTE_FIXACAO || '—'}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{m.porMotivo.MUDANCA_PERFIL || '—'}</td>
+                        <td className="px-4 py-2 text-right tabular-nums">{m.porMotivo.OUTRO || '—'}</td>
+                        <td className="px-4 py-2 text-right tabular-nums text-amber-700">{m.semMotivo || '—'}</td>
+                      </tr>
+                    ))}
+                    {mensal.length === 0 && (
+                      <tr><td colSpan={7} className="px-4 py-8 text-center text-muted-foreground">Nenhuma troca com esse filtro.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

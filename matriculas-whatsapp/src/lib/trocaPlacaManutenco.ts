@@ -19,15 +19,6 @@ export interface TrocaPlaca {
   osDescricao: string | null
 }
 
-export interface OsNoturna {
-  data: string // formato do Excel: "DD/MM/YYYY HH:MM"
-  os: string | number
-  placa: string
-  tipoOs: string
-  problema: string
-  horario: number // hora (0-23)
-}
-
 // Buscar trocas de placa do 031120 (Mapa em Gerado vs Carregado), já
 // filtradas e persistidas no import (ver handleSaida em DistribuicaoTML.tsx).
 export async function buscarTrocasPlacaArmazem(filial: string, dataInicio?: string, dataFim?: string): Promise<TrocaPlaca[]> {
@@ -91,45 +82,68 @@ export async function salvarMotivoTroca(
   if (error) throw new Error(error.message)
 }
 
-// Buscar OS noturnas (22h-06h) para um período
-// Retorna dados estruturados prontos para correlacionar
-export async function buscarOsNoturnas(
-  _filial: string,
-  _dataInicio: string,
-  _dataFim: string
-): Promise<OsNoturna[]> {
-  // Nota: essa função é um placeholder para a implementação futura
-  // Por enquanto, retorna um array vazio
-  // A integração real dependerá de como os dados de OS estão armazenados no Supabase
-  console.warn('buscarOsNoturnas: função ainda não integrada com dados reais de OS')
-  return []
+// ── Ranking de placas: cada placa envolvida numa troca (seja como origem
+// "Gerado" ou destino "Carregado") conta uma ocorrência, quebrada por
+// motivo. Não há vínculo com motorista nessa tabela — só placa e mapa.
+export interface RankingPlaca {
+  placa: string
+  total: number
+  porMotivo: Record<MotivoTrocaPlaca, number>
+  semMotivo: number
 }
 
-// Correlacionar uma troca de placa com possíveis OS noturnas
-export function correlacionarTrocaComOs(
-  troca: TrocaPlaca,
-  osNoturnas: OsNoturna[]
-): OsNoturna[] {
-  const dataTroca = troca.data // yyyy-mm-dd
-  const placas = [troca.placaGerado, troca.placaCarregado]
+export function rankingPlacas(trocas: TrocaPlaca[]): RankingPlaca[] {
+  const porPlaca = new Map<string, RankingPlaca>()
 
-  // Buscar OS para as placas no mesmo dia ou dia seguinte
-  return osNoturnas.filter(os => {
-    const dataOs = os.data.substring(0, 10).split('/').reverse().join('-') // Converter DD/MM/YYYY para yyyy-mm-dd
-    return (
-      placas.includes(os.placa) &&
-      (dataOs === dataTroca || dataOs === new Date(new Date(dataTroca).getTime() + 86400000).toISOString().split('T')[0])
-    )
-  })
-}
-
-// Calcular estatísticas
-export function calcularEstatisticas(trocas: TrocaPlaca[], osNoturnas: OsNoturna[]) {
-  const trocasComOs = trocas.filter(t => correlacionarTrocaComOs(t, osNoturnas).length > 0)
-  return {
-    totalTrocas: trocas.length,
-    trocasComOs: trocasComOs.length,
-    trocasSemOs: trocas.length - trocasComOs.length,
-    cobertura: trocas.length > 0 ? (trocasComOs.length / trocas.length * 100).toFixed(1) : '0',
+  function registrar(placa: string, motivo: MotivoTrocaPlaca | null) {
+    if (!porPlaca.has(placa)) {
+      porPlaca.set(placa, {
+        placa,
+        total: 0,
+        porMotivo: { MANUTENCAO: 0, AJUSTE_FIXACAO: 0, MUDANCA_PERFIL: 0, OUTRO: 0 },
+        semMotivo: 0,
+      })
+    }
+    const r = porPlaca.get(placa)!
+    r.total++
+    if (motivo) r.porMotivo[motivo]++
+    else r.semMotivo++
   }
+
+  for (const t of trocas) {
+    registrar(t.placaGerado, t.motivo)
+    registrar(t.placaCarregado, t.motivo)
+  }
+
+  return [...porPlaca.values()].sort((a, b) => b.total - a.total)
+}
+
+// ── Trocas mês a mês, quebradas por motivo.
+export interface MesTrocaPlaca {
+  mes: string // "2026-01"
+  total: number
+  porMotivo: Record<MotivoTrocaPlaca, number>
+  semMotivo: number
+}
+
+export function trocasPorMes(trocas: TrocaPlaca[]): MesTrocaPlaca[] {
+  const porMes = new Map<string, MesTrocaPlaca>()
+
+  for (const t of trocas) {
+    const mes = t.data.slice(0, 7)
+    if (!porMes.has(mes)) {
+      porMes.set(mes, {
+        mes,
+        total: 0,
+        porMotivo: { MANUTENCAO: 0, AJUSTE_FIXACAO: 0, MUDANCA_PERFIL: 0, OUTRO: 0 },
+        semMotivo: 0,
+      })
+    }
+    const m = porMes.get(mes)!
+    m.total++
+    if (t.motivo) m.porMotivo[t.motivo]++
+    else m.semMotivo++
+  }
+
+  return [...porMes.values()].sort((a, b) => a.mes.localeCompare(b.mes))
 }
