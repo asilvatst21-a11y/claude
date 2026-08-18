@@ -1025,13 +1025,21 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
 
   return (
     <div className="space-y-4">
-      <p className="text-xs text-gray-500">
-        O conferente só lança as atividades <b className="text-green-700">Manuais</b> no fim do turno — as de <b>Upload</b> seguem
-        o fluxo de relatório normal, fora desse fechamento. Uma atividade pode ter vários colaboradores (ex.: EFC feita por
-        vários ajudantes) — o valor final mensal é individual, não dividido entre o grupo, e é dividido pelos dias úteis
-        da competência (21→20) pra virar a cota diária de cada um — a não ser que a atividade seja de <b>meta acumulada</b>,
-        que paga o valor cheio ou zero conforme a média do período inteiro.
-      </p>
+      <div className="flex justify-end">
+        <button
+          type="button"
+          title={
+            'O conferente só lança as atividades Manuais no fim do turno — as de Upload seguem o fluxo de relatório ' +
+            'normal, fora desse fechamento. Uma atividade pode ter vários colaboradores (ex.: EFC feita por vários ' +
+            'ajudantes) — o valor final mensal é individual, não dividido entre o grupo, e é dividido pelos dias ' +
+            'úteis da competência (21→20) pra virar a cota diária de cada um — a não ser que a atividade seja de ' +
+            'meta acumulada, que paga o valor cheio ou zero conforme a média do período inteiro.'
+          }
+          className="h-5 w-5 rounded-full border border-gray-300 text-[11px] font-bold text-gray-400 hover:text-gray-600 hover:border-gray-400 flex items-center justify-center shrink-0"
+        >
+          ?
+        </button>
+      </div>
 
       <div className="flex items-center justify-between gap-2 border rounded-lg p-3 bg-gray-50/50">
         <p className="text-[11px] text-gray-500">
