@@ -547,11 +547,11 @@ function isFaseCarregado(value: unknown): boolean {
 }
 
 // Placas "coringa" que não representam uma troca real por manutenção:
-// CRW.. e CON.. são veículos reserva/genéricos usados só na fase inicial,
-// e REC.. são recargas (2ª viagem) que trocam de placa naturalmente ao
-// longo do dia.
+// CRW.., CON.. e PPX.. são veículos reserva/genéricos usados só na fase
+// inicial, e REC.. são recargas (2ª viagem) que trocam de placa
+// naturalmente ao longo do dia.
 function isPlacaIgnorada(placa: string): boolean {
-  return placa.includes("CRW") || placa.includes("REC") || placa.includes("CON");
+  return placa.includes("CRW") || placa.includes("REC") || placa.includes("CON") || placa.includes("PPX");
 }
 
 /**
