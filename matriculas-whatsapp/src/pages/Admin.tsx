@@ -245,7 +245,7 @@ function AbaGsdpqManual({
   }
 
   async function lancar() {
-    if (!motoristaId) { setMensagem({ tipo: 'erro', texto: 'Selecione o motorista.' }); return }
+    if (!motoristaId && ajudanteIds.length === 0) { setMensagem({ tipo: 'erro', texto: 'Selecione o motorista e/ou pelo menos um ajudante.' }); return }
     setSalvando(true)
     setMensagem(null)
     try {
@@ -274,7 +274,7 @@ function AbaGsdpqManual({
         return
       }
 
-      const idsSelecionados = [motoristaId, ...ajudanteIds]
+      const idsSelecionados = [motoristaId, ...ajudanteIds].filter(Boolean)
       const selecionados = colaboradores.filter((c) => idsSelecionados.includes(c.id))
 
       const linhas = selecionados.flatMap((colab) =>
@@ -401,7 +401,7 @@ function AbaGsdpqManual({
 
         <button
           onClick={lancar}
-          disabled={salvando || !motoristaId}
+          disabled={salvando || (!motoristaId && ajudanteIds.length === 0)}
           className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-accent-500 hover:bg-accent-600 disabled:opacity-50 text-white font-medium text-sm transition-colors"
         >
           {salvando ? <Loader2 size={16} className="animate-spin" /> : <ClipboardCheck size={16} />} Lançar GSDPQ (100% OK)
