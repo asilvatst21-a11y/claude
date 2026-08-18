@@ -1,10 +1,22 @@
 import { supabase } from './supabase'
 
+export type MotivoTrocaPlaca = 'MANUTENCAO' | 'AJUSTE_FIXACAO' | 'MUDANCA_PERFIL' | 'OUTRO'
+
+export const MOTIVOS_TROCA_PLACA: { value: MotivoTrocaPlaca; label: string }[] = [
+  { value: 'MANUTENCAO', label: 'Manutenção' },
+  { value: 'AJUSTE_FIXACAO', label: 'Ajuste de Fixação' },
+  { value: 'MUDANCA_PERFIL', label: 'Mudança de Perfil' },
+  { value: 'OUTRO', label: 'Outro' },
+]
+
 export interface TrocaPlaca {
   mapa: number
   data: string // yyyy-mm-dd
   placaGerado: string
   placaCarregado: string
+  motivo: MotivoTrocaPlaca | null
+  osNumero: string | null
+  osDescricao: string | null
 }
 
 export interface OsNoturna {
@@ -25,7 +37,7 @@ export async function buscarTrocasPlacaArmazem(filial: string, dataInicio?: stri
   for (let offset = 0; ; offset += PAGINA) {
     let query = supabase
       .from('frota_iv_al_trocas_placa')
-      .select('mapa, data, placa_gerado, placa_carregado')
+      .select('mapa, data, placa_gerado, placa_carregado, motivo, os_numero, os_descricao')
       .eq('filial', filial)
       .order('data')
       .range(offset, offset + PAGINA - 1)
@@ -43,6 +55,9 @@ export async function buscarTrocasPlacaArmazem(filial: string, dataInicio?: stri
         data: row.data,
         placaGerado: row.placa_gerado,
         placaCarregado: row.placa_carregado,
+        motivo: (row.motivo as MotivoTrocaPlaca | null) ?? null,
+        osNumero: row.os_numero ?? null,
+        osDescricao: row.os_descricao ?? null,
       })
     }
 
@@ -50,6 +65,30 @@ export async function buscarTrocasPlacaArmazem(filial: string, dataInicio?: stri
   }
 
   return trocas
+}
+
+// Classifica manualmente o motivo de uma troca já registrada. OS é
+// opcional mesmo para Manutenção — nem toda troca por manutenção abre OS.
+export async function salvarMotivoTroca(
+  filial: string,
+  mapa: number,
+  motivo: MotivoTrocaPlaca,
+  osNumero: string | null,
+  osDescricao: string | null,
+  classificadoPor: string
+): Promise<void> {
+  const { error } = await supabase
+    .from('frota_iv_al_trocas_placa')
+    .update({
+      motivo,
+      os_numero: osNumero,
+      os_descricao: osDescricao,
+      motivo_classificado_em: new Date().toISOString(),
+      motivo_classificado_por: classificadoPor,
+    })
+    .eq('filial', filial)
+    .eq('mapa', mapa)
+  if (error) throw new Error(error.message)
 }
 
 // Buscar OS noturnas (22h-06h) para um período
