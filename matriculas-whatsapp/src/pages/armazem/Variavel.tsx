@@ -273,6 +273,12 @@ function TabelaoMensalTab({ dados, loading }: { dados: TabelaoMensal | null; loa
   const [agregacao, setAgregacao] = useState<Agregacao>('total')
   const [mesesVisiveis, setMesesVisiveis] = useState<Set<string>>(new Set())
   const [busca, setBusca] = useState('')
+  const [diasMinimos, setDiasMinimos] = useState(5)
+  // Substituições manuais por nome — força mostrar/esconder independente do
+  // mínimo de dias (ex.: ajudante do turno C que só bate ponto ocasional
+  // aqui, mas quer ver de propósito num mês específico; ou o contrário).
+  const [overrides, setOverrides] = useState<Map<string, boolean>>(new Map())
+  const [painelColabAberto, setPainelColabAberto] = useState(false)
 
   const todosMeses = dados?.meses ?? []
 
@@ -289,6 +295,17 @@ function TabelaoMensalTab({ dados, loading }: { dados: TabelaoMensal | null; loa
     })
   }
 
+  // Alterna o estado exibido (padrão do mínimo de dias, ou já substituído
+  // manualmente antes) e grava como substituição manual.
+  function toggleOverride(nome: string, padrao: boolean) {
+    setOverrides((prev) => {
+      const novo = new Map(prev)
+      const atual = novo.has(nome) ? novo.get(nome)! : padrao
+      novo.set(nome, !atual)
+      return novo
+    })
+  }
+
   const mesesOrdenados = todosMeses.filter((m) => mesesVisiveis.has(m))
 
   const valorCelula = (porMes: TabelaoMensal['linhas'][number]['porMes'], mes: string): number | null => {
@@ -297,15 +314,31 @@ function TabelaoMensalTab({ dados, loading }: { dados: TabelaoMensal | null; loa
     return valorDoMes(v, metrica, agregacao)
   }
 
+  function diasNoPeriodo(l: TabelaoMensal['linhas'][number]): number {
+    return mesesOrdenados.reduce((s, mes) => s + (l.porMes[mes]?.diasLancados ?? 0), 0)
+  }
+
+  function visivelPorPadrao(l: TabelaoMensal['linhas'][number]): boolean {
+    return diasNoPeriodo(l) >= diasMinimos
+  }
+
+  function estaVisivel(l: TabelaoMensal['linhas'][number]): boolean {
+    return overrides.has(l.nome) ? overrides.get(l.nome)! : visivelPorPadrao(l)
+  }
+
   // Some da lista quem não tem nenhum lançamento em NENHUM dos meses
   // visíveis no momento — troca o filtro de mês e a lista se ajusta sozinha,
-  // em vez de mostrar uma linha inteira de "—".
-  const linhas = (dados?.linhas ?? [])
+  // em vez de mostrar uma linha inteira de "—". Também some quem fica
+  // abaixo do mínimo de dias (ajudante esporádico de outro turno), a menos
+  // que tenha sido forçado a aparecer manualmente.
+  const todasLinhas = dados?.linhas ?? []
+  const linhas = todasLinhas
     .filter((l) => l.nome.toLowerCase().includes(busca.toLowerCase()))
     .filter((l) => mesesOrdenados.some((mes) => l.porMes[mes] != null))
+    .filter((l) => estaVisivel(l))
 
   const mediaFrotaPorMes = mesesOrdenados.map((mes) => {
-    const valores = (dados?.linhas ?? []).map((l) => valorCelula(l.porMes, mes)).filter((v): v is number => v != null)
+    const valores = linhas.map((l) => valorCelula(l.porMes, mes)).filter((v): v is number => v != null)
     return valores.length > 0 ? valores.reduce((s, v) => s + v, 0) / valores.length : null
   })
 
@@ -326,12 +359,44 @@ function TabelaoMensalTab({ dados, loading }: { dados: TabelaoMensal | null; loa
         </div>
         <div className="flex items-center flex-wrap gap-3">
           <SeletorMetrica metrica={metrica} onMetrica={setMetrica} agregacao={agregacao} onAgregacao={setAgregacao} />
+          <div className="flex items-center gap-1.5">
+            <label className="text-xs text-muted-foreground whitespace-nowrap">Dias mín. no período</label>
+            <input
+              type="number" min={0} value={diasMinimos}
+              onChange={(e) => setDiasMinimos(Math.max(0, Number(e.target.value)))}
+              className="border rounded-md px-2 py-1.5 text-sm w-16 focus:outline-none focus:ring-2 focus:ring-accent-500"
+            />
+          </div>
           <input
             value={busca}
             onChange={(e) => setBusca(e.target.value)}
             placeholder="🔍 Buscar ajudante..."
             className="border rounded-md px-3 py-2 text-sm min-w-[220px] focus:outline-none focus:ring-2 focus:ring-accent-500 ml-auto"
           />
+        </div>
+        <div className="border-t pt-2">
+          <button onClick={() => setPainelColabAberto((v) => !v)} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+            {painelColabAberto ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            Colaboradores ({linhas.length} de {todasLinhas.length} visíveis)
+            {overrides.size > 0 && <span className="text-accent-700">· {overrides.size} substituição(ões) manual(is)</span>}
+          </button>
+          {painelColabAberto && (
+            <div className="mt-2 max-h-64 overflow-y-auto border rounded-md divide-y">
+              {[...todasLinhas].sort((a, b) => a.nome.localeCompare(b.nome)).map((l) => {
+                const padrao = visivelPorPadrao(l)
+                const visivel = estaVisivel(l)
+                const substituido = overrides.has(l.nome)
+                return (
+                  <label key={l.nome} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-muted/40 cursor-pointer">
+                    <input type="checkbox" checked={visivel} onChange={() => toggleOverride(l.nome, padrao)} className="accent-accent-500" />
+                    <span className="flex-1">{l.nome}</span>
+                    <span className="text-xs text-muted-foreground">{diasNoPeriodo(l)}d</span>
+                    {substituido && <span className="text-[10px] font-semibold text-accent-700 uppercase">manual</span>}
+                  </label>
+                )
+              })}
+            </div>
+          )}
         </div>
       </div>
 
