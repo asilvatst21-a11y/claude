@@ -18,37 +18,49 @@ export interface OsNoturna {
 
 // Buscar trocas de placa do 031120 (Mapa em Gerado vs Carregado)
 // Filtra CRW e REC automaticamente
-export async function buscarTrocasPlacaArmazem(filial: string): Promise<TrocaPlaca[]> {
-  const { data, error } = await supabase
-    .from('mapa_fase')
-    .select('mapa, data_operacao, placa, fase')
-    .eq('filial', filial)
-    .in('fase', ['Gerado', 'Carregado'])
-    .order('mapa')
-    .order('fase')
-
-  if (error) throw new Error(error.message)
-  if (!data?.length) return []
-
+export async function buscarTrocasPlacaArmazem(filial: string, dataInicio?: string, dataFim?: string): Promise<TrocaPlaca[]> {
+  const PAGINA = 1000
   const trocas: TrocaPlaca[] = []
   const mapasAgrupados = new Map<number, { gerado?: string; carregado?: string; data?: string }>()
 
-  for (const row of data) {
-    // Filtrar CRW e REC
-    if (row.placa?.includes('CRW') || row.placa?.includes('REC')) continue
+  // Paginar pois pode ter muitos dados
+  for (let offset = 0; ; offset += PAGINA) {
+    let query = supabase
+      .from('mapa_fase')
+      .select('mapa, data_operacao, placa, fase')
+      .eq('filial', filial)
+      .in('fase', ['Gerado', 'Carregado'])
+      .order('mapa')
+      .order('data_operacao')
+      .range(offset, offset + PAGINA - 1)
 
-    const mapa = row.mapa
-    if (!mapasAgrupados.has(mapa)) {
-      mapasAgrupados.set(mapa, {})
-    }
-    const info = mapasAgrupados.get(mapa)!
+    if (dataInicio) query = query.gte('data_operacao', dataInicio)
+    if (dataFim) query = query.lte('data_operacao', dataFim)
 
-    if (row.fase?.trim() === 'Gerado') {
-      info.gerado = row.placa
-      info.data = row.data_operacao
-    } else if (row.fase?.trim() === 'Carregado') {
-      info.carregado = row.placa
+    const { data, error } = await query
+
+    if (error) throw new Error(error.message)
+    if (!data?.length) break
+
+    for (const row of data) {
+      // Filtrar CRW e REC
+      if (row.placa?.includes('CRW') || row.placa?.includes('REC')) continue
+
+      const mapa = row.mapa
+      if (!mapasAgrupados.has(mapa)) {
+        mapasAgrupados.set(mapa, {})
+      }
+      const info = mapasAgrupados.get(mapa)!
+
+      if (row.fase?.trim() === 'Gerado') {
+        info.gerado = row.placa
+        info.data = row.data_operacao
+      } else if (row.fase?.trim() === 'Carregado') {
+        info.carregado = row.placa
+      }
     }
+
+    if (data.length < PAGINA) break
   }
 
   // Extrair trocas onde placa mudou
