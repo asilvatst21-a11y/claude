@@ -15,3 +15,7 @@ create table if not exists frota_iv_al_trocas_placa (
 
 create index if not exists frota_iv_al_trocas_placa_filial_data_idx
   on frota_iv_al_trocas_placa (filial, data);
+
+alter table frota_iv_al_trocas_placa enable row level security;
+drop policy if exists "Acesso total" on frota_iv_al_trocas_placa;
+create policy "Acesso total" on frota_iv_al_trocas_placa for all using (true) with check (true);
