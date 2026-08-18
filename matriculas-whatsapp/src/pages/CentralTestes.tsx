@@ -256,7 +256,7 @@ const SESSOES: SessaoTeste[] = [
           {
             id: 'exemplo', filial: 'exemplo', titulo: 'Trecho com histórico de assaltos (exemplo)', tipo: 'trecho',
             severidade: 'alto', rodovia: 'RJ-125', velocidade_segura: '40 km/h', rota: null, pdv_referencia: null,
-            cidades_bairros: [], latitude: null, longitude: null, maps_url: null, origem: 'manual', sugestao_id: null,
+            cidades_bairros: [], latitude: -22.4306, longitude: -43.1042, maps_url: null, origem: 'manual', sugestao_id: null,
             ativo: true, created_at: new Date().toISOString(),
           } as PontoRisco,
           { cidade: 'PETROPOLIS', bairro: 'ITAIPAVA' } as CidadeBairro
