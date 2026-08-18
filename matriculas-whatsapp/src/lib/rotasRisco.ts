@@ -216,6 +216,18 @@ async function buscarVisitasBeesDoDia(filial: string, data: string): Promise<Vis
   return visitas ?? []
 }
 
+// Link do Maps pro ponto: usa a URL cadastrada quando existir (alguém colou
+// um link específico do Maps/Waze), senão monta um link universal a partir
+// de lat/long — não precisa cadastrar link nenhum pra isso funcionar, o
+// "https://www.google.com/maps?q=LAT,LONG" já abre a localização direto.
+function linkMapsDoPonto(ponto: PontoRisco): string | null {
+  if (ponto.maps_url) return ponto.maps_url
+  if (ponto.latitude != null && ponto.longitude != null) {
+    return `https://www.google.com/maps?q=${ponto.latitude},${ponto.longitude}`
+  }
+  return null
+}
+
 export function montarMensagemAvisoRotaRisco(ponto: PontoRisco): string {
   const linhas = [
     `🚧 *Atenção — Rota de Risco*`,
@@ -224,6 +236,8 @@ export function montarMensagemAvisoRotaRisco(ponto: PontoRisco): string {
   ]
   if (ponto.rodovia) linhas.push(`Rodovia: ${ponto.rodovia}`)
   if (ponto.velocidade_segura) linhas.push(`Velocidade segura: *${ponto.velocidade_segura}*`)
+  const link = linkMapsDoPonto(ponto)
+  if (link) linhas.push(`Local: ${link}`)
   linhas.push('', 'Redobre a atenção nesse trecho.')
   return linhas.join('\n')
 }
@@ -334,6 +348,8 @@ export function montarMensagemAvisoRotaRiscoRegiao(ponto: PontoRisco, par: Cidad
   ]
   if (ponto.rodovia) linhas.push(`Rodovia: ${ponto.rodovia}`)
   if (ponto.velocidade_segura) linhas.push(`Velocidade segura: *${ponto.velocidade_segura}*`)
+  const link = linkMapsDoPonto(ponto)
+  if (link) linhas.push(`Local: ${link}`)
   linhas.push('', 'Redobre a atenção nesse trecho.')
   return linhas.join('\n')
 }
