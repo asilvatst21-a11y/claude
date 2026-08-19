@@ -971,6 +971,11 @@ function excelDataHoraToISO(value: unknown): { data: string | null; hora: string
   return { data, hora };
 }
 
+// Nomes normalizados (sem acento, minúsculo) dos únicos manobristas que
+// abrem OS de troca de placa no carregamento. "Carlos Daniel da Silva
+// Araujo" tem "Daniel" no nome mas é outra pessoa — fica de fora.
+const MANOBRISTAS_PERMITIDOS = ["mauro celso da silva nascimento", "daniel marques da cunha", "daniel"];
+
 export interface OsAtendimento {
   os: number;
   filial: string | null;
@@ -1028,6 +1033,11 @@ export function parseOsAtendimentoBuffer(buffer: ArrayBuffer): OsAtendimento[] {
     // pela fase de carregamento do 03.11.20 e não deve entrar nessa conta.
     const tipoVeiculo = normalize(texto(row, tipoVeiculoIdx));
     if (tipoVeiculo.includes("paleteira") || tipoVeiculo.includes("empilhadeira") || tipoVeiculo.includes("maquina")) continue;
+
+    // Só Mauro e Daniel fazem manobra/troca de placa no carregamento — outra
+    // pessoa como "criador" da OS não é uma OS de manobra de verdade.
+    const usuarioNorm = normalize(texto(row, usuarioIdx));
+    if (!MANOBRISTAS_PERMITIDOS.includes(usuarioNorm)) continue;
 
     const { data, hora } = excelDataHoraToISO(row[dataIdx]);
 
