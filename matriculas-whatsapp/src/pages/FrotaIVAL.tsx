@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, ArrowDownUp, ArrowLeft, Building2, Loader2, Upload, Wrench, X } from 'lucide-react'
+import {
+  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+} from 'recharts'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
@@ -21,6 +24,15 @@ function rotuloMes(mesISO: string): string {
 
 function labelMotivo(motivo: MotivoTrocaPlaca): string {
   return MOTIVOS_TROCA_PLACA.find((m) => m.value === motivo)?.label ?? motivo
+}
+
+const CHART_TOOLTIP = { borderRadius: 10, border: '1px solid #e5e7eb', fontSize: 12, boxShadow: '0 6px 18px rgba(0,0,0,.08)' }
+const CORES_MOTIVO: Record<MotivoTrocaPlaca | 'SEM_MOTIVO', string> = {
+  MANUTENCAO: '#dc2626',
+  AJUSTE_FIXACAO: '#2a5e72',
+  MUDANCA_PERFIL: '#7c9cab',
+  OUTRO: '#9ca3af',
+  SEM_MOTIVO: '#d1962f',
 }
 
 function PillMotivo({ motivo }: { motivo: MotivoTrocaPlaca | null }) {
@@ -189,6 +201,18 @@ function OsCarregamentoTab({
             </div>
           </div>
 
+          <div className="border rounded-xl bg-white p-4">
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={osMensal.map((m) => ({ rotulo: rotuloMes(m.mes), 'OS no carregamento': m.total }))} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef2f7" />
+                <XAxis dataKey="rotulo" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+                <Tooltip contentStyle={CHART_TOOLTIP} cursor={{ fill: '#f8fafc' }} />
+                <Bar dataKey="OS no carregamento" fill="#2a5e72" radius={[4, 4, 0, 0]} maxBarSize={46} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+
           <div className="border rounded-xl bg-white overflow-hidden">
             <div className="px-4 py-2.5 border-b bg-gray-50 text-sm font-semibold">Acumulado mês a mês</div>
             <div className="overflow-x-auto">
@@ -349,6 +373,14 @@ export default function FrotaIVAL() {
 
   const ranking = useMemo(() => rankingPlacas(trocasFiltradas), [trocasFiltradas])
   const mensal = useMemo(() => trocasPorMes(trocasFiltradas), [trocasFiltradas])
+  const mensalChart = useMemo(() => mensal.map((m) => ({
+    rotulo: rotuloMes(m.mes),
+    Manutenção: m.porMotivo.MANUTENCAO,
+    'Ajuste de Fixação': m.porMotivo.AJUSTE_FIXACAO,
+    'Mudança de Perfil': m.porMotivo.MUDANCA_PERFIL,
+    Outro: m.porMotivo.OUTRO,
+    'Sem motivo': m.semMotivo,
+  })), [mensal])
 
   async function salvar(mapa: number, motivo: MotivoTrocaPlaca, osNumero: string | null, osDescricao: string | null) {
     if (!usuario) return
@@ -539,6 +571,23 @@ export default function FrotaIVAL() {
               </div>
             </div>
           ) : (
+            <>
+            <div className="border rounded-xl bg-white p-4">
+              <ResponsiveContainer width="100%" height={260}>
+                <BarChart data={mensalChart} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef2f7" />
+                  <XAxis dataKey="rotulo" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
+                  <Tooltip contentStyle={CHART_TOOLTIP} cursor={{ fill: '#f8fafc' }} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="Manutenção" stackId="m" fill={CORES_MOTIVO.MANUTENCAO} />
+                  <Bar dataKey="Ajuste de Fixação" stackId="m" fill={CORES_MOTIVO.AJUSTE_FIXACAO} />
+                  <Bar dataKey="Mudança de Perfil" stackId="m" fill={CORES_MOTIVO.MUDANCA_PERFIL} />
+                  <Bar dataKey="Outro" stackId="m" fill={CORES_MOTIVO.OUTRO} />
+                  <Bar dataKey="Sem motivo" stackId="m" fill={CORES_MOTIVO.SEM_MOTIVO} radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
             <div className="border rounded-xl bg-white overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
@@ -572,6 +621,7 @@ export default function FrotaIVAL() {
                 </table>
               </div>
             </div>
+            </>
           )}
           </>
           )}
