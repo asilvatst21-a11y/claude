@@ -137,7 +137,7 @@ function ModalMotivo({
   )
 }
 
-type Aba = 'trocas' | 'ranking' | 'mensal' | 'os'
+type Aba = 'trocas' | 'ranking' | 'mensal' | 'os' | 'comparativo'
 
 function OsCarregamentoTab({
   osList, osMensal, carregando, importando, erro, inputRef, onImportar,
@@ -345,6 +345,22 @@ export default function FrotaIVAL() {
   const osCarregamento = useMemo(() => osList.filter((o) => abertaDuranteCarregamento(o.horaAbertura)), [osList])
   const osMensal = useMemo(() => osAtendimentoPorMes(osCarregamento), [osCarregamento])
 
+  // Comparativo: trocas por Manutenção vs. OS abertas no carregamento, mês a
+  // mês — usa os dados completos (sem os filtros de placa/motivo/mês da aba
+  // Trocas), pra ver a tendência real das duas curvas lado a lado.
+  const mensalTodasTrocas = useMemo(() => trocasPorMes(trocas), [trocas])
+  const comparativoMensal = useMemo(() => {
+    const meses = new Set([...mensalTodasTrocas.map((m) => m.mes), ...osMensal.map((m) => m.mes)])
+    const trocaPorMes = new Map(mensalTodasTrocas.map((m) => [m.mes, m.porMotivo.MANUTENCAO]))
+    const osPorMes = new Map(osMensal.map((m) => [m.mes, m.total]))
+    return [...meses].sort().map((mes) => ({
+      mes,
+      rotulo: rotuloMes(mes),
+      'Troca por Manutenção': trocaPorMes.get(mes) ?? 0,
+      'OS Aberta no Carregamento': osPorMes.get(mes) ?? 0,
+    }))
+  }, [mensalTodasTrocas, osMensal])
+
   const placasConhecidas = useMemo(() => {
     const set = new Set<string>()
     for (const t of trocas) { set.add(t.placaGerado); set.add(t.placaCarregado) }
@@ -427,6 +443,7 @@ export default function FrotaIVAL() {
             <button onClick={() => setAba('ranking')} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'ranking' ? 'border-brand-600 text-brand-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Ranking de Placas</button>
             <button onClick={() => setAba('mensal')} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'mensal' ? 'border-brand-600 text-brand-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Mês a Mês</button>
             <button onClick={() => setAba('os')} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${aba === 'os' ? 'border-brand-600 text-brand-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}><Wrench className="h-3.5 w-3.5" />OS no Carregamento</button>
+            <button onClick={() => setAba('comparativo')} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'comparativo' ? 'border-brand-600 text-brand-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Comparativo</button>
           </div>
 
           {aba === 'os' ? (
@@ -439,6 +456,50 @@ export default function FrotaIVAL() {
               inputRef={osInputRef}
               onImportar={handleImportarOs}
             />
+          ) : aba === 'comparativo' ? (
+            <div className="space-y-4">
+              <div className="border rounded-xl bg-white p-4">
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={comparativoMensal} margin={{ top: 8, right: 8, left: 4, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eef2f7" />
+                    <XAxis dataKey="rotulo" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} width={32} allowDecimals={false} />
+                    <Tooltip contentStyle={CHART_TOOLTIP} cursor={{ fill: '#f8fafc' }} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar dataKey="Troca por Manutenção" fill={CORES_MOTIVO.MANUTENCAO} radius={[4, 4, 0, 0]} maxBarSize={32} />
+                    <Bar dataKey="OS Aberta no Carregamento" fill="#2a5e72" radius={[4, 4, 0, 0]} maxBarSize={32} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="border rounded-xl bg-white overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="border-b bg-gray-50">
+                      <tr>
+                        <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Mês</th>
+                        <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Troca por Manutenção</th>
+                        <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">OS Aberta no Carregamento</th>
+                        <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">Diferença</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {comparativoMensal.map((m, i) => (
+                        <tr key={m.mes} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                          <td className="px-4 py-2 font-semibold text-gray-900 whitespace-nowrap">{m.rotulo}</td>
+                          <td className="px-4 py-2 text-right tabular-nums text-red-700">{m['Troca por Manutenção']}</td>
+                          <td className="px-4 py-2 text-right tabular-nums" style={{ color: '#2a5e72' }}>{m['OS Aberta no Carregamento']}</td>
+                          <td className="px-4 py-2 text-right tabular-nums font-bold">{m['Troca por Manutenção'] - m['OS Aberta no Carregamento']}</td>
+                        </tr>
+                      ))}
+                      {comparativoMensal.length === 0 && (
+                        <tr><td colSpan={4} className="px-4 py-8 text-center text-muted-foreground">Sem dados ainda.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           ) : trocas.length === 0 ? (
             <div className="text-center py-16 text-gray-400">
               <ArrowDownUp size={40} className="mx-auto mb-3 opacity-40" />
