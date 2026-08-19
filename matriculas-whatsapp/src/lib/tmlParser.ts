@@ -1002,6 +1002,7 @@ export function parseOsAtendimentoBuffer(buffer: ArrayBuffer): OsAtendimento[] {
   const filialIdx = acharColuna(header, "filial");
   const dataIdx = acharColuna(header, "data");
   const placaIdx = acharColuna(header, "placa");
+  const tipoVeiculoIdx = acharColuna(header, "tipo veiculo");
   const statusIdx = acharColuna(header, "status os", "status");
   const tipoOsIdx = acharColuna(header, "tipo os");
   const criticidadeIdx = acharColuna(header, "criticidade");
@@ -1021,6 +1022,12 @@ export function parseOsAtendimentoBuffer(buffer: ArrayBuffer): OsAtendimento[] {
     const row = rows[i];
     const os = Number(row[osIdx]);
     if (!os || isNaN(os)) continue;
+
+    // Só interessa OS de veículo de rota (truck/vuc/toco) — equipamento de
+    // pátio (empilhadeira, paleteira manual, máquina de limpeza) não passa
+    // pela fase de carregamento do 03.11.20 e não deve entrar nessa conta.
+    const tipoVeiculo = normalize(texto(row, tipoVeiculoIdx));
+    if (tipoVeiculo.includes("paleteira") || tipoVeiculo.includes("empilhadeira") || tipoVeiculo.includes("maquina")) continue;
 
     const { data, hora } = excelDataHoraToISO(row[dataIdx]);
 
