@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { AlertTriangle, ArrowDownUp, ArrowLeft, Building2, Loader2, X } from 'lucide-react'
+import { AlertTriangle, ArrowDownUp, ArrowLeft, Building2, Loader2, Upload, Wrench, X } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import {
   buscarTrocasPlacaArmazem, salvarMotivoTroca, rankingPlacas, trocasPorMes, MOTIVOS_TROCA_PLACA,
   type TrocaPlaca, type MotivoTrocaPlaca,
 } from '../lib/trocaPlacaManutenco'
+import { parseOsAtendimentoBuffer } from '../lib/tmlParser'
+import {
+  importarOsAtendimento, buscarOsAtendimento, abertaDuranteCarregamento, osAtendimentoPorMes,
+  type OsAtendimento,
+} from '../lib/frotaOsAtendimento'
 
 const MESES_ABREV = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez']
 function rotuloMes(mesISO: string): string {
@@ -120,7 +125,129 @@ function ModalMotivo({
   )
 }
 
-type Aba = 'trocas' | 'ranking' | 'mensal'
+type Aba = 'trocas' | 'ranking' | 'mensal' | 'os'
+
+function OsCarregamentoTab({
+  osList, osMensal, carregando, importando, erro, inputRef, onImportar,
+}: {
+  osList: OsAtendimento[]
+  osMensal: { mes: string; total: number }[]
+  carregando: boolean
+  importando: boolean
+  erro: string
+  inputRef: React.RefObject<HTMLInputElement | null>
+  onImportar: (file: File) => void
+}) {
+  const diasUnicos = new Set(osList.filter((o) => o.dataAbertura).map((o) => o.dataAbertura)).size
+
+  return (
+    <div className="space-y-4">
+      <div className="border rounded-xl bg-white p-4">
+        <h3 className="text-sm font-semibold">Importar relatório de OS (OS_ATENDIMENTO)</h3>
+        <p className="text-xs text-muted-foreground mt-0.5 mb-3">Reimportar atualiza as OS que já existem (pelo número da OS).</p>
+        <div
+          className="border-2 border-dashed rounded-lg p-5 text-center cursor-pointer hover:border-brand-500 hover:bg-brand-50/40 transition-colors"
+          onClick={() => inputRef.current?.click()}
+        >
+          {importando ? <Loader2 className="h-7 w-7 mx-auto mb-1.5 animate-spin text-brand-500" /> : <Upload className="h-7 w-7 mx-auto mb-1.5 text-muted-foreground" />}
+          <p className="text-sm font-medium">{importando ? 'Processando...' : 'Clique para importar (.csv / .xlsx)'}</p>
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept=".csv,.xlsx,.xls"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) onImportar(f); if (inputRef.current) inputRef.current.value = '' }}
+        />
+      </div>
+
+      {erro && <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-3 py-2 flex items-start gap-2"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{erro}</div>}
+
+      {carregando ? (
+        <div className="flex items-center justify-center py-16 text-gray-400">
+          <Loader2 size={22} className="animate-spin mr-2" /> Carregando OS...
+        </div>
+      ) : osList.length === 0 ? (
+        <div className="text-center py-16 text-gray-400">
+          <Wrench size={40} className="mx-auto mb-3 opacity-40" />
+          <p className="text-sm">Nenhuma OS aberta no período de carregamento (22h-06h) encontrada. Importe o relatório acima.</p>
+        </div>
+      ) : (
+        <>
+          <div className="grid sm:grid-cols-3 gap-4">
+            <div className="border rounded-xl bg-white p-4">
+              <p className="text-xs text-muted-foreground mb-1">OS abertas no carregamento</p>
+              <p className="text-2xl font-bold text-brand-700">{osList.length}</p>
+            </div>
+            <div className="border rounded-xl bg-white p-4">
+              <p className="text-xs text-muted-foreground mb-1">Período</p>
+              <p className="text-sm font-semibold">{formatarDataBR(osList[0]?.dataAbertura)} a {formatarDataBR(osList[osList.length - 1]?.dataAbertura)}</p>
+            </div>
+            <div className="border rounded-xl bg-white p-4">
+              <p className="text-xs text-muted-foreground mb-1">Dias únicos</p>
+              <p className="text-2xl font-bold text-brand-700">{diasUnicos}</p>
+            </div>
+          </div>
+
+          <div className="border rounded-xl bg-white overflow-hidden">
+            <div className="px-4 py-2.5 border-b bg-gray-50 text-sm font-semibold">Acumulado mês a mês</div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Mês</th>
+                    <th className="px-4 py-2 text-right font-semibold whitespace-nowrap">OS no carregamento</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {osMensal.map((m, i) => (
+                    <tr key={m.mes} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                      <td className="px-4 py-2 font-semibold text-gray-900 whitespace-nowrap">{rotuloMes(m.mes)}</td>
+                      <td className="px-4 py-2 text-right font-bold tabular-nums">{m.total}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="border rounded-xl bg-white overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-gray-50">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Abertura</th>
+                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">OS</th>
+                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Placa</th>
+                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Motivo</th>
+                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Quem abriu</th>
+                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Tipo OS</th>
+                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Status</th>
+                    <th className="px-4 py-2 text-left font-semibold whitespace-nowrap">Fornecedor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {osList.map((o, i) => (
+                    <tr key={o.os} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/50'}>
+                      <td className="px-4 py-2 text-muted-foreground whitespace-nowrap">{formatarDataBR(o.dataAbertura)} {o.horaAbertura ?? ''}</td>
+                      <td className="px-4 py-2 font-semibold text-gray-900 whitespace-nowrap">{o.os}</td>
+                      <td className="px-4 py-2 whitespace-nowrap"><code className="text-xs bg-gray-100 px-2 py-1 rounded font-semibold">{o.placa ?? '—'}</code></td>
+                      <td className="px-4 py-2 whitespace-nowrap">{o.problema ?? '—'}</td>
+                      <td className="px-4 py-2 whitespace-nowrap">{o.usuarioCriacao ?? '—'}</td>
+                      <td className="px-4 py-2 whitespace-nowrap">{o.tipoOs ?? '—'}</td>
+                      <td className="px-4 py-2 whitespace-nowrap">{o.statusOs ?? '—'}</td>
+                      <td className="px-4 py-2 whitespace-nowrap">{o.fornecedor ?? '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
 export default function FrotaIVAL() {
   const { usuario } = useAuth()
@@ -131,10 +258,17 @@ export default function FrotaIVAL() {
   const [trocaSelecionada, setTrocaSelecionada] = useState<TrocaPlaca | null>(null)
   const [salvando, setSalvando] = useState(false)
 
-  // Filtros aplicados às três abas.
+  // Filtros aplicados às três abas de trocas.
   const [filtroPlaca, setFiltroPlaca] = useState('')
   const [filtroMotivo, setFiltroMotivo] = useState<MotivoTrocaPlaca | 'SEM_MOTIVO' | ''>('')
   const [filtroMes, setFiltroMes] = useState('')
+
+  // OS abertas durante o carregamento.
+  const [osList, setOsList] = useState<OsAtendimento[]>([])
+  const [carregandoOs, setCarregandoOs] = useState(false)
+  const [importandoOs, setImportandoOs] = useState(false)
+  const [erroOs, setErroOs] = useState('')
+  const osInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (!usuario) return
@@ -145,6 +279,47 @@ export default function FrotaIVAL() {
       .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao carregar trocas de placa.'))
       .finally(() => setCarregando(false))
   }, [usuario])
+
+  const carregarOs = useMemo(() => async () => {
+    if (!usuario) return
+    setCarregandoOs(true)
+    setErroOs('')
+    try {
+      setOsList(await buscarOsAtendimento(usuario.filial))
+    } catch (err) {
+      setErroOs(err instanceof Error ? err.message : 'Erro ao carregar OS.')
+    } finally {
+      setCarregandoOs(false)
+    }
+  }, [usuario])
+
+  useEffect(() => {
+    if (aba === 'os' && osList.length === 0) carregarOs()
+  }, [aba, carregarOs, osList.length])
+
+  async function handleImportarOs(file: File) {
+    if (!usuario) return
+    setImportandoOs(true)
+    setErroOs('')
+    try {
+      const buffer = await file.arrayBuffer()
+      const registros = parseOsAtendimentoBuffer(buffer)
+      if (registros.length === 0) {
+        alert('Nenhuma OS encontrada na planilha.')
+        return
+      }
+      const total = await importarOsAtendimento(usuario.filial, registros)
+      await carregarOs()
+      alert(`${total} OS importada(s)/atualizada(s).`)
+    } catch (err) {
+      setErroOs(err instanceof Error ? err.message : 'Erro ao importar OS.')
+    } finally {
+      setImportandoOs(false)
+    }
+  }
+
+  const osCarregamento = useMemo(() => osList.filter((o) => abertaDuranteCarregamento(o.horaAbertura)), [osList])
+  const osMensal = useMemo(() => osAtendimentoPorMes(osCarregamento), [osCarregamento])
 
   const placasConhecidas = useMemo(() => {
     const set = new Set<string>()
@@ -213,19 +388,32 @@ export default function FrotaIVAL() {
         <div className="flex items-center justify-center py-20 text-gray-400">
           <Loader2 size={24} className="animate-spin mr-2" /> Carregando dados...
         </div>
-      ) : trocas.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
-          <ArrowDownUp size={40} className="mx-auto mb-3 opacity-40" />
-          <p className="text-sm">Nenhuma troca de placa encontrada.</p>
-        </div>
       ) : (
         <div className="space-y-4">
           <div className="flex gap-1 border-b">
             <button onClick={() => setAba('trocas')} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'trocas' ? 'border-brand-600 text-brand-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Trocas</button>
             <button onClick={() => setAba('ranking')} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'ranking' ? 'border-brand-600 text-brand-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Ranking de Placas</button>
             <button onClick={() => setAba('mensal')} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${aba === 'mensal' ? 'border-brand-600 text-brand-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Mês a Mês</button>
+            <button onClick={() => setAba('os')} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors flex items-center gap-1.5 ${aba === 'os' ? 'border-brand-600 text-brand-700' : 'border-transparent text-muted-foreground hover:text-foreground'}`}><Wrench className="h-3.5 w-3.5" />OS no Carregamento</button>
           </div>
 
+          {aba === 'os' ? (
+            <OsCarregamentoTab
+              osList={osCarregamento}
+              osMensal={osMensal}
+              carregando={carregandoOs}
+              importando={importandoOs}
+              erro={erroOs}
+              inputRef={osInputRef}
+              onImportar={handleImportarOs}
+            />
+          ) : trocas.length === 0 ? (
+            <div className="text-center py-16 text-gray-400">
+              <ArrowDownUp size={40} className="mx-auto mb-3 opacity-40" />
+              <p className="text-sm">Nenhuma troca de placa encontrada.</p>
+            </div>
+          ) : (
+          <>
           <div className="flex flex-wrap gap-3 items-end">
             <div>
               <label className="text-xs font-semibold text-gray-600 block mb-1">Placa</label>
@@ -384,6 +572,8 @@ export default function FrotaIVAL() {
                 </table>
               </div>
             </div>
+          )}
+          </>
           )}
         </div>
       )}

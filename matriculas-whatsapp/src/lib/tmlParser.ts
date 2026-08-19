@@ -936,3 +936,110 @@ export function parseRetornavelBuffer(buffer: ArrayBuffer): RetornavelItem[] {
   }
   return [...porChave.values()];
 }
+
+// Célula com data+hora juntos na mesma coluna (ex.: "18/08/2026 10:55") —
+// usado pela coluna "DATA" (abertura) do relatório de OS de atendimento.
+// Diferente de excelTimeToHorario, aqui a célula é uma DATA real (não
+// ancorada no dia-zero do Excel), então getUTCHours()/getUTCMinutes() já
+// dão o horário certo sem o ajuste de fuso histórico.
+function excelDataHoraToISO(value: unknown): { data: string | null; hora: string | null } {
+  if (value instanceof Date) {
+    const y = value.getUTCFullYear();
+    const mo = String(value.getUTCMonth() + 1).padStart(2, "0");
+    const d = String(value.getUTCDate()).padStart(2, "0");
+    const h = String(value.getUTCHours()).padStart(2, "0");
+    const mi = String(value.getUTCMinutes()).padStart(2, "0");
+    return { data: `${y}-${mo}-${d}`, hora: `${h}:${mi}` };
+  }
+  if (typeof value === "string") {
+    const m = value.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s+(\d{1,2}):(\d{2})(?::\d{2})?$/);
+    if (m) {
+      const y = m[3].length === 2 ? `20${m[3]}` : m[3];
+      const day = m[1].padStart(2, "0");
+      const month = m[2].padStart(2, "0");
+      const hour = m[4].padStart(2, "0");
+      return { data: `${y}-${month}-${day}`, hora: `${hour}:${m[5]}` };
+    }
+    return { data: excelDateToISO(value), hora: null };
+  }
+  const num = Number(value);
+  if (!value || isNaN(num)) return { data: null, hora: null };
+  const parsed = XLSX.SSF.parse_date_code(num);
+  if (!parsed?.y) return { data: null, hora: null };
+  const data = `${parsed.y}-${String(parsed.m).padStart(2, "0")}-${String(parsed.d).padStart(2, "0")}`;
+  const hora = parsed.H != null ? `${String(parsed.H).padStart(2, "0")}:${String(parsed.M ?? 0).padStart(2, "0")}` : null;
+  return { data, hora };
+}
+
+export interface OsAtendimento {
+  os: number;
+  filial: string | null;
+  dataAbertura: string | null; // yyyy-mm-dd
+  horaAbertura: string | null; // HH:MM
+  placa: string | null;
+  statusOs: string | null;
+  tipoOs: string | null;
+  criticidade: string | null;
+  fornecedor: string | null;
+  problema: string | null;
+  servico: string | null;
+  usuarioCriacao: string | null;
+  observacao: string | null;
+  valorTotal: number | null;
+}
+
+/**
+ * Relatório "OS_ATENDIMENTO" (frota/manutenção) — uma linha por OS. Usado
+ * pelo IV — AL para acompanhar OS abertas durante o período de carregamento
+ * (22h-06h), independente de já estarem vinculadas a uma troca de placa.
+ */
+export function parseOsAtendimentoBuffer(buffer: ArrayBuffer): OsAtendimento[] {
+  const rows = readSheetRows(buffer, "ATENDIMENTO");
+  if (rows.length === 0) return [];
+
+  const header = rows[0].map(normalize);
+  const osIdx = acharColuna(header, "os");
+  const filialIdx = acharColuna(header, "filial");
+  const dataIdx = acharColuna(header, "data");
+  const placaIdx = acharColuna(header, "placa");
+  const statusIdx = acharColuna(header, "status os", "status");
+  const tipoOsIdx = acharColuna(header, "tipo os");
+  const criticidadeIdx = acharColuna(header, "criticidade");
+  const fornecedorIdx = acharColuna(header, "fornecedor");
+  const problemaIdx = acharColuna(header, "problema");
+  const servicoIdx = acharColuna(header, "servico");
+  const usuarioIdx = acharColuna(header, "usuario criacao", "usuario");
+  const observacaoIdx = acharColuna(header, "observacao");
+  const valorIdx = acharColuna(header, "valor total", "valor");
+
+  if (osIdx === -1 || dataIdx === -1) return [];
+
+  const texto = (row: unknown[], idx: number) => (idx !== -1 ? String(row[idx] ?? "").trim() || null : null);
+
+  const out: OsAtendimento[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const os = Number(row[osIdx]);
+    if (!os || isNaN(os)) continue;
+
+    const { data, hora } = excelDataHoraToISO(row[dataIdx]);
+
+    out.push({
+      os,
+      filial: texto(row, filialIdx),
+      dataAbertura: data,
+      horaAbertura: hora,
+      placa: texto(row, placaIdx),
+      statusOs: texto(row, statusIdx),
+      tipoOs: texto(row, tipoOsIdx),
+      criticidade: texto(row, criticidadeIdx),
+      fornecedor: texto(row, fornecedorIdx),
+      problema: texto(row, problemaIdx),
+      servico: texto(row, servicoIdx),
+      usuarioCriacao: texto(row, usuarioIdx),
+      observacao: texto(row, observacaoIdx),
+      valorTotal: valorIdx !== -1 ? Number(row[valorIdx]) || null : null,
+    });
+  }
+  return out;
+}
