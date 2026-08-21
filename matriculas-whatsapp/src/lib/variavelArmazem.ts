@@ -142,6 +142,24 @@ export async function existeCadastroArmazem(filial: string, cpfReal: string): Pr
   return (data ?? []).some((c) => (c.cpf as string).replace(/\D/g, '') === digitos)
 }
 
+// Busca pelo CADASTRO (armazem_colaboradores), não pela competência — usada
+// como reserva no totem quando a pessoa não tem lançamento no mês
+// selecionado (ex.: import do turno dela ainda não subiu essa competência).
+// Diferente de buscarTotemCompetencia, não depende de ter pontuação em
+// nenhum período específico: se a pessoa está cadastrada, ela entra e pode
+// navegar pra uma competência anterior que já tenha dado.
+export async function buscarColaboradoresArmazemPorPrefixoCpf(
+  filial: string,
+  cpfPrefixo: string
+): Promise<{ cpfReal: string; nome: string }[]> {
+  const prefixo = apenasDigitos(cpfPrefixo)
+  if (prefixo.length < 3) return []
+  const { data } = await supabase.from('armazem_colaboradores').select('cpf, nome').eq('filial', filial)
+  return (data ?? [])
+    .filter((c) => apenasDigitos(c.cpf).startsWith(prefixo))
+    .map((c) => ({ cpfReal: c.cpf as string, nome: c.nome as string }))
+}
+
 export async function salvarColaborador(filial: string, nome: string, cpf: string, id?: string): Promise<void> {
   const payload = { filial, nome: normalizarNome(nome), cpf: apenasDigitos(cpf), ativo: true }
   if (payload.cpf.length !== 11) throw new Error('CPF inválido — informe os 11 dígitos.')

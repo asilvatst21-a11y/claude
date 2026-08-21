@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase'
 import {
   buscarTotemCompetencia, buscarCompetenciaPorCpf, competenciaAtual, competenciaAnterior, competenciaSeguinte,
   rangeCompetencia, buscarClusters, clusterDoTotal, formatarBRL, agregarDiasCompetencia, existeCadastroArmazem,
+  buscarColaboradoresArmazemPorPrefixoCpf,
   type ResultadoTotemCompetencia, type DiaCompetencia, type Cluster,
 } from '../lib/variavelArmazem'
 import { buscarAcumuladoPorCpf, buscarColaboradoresTurnoPorPrefixoCpf, temVinculoAtividadeAtivo, type AcumuladoColaboradorMes } from '../lib/variavelTurno'
@@ -90,10 +91,20 @@ export default function VariavelTotem() {
     try {
       let res = await buscarTotemCompetencia(filial, digitos, mesRotulo)
       if (res.length === 0) {
-        // Ninguém com pontuação lançada nessa competência — mas a pessoa
-        // pode estar flegada só na RV por atividade de turno (sem nunca ter
-        // tido pontuação). Antes de dizer "não encontramos", tenta achar
-        // por lá também.
+        // Ninguém com pontuação lançada NESSA competência — mas a pessoa
+        // pode estar cadastrada e só não ter lançamento ainda no mês atual
+        // (ex.: import do turno dela atrasado). Busca pelo cadastro
+        // (histórico completo, não travado no mês) pra ela poder entrar e
+        // navegar pra uma competência anterior que já tenha dado.
+        const cadastrados = await buscarColaboradoresArmazemPorPrefixoCpf(filial, digitos)
+        if (cadastrados.length > 0) {
+          res = await Promise.all(cadastrados.map((c) => buscarCompetenciaPorCpf(filial, c.cpfReal, mesRotulo)))
+        }
+      }
+      if (res.length === 0) {
+        // Ainda nada — a pessoa pode estar flegada só na RV por atividade de
+        // turno (sem nunca ter tido pontuação). Última tentativa antes de
+        // dizer "não encontramos".
         const turno = await buscarColaboradoresTurnoPorPrefixoCpf(filial, digitos)
         res = turno.map((t) => agregarDiasCompetencia(t.cpfReal, t.nome, []))
       }
