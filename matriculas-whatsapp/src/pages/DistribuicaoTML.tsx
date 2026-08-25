@@ -71,14 +71,15 @@ function ResultadoBadge({ resultado }: { resultado: ResultadoNominal }) {
   )
 }
 
-// Atraso pequeno o bastante que, na prática, ninguém notifica — fica
-// parado em "pendente" pra sempre. Rotular como "Pendente de envio" (como
-// se faltasse alguém agir) confunde; esses casos são tratados como dentro
-// da meta.
+// Atraso pequeno o bastante que, na prática, ninguém trata como um TML
+// perdido de verdade — rotular como "aguardando resposta/classificação"
+// (como se faltasse alguém agir ou o motorista responder) confunde; esses
+// casos são tratados como dentro da meta, em qualquer status que ainda não
+// tenha sido justificado.
 const ATRASO_DENTRO_DA_META_MIN = 30
 
 function StatusBadge({ status, atrasoMinutos }: { status: AlertaTML['status']; atrasoMinutos?: number | null }) {
-  if (status === 'pendente' && atrasoMinutos != null && atrasoMinutos < ATRASO_DENTRO_DA_META_MIN) {
+  if (status !== 'justificado' && status !== 'erro' && atrasoMinutos != null && atrasoMinutos < ATRASO_DENTRO_DA_META_MIN) {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-green-700 bg-green-100">
         <CheckCircle className="h-3 w-3" /> Dentro da meta
