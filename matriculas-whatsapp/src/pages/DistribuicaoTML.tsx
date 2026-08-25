@@ -71,7 +71,20 @@ function ResultadoBadge({ resultado }: { resultado: ResultadoNominal }) {
   )
 }
 
-function StatusBadge({ status }: { status: AlertaTML['status'] }) {
+// Atraso pequeno o bastante que, na prática, ninguém notifica — fica
+// parado em "pendente" pra sempre. Rotular como "Pendente de envio" (como
+// se faltasse alguém agir) confunde; esses casos são tratados como dentro
+// da meta.
+const ATRASO_DENTRO_DA_META_MIN = 30
+
+function StatusBadge({ status, atrasoMinutos }: { status: AlertaTML['status']; atrasoMinutos?: number | null }) {
+  if (status === 'pendente' && atrasoMinutos != null && atrasoMinutos < ATRASO_DENTRO_DA_META_MIN) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-green-700 bg-green-100">
+        <CheckCircle className="h-3 w-3" /> Dentro da meta
+      </span>
+    )
+  }
   if (status === 'pendente') {
     return (
       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium text-blue-700 bg-blue-100">
@@ -1798,7 +1811,7 @@ export default function DistribuicaoTML() {
                     <td className="px-2 py-1.5">{a.horario_saida}</td>
                     <td className="px-2 py-1.5">{a.atraso_minutos} min</td>
                     <td className="px-2 py-1.5">
-                      <StatusBadge status={a.status} />
+                      <StatusBadge status={a.status} atrasoMinutos={a.atraso_minutos} />
                       {a.resposta_supervisor && (
                         <p className="mt-1 max-w-[160px] truncate" title={a.resposta_supervisor}>
                           💬 <span className="italic">{a.resposta_supervisor}</span>
