@@ -153,7 +153,7 @@ export async function buscarColaboradoresArmazemPorPrefixoCpf(
   cpfPrefixo: string
 ): Promise<{ cpfReal: string; nome: string }[]> {
   const prefixo = apenasDigitos(cpfPrefixo)
-  if (prefixo.length < 3) return []
+  if (prefixo.length < 6) return []
   const { data } = await supabase.from('armazem_colaboradores').select('cpf, nome').eq('filial', filial)
   return (data ?? [])
     .filter((c) => apenasDigitos(c.cpf).startsWith(prefixo))
@@ -827,12 +827,12 @@ export function agregarDiasCompetencia(cpfReal: string, nome: string, linhas: { 
   }
 }
 
-// Filtra por prefixo de CPF (os 3 primeiros dígitos) dentro da competência
-// inteira. Como 3 dígitos não são únicos, pode retornar mais de uma pessoa —
-// o totem lista pra pessoa escolher a dela.
+// Filtra por prefixo de CPF (os 6 primeiros dígitos) dentro da competência
+// inteira. Como 6 dígitos ainda podem colidir, pode retornar mais de uma
+// pessoa — o totem lista pra pessoa escolher a dela.
 export async function buscarTotemCompetencia(filial: string, cpfPrefixo: string, mesRotulo: string): Promise<ResultadoTotemCompetencia[]> {
   const prefixo = apenasDigitos(cpfPrefixo)
-  if (prefixo.length < 3) return []
+  if (prefixo.length < 6) return []
   const { ini, fim } = rangeCompetencia(mesRotulo)
 
   const { data } = await supabase.from('variavel_pontuacao')

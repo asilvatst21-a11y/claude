@@ -73,9 +73,9 @@ export default function VariavelTotem() {
   }, [])
 
   function tecla(n: string) {
-    if (digitos.length >= 3) return
+    if (digitos.length >= 6) return
     setErro('')
-    setDigitos((d) => (d + n).slice(0, 3))
+    setDigitos((d) => (d + n).slice(0, 6))
   }
   function apagar() { setErro(''); setDigitos((d) => d.slice(0, -1)) }
 
@@ -86,7 +86,7 @@ export default function VariavelTotem() {
   }
 
   async function buscar() {
-    if (digitos.length !== 3 || !filial) { setErro('Digite os 3 primeiros números do seu CPF.'); return }
+    if (digitos.length !== 6 || !filial) { setErro('Digite os 6 primeiros números do seu CPF.'); return }
     setErro(''); setBuscando(true); setResultadosLista(null)
     try {
       let res = await buscarTotemCompetencia(filial, digitos, mesRotulo)
@@ -109,7 +109,7 @@ export default function VariavelTotem() {
         res = turno.map((t) => agregarDiasCompetencia(t.cpfReal, t.nome, []))
       }
       if (res.length === 0) {
-        setErro('Não encontramos sua variável nesta competência. Confira os 3 dígitos ou fale com o supervisor.')
+        setErro('Não encontramos sua variável nesta competência. Confira os 6 dígitos ou fale com o supervisor.')
         return
       }
       if (res.length === 1) {
@@ -317,7 +317,7 @@ export default function VariavelTotem() {
     )
   }
 
-  // ── Lista de escolha (3 dígitos batem com mais de uma pessoa) ──────────
+  // ── Lista de escolha (6 dígitos batem com mais de uma pessoa) ──────────
   if (resultadosLista) {
     return (
       <div key="totem-lista" className="min-h-screen bg-gray-50">
@@ -348,7 +348,7 @@ export default function VariavelTotem() {
         <Link to="/login" className="inline-flex items-center gap-1.5 text-brand-200 text-sm mb-6"><ArrowLeft className="h-4 w-4" /> Voltar</Link>
         <div className="flex items-center gap-2 text-accent-300 text-xs font-bold tracking-widest uppercase mb-1"><Wallet className="h-4 w-4" /> Variável do armazém</div>
         <h1 className="text-2xl font-bold">Consultar minha variável</h1>
-        <p className="text-brand-200 text-sm mt-1">Digite os 3 primeiros números do seu CPF.</p>
+        <p className="text-brand-200 text-sm mt-1">Digite os 6 primeiros números do seu CPF.</p>
         <button onClick={() => setMostrarFaixas(true)} className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-accent-300 hover:text-accent-200">
           <HelpCircle className="h-3.5 w-3.5" /> Quanto eu recebo por faixa de pontuação?
         </button>
@@ -361,9 +361,9 @@ export default function VariavelTotem() {
           </select>
         </div>
 
-        <div className="flex justify-center gap-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className={`w-16 h-20 rounded-2xl border-2 grid place-items-center text-4xl font-extrabold tabular-nums ${digitos[i] ? 'border-accent-500 text-gray-900' : 'border-gray-200 text-gray-300'}`}>
+        <div className="flex justify-center gap-2">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className={`w-11 h-16 rounded-2xl border-2 grid place-items-center text-3xl font-extrabold tabular-nums ${digitos[i] ? 'border-accent-500 text-gray-900' : 'border-gray-200 text-gray-300'}`}>
               {digitos[i] ?? '•'}
             </div>
           ))}
@@ -377,7 +377,7 @@ export default function VariavelTotem() {
           ))}
           <button onClick={apagar} className="py-4 rounded-xl border border-gray-200 grid place-items-center active:bg-gray-100 transition"><Delete className="h-6 w-6 text-gray-500" /></button>
           <button onClick={() => tecla('0')} className="py-4 rounded-xl border border-gray-200 text-2xl font-bold tabular-nums active:bg-gray-100 transition">0</button>
-          <button onClick={buscar} disabled={buscando || digitos.length !== 3} className="py-4 rounded-xl bg-accent-500 disabled:opacity-40 text-white grid place-items-center active:bg-accent-600 transition">
+          <button onClick={buscar} disabled={buscando || digitos.length !== 6} className="py-4 rounded-xl bg-accent-500 disabled:opacity-40 text-white grid place-items-center active:bg-accent-600 transition">
             {buscando ? <Loader2 className="h-6 w-6 animate-spin" /> : <Search className="h-6 w-6" />}
           </button>
         </div>
