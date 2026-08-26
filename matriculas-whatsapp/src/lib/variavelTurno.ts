@@ -1001,4 +1001,78 @@ export async function recalcularCreditosHistorico(filial: string): Promise<{ ati
   return { atividadesProcessadas: atividades.length, creditosAtualizados }
 }
 
+// Rótulo do mês em que uma competência (21→20) TERMINA, a partir da data de
+// início dela — mesma regra de rangeCompetencia/competenciaAtual, só que no
+// sentido inverso (de ini pra rótulo).
+function mesRotuloDeCompetenciaIni(ini: string): string {
+  const [ano, mes] = ini.slice(0, 7).split('-').map(Number)
+  return mes >= 12 ? `${ano + 1}-01` : `${ano}-${String(mes + 1).padStart(2, '0')}`
+}
+
+// Valor acumulado da RV por atividade (lançamento manual dos conferentes),
+// por colaborador × mês — usado pra somar ao Histórico Mensal/Tabelão da RV
+// por pontuação em Variável > RV Armazém. Atividades normais (cota diária)
+// são somadas pelo mês CALENDÁRIO da própria data do crédito, igual à RV por
+// pontuação; atividades de meta acumulada não têm valor por dia (o crédito é
+// um só pra competência inteira), então entram no mês em que a competência
+// (21→20) delas TERMINA — mesma leitura já usada no totem do colaborador.
+export async function buscarValorAtividadesPorMes(filial: string): Promise<Map<string, Map<string, number>>> {
+  const { data: vinculosRaw } = await supabase
+    .from('variavel_turno_atividade_colaboradores')
+    .select('colaborador_id, colaborador_nome, atividade_id, ativo, variavel_turno_atividades(id, filial, ativo, meta_acumulada)')
+  const vinculos = (vinculosRaw ?? []).filter((v: any) =>
+    v.variavel_turno_atividades?.filial === filial && v.ativo && v.variavel_turno_atividades?.ativo !== false
+  )
+  const resultado = new Map<string, Map<string, number>>()
+  if (vinculos.length === 0) return resultado
+
+  const nomePorColaboradorId = new Map(vinculos.map((v: any) => [v.colaborador_id, v.colaborador_nome as string]))
+  const idsAcumulados = new Set(vinculos.filter((v: any) => v.variavel_turno_atividades?.meta_acumulada).map((v: any) => v.atividade_id))
+  const colaboradorIds = [...new Set(vinculos.map((v: any) => v.colaborador_id).filter(Boolean))]
+  if (colaboradorIds.length === 0) return resultado
+
+  function somar(nome: string, mes: string, valor: number) {
+    if (!resultado.has(nome)) resultado.set(nome, new Map())
+    const porMes = resultado.get(nome)!
+    porMes.set(mes, (porMes.get(mes) ?? 0) + valor)
+  }
+
+  const PAGINA = 1000
+  for (let inicio = 0; ; inicio += PAGINA) {
+    const { data, error } = await supabase
+      .from('variavel_turno_creditos')
+      .select('colaborador_id, atividade_id, data, valor_gerado, ausente')
+      .in('colaborador_id', colaboradorIds)
+      .range(inicio, inicio + PAGINA - 1)
+    if (error) { console.error('buscarValorAtividadesPorMes (creditos) error:', error.message); break }
+    for (const c of data ?? []) {
+      if (c.ausente || idsAcumulados.has(c.atividade_id)) continue
+      const nome = nomePorColaboradorId.get(c.colaborador_id)
+      if (!nome) continue
+      somar(nome, String(c.data).slice(0, 7), Number(c.valor_gerado))
+    }
+    if (!data || data.length < PAGINA) break
+  }
+
+  if (idsAcumulados.size > 0) {
+    for (let inicio = 0; ; inicio += PAGINA) {
+      const { data, error } = await supabase
+        .from('variavel_turno_creditos_acumulados')
+        .select('colaborador_id, atividade_id, competencia_ini, valor_gerado')
+        .in('colaborador_id', colaboradorIds)
+        .in('atividade_id', [...idsAcumulados])
+        .range(inicio, inicio + PAGINA - 1)
+      if (error) { console.error('buscarValorAtividadesPorMes (acumulados) error:', error.message); break }
+      for (const c of data ?? []) {
+        const nome = nomePorColaboradorId.get(c.colaborador_id)
+        if (!nome) continue
+        somar(nome, mesRotuloDeCompetenciaIni(String(c.competencia_ini)), Number(c.valor_gerado))
+      }
+      if (!data || data.length < PAGINA) break
+    }
+  }
+
+  return resultado
+}
+
 export { formatarBRL }

@@ -1,5 +1,6 @@
 import * as XLSX from 'xlsx'
 import { supabase } from './supabase'
+import { buscarValorAtividadesPorMes } from './variavelTurno'
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 function normalizarNome(v: unknown): string {
@@ -643,7 +644,8 @@ const PAGINA_VARIAVEL = 1000
 
 export interface MesHistorico {
   mes: string // "2026-01"
-  valorTotal: number
+  valorTotal: number // pontuação + lançamentos manuais (RV por atividade)
+  valorAtividades: number // só a parte de lançamento manual, já somada em valorTotal
   diasLancados: number
   pontuacaoMedia: number
   pontuacaoTotal: number
@@ -690,6 +692,8 @@ export async function buscarHistoricoMensal(filial: string, chave: string): Prom
     if (!data || data.length < PAGINA_VARIAVEL) break
   }
 
+  const valorAtividadesPorMes = (await buscarValorAtividadesPorMes(filial).catch(() => new Map())).get(chave) ?? new Map<string, number>()
+
   const porMes = new Map<string, { valor: number; dias: number; pontos: number }>()
   for (const l of linhas) {
     const mes = l.data.slice(0, 7)
@@ -699,18 +703,29 @@ export async function buscarHistoricoMensal(filial: string, chave: string): Prom
     acc.pontos += l.total
     porMes.set(mes, acc)
   }
+  // Mês com lançamento manual mas sem pontuação lançada ainda continua
+  // aparecendo — só não soma dias/pontos, que são exclusivos da pontuação.
+  for (const mes of valorAtividadesPorMes.keys()) {
+    if (!porMes.has(mes)) porMes.set(mes, { valor: 0, dias: 0, pontos: 0 })
+  }
 
   const meses = [...porMes.entries()]
-    .map(([mes, v]) => ({ mes, valorTotal: v.valor, diasLancados: v.dias, pontuacaoMedia: v.dias > 0 ? v.pontos / v.dias : 0, pontuacaoTotal: v.pontos }))
+    .map(([mes, v]) => {
+      const valorAtividades = valorAtividadesPorMes.get(mes) ?? 0
+      return {
+        mes, valorTotal: v.valor + valorAtividades, valorAtividades,
+        diasLancados: v.dias, pontuacaoMedia: v.dias > 0 ? v.pontos / v.dias : 0, pontuacaoTotal: v.pontos,
+      }
+    })
     .sort((a, b) => a.mes.localeCompare(b.mes))
 
-  return { chave, nome: linhas[0]?.nome ?? '', meses }
+  return { chave, nome: linhas[0]?.nome ?? chave, meses }
 }
 
 // ── Tabelão mensal (todo mundo × todos os meses) ─────────────────────────
 export interface TabelaoLinha {
   nome: string
-  porMes: Record<string, { valorTotal: number; pontuacaoTotal: number; pontuacaoMedia: number; diasLancados: number }>
+  porMes: Record<string, { valorTotal: number; valorAtividades: number; pontuacaoTotal: number; pontuacaoMedia: number; diasLancados: number }>
 }
 
 export interface TabelaoMensal {
@@ -730,6 +745,8 @@ export async function buscarTabelaoMensal(filial: string): Promise<TabelaoMensal
     if (!data || data.length < PAGINA_VARIAVEL) break
   }
 
+  const valorAtividadesPorNome = await buscarValorAtividadesPorMes(filial).catch(() => new Map<string, Map<string, number>>())
+
   const mesesSet = new Set<string>()
   const porNome = new Map<string, Map<string, { valor: number; pontos: number; dias: number }>>()
   for (const l of linhas) {
@@ -743,15 +760,32 @@ export async function buscarTabelaoMensal(filial: string): Promise<TabelaoMensal
     acc.dias += 1
     porMes.set(mes, acc)
   }
+  // Garante que gente com lançamento manual mas sem pontuação nenhuma (ainda
+  // que só num mês) entra no tabelão, e que os meses deles contam nos meses.
+  for (const [nome, porMesAtividades] of valorAtividadesPorNome) {
+    if (!porNome.has(nome)) porNome.set(nome, new Map())
+    const porMes = porNome.get(nome)!
+    for (const mes of porMesAtividades.keys()) {
+      mesesSet.add(mes)
+      if (!porMes.has(mes)) porMes.set(mes, { valor: 0, pontos: 0, dias: 0 })
+    }
+  }
 
   const meses = [...mesesSet].sort()
   const tabelaoLinhas: TabelaoLinha[] = [...porNome.entries()]
-    .map(([nome, porMes]) => ({
-      nome,
-      porMes: Object.fromEntries([...porMes.entries()].map(([mes, v]) => [
-        mes, { valorTotal: v.valor, pontuacaoTotal: v.pontos, pontuacaoMedia: v.dias > 0 ? v.pontos / v.dias : 0, diasLancados: v.dias },
-      ])),
-    }))
+    .map(([nome, porMes]) => {
+      const atividadesDoNome = valorAtividadesPorNome.get(nome)
+      return {
+        nome,
+        porMes: Object.fromEntries([...porMes.entries()].map(([mes, v]) => {
+          const valorAtividades = atividadesDoNome?.get(mes) ?? 0
+          return [mes, {
+            valorTotal: v.valor + valorAtividades, valorAtividades,
+            pontuacaoTotal: v.pontos, pontuacaoMedia: v.dias > 0 ? v.pontos / v.dias : 0, diasLancados: v.dias,
+          }]
+        })),
+      }
+    })
     .sort((a, b) => a.nome.localeCompare(b.nome))
 
   return { meses, linhas: tabelaoLinhas }

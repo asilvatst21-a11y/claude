@@ -241,6 +241,7 @@ function HistoricoMensalTab({
                 <tr>
                   <th className="text-left px-3 py-2 font-medium text-muted-foreground">Mês</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground">{metrica === 'valor' ? 'Valor RV' : 'Pontuação'}</th>
+                  {metrica === 'valor' && <th className="text-right px-3 py-2 font-medium text-muted-foreground">Lançamento manual</th>}
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground">Dias lançados</th>
                   <th className="text-right px-3 py-2 font-medium text-muted-foreground">Variação</th>
                 </tr>
@@ -254,6 +255,7 @@ function HistoricoMensalTab({
                     <tr key={m.mes} className="hover:bg-muted/30 transition-colors">
                       <td className="px-3 py-2 font-medium">{rotuloMes(m.mes)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{fmtMetrica(valorMes(m), metrica)}</td>
+                      {metrica === 'valor' && <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{m.valorAtividades > 0 ? formatarBRL(m.valorAtividades) : '—'}</td>}
                       <td className="px-3 py-2 text-right tabular-nums">{m.diasLancados}</td>
                       <td className={`px-3 py-2 text-right font-semibold ${badge.cor}`}>{badge.texto}</td>
                     </tr>
