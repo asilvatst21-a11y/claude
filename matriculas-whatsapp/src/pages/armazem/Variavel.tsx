@@ -18,6 +18,10 @@ import {
   type MesHistorico, type TabelaoMensal,
 } from '../../lib/variavelArmazem'
 import { formatarDataBR } from '../../lib/utils'
+import {
+  buscarRankingAtividadesPeriodo, buscarComparativoAtividades, buscarExtratoAtividadesColaborador,
+  type AtividadeRankingColaborador, type ComparativoAtividadeColaborador, type ExtratoAtividadesColaborador,
+} from '../../lib/variavelTurno'
 import VariavelTurnoAdmin from './VariavelTurnoAdmin'
 
 // A importação é sempre referente a D-1 (dia anterior); a data já vem
@@ -515,6 +519,19 @@ export default function ArmazemVariavel() {
   const [migracao, setMigracao] = useState<MigracaoColaborador[] | null>(null)
   const [loadingMigracao, setLoadingMigracao] = useState(true)
 
+  // Ranking de lançamentos manuais (RV por atividade) — mesmo período
+  // (rankIni/rankFim) do ranking de pontuação acima.
+  const [rankingAtividades, setRankingAtividades] = useState<AtividadeRankingColaborador[] | null>(null)
+  const [diasPeriodoRankAtividades, setDiasPeriodoRankAtividades] = useState(0)
+  const [loadingRankAtividades, setLoadingRankAtividades] = useState(true)
+  const [criterioRankAtividades, setCriterioRankAtividades] = useState<'diasLancados' | 'faltas' | 'valorTotal'>('valorTotal')
+  const [ordemRankAtividades, setOrdemRankAtividades] = useState<'desc' | 'asc'>('desc')
+  const [comparativoAtividades, setComparativoAtividades] = useState<ComparativoAtividadeColaborador[] | null>(null)
+  const [loadingComparativoAtividades, setLoadingComparativoAtividades] = useState(true)
+  const [extratoAtividadeAlvo, setExtratoAtividadeAlvo] = useState<{ chave: string; nome: string } | null>(null)
+  const [extratoAtividade, setExtratoAtividade] = useState<ExtratoAtividadesColaborador | null>(null)
+  const [loadingExtratoAtividade, setLoadingExtratoAtividade] = useState(false)
+
   const linkTotem = `${window.location.origin}/variavel-armazem`
 
   const fetchResumo = useCallback(async () => {
@@ -602,6 +619,45 @@ export default function ArmazemVariavel() {
       .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao carregar o extrato.'))
       .finally(() => setLoadingExtrato(false))
   }, [usuario, extratoAlvo, rankIni, rankFim])
+
+  const fetchRankingAtividades = useCallback(async () => {
+    if (!usuario) return
+    setLoadingRankAtividades(true)
+    try {
+      const { colaboradores, diasComLancamentoPeriodo } = await buscarRankingAtividadesPeriodo(usuario.filial, rankIni, rankFim)
+      setRankingAtividades(colaboradores)
+      setDiasPeriodoRankAtividades(diasComLancamentoPeriodo)
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao carregar o ranking de lançamentos manuais.')
+    } finally {
+      setLoadingRankAtividades(false)
+    }
+  }, [usuario, rankIni, rankFim])
+
+  useEffect(() => { fetchRankingAtividades() }, [fetchRankingAtividades])
+
+  const fetchComparativoAtividades = useCallback(async () => {
+    if (!usuario) return
+    setLoadingComparativoAtividades(true)
+    try {
+      setComparativoAtividades(await buscarComparativoAtividades(usuario.filial, rankIni, rankFim))
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao carregar o comparativo de lançamentos manuais.')
+    } finally {
+      setLoadingComparativoAtividades(false)
+    }
+  }, [usuario, rankIni, rankFim])
+
+  useEffect(() => { fetchComparativoAtividades() }, [fetchComparativoAtividades])
+
+  useEffect(() => {
+    if (!usuario || !extratoAtividadeAlvo) { setExtratoAtividade(null); return }
+    setLoadingExtratoAtividade(true)
+    buscarExtratoAtividadesColaborador(usuario.filial, rankIni, rankFim, extratoAtividadeAlvo.chave)
+      .then(setExtratoAtividade)
+      .catch((err) => setErro(err instanceof Error ? err.message : 'Erro ao carregar o extrato de lançamentos manuais.'))
+      .finally(() => setLoadingExtratoAtividade(false))
+  }, [usuario, extratoAtividadeAlvo, rankIni, rankFim])
 
   useEffect(() => {
     if (!usuario || aba !== 'historico') return
@@ -700,6 +756,19 @@ export default function ArmazemVariavel() {
     return ordemRank === 'desc' ? arr.reverse() : arr
   }, [ranking, criterioRank, ordemRank])
 
+  const rankingAtividadesOrdenado = useMemo(() => {
+    if (!rankingAtividades) return []
+    const arr = [...rankingAtividades].sort((a, b) => a[criterioRankAtividades] - b[criterioRankAtividades])
+    return ordemRankAtividades === 'desc' ? arr.reverse() : arr
+  }, [rankingAtividades, criterioRankAtividades, ordemRankAtividades])
+
+  const quedasAtividadesOrdenadas = useMemo(() => {
+    if (!comparativoAtividades) return []
+    return [...comparativoAtividades]
+      .filter((c) => c.variacaoPct != null)
+      .sort((a, b) => (a.variacaoPct ?? 0) - (b.variacaoPct ?? 0))
+  }, [comparativoAtividades])
+
   const pontuacaoTotalMes = useMemo(
     () => historico?.dias.reduce((s, d) => s + d.pontuacaoTotal, 0) ?? 0,
     [historico]
@@ -750,6 +819,23 @@ export default function ArmazemVariavel() {
     top.forEach((c, i) => {
       texto += `${i + 1}. ${c.nome} — ${Math.round(c.pontuacaoMedia).toLocaleString('pt-BR')} pts (méd.) · ${formatarBRL(c.valorTotal)}\n`
     })
+    navigator.clipboard.writeText(texto)
+      .then(() => alert('Resumo copiado! Cole no WhatsApp.'))
+      .catch(() => alert('Não foi possível copiar. Tente novamente.'))
+  }
+
+  function exportarRankingAtividadesCSV() {
+    const linhas: (string | number)[][] = [
+      ['Posição', 'Colaborador', 'Dias lançados', 'Faltas', 'Valor total'],
+      ...rankingAtividadesOrdenado.map((c, i) => [i + 1, c.nome, c.diasLancados, c.faltas, c.valorTotal.toFixed(2)]),
+    ]
+    baixarCSV(`ranking-lancamentos-manuais_${rankIni}_a_${rankFim}.csv`, linhas)
+  }
+
+  function copiarResumoRankingAtividades() {
+    const top = rankingAtividadesOrdenado.slice(0, 5)
+    let texto = `📊 *Ranking Lançamentos Manuais* — ${formatarDataBR(rankIni)} a ${formatarDataBR(rankFim)}\n\n`
+    top.forEach((c, i) => { texto += `${i + 1}. ${c.nome} — ${formatarBRL(c.valorTotal)}\n` })
     navigator.clipboard.writeText(texto)
       .then(() => alert('Resumo copiado! Cole no WhatsApp.'))
       .catch(() => alert('Não foi possível copiar. Tente novamente.'))
@@ -1300,6 +1386,112 @@ export default function ArmazemVariavel() {
           </div>
         )}
       </Colapsavel>
+
+      {/* Ranking de lançamentos manuais (RV por atividade) por intervalo de datas */}
+      <Colapsavel
+        titulo="Ranking — Lançamentos Manuais"
+        icon={Medal}
+        extra={
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <label className="flex items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">Ordenar por</span>
+              <select value={criterioRankAtividades} onChange={(e) => setCriterioRankAtividades(e.target.value as typeof criterioRankAtividades)} className="px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm bg-white">
+                <option value="valorTotal">Valor total</option>
+                <option value="diasLancados">Dias lançados</option>
+                <option value="faltas">Faltas</option>
+              </select>
+            </label>
+            <button
+              onClick={() => setOrdemRankAtividades((o) => (o === 'desc' ? 'asc' : 'desc'))}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm hover:bg-accent transition-colors"
+            >
+              <ArrowDownUp className="h-3.5 w-3.5" /> {ordemRankAtividades === 'desc' ? 'Maiores primeiro' : 'Menores primeiro'}
+            </button>
+            <button onClick={exportarRankingAtividadesCSV} disabled={rankingAtividadesOrdenado.length === 0} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm hover:bg-accent transition-colors disabled:opacity-40">
+              <Download className="h-3.5 w-3.5" /> CSV
+            </button>
+            <button onClick={copiarResumoRankingAtividades} disabled={rankingAtividadesOrdenado.length === 0} className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-sm hover:bg-accent transition-colors disabled:opacity-40">
+              <Copy className="h-3.5 w-3.5" /> Copiar resumo
+            </button>
+          </div>
+        }
+      >
+        {loadingRankAtividades ? (
+          <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+        ) : rankingAtividadesOrdenado.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground text-sm">Nenhum lançamento manual no período selecionado (usa o mesmo "De/até" do ranking de pontuação acima).</div>
+        ) : (
+          <div>
+            <p className="px-4 pt-3 text-[11px] text-muted-foreground">Filial teve lançamento manual em {diasPeriodoRankAtividades} dia(s) no período — "faltas" é comparado com esse total.</p>
+            <div className="overflow-x-auto p-4 pt-2">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground w-10">#</th>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Colaborador</th>
+                    <th className={`text-right px-3 py-2 font-medium ${criterioRankAtividades === 'diasLancados' ? 'text-accent-700' : 'text-muted-foreground'}`}>Dias lançados</th>
+                    <th className={`text-right px-3 py-2 font-medium ${criterioRankAtividades === 'faltas' ? 'text-accent-700' : 'text-muted-foreground'}`}>Faltas</th>
+                    <th className={`text-right px-3 py-2 font-medium ${criterioRankAtividades === 'valorTotal' ? 'text-accent-700' : 'text-muted-foreground'}`}>Valor total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {rankingAtividadesOrdenado.map((c, i) => (
+                    <tr key={c.chave} className={`hover:bg-muted/30 transition-colors ${i === 0 && ordemRankAtividades === 'desc' ? 'bg-amber-50/60' : ''}`}>
+                      <td className="px-3 py-2 text-muted-foreground tabular-nums">{i + 1}</td>
+                      <td className="px-3 py-2">
+                        <button onClick={() => setExtratoAtividadeAlvo({ chave: c.chave, nome: c.nome })} className="font-medium text-left hover:text-accent-700 hover:underline flex items-center gap-1.5">
+                          <UserSearch className="h-3.5 w-3.5 text-muted-foreground shrink-0" /> {c.nome}
+                        </button>
+                      </td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${criterioRankAtividades === 'diasLancados' ? 'font-bold' : 'text-muted-foreground'}`}>{c.diasLancados}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums ${criterioRankAtividades === 'faltas' ? 'font-bold' : c.faltas > 0 ? 'text-amber-700' : 'text-muted-foreground'}`}>{c.faltas}</td>
+                      <td className={`px-3 py-2 text-right tabular-nums text-green-700 ${criterioRankAtividades === 'valorTotal' ? 'font-bold' : ''}`}>{formatarBRL(c.valorTotal)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Colapsavel>
+
+      {/* Queda/alta de lançamentos manuais vs. período anterior equivalente */}
+      <Colapsavel titulo="Queda — Lançamentos Manuais" icon={ShieldAlert}>
+        {loadingComparativoAtividades ? (
+          <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+        ) : quedasAtividadesOrdenadas.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground text-sm">Sem período anterior comparável para esta janela de datas.</div>
+        ) : (
+          <div className="p-4">
+            <p className="text-xs text-muted-foreground mb-3">Compara o valor de lançamentos manuais de {formatarDataBR(rankIni)} a {formatarDataBR(rankFim)} com o período imediatamente anterior de mesma duração.</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium text-muted-foreground">Colaborador</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Período anterior</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Período atual</th>
+                    <th className="text-right px-3 py-2 font-medium text-muted-foreground">Variação</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {quedasAtividadesOrdenadas.map((c) => {
+                    const badge = variacaoBadge(c.variacaoPct)
+                    return (
+                      <tr key={c.chave} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-3 py-2 font-medium">{c.nome}</td>
+                        <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{formatarBRL(c.valorAnterior ?? 0)}</td>
+                        <td className="px-3 py-2 text-right tabular-nums font-bold">{formatarBRL(c.valorAtual)}</td>
+                        <td className={`px-3 py-2 text-right tabular-nums font-bold ${badge.cor}`}>{badge.texto}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </Colapsavel>
       </>
       )}
 
@@ -1355,6 +1547,63 @@ export default function ArmazemVariavel() {
                           </td>
                           <td className="px-3 py-2 text-right tabular-nums">{d.pontuacaoTotal.toLocaleString('pt-BR')}</td>
                           <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{d.valorPor1000 != null ? formatarBRL(d.valorPor1000) : '—'}</td>
+                          <td className="px-3 py-2 text-right tabular-nums font-bold text-green-700">{formatarBRL(d.valor)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de extrato de lançamentos manuais do colaborador */}
+      {extratoAtividadeAlvo && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={() => setExtratoAtividadeAlvo(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b flex items-center justify-between sticky top-0 bg-white">
+              <div>
+                <h3 className="text-base font-bold">{extratoAtividadeAlvo.nome}</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">Lançamentos manuais de {formatarDataBR(rankIni)} até {formatarDataBR(rankFim)}</p>
+              </div>
+              <button onClick={() => setExtratoAtividadeAlvo(null)} className="p-1.5 rounded-lg hover:bg-muted transition-colors"><X className="h-4 w-4" /></button>
+            </div>
+
+            {loadingExtratoAtividade ? (
+              <div className="flex items-center justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
+            ) : !extratoAtividade || extratoAtividade.dias.length === 0 ? (
+              <div className="text-center py-16 text-muted-foreground text-sm">Nenhum lançamento manual no período.</div>
+            ) : (
+              <div className="p-5 space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="border rounded-lg p-3">
+                    <div className="text-[11px] text-muted-foreground mb-0.5">Dias lançados</div>
+                    <div className="text-lg font-bold tabular-nums">{extratoAtividade.diasLancados}</div>
+                  </div>
+                  <div className="border rounded-lg p-3">
+                    <div className="text-[11px] text-muted-foreground mb-0.5">Valor total</div>
+                    <div className="text-lg font-bold tabular-nums text-green-700">{formatarBRL(extratoAtividade.valorTotal)}</div>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto border rounded-lg">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50">
+                      <tr>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Dia</th>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Atividade</th>
+                        <th className="text-left px-3 py-2 font-medium text-muted-foreground">Resultado</th>
+                        <th className="text-right px-3 py-2 font-medium text-muted-foreground">Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {extratoAtividade.dias.map((d, i) => (
+                        <tr key={`${d.data}-${d.atividadeNome}-${i}`}>
+                          <td className="px-3 py-2 font-medium">{formatarDataBR(d.data)}</td>
+                          <td className="px-3 py-2">{d.atividadeNome}</td>
+                          <td className="px-3 py-2 text-muted-foreground">{d.resultadoTexto}</td>
                           <td className="px-3 py-2 text-right tabular-nums font-bold text-green-700">{formatarBRL(d.valor)}</td>
                         </tr>
                       ))}

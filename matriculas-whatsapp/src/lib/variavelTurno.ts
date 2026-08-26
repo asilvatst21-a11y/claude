@@ -1075,4 +1075,221 @@ export async function buscarValorAtividadesPorMes(filial: string): Promise<Map<s
   return resultado
 }
 
+// Data em que uma competência (21→20) termina, a partir da data de início
+// dela — usada pra encaixar o crédito de meta acumulada (um valor só pra
+// competência inteira) num intervalo de datas arbitrário, como se ele
+// "acontecesse" no último dia da competência.
+function fimDaCompetenciaIni(ini: string): string {
+  return `${mesRotuloDeCompetenciaIni(ini)}-20`
+}
+
+async function buscarVinculosAtivosDaFilial(filial: string) {
+  const { data: vinculosRaw } = await supabase
+    .from('variavel_turno_atividade_colaboradores')
+    .select('colaborador_id, colaborador_nome, atividade_id, ativo, variavel_turno_atividades(id, nome, filial, ativo, meta_acumulada)')
+  return (vinculosRaw ?? []).filter((v: any) =>
+    v.variavel_turno_atividades?.filial === filial && v.ativo && v.variavel_turno_atividades?.ativo !== false
+  )
+}
+
+// ── Ranking de lançamentos manuais (RV por atividade) num intervalo de
+// datas — mesmo padrão do ranking de Pontuação (buscarRankingColaboradores),
+// pra comparar lado a lado num período escolhido pelo usuário, não só por
+// competência fechada.
+export interface AtividadeRankingColaborador {
+  chave: string // colaborador_id
+  nome: string
+  diasLancados: number
+  valorTotal: number
+  faltas: number
+}
+
+export interface AtividadeRankingPeriodo {
+  colaboradores: AtividadeRankingColaborador[]
+  diasComLancamentoPeriodo: number
+}
+
+export async function buscarRankingAtividadesPeriodo(filial: string, dataIni: string, dataFim: string): Promise<AtividadeRankingPeriodo> {
+  const vinculos = await buscarVinculosAtivosDaFilial(filial)
+  if (vinculos.length === 0) return { colaboradores: [], diasComLancamentoPeriodo: 0 }
+
+  const nomePorColaboradorId = new Map(vinculos.map((v: any) => [v.colaborador_id, v.colaborador_nome as string]))
+  const idsAcumulados = new Set(vinculos.filter((v: any) => v.variavel_turno_atividades?.meta_acumulada).map((v: any) => v.atividade_id))
+  const colaboradorIds = [...new Set(vinculos.map((v: any) => v.colaborador_id).filter(Boolean))]
+
+  const diasComLancamento = new Set<string>()
+  const porColab = new Map<string, { dias: Set<string>; valor: number }>()
+  function registrar(colaboradorId: string, data: string, valor: number) {
+    diasComLancamento.add(data)
+    const acc = porColab.get(colaboradorId) ?? { dias: new Set<string>(), valor: 0 }
+    acc.dias.add(data)
+    acc.valor += valor
+    porColab.set(colaboradorId, acc)
+  }
+
+  const PAGINA = 1000
+  for (let inicio = 0; ; inicio += PAGINA) {
+    const { data, error } = await supabase
+      .from('variavel_turno_creditos')
+      .select('colaborador_id, atividade_id, data, valor_gerado, ausente')
+      .in('colaborador_id', colaboradorIds)
+      .gte('data', dataIni).lte('data', dataFim)
+      .range(inicio, inicio + PAGINA - 1)
+    if (error) { console.error('buscarRankingAtividadesPeriodo (creditos) error:', error.message); break }
+    for (const c of data ?? []) {
+      if (c.ausente || idsAcumulados.has(c.atividade_id) || !nomePorColaboradorId.has(c.colaborador_id)) continue
+      registrar(c.colaborador_id, String(c.data), Number(c.valor_gerado))
+    }
+    if (!data || data.length < PAGINA) break
+  }
+
+  if (idsAcumulados.size > 0) {
+    for (let inicio = 0; ; inicio += PAGINA) {
+      const { data, error } = await supabase
+        .from('variavel_turno_creditos_acumulados')
+        .select('colaborador_id, atividade_id, competencia_ini, valor_gerado')
+        .in('colaborador_id', colaboradorIds)
+        .in('atividade_id', [...idsAcumulados])
+        .range(inicio, inicio + PAGINA - 1)
+      if (error) { console.error('buscarRankingAtividadesPeriodo (acumulados) error:', error.message); break }
+      for (const c of data ?? []) {
+        if (!nomePorColaboradorId.has(c.colaborador_id)) continue
+        const dataFimComp = fimDaCompetenciaIni(String(c.competencia_ini))
+        if (dataFimComp < dataIni || dataFimComp > dataFim) continue
+        registrar(c.colaborador_id, dataFimComp, Number(c.valor_gerado))
+      }
+      if (!data || data.length < PAGINA) break
+    }
+  }
+
+  const diasComLancamentoPeriodo = diasComLancamento.size
+  const colaboradores: AtividadeRankingColaborador[] = [...porColab.entries()].map(([chave, v]) => ({
+    chave,
+    nome: nomePorColaboradorId.get(chave) ?? '—',
+    diasLancados: v.dias.size,
+    valorTotal: v.valor,
+    faltas: Math.max(0, diasComLancamentoPeriodo - v.dias.size),
+  }))
+
+  return { colaboradores, diasComLancamentoPeriodo }
+}
+
+// Mesma comparação vs. período anterior equivalente já usada em Pontuação
+// (buscarComparativoDesempenho), só que sobre o valor gerado de atividade em
+// vez da pontuação média.
+export interface ComparativoAtividadeColaborador {
+  chave: string
+  nome: string
+  valorAtual: number
+  valorAnterior: number | null
+  variacaoPct: number | null
+}
+
+function periodoAnteriorEquivalente(dataIni: string, dataFim: string): { ini: string; fim: string } {
+  const ini = new Date(`${dataIni}T00:00:00`)
+  const fim = new Date(`${dataFim}T00:00:00`)
+  const dias = Math.round((fim.getTime() - ini.getTime()) / 86400000) + 1
+  const anteriorFim = new Date(ini)
+  anteriorFim.setDate(anteriorFim.getDate() - 1)
+  const anteriorIni = new Date(anteriorFim)
+  anteriorIni.setDate(anteriorIni.getDate() - (dias - 1))
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  return { ini: iso(anteriorIni), fim: iso(anteriorFim) }
+}
+
+export async function buscarComparativoAtividades(filial: string, dataIni: string, dataFim: string): Promise<ComparativoAtividadeColaborador[]> {
+  const { ini: antIni, fim: antFim } = periodoAnteriorEquivalente(dataIni, dataFim)
+  const [{ colaboradores: atual }, { colaboradores: anterior }] = await Promise.all([
+    buscarRankingAtividadesPeriodo(filial, dataIni, dataFim),
+    buscarRankingAtividadesPeriodo(filial, antIni, antFim),
+  ])
+  const mapAnterior = new Map(anterior.map((a) => [a.chave, a]))
+
+  return atual.map((a) => {
+    const ant = mapAnterior.get(a.chave)
+    const valorAnterior = ant?.valorTotal ?? null
+    const variacaoPct = valorAnterior != null && valorAnterior > 0 ? ((a.valorTotal - valorAnterior) / valorAnterior) * 100 : null
+    return { chave: a.chave, nome: a.nome, valorAtual: a.valorTotal, valorAnterior, variacaoPct }
+  })
+}
+
+// ── Extrato (dia a dia) de lançamentos manuais de um colaborador, num
+// intervalo de datas — mesmo padrão de buscarExtratoColaborador (Pontuação).
+export interface DiaAtividadeColaborador {
+  data: string
+  atividadeNome: string
+  resultadoTexto: string
+  valor: number
+}
+
+export interface ExtratoAtividadesColaborador {
+  nome: string
+  dias: DiaAtividadeColaborador[]
+  diasLancados: number
+  valorTotal: number
+}
+
+export async function buscarExtratoAtividadesColaborador(
+  filial: string, dataIni: string, dataFim: string, colaboradorId: string
+): Promise<ExtratoAtividadesColaborador> {
+  const vinculos = await buscarVinculosAtivosDaFilial(filial)
+  const vinculosDoColab = vinculos.filter((v: any) => v.colaborador_id === colaboradorId)
+  if (vinculosDoColab.length === 0) return { nome: '—', dias: [], diasLancados: 0, valorTotal: 0 }
+
+  const nome = (vinculosDoColab[0] as any).colaborador_nome ?? '—'
+  type MetaAtividade = { nome: string; unidade: TurnoUnidade; metaAcumulada: boolean }
+  const atividadeMeta = new Map<string, MetaAtividade>(vinculosDoColab.map((v: any) => {
+    const raw = v.variavel_turno_atividades
+    return [v.atividade_id, { nome: raw?.nome, unidade: raw?.unidade, metaAcumulada: raw?.meta_acumulada ?? false }]
+  }))
+  const atividadeIds = vinculosDoColab.map((v: any) => v.atividade_id)
+  const idsNormais = atividadeIds.filter((id) => !atividadeMeta.get(id)?.metaAcumulada)
+  const idsAcumulados = atividadeIds.filter((id) => atividadeMeta.get(id)?.metaAcumulada)
+
+  const [{ data: creditos }, { data: registros }, { data: creditosAcumulados }] = await Promise.all([
+    idsNormais.length > 0
+      ? supabase.from('variavel_turno_creditos').select('atividade_id, data, valor_numero:valor_gerado, ausente')
+        .eq('colaborador_id', colaboradorId).in('atividade_id', idsNormais).gte('data', dataIni).lte('data', dataFim)
+      : Promise.resolve({ data: [] as any[] }),
+    idsNormais.length > 0
+      ? supabase.from('variavel_turno_registros').select('atividade_id, data, valor_numero, ok_nok')
+        .in('atividade_id', idsNormais).gte('data', dataIni).lte('data', dataFim)
+      : Promise.resolve({ data: [] as any[] }),
+    idsAcumulados.length > 0
+      ? supabase.from('variavel_turno_creditos_acumulados').select('atividade_id, competencia_ini, valor_gerado')
+        .eq('colaborador_id', colaboradorId).in('atividade_id', idsAcumulados)
+      : Promise.resolve({ data: [] as any[] }),
+  ])
+
+  const registroPorChave = new Map((registros ?? []).map((r) => [`${r.atividade_id}|${r.data}`, r]))
+
+  const dias: DiaAtividadeColaborador[] = []
+  for (const c of creditos ?? []) {
+    if (c.ausente) continue
+    const meta = atividadeMeta.get(c.atividade_id)
+    if (!meta) continue
+    const registro = registroPorChave.get(`${c.atividade_id}|${c.data}`)
+    dias.push({
+      data: c.data,
+      atividadeNome: meta.nome,
+      resultadoTexto: formatarResultadoAtividade(meta.unidade, registro?.valor_numero != null ? Number(registro.valor_numero) : null, registro?.ok_nok ?? null),
+      valor: Number(c.valor_numero),
+    })
+  }
+  for (const c of creditosAcumulados ?? []) {
+    const meta = atividadeMeta.get(c.atividade_id)
+    if (!meta) continue
+    const dataFimComp = fimDaCompetenciaIni(String(c.competencia_ini))
+    if (dataFimComp < dataIni || dataFimComp > dataFim) continue
+    dias.push({ data: dataFimComp, atividadeNome: meta.nome, resultadoTexto: 'Meta acumulada da competência', valor: Number(c.valor_gerado) })
+  }
+  dias.sort((a, b) => b.data.localeCompare(a.data))
+
+  return {
+    nome, dias,
+    diasLancados: new Set(dias.map((d) => d.data)).size,
+    valorTotal: dias.reduce((s, d) => s + d.valor, 0),
+  }
+}
+
 export { formatarBRL }
