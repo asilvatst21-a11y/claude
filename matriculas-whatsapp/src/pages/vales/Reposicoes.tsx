@@ -755,6 +755,32 @@ export default function ReposicoesPage() {
       alert(`Nenhum grupo de validação configurado para a filial "${rep.filial}". Configure em Config. WhatsApp.`);
       return;
     }
+
+    // Data da ocorrência = data do MAPA (mapa_equipe), não a data em que a
+    // reposição foi lançada — podem ser dias diferentes. Sem trava por dia
+    // (diferente do cruzamento de ajudante em ajudantesDe()): busca todas as
+    // datas em que esse mapa apareceu pra essa filial e fica com a mais
+    // próxima do created_at, pro caso raro de o mesmo número de mapa se
+    // repetir em dias diferentes.
+    let dataMapa: string | null = null;
+    if (rep.mapa) {
+      const { data: mapaLinhas } = await valesSupabase
+        .from("mapa_equipe")
+        .select("data")
+        .eq("filial", rep.filial)
+        .eq("mapa", rep.mapa);
+      const datas = [...new Set((mapaLinhas ?? []).map((m) => m.data as string))];
+      if (datas.length > 0) {
+        const diaCriacao = rep.created_at.slice(0, 10);
+        dataMapa = datas.reduce((maisProxima, d) =>
+          Math.abs(new Date(d).getTime() - new Date(diaCriacao).getTime()) <
+          Math.abs(new Date(maisProxima).getTime() - new Date(diaCriacao).getTime())
+            ? d
+            : maisProxima
+        );
+      }
+    }
+
     const linhas = [
       `🔎 *Validação de Reposição* — ${rep.numero}`,
       `🔁 Tipo: ${TIPO_REPOSICAO_LABEL[rep.tipo_reposicao ?? "indefinido"] ?? "Não informado"}`,
@@ -763,6 +789,7 @@ export default function ReposicoesPage() {
     if (rep.motorista_nome) linhas.push(`👤 Motorista: ${rep.motorista_nome}`);
     if (rep.codigo_pdv) linhas.push(`🏪 PDV: ${rep.codigo_pdv}`);
     if (rep.mapa) linhas.push(`🗺️ Mapa: ${rep.mapa}`);
+    if (dataMapa) linhas.push(`📅 Data: ${formatDateBR(dataMapa)}`);
     if (rep.produto) linhas.push(`📋 Produto: ${rep.produto}`);
     if (rep.quantidade) linhas.push(`📊 Qtde: ${rep.quantidade}`);
     if (rep.tipo_reposicao === "inversao" && rep.produto_invertido) {
