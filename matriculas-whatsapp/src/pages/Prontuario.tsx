@@ -201,10 +201,64 @@ function pn(v: unknown): number {
 
 type ParsedReg = Omit<ProntuarioRegistro, 'id' | 'snapshot_id' | 'created_at'>
 
+function normalizarHeader(v: unknown): string {
+  return String(v ?? '').trim().toLowerCase()
+}
+
+// Formato novo do prontuário do condutor (planilha "Export" — Empresa,
+// Operação, Colaborador, Cargo, Faixa, Pontuação, Status, Data Bloqueio,
+// Motivo), bem mais enxuto que o antigo: sem CPF, sonolência, região ou
+// colunas de detalhe/breakdown. Sem CPF, o histórico entre uploads passa a
+// casar pelo NOME (guardado no campo `cpf`, que segue sendo a chave usada
+// em todo o resto da tela — expandir linha, gráfico de evolução, diff).
+// Faixa vem pronta da planilha (não recalculada por calcFaixa), já que o
+// critério pode variar por cargo (ex.: Manobrista vs Motorista).
+function isFormatoCondutorNovo(header: string[]): boolean {
+  return header.some(h => normalizarHeader(h) === 'colaborador') && header.some(h => normalizarHeader(h) === 'pontuação')
+}
+
+function parseCondutorNovo(rows: string[][], filial: string): ParsedReg[] {
+  const header = rows[0].map(normalizarHeader)
+  const idx = (nome: string) => header.indexOf(nome)
+  const colColaborador = idx('colaborador')
+  const colCargo = idx('cargo')
+  const colFaixa = idx('faixa')
+  const colPontuacao = idx('pontuação')
+  const colStatus = idx('status')
+  const colMotivo = idx('motivo')
+  const colOperacao = idx('operação')
+
+  return rows.slice(1)
+    .filter(r => String(r[colColaborador] ?? '').trim())
+    .map(r => {
+      const nome = String(r[colColaborador] ?? '').trim()
+      return {
+        filial, tipo: 'motorista' as const,
+        cpf: nome,
+        nome,
+        cargo: String(r[colCargo] ?? '').trim() || null,
+        situacao_empregado: null,
+        status: String(r[colStatus] ?? '').trim() || null,
+        motivo: String(r[colMotivo] ?? '').trim() || null,
+        pontuacao: pn(r[colPontuacao]),
+        faixa: String(r[colFaixa] ?? '').trim() || calcFaixa(pn(r[colPontuacao])),
+        sonolencia: 0,
+        detalhes: {},
+        regiao: null,
+        operacao: String(r[colOperacao] ?? '').trim() || null,
+      }
+    })
+}
+
 function parseProntuario(buffer: ArrayBuffer, tipo: 'motorista' | 'ajudante', filial: string): ParsedReg[] {
   const wb = XLSX.read(buffer)
   const ws = wb.Sheets[wb.SheetNames[0]]
   const rows = XLSX.utils.sheet_to_json<string[]>(ws, { defval: '', raw: false, header: 1 }) as string[][]
+
+  if (tipo === 'motorista' && rows.length > 0 && isFormatoCondutorNovo(rows[0])) {
+    return parseCondutorNovo(rows, filial)
+  }
+
   const cols = tipo === 'motorista' ? MOT_COLS : AJU_COLS
   const isMot = tipo === 'motorista'
 
