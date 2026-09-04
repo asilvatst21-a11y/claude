@@ -240,12 +240,10 @@ async function buscarTodasAvaliacoesGsd(filial: string): Promise<GsdpqAvaliacao[
   return linhas
 }
 
-function parseGsdpqExcel(buffer: ArrayBuffer): { rows: Omit<GsdpqAvaliacao, 'id' | 'created_at' | 'colaborador_id'>[]; questoes: string[] } {
-  const wb = XLSX.read(buffer)
-  const ws = wb.Sheets[wb.SheetNames[0]]
-  const raw = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '', raw: false })
-  if (raw.length === 0) return { rows: [], questoes: [] }
-
+// Formato antigo: "largo" — uma linha por avaliação de colaborador, com uma
+// coluna por pergunta (a partir da 14ª coluna) e o resultado (OK/NO) na
+// própria célula.
+function parseGsdpqExcelLargo(raw: Record<string, string>[]): { rows: Omit<GsdpqAvaliacao, 'id' | 'created_at' | 'colaborador_id'>[]; questoes: string[] } {
   const todasColunas = Object.keys(raw[0])
   const questoes = todasColunas.slice(13).filter(q => q.trim() !== '')
 
@@ -274,6 +272,54 @@ function parseGsdpqExcel(buffer: ArrayBuffer): { rows: Omit<GsdpqAvaliacao, 'id'
   })
 
   return { rows, questoes }
+}
+
+// Formato novo: "comprido" — uma linha por PERGUNTA respondida (colunas fixas
+// TIPO/FILIAL/MATRICULA/REALIZADO POR/FUNÇÃO/COLABORADOR/FUNÇÃO(colaborador)/
+// EQUIPE/PLACA/DATA/HR INICIO/HR FINAL/DATA DA OCORRÊNCIA, e por fim PERGUNTA +
+// RESPOSTA numa célula cada). SheetJS renomeia a 2ª coluna "FUNÇÃO" pra
+// "FUNÇÃO_1" (mesmo nome de cabeçalho repetido) — essa é a função do
+// colaborador avaliado, não de quem realizou. Não tem coluna de observações
+// nesse formato.
+function parseGsdpqExcelComprido(raw: Record<string, string>[]): { rows: Omit<GsdpqAvaliacao, 'id' | 'created_at' | 'colaborador_id'>[]; questoes: string[] } {
+  const rows: Omit<GsdpqAvaliacao, 'id' | 'created_at' | 'colaborador_id'>[] = []
+  const questoesSet = new Set<string>()
+
+  raw.forEach(r => {
+    const tipo = (r['TIPO'] ?? '').toString().trim().toUpperCase()
+    if (tipo && tipo !== 'GSDPQ') return
+    const colaborador_nome = (r['COLABORADOR/FRETEIRO/PX'] ?? '').trim()
+    if (!colaborador_nome) return
+    const questao = (r['PERGUNTA'] ?? '').trim()
+    const resultado = (r['RESPOSTA'] ?? '').toString().toUpperCase().trim()
+    if (!questao || !resultado) return
+
+    questoesSet.add(questao)
+    rows.push({
+      filial: (r['FILIAL'] ?? '').trim(),
+      colaborador_nome,
+      realizado_por: r['REALIZADO POR'] ?? '',
+      funcao: (r['FUNÇÃO_1'] ?? '').trim() || null,
+      equipe: r['EQUIPE'] ?? '',
+      data_avaliacao: (r['DATA'] ?? '').trim(),
+      questao,
+      resultado,
+      observacoes: '',
+    })
+  })
+
+  return { rows, questoes: [...questoesSet] }
+}
+
+function parseGsdpqExcel(buffer: ArrayBuffer): { rows: Omit<GsdpqAvaliacao, 'id' | 'created_at' | 'colaborador_id'>[]; questoes: string[] } {
+  const wb = XLSX.read(buffer)
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  const raw = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '', raw: false })
+  if (raw.length === 0) return { rows: [], questoes: [] }
+
+  const colunas = Object.keys(raw[0]).map(c => c.trim().toUpperCase())
+  const isComprido = colunas.includes('PERGUNTA') && colunas.includes('RESPOSTA')
+  return isComprido ? parseGsdpqExcelComprido(raw) : parseGsdpqExcelLargo(raw)
 }
 
 // Converte uma data de admissão vinda da planilha (DD/MM/YYYY ou YYYY-MM-DD)
