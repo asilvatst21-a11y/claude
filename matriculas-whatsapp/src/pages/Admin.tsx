@@ -424,6 +424,13 @@ function AbaUsuarios({
   const [form, setForm] = useState({ filial: '', login: '', senha: '', nome: '', admin: false })
   const [loading, setLoading] = useState(false)
 
+  // Acesso ao criar um usuário novo — por padrão vem com acesso completo
+  // (permissoes: null), igual já era o comportamento implícito; desmarcando
+  // "Acesso completo" dá pra escolher já na criação quais seções liberar,
+  // sem precisar de um segundo passo depois de salvar.
+  const [acessoCompletoNovo, setAcessoCompletoNovo] = useState(true)
+  const [permNovo, setPermNovo] = useState<string[]>(SECOES_SISTEMA.map(s => s.key))
+
   // Painel de permissões
   const [permModal, setPermModal] = useState<Usuario | null>(null)
   const [permSelecionadas, setPermSelecionadas] = useState<string[]>([])
@@ -458,7 +465,13 @@ function AbaUsuarios({
   function abrirNovo() {
     setForm({ filial: filiais[0]?.nome ?? '', login: '', senha: '', nome: '', admin: false })
     setEditId(null)
+    setAcessoCompletoNovo(true)
+    setPermNovo(SECOES_SISTEMA.map(s => s.key))
     setModal(true)
+  }
+
+  function togglePermNovo(key: string) {
+    setPermNovo(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key])
   }
 
   function abrirEditar(u: Usuario) {
@@ -482,6 +495,7 @@ function AbaUsuarios({
           senha: form.senha || SENHA_PADRAO,
           nome: form.nome || null,
           admin: form.admin,
+          permissoes: acessoCompletoNovo ? null : permNovo,
         })
       }
       setModal(false)
@@ -640,6 +654,43 @@ function AbaUsuarios({
                 />
                 <span className="text-sm text-gray-700 flex items-center gap-1"><Shield size={14} /> Administrador</span>
               </label>
+
+              {!editId && (
+                <div className="border-t border-gray-100 pt-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={acessoCompletoNovo}
+                      onChange={e => setAcessoCompletoNovo(e.target.checked)}
+                      className="rounded"
+                    />
+                    <span className="text-sm text-gray-700 flex items-center gap-1"><Lock size={14} /> Acesso completo (todas as seções)</span>
+                  </label>
+
+                  {!acessoCompletoNovo && (
+                    <div className="mt-3 space-y-3 max-h-52 overflow-y-auto pr-1">
+                      {[...new Set(SECOES_SISTEMA.map(s => s.grupo))].map(grupo => (
+                        <div key={grupo}>
+                          <p className="text-[10px] uppercase tracking-widest font-bold text-gray-400 mb-1.5">{grupo}</p>
+                          <div className="space-y-0.5">
+                            {SECOES_SISTEMA.filter(s => s.grupo === grupo).map(s => (
+                              <label key={s.key} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={permNovo.includes(s.key)}
+                                  onChange={() => togglePermNovo(s.key)}
+                                  className="rounded text-brand-700"
+                                />
+                                <span className="text-sm text-gray-700">{s.label}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setModal(false)} className="px-4 py-2 text-sm text-gray-600 hover:bg-gray-100 rounded-lg">Cancelar</button>
@@ -673,7 +724,7 @@ function AbaUsuarios({
             </p>
 
             <div className="space-y-4">
-              {(['Segurança', 'Gente', 'Financeiro', 'Distribuição', 'Admin'] as const).map(grupo => {
+              {[...new Set(SECOES_SISTEMA.map(s => s.grupo))].map(grupo => {
                 const secoes = SECOES_SISTEMA.filter(s => s.grupo === grupo)
                 return (
                   <div key={grupo}>
