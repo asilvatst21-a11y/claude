@@ -108,8 +108,17 @@ export async function importarKmApuracao(
   const competencias: string[] = []
   let cadeiaGravacao: Promise<void> = Promise.resolve()
 
+  // Duas linhas diferentes da planilha com o mesmo mapa+placa+saída colidem
+  // na chave natural — o upsert simplesmente sobrescreve, sem erro nenhum.
+  // Conta quantas ficaram "perdidas" assim, pra não ser um sumiço silencioso.
+  const contagemChaveNatural = new Map<string, number>()
+
   async function processarLote(linhas: LinhaViagemImportada[]): Promise<void> {
-    for (const l of linhas) competencias.push(l.data.slice(0, 7))
+    for (const l of linhas) {
+      competencias.push(l.data.slice(0, 7))
+      const chave = chaveTrip(l.mapa, l.placa, l.saidaEm)
+      contagemChaveNatural.set(chave, (contagemChaveNatural.get(chave) ?? 0) + 1)
+    }
 
     for (let i = 0; i < linhas.length; i += LOTE_GRAVACAO) {
       const sublote = linhas.slice(i, i + LOTE_GRAVACAO)
@@ -223,6 +232,16 @@ export async function importarKmApuracao(
 
   const linhasValidacao = await buscarLinhasParaValidacao(filial, competencia)
   const validacao = avaliarIntegridade(linhasValidacao, totalLinhas, totalValidas)
+
+  const colisoesChaveNatural = [...contagemChaveNatural.values()].reduce((acc, n) => acc + Math.max(0, n - 1), 0)
+  if (colisoesChaveNatural > 0) {
+    validacao.pendencias.push({
+      codigo: 'chave_natural_duplicada',
+      descricao: 'Linhas com o mesmo mapa+placa+saída na planilha — só a última de cada grupo foi gravada',
+      quantidade: colisoesChaveNatural,
+    })
+    validacao.ok = false
+  }
 
   const { data: batch, error: eBatch } = await supabase
     .from('km_import_batches')
