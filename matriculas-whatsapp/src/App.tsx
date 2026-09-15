@@ -148,7 +148,7 @@ export default function App() {
             <Route path="/historico" element={<Historico />} />
             <Route path="/admin" element={<AdminRoute><Admin /></AdminRoute>} />
             <Route path="/central-testes" element={<AlgumaPermissaoRoute><CentralTestes /></AlgumaPermissaoRoute>} />
-            <Route path="/fluxo" element={<AdminRoute><FluxoPunitivo /></AdminRoute>} />
+            <Route path="/fluxo" element={<FluxoPunitivo />} />
             <Route path="/envios-bloqueados" element={<AdminRoute><EnviosBloqueados /></AdminRoute>} />
             <Route path="/gsdpq" element={<Gsdpq />} />
             <Route path="/gsdpq/supervisores" element={<GsdpqSupervisores />} />

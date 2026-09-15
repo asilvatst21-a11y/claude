@@ -33,7 +33,7 @@ export const SECOES_SISTEMA = [
   { key: 'treinamentos-seguranca', label: 'Treinamentos Segurança', grupo: 'Segurança' },
   { key: 'rotas-risco',     label: 'Rotas de Risco',  grupo: 'Segurança'    },
   { key: 'jornada',         label: 'Jornada',         grupo: 'Gente'        },
-  { key: 'fluxo',           label: 'Fluxo Punitivo',  grupo: 'Admin'        },
+  { key: 'fluxo',           label: 'Fluxo Punitivo',  grupo: 'Gente'        },
   { key: 'vales',           label: 'Vales',           grupo: 'Financeiro'   },
   { key: 'financeiro',      label: 'Financeiro',      grupo: 'Financeiro'   },
   { key: 'reposicoes',      label: 'Reposições (monitoramento)', grupo: 'Financeiro' },

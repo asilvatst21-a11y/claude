@@ -31,6 +31,7 @@ const genteItems = [
   { permKey: 'jornada',      to: '/colaboradores', label: 'Colaboradores',       icon: Users },
   { permKey: 'jornada',      to: '/jornada',      label: 'Controle de Jornada', icon: Clock },
   { permKey: 'distribuicao', to: '/distribuicao', label: 'Solicitação Extra',   icon: Truck, end: true },
+  { permKey: 'fluxo',        to: '/fluxo',        label: 'Fluxo Punitivo',      icon: GitBranch },
 ]
 
 // Os itens de monitoramento de reposições (Reposições, Catálogo/Vendas e
@@ -83,7 +84,6 @@ const armazemItems = [
 ]
 
 const adminItems = [
-  { permKey: 'fluxo', to: '/fluxo', label: 'Fluxo Punitivo', icon: GitBranch },
   { permKey: 'admin', to: '/envios-bloqueados', label: 'Envios Bloqueados', icon: AlertTriangle },
   { permKey: 'admin', to: '/admin', label: 'Administração',  icon: Shield    },
 ]
