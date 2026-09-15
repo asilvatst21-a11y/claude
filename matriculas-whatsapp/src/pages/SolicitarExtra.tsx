@@ -178,7 +178,7 @@ export default function SolicitarExtra() {
     <div className="min-h-screen bg-gradient-to-br from-brand-700 via-brand-800 to-brand-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
         <div className="bg-white border-b border-gray-100 px-8 py-6 flex flex-col items-center">
-          <img src="/logo.png" alt="LOG20" className="h-16 mb-2 object-contain" />
+          <img src="/logo.png" alt="Painel Analítico" className="h-16 mb-2 object-contain" />
           <h1 className="text-brand-700 text-xl font-bold tracking-tight">Solicitação Extra</h1>
           <p className="text-brand-400 text-sm mt-1">Finalização de rota, entrega/recolha de materiais e outras solicitações</p>
         </div>

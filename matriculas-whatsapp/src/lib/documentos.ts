@@ -155,7 +155,7 @@ function fraseInfracao(motivo: string, dataInfracao: string | null, origem?: str
 function docAdvertencia({ nome, motivo, data, dataInfracao, filial, origem }: DadosDocumento): string {
   const cidade = cidadeDaFilial(filial)
   return `
-    <div class="logo"><img src="${location.origin}/logo.png" alt="LOG20" /></div>
+    <div class="logo"><img src="${location.origin}/logo.png" alt="Painel Analítico" /></div>
     <div class="data">${cidade}, ${dataExtenso(data)}.</div>
     <div class="titulo">Aviso de Advertência</div>
     <div class="destinatario">SR (a): ${nome}</div>
@@ -192,7 +192,7 @@ function docSuspensao({ nome, motivo, data, dataInfracao, dias, filial, origem }
   const cidade = cidadeDaFilial(filial)
   const n = dias && dias > 0 ? dias : 1
   return `
-    <div class="logo"><img src="${location.origin}/logo.png" alt="LOG20" /></div>
+    <div class="logo"><img src="${location.origin}/logo.png" alt="Painel Analítico" /></div>
     <div class="titulo">Carta de Suspensão no Trabalho</div>
     <div class="corpo"><strong>De:</strong> LOG20 Logística S/A</div>
     <div class="corpo"><strong>Para:</strong> ${nome}</div>

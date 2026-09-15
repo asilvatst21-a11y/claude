@@ -39,7 +39,7 @@ export default function Login() {
     <div className="min-h-screen bg-gradient-to-br from-brand-700 via-brand-800 to-brand-900 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
         <div className="bg-white border-b border-gray-100 px-8 py-6 flex flex-col items-center">
-          <img src="/logo.png" alt="LOG20" className="h-20 mb-3 object-contain" />
+          <img src="/logo.png" alt="Painel Analítico" className="h-20 mb-3 object-contain" />
           <h1 className="text-brand-700 text-2xl font-bold tracking-tight">Painel Analítico</h1>
           <p className="text-brand-400 text-sm mt-1">LOG20 Logística</p>
         </div>

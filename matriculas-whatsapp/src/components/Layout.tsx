@@ -219,12 +219,10 @@ export default function Layout() {
         <div className={`border-b border-brand-600 bg-white flex items-center ${sidebarOpen ? 'px-6 py-5' : 'px-2 py-4 justify-center'}`}>
           {sidebarOpen ? (
             <div className="flex-1 min-w-0">
-              <img src="/logo.png" alt="LOG20" className="h-12 w-full object-contain mb-3" />
-              <h1 className="text-brand-700 text-lg font-bold tracking-tight">Painel Analítico</h1>
-              <p className="text-brand-400 text-xs">LOG20 Logística</p>
+              <img src="/logo.png" alt="Painel Analítico" className="h-14 w-full object-contain object-left" />
             </div>
           ) : (
-            <img src="/logo.png" alt="LOG20" className="h-8 w-8 object-contain" />
+            <img src="/logo.png" alt="Painel Analítico" className="h-8 w-8 object-contain" />
           )}
         </div>
 
@@ -364,7 +362,7 @@ export default function Layout() {
           <button onClick={() => setMobileOpen(true)} className="p-1 -ml-1 text-brand-700" title="Abrir menu">
             <Menu size={22} />
           </button>
-          <img src="/logo.png" alt="LOG20" className="h-7 object-contain" />
+          <img src="/logo.png" alt="Painel Analítico" className="h-7 object-contain" />
           <span className="text-brand-700 font-semibold text-sm truncate">Painel Analítico</span>
         </header>
 

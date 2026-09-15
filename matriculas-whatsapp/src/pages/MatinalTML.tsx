@@ -211,7 +211,7 @@ export default function MatinalTML() {
     return (
       <div className="min-h-screen bg-[#f4f6f8] flex flex-col">
         <header className="bg-[#0b1f2b] text-white px-5 pt-8 pb-6 rounded-b-3xl shadow-lg flex flex-col items-center">
-          <img src="/logo.png" alt="LOG20" className="h-12 mb-2 object-contain" />
+          <img src="/logo.png" alt="Painel Analítico" className="h-12 mb-2 object-contain" />
           <h1 className="text-xl font-bold">Timer da Matinal</h1>
           <p className="text-white/50 text-sm mt-0.5 text-center">Marque o início e o fim da matinal de hoje</p>
         </header>
