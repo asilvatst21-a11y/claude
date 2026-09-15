@@ -369,20 +369,50 @@ export default function DistribuicaoTMLAnalise() {
     (l) => l.matinalMin != null && l.deslocamentoMin != null && l.checklistMin != null && l.confMin != null && l.movimentacaoMin != null
   ), [aberturaPorMapa])
 
-  function media(campo: 'matinalMin' | 'deslocamentoMin' | 'checklistMin' | 'confMin' | 'movimentacaoMin' | 'tmlFinalMin'): number {
-    if (aberturaCompleta.length === 0) return 0
-    return aberturaCompleta.reduce((acc, l) => acc + (l[campo] ?? 0), 0) / aberturaCompleta.length
+  // Cada etapa tem sua própria média, calculada só sobre os mapas em que
+  // ELA está preenchida — não exige as 5 etapas completas no mesmo mapa.
+  // A Conferência Digital em especial só fecha quando todas as baias do
+  // mapa foram conferidas/puladas, então exigir tudo junto zerava os cards
+  // inteiros sempre que nem todo mapa do período tinha conferência completa.
+  const METAS_POR_CAMPO = {
+    matinalMin: 'metaMatinal', deslocamentoMin: 'metaDeslocamento', checklistMin: 'metaChecklist',
+    confMin: 'metaConferencia', movimentacaoMin: 'metaMovimentacao',
+  } as const
+
+  function media(
+    campo: 'matinalMin' | 'deslocamentoMin' | 'checklistMin' | 'confMin' | 'movimentacaoMin' | 'tmlFinalMin',
+    origem: LinhaAbertura[] = aberturaPorMapa
+  ): number {
+    const linhas = origem.filter((l) => l[campo] != null)
+    if (linhas.length === 0) return 0
+    return linhas.reduce((acc, l) => acc + (l[campo] ?? 0), 0) / linhas.length
   }
-  function mediaMeta(campo: 'metaMatinal' | 'metaDeslocamento' | 'metaChecklist' | 'metaConferencia' | 'metaMovimentacao'): number {
-    if (aberturaCompleta.length === 0) return 0
-    return aberturaCompleta.reduce((acc, l) => acc + l[campo], 0) / aberturaCompleta.length
+  function mediaMeta(
+    campo: 'matinalMin' | 'deslocamentoMin' | 'checklistMin' | 'confMin' | 'movimentacaoMin',
+    origem: LinhaAbertura[] = aberturaPorMapa
+  ): number {
+    // Média da meta calculada sobre o MESMO conjunto de mapas usado na
+    // média do valor real, pra comparação ficar par a par.
+    const linhas = origem.filter((l) => l[campo] != null)
+    const metaCampo = METAS_POR_CAMPO[campo]
+    if (linhas.length === 0) return 0
+    return linhas.reduce((acc, l) => acc + l[metaCampo], 0) / linhas.length
   }
 
   const aberturaMedias = {
     matinal: media('matinalMin'), deslocamento: media('deslocamentoMin'), checklist: media('checklistMin'),
     conferencia: media('confMin'), movimentacao: media('movimentacaoMin'), tmlFinal: media('tmlFinalMin'),
-    metaMatinal: mediaMeta('metaMatinal'), metaDeslocamento: mediaMeta('metaDeslocamento'), metaChecklist: mediaMeta('metaChecklist'),
-    metaConferencia: mediaMeta('metaConferencia'), metaMovimentacao: mediaMeta('metaMovimentacao'),
+    metaMatinal: mediaMeta('matinalMin'), metaDeslocamento: mediaMeta('deslocamentoMin'), metaChecklist: mediaMeta('checklistMin'),
+    metaConferencia: mediaMeta('confMin'), metaMovimentacao: mediaMeta('movimentacaoMin'),
+  }
+
+  // Composição (gráfico de barras empilhadas) precisa que as 5 etapas
+  // somem exatamente o TML Final, então essa aqui sim exige os mapas com
+  // as 5 etapas completas.
+  const composicaoMedias = {
+    matinal: media('matinalMin', aberturaCompleta), deslocamento: media('deslocamentoMin', aberturaCompleta),
+    checklist: media('checklistMin', aberturaCompleta), conferencia: media('confMin', aberturaCompleta),
+    movimentacao: media('movimentacaoMin', aberturaCompleta), tmlFinal: media('tmlFinalMin', aberturaCompleta),
   }
 
   interface LinhaRankingMotorista {
@@ -758,7 +788,7 @@ export default function DistribuicaoTMLAnalise() {
             </p>
           )}
 
-          <SectionTitle title="Tempo médio por etapa" subtitle={`${aberturaCompleta.length} mapa(s) com os 5 pedaços completos, de ${aberturaPorMapa.length} no filtro`} />
+          <SectionTitle title="Tempo médio por etapa" subtitle={`${aberturaPorMapa.length} mapa(s) no filtro`} />
 
           <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
             {([
@@ -791,17 +821,17 @@ export default function DistribuicaoTMLAnalise() {
 
           {aberturaCompleta.length > 0 && (
             <>
-              <SectionTitle title="Composição do tempo total" subtitle="média dos mapas com dados completos no filtro" />
+              <SectionTitle title="Composição do tempo total" subtitle={`${aberturaCompleta.length} de ${aberturaPorMapa.length} mapa(s) no filtro`} />
               <div className="border rounded-xl bg-white p-4">
                 <div className="flex w-full h-8 rounded-lg overflow-hidden text-[11px] font-semibold text-white">
                   {([
-                    { v: aberturaMedias.matinal, cor: '#0d9488', label: 'Matinal' },
-                    { v: aberturaMedias.deslocamento, cor: '#38bdf8', label: 'Desloc.' },
-                    { v: aberturaMedias.checklist, cor: '#818cf8', label: 'Checklist' },
-                    { v: aberturaMedias.conferencia, cor: '#a78bfa', label: 'Conferência' },
-                    { v: aberturaMedias.movimentacao, cor: '#f59e0b', label: 'Movim.' },
+                    { v: composicaoMedias.matinal, cor: '#0d9488', label: 'Matinal' },
+                    { v: composicaoMedias.deslocamento, cor: '#38bdf8', label: 'Desloc.' },
+                    { v: composicaoMedias.checklist, cor: '#818cf8', label: 'Checklist' },
+                    { v: composicaoMedias.conferencia, cor: '#a78bfa', label: 'Conferência' },
+                    { v: composicaoMedias.movimentacao, cor: '#f59e0b', label: 'Movim.' },
                   ] as const).map((s) => (
-                    <div key={s.label} style={{ width: `${aberturaMedias.tmlFinal > 0 ? (s.v / aberturaMedias.tmlFinal) * 100 : 0}%`, background: s.cor }} className="flex items-center justify-center overflow-hidden whitespace-nowrap">
+                    <div key={s.label} style={{ width: `${composicaoMedias.tmlFinal > 0 ? (s.v / composicaoMedias.tmlFinal) * 100 : 0}%`, background: s.cor }} className="flex items-center justify-center overflow-hidden whitespace-nowrap">
                       {s.v >= 2 ? `${s.label} · ${s.v.toFixed(0)}min` : ''}
                     </div>
                   ))}
@@ -809,9 +839,9 @@ export default function DistribuicaoTMLAnalise() {
                 <div className="flex justify-between items-center mt-3 pt-2 border-t border-dashed text-sm">
                   <span className="text-muted-foreground">Soma das etapas = Tempo TML Final</span>
                   <span className="font-bold">
-                    {aberturaMedias.tmlFinal.toFixed(0)}min{' '}
-                    <span className={`text-xs font-semibold ${(aberturaMedias.tmlFinal - META_TML_TOTAL_MIN) > 0.5 ? 'text-red-600' : 'text-green-700'}`}>
-                      ({(aberturaMedias.tmlFinal - META_TML_TOTAL_MIN) >= 0 ? '+' : ''}{(aberturaMedias.tmlFinal - META_TML_TOTAL_MIN).toFixed(0)}min sobre a meta de {META_TML_TOTAL_MIN})
+                    {composicaoMedias.tmlFinal.toFixed(0)}min{' '}
+                    <span className={`text-xs font-semibold ${(composicaoMedias.tmlFinal - META_TML_TOTAL_MIN) > 0.5 ? 'text-red-600' : 'text-green-700'}`}>
+                      ({(composicaoMedias.tmlFinal - META_TML_TOTAL_MIN) >= 0 ? '+' : ''}{(composicaoMedias.tmlFinal - META_TML_TOTAL_MIN).toFixed(0)}min sobre a meta de {META_TML_TOTAL_MIN})
                     </span>
                   </span>
                 </div>
