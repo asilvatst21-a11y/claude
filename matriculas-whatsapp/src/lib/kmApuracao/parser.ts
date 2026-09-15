@@ -51,16 +51,44 @@ export function serialParaDataLocal(serial: number): Date {
   )
 }
 
+// Aceita "2026-08-14", "2026-08-14 06:42:00", "2026-08-14T06:42:00" (ISO) e
+// "14/08/2026", "14/08/2026 06:42:00" (BR) — a mesma coluna às vezes vem
+// como número serial do Excel e às vezes como texto, dependendo de como a
+// planilha foi exportada (arquivo mensal completo x extrato de 1 CDD).
+const RE_DATA_ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/
+const RE_DATA_BR = /^(\d{2})\/(\d{2})\/(\d{4})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/
+
+function parseDataDeTexto(s: string): Date | null {
+  const texto = s.trim()
+  const iso = RE_DATA_ISO.exec(texto)
+  if (iso) {
+    const [, ano, mes, dia, h, m, seg] = iso
+    return new Date(Number(ano), Number(mes) - 1, Number(dia), Number(h ?? 0), Number(m ?? 0), Number(seg ?? 0))
+  }
+  const br = RE_DATA_BR.exec(texto)
+  if (br) {
+    const [, dia, mes, ano, h, m, seg] = br
+    return new Date(Number(ano), Number(mes) - 1, Number(dia), Number(h ?? 0), Number(m ?? 0), Number(seg ?? 0))
+  }
+  return null
+}
+
+function parseDataGenerica(v: unknown): Date | null {
+  if (typeof v === 'number' && isFinite(v)) return serialParaDataLocal(v)
+  if (v instanceof Date) return v
+  if (typeof v === 'string' && v.trim() !== '') return parseDataDeTexto(v)
+  return null
+}
+
 function parseDataHora(v: unknown): string | null {
   if (v == null || v === '') return null
-  if (typeof v === 'number' && isFinite(v)) return serialParaDataLocal(v).toISOString()
-  if (v instanceof Date) return v.toISOString()
-  return null
+  const d = parseDataGenerica(v)
+  return d ? d.toISOString() : null
 }
 
 function parseData(v: unknown): string | null {
   if (v == null || v === '') return null
-  const d = typeof v === 'number' && isFinite(v) ? serialParaDataLocal(v) : v instanceof Date ? v : null
+  const d = parseDataGenerica(v)
   if (!d) return null
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }

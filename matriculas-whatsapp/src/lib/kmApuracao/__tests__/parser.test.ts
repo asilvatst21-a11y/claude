@@ -42,6 +42,33 @@ describe('serialParaDataLocal', () => {
   })
 })
 
+describe('converterLinha — data/hora como texto (arquivo mensal completo)', () => {
+  const colunas = {
+    mapa: 0, placa: 1, codFilial: -1, nomeCdd: -1, transportadora: -1, geo: -1,
+    entrega: -1, cargaAtual: -1, frota: -1, tipoCombustivel: -1, classificacaoExtra: -1,
+    kmRoteirizador: -1, kmTelemetria: -1, kmMax: -1, aderencia: -1, mapaVirado: -1, dMais1: -1,
+    data: 2, hrCarregRot: -1, hrCarregTel: -1, hrSaiRot: 3, hrSaiTel: -1, hrEntrRot: -1, hrEntrTel: -1,
+  }
+  const header = ['mapa', 'placa', 'data', 'hr_sai_2artq']
+
+  it('aceita data em texto ISO ("2026-08-14")', () => {
+    const r = converterLinha([520152, 'ABC1234', '2026-08-14', '2026-08-14 06:42:00'], colunas, header)
+    expect(r).not.toBeNull()
+    expect(r!.data).toBe('2026-08-14')
+    expect(r!.saidaEm.startsWith('2026-08-14')).toBe(true)
+  })
+
+  it('aceita data em texto BR ("14/08/2026")', () => {
+    const r = converterLinha([520152, 'ABC1234', '14/08/2026', '14/08/2026 06:42:00'], colunas, header)
+    expect(r).not.toBeNull()
+    expect(r!.data).toBe('2026-08-14')
+  })
+
+  it('data em texto ilegível continua retornando null (linha ignorada, não é erro de dado)', () => {
+    expect(converterLinha([520152, 'ABC1234', 'N/D', '2026-08-14 06:42:00'], colunas, header)).toBeNull()
+  })
+})
+
 describe('converterLinha', () => {
   const colunas = {
     mapa: 0, placa: 1, codFilial: -1, nomeCdd: -1, transportadora: -1, geo: -1,
