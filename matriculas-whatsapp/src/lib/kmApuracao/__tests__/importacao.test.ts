@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { chaveTrip } from '../importacao'
+import { chaveTrip, pareceTimeout } from '../importacao'
 
 describe('chaveTrip — casar viagem gravada com resultado calculado', () => {
   it('bate mesmo quando o saida_em volta do Postgres num formato diferente do toISOString()', () => {
@@ -21,5 +21,20 @@ describe('chaveTrip — casar viagem gravada com resultado calculado', () => {
       .not.toBe(chaveTrip(2, 'ABC', '2026-08-14T06:42:00.000Z'))
     expect(chaveTrip(1, 'ABC', '2026-08-14T06:42:00.000Z'))
       .not.toBe(chaveTrip(1, 'DEF', '2026-08-14T06:42:00.000Z'))
+  })
+})
+
+describe('pareceTimeout', () => {
+  it('reconhece a mensagem real do Postgres', () => {
+    expect(pareceTimeout('canceling statement due to statement timeout')).toBe(true)
+  })
+
+  it('reconhece pelo código 57014', () => {
+    expect(pareceTimeout('server error: 57014')).toBe(true)
+  })
+
+  it('não confunde com outros erros', () => {
+    expect(pareceTimeout('duplicate key value violates unique constraint')).toBe(false)
+    expect(pareceTimeout('null value in column "mapa" violates not-null constraint')).toBe(false)
   })
 })

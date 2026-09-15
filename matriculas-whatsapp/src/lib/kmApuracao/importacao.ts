@@ -8,7 +8,7 @@ import { avaliarIntegridade, buscarLinhasParaValidacao } from './validacao'
 import { PARAMETROS_KM_PADRAO, type LinhaViagemImportada, type ParametrosCalculoKm } from './types'
 import { TAMANHO_LOTE_PARSER, type MensagemDoWorker } from './workerProtocolo'
 
-const LOTE_GRAVACAO = 500
+const LOTE_GRAVACAO = 200
 
 // saida_em volta do Postgres reformatado (ex.: "2026-08-14T06:42:00+00:00")
 // — diferente do toISOString() usado localmente ("...T06:42:00.000Z"). Usar
@@ -17,6 +17,36 @@ const LOTE_GRAVACAO = 500
 // formatação (bug real: zerou a importação inteira sem nenhum erro).
 export function chaveTrip(mapa: unknown, placa: unknown, saidaEm: string): string {
   return `${mapa}|${placa}|${new Date(saidaEm).getTime()}`
+}
+
+const MIN_LOTE_RETENTATIVA = 25
+
+export function pareceTimeout(mensagem: string): boolean {
+  const m = mensagem.toLowerCase()
+  return m.includes('timeout') || m.includes('57014') || m.includes('canceling statement')
+}
+
+// Um lote de centenas de linhas pode esbarrar no limite de tempo por
+// statement do Postgres, principalmente com a tabela já grande (a cada
+// reimportação ela só cresce). Em vez de abortar a importação inteira por
+// causa de UM lote lento, tenta de novo dividindo ao meio (até um piso
+// mínimo, a partir do qual o erro é real e deve subir).
+async function upsertComRetentativa(
+  tabela: string, linhas: Record<string, unknown>[], onConflict: string, selecionar?: string
+): Promise<Record<string, unknown>[]> {
+  if (linhas.length === 0) return []
+  const query = supabase.from(tabela).upsert(linhas, { onConflict })
+  const { data, error } = selecionar ? await query.select(selecionar) : await query
+
+  if (!error) return (data as Record<string, unknown>[] | null) ?? []
+
+  if (pareceTimeout(error.message) && linhas.length > MIN_LOTE_RETENTATIVA) {
+    const meio = Math.ceil(linhas.length / 2)
+    const primeira = await upsertComRetentativa(tabela, linhas.slice(0, meio), onConflict, selecionar)
+    const segunda = await upsertComRetentativa(tabela, linhas.slice(meio), onConflict, selecionar)
+    return [...primeira, ...segunda]
+  }
+  throw new Error(error.message)
 }
 
 export interface ProgressoImportacaoKm {
@@ -168,14 +198,12 @@ export async function importarKmApuracao(
         entrada_valida: linha.entradaValida, linha_origem: linha.linhaOrigem,
       }))
 
-      const { data: tripsGravados, error: eTrips } = await supabase
-        .from('km_trips')
-        .upsert(tripRows, { onConflict: 'filial,mapa,placa,saida_em' })
-        .select('id, mapa, placa, saida_em')
-      if (eTrips) throw new Error(eTrips.message)
+      const tripsGravados = await upsertComRetentativa(
+        'km_trips', tripRows, 'filial,mapa,placa,saida_em', 'id, mapa, placa, saida_em'
+      )
 
       const idPorChave = new Map<string, string>()
-      for (const t of tripsGravados ?? []) idPorChave.set(chaveTrip(t.mapa, t.placa, t.saida_em), t.id)
+      for (const t of tripsGravados) idPorChave.set(chaveTrip(t.mapa, t.placa, String(t.saida_em)), String(t.id))
 
       const resultRows = linhasComCalculo.flatMap(({ linha, calculo, escopo, cddOk, kmMaximoVigenteEncontrado }) => {
         const tripId = idPorChave.get(chaveTrip(linha.mapa, linha.placa, linha.saidaEm))
@@ -198,10 +226,7 @@ export async function importarKmApuracao(
         }]
       })
 
-      const { error: eResults } = await supabase
-        .from('km_trip_results')
-        .upsert(resultRows, { onConflict: 'trip_id' })
-      if (eResults) throw new Error(eResults.message)
+      await upsertComRetentativa('km_trip_results', resultRows, 'trip_id')
 
       gravadas += resultRows.length
       onProgress?.({ fase: 'gravando', processados: gravadas, total: totalLinhas || totalValidas })
