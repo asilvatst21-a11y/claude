@@ -39,6 +39,7 @@ export const SECOES_SISTEMA = [
   { key: 'reposicoes',      label: 'Reposições (monitoramento)', grupo: 'Financeiro' },
   { key: 'distribuicao',    label: 'Distribuição',    grupo: 'Distribuição' },
   { key: 'frota',           label: 'Frota',           grupo: 'Frota' },
+  { key: 'km-apuracao',     label: 'Apuração de KM',  grupo: 'Frota' },
   { key: 'armazem',            label: 'Armazém (operador)',  grupo: 'Armazém' },
   { key: 'armazem-supervisor', label: 'Armazém (supervisor)', grupo: 'Armazém' },
 ] as const

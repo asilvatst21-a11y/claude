@@ -24,6 +24,73 @@ interface LinhaBruta {
   }
 }
 
+export interface LoteImportacaoKm {
+  id: string
+  filial: string
+  competencia: string
+  arquivoNome: string | null
+  totalLinhas: number
+  totalCalculadas: number
+  status: 'processando' | 'concluido' | 'com_pendencias' | 'erro'
+  pendencias: { codigo: string; descricao: string; quantidade: number }[]
+  importadoPor: string | null
+  importadoEm: string
+}
+
+function mapearLote(r: {
+  id: string; filial: string; competencia: string; arquivo_nome: string | null
+  total_linhas: number; total_calculadas: number; status: string
+  pendencias: unknown; importado_por: string | null; importado_em: string
+}): LoteImportacaoKm {
+  return {
+    id: r.id, filial: r.filial, competencia: r.competencia, arquivoNome: r.arquivo_nome,
+    totalLinhas: r.total_linhas, totalCalculadas: r.total_calculadas,
+    status: r.status as LoteImportacaoKm['status'],
+    pendencias: (r.pendencias as LoteImportacaoKm['pendencias']) ?? [],
+    importadoPor: r.importado_por, importadoEm: r.importado_em,
+  }
+}
+
+// Histórico de importações de uma filial (tela de upload).
+export async function buscarLotesImportacao(filial: string): Promise<LoteImportacaoKm[]> {
+  const { data, error } = await supabase
+    .from('km_import_batches')
+    .select('id, filial, competencia, arquivo_nome, total_linhas, total_calculadas, status, pendencias, importado_por, importado_em')
+    .eq('filial', filial)
+    .order('competencia', { ascending: false })
+  if (error) throw new Error(error.message)
+  return (data ?? []).map(mapearLote)
+}
+
+// Competências com dado importado pra uma filial — usado no seletor da
+// página pública (sem exigir login, então não dá pra saber de antemão o que
+// já foi importado).
+export async function buscarCompetenciasDisponiveis(filial: string): Promise<LoteImportacaoKm[]> {
+  return buscarLotesImportacao(filial)
+}
+
+// Custo por km vigente na data de referência (config configurável em
+// km_rules_config) — usado só pra exibir o impacto financeiro; sem cadastro
+// ainda, o custo é 0 (o painel mostra os km, sem valor em R$).
+export async function buscarCustoPorKmVigente(filial: string, dataReferencia: string): Promise<number> {
+  const { data, error } = await supabase
+    .from('km_rules_config')
+    .select('custo_por_km, vigente_a_partir')
+    .eq('filial', filial)
+    .lte('vigente_a_partir', dataReferencia)
+    .order('vigente_a_partir', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  return data?.custo_por_km ?? 0
+}
+
+export async function buscarFiliais(): Promise<string[]> {
+  const { data, error } = await supabase.from('filiais').select('nome').order('nome')
+  if (error) throw new Error(error.message)
+  return (data ?? []).map((f) => f.nome)
+}
+
 export async function buscarLinhasApuracao(
   filial: string, competencia: string, cddCodigo?: string
 ): Promise<LinhaApuracao[]> {

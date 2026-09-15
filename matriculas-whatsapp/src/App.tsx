@@ -26,6 +26,8 @@ import FrotaIVAL from './pages/FrotaIVAL'
 import FrotaPlacas from './pages/FrotaPlacas'
 import FrotaLeve from './pages/FrotaLeve'
 import ConsumoCombustivel from './pages/frota/ConsumoCombustivel'
+import RevisaoKm from './pages/frota/RevisaoKm'
+import ApuracaoKmPublico from './pages/ApuracaoKmPublico'
 import RoteirizacaoTerritorio from './pages/RoteirizacaoTerritorio'
 import Home from './pages/Home'
 import Disparos from './pages/Disparos'
@@ -137,6 +139,7 @@ export default function App() {
           <Route path="/conferencia" element={<ConferenciaDigital />} />
           <Route path="/variavel-armazem" element={<VariavelTotem />} />
           <Route path="/consulta-pendencias" element={<ConsultaPendencias />} />
+          <Route path="/apuracao-km" element={<ApuracaoKmPublico />} />
           <Route path="/pdv-critico/visita" element={<PdvCriticoVisitaPublica />} />
           <Route path="/armazem" element={<ArmazemOperadorRoute />} />
           <Route path="/armazem/turno" element={<ArmazemTurnoRoute />} />
@@ -186,6 +189,7 @@ export default function App() {
             <Route path="/frota/placas" element={<FrotaPlacas />} />
             <Route path="/frota/leve" element={<FrotaLeve />} />
             <Route path="/frota/consumo-combustivel" element={<ConsumoCombustivel />} />
+            <Route path="/frota/apuracao-km" element={<RevisaoKm />} />
             <Route path="/frota/roteirizacao" element={<RoteirizacaoTerritorio />} />
             <Route path="/armazem/cadastro" element={<ArmazemCadastro />} />
             <Route path="/armazem/operadores" element={<ArmazemOperadores />} />

@@ -73,6 +73,7 @@ const frotaItems = [
   { permKey: 'frota', to: '/frota/placas', label: 'Placas', icon: Settings },
   { permKey: 'frota', to: '/frota/leve',   label: 'Frota Leve', icon: Truck },
   { permKey: 'frota', to: '/frota/consumo-combustivel', label: 'Consumo de Combustível', icon: Gauge },
+  { permKey: 'km-apuracao', to: '/frota/apuracao-km', label: 'Apuração de KM', icon: Route },
 ]
 
 const armazemItems = [
