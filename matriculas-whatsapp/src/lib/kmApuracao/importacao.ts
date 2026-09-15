@@ -10,6 +10,15 @@ import { TAMANHO_LOTE_PARSER, type MensagemDoWorker } from './workerProtocolo'
 
 const LOTE_GRAVACAO = 500
 
+// saida_em volta do Postgres reformatado (ex.: "2026-08-14T06:42:00+00:00")
+// — diferente do toISOString() usado localmente ("...T06:42:00.000Z"). Usar
+// o instante (epoch ms) em vez da string crua pra casar viagem gravada com
+// resultado calculado, senão toda linha fica "órfã" por divergência só de
+// formatação (bug real: zerou a importação inteira sem nenhum erro).
+export function chaveTrip(mapa: unknown, placa: unknown, saidaEm: string): string {
+  return `${mapa}|${placa}|${new Date(saidaEm).getTime()}`
+}
+
 export interface ProgressoImportacaoKm {
   fase: 'lendo' | 'gravando'
   processados: number
@@ -157,10 +166,10 @@ export async function importarKmApuracao(
       if (eTrips) throw new Error(eTrips.message)
 
       const idPorChave = new Map<string, string>()
-      for (const t of tripsGravados ?? []) idPorChave.set(`${t.mapa}|${t.placa}|${t.saida_em}`, t.id)
+      for (const t of tripsGravados ?? []) idPorChave.set(chaveTrip(t.mapa, t.placa, t.saida_em), t.id)
 
       const resultRows = linhasComCalculo.flatMap(({ linha, calculo, escopo, cddOk, kmMaximoVigenteEncontrado }) => {
-        const tripId = idPorChave.get(`${linha.mapa}|${linha.placa}|${linha.saidaEm}`)
+        const tripId = idPorChave.get(chaveTrip(linha.mapa, linha.placa, linha.saidaEm))
         if (!tripId) return []
         return [{
           trip_id: tripId,
