@@ -7,7 +7,9 @@ import { Lock, Building2, User, Loader2, Truck, Clock } from 'lucide-react'
 export default function Login() {
   const navigate = useNavigate()
   const { entrar } = useAuth()
-  const [filiais, setFiliais] = useState<string[]>([])
+  const [filiaisAtivas, setFiliaisAtivas] = useState<string[]>([])
+  const [filiaisInativas, setFiliaisInativas] = useState<string[]>([])
+  const [mostrarInativas, setMostrarInativas] = useState(false)
   const [filial, setFilial] = useState('')
   const [login, setLogin] = useState('')
   const [senha, setSenha] = useState('')
@@ -15,12 +17,16 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
-    supabase.from('filiais').select('nome').order('nome').then(({ data }) => {
-      const nomes = (data ?? []).map(f => f.nome)
-      setFiliais(nomes)
-      if (nomes.length > 0) setFilial(nomes[0])
+    supabase.from('filiais').select('nome, ativo').order('nome').then(({ data }) => {
+      const ativas = (data ?? []).filter(f => f.ativo !== false).map(f => f.nome)
+      const inativas = (data ?? []).filter(f => f.ativo === false).map(f => f.nome)
+      setFiliaisAtivas(ativas)
+      setFiliaisInativas(inativas)
+      if (ativas.length > 0) setFilial(ativas[0])
     })
   }, [])
+
+  const filiais = mostrarInativas ? [...filiaisAtivas, ...filiaisInativas] : filiaisAtivas
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -57,6 +63,15 @@ export default function Login() {
                 {filiais.map(f => <option key={f}>{f}</option>)}
               </select>
             </div>
+            {!mostrarInativas && filiaisInativas.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setMostrarInativas(true)}
+                className="text-xs text-gray-400 hover:text-gray-600 mt-1"
+              >
+                Mostrar unidades inativas
+              </button>
+            )}
           </div>
 
           <div>
