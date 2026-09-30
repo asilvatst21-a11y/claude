@@ -24,6 +24,7 @@ import { enviarMensagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import type { TelemetriaAlerta, TelemetriaAcao } from '../types'
 import { formatarDataBR } from '../lib/utils'
+import { InfoTip } from '../components/InfoTip'
 
 interface ReciclagemRow {
   id: string
@@ -1987,9 +1988,6 @@ export default function Telemetria() {
           {/* ── Score de Risco Tab ───────────────────────────────────────── */}
           {tab === 'score' && (
             <div className="space-y-4">
-              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700">
-                Score composto: tipo de evento (4–10 pts) + severidade da velocidade + bônus por reincidência no mesmo trecho (+5 pts/trecho).
-              </div>
               <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                 <table className="w-full text-sm">
                   <thead className="bg-gray-50 border-b border-gray-100">
@@ -1997,7 +1995,12 @@ export default function Telemetria() {
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">#</th>
                       <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500">Motorista</th>
                       <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Risco</th>
-                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-48">Score</th>
+                      <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 w-48">
+                        <span className="flex items-center gap-1">
+                          Score
+                          <InfoTip texto="Score composto: tipo de evento (4–10 pts) + severidade da velocidade + bônus por reincidência no mesmo trecho (+5 pts/trecho)." posicao="bottom" />
+                        </span>
+                      </th>
                       <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500">Eventos</th>
                     </tr>
                   </thead>
@@ -2082,8 +2085,10 @@ export default function Telemetria() {
           {tab === 'tempocasa' && (
             <div className="space-y-6">
               <div className="bg-white rounded-xl border border-gray-100 p-4 shadow-sm">
-                <h3 className="text-sm font-semibold text-gray-700 mb-1">Eventos × Tempo de Casa</h3>
-                <p className="text-xs text-gray-400 mb-3">Média de eventos por motorista em cada faixa de tempo de casa.</p>
+                <h3 className="text-sm font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
+                  Eventos × Tempo de Casa
+                  <InfoTip texto="Média de eventos por motorista em cada faixa de tempo de casa." />
+                </h3>
                 {tenureData.every(d => d.motoristas === 0) ? (
                   <div className="text-center py-8 text-gray-400 text-sm">
                     Nenhum motorista do filtro tem data de admissão cadastrada ainda. Reimporte a planilha em Gente → Colaboradores.
@@ -2107,12 +2112,10 @@ export default function Telemetria() {
 
               <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                 <div className="p-4 pb-0">
-                  <h3 className="text-sm font-semibold text-gray-700">Taxa de eventos por rota trabalhada</h3>
-                  <p className="text-xs text-gray-400 mb-3">
-                    Não temos quilometragem no sistema — a taxa aqui é eventos ÷ dias de saída registrados na portaria
-                    (histórico de Distribuição → Carta de Controle TML, um registro por mapa+dia). Desligados não entram.
-                    Só motoristas com {DIAS_MINIMOS_TAXA}+ dias no período, pra não distorcer com amostra pequena.
-                  </p>
+                  <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                    Taxa de eventos por rota trabalhada
+                    <InfoTip texto={`Não temos quilometragem no sistema — a taxa aqui é eventos ÷ dias de saída registrados na portaria (histórico de Distribuição → Carta de Controle TML, um registro por mapa+dia). Desligados não entram. Só motoristas com ${DIAS_MINIMOS_TAXA}+ dias no período, pra não distorcer com amostra pequena.`} />
+                  </h3>
                   <p className="text-xs text-gray-400 mb-3">
                     Cobertura do histórico de saída: {coberturaHistorico.registros} registro(s), {coberturaHistorico.matriculas} matrícula(s) distinta(s)
                     {coberturaHistorico.de && coberturaHistorico.ate ? `, entre ${formatarDataBR(coberturaHistorico.de)} e ${formatarDataBR(coberturaHistorico.ate)}` : ''}.
@@ -2171,7 +2174,12 @@ export default function Telemetria() {
           {tab === 'mapa' && (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
               <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
-                <h3 className="text-sm font-semibold text-gray-700">Mapa Geográfico</h3>
+                <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                  Mapa Geográfico
+                  <InfoTip texto={modoMapa === 'agrupado'
+                    ? 'Cada bolha mostra quantos eventos tem naquele agrupamento — some sozinha quando você dá zoom e os pontos se separam em bolhas menores. Vermelho = 20+, laranja = 8-19, azul = até 7.'
+                    : 'Mancha de calor — melhor pra ver a concentração exata numa rua/bairro específico, de perto.'} />
+                </h3>
                 <div className="flex items-center gap-1 bg-gray-100 rounded-lg p-1">
                   <button
                     onClick={() => setModoMapa('agrupado')}
@@ -2198,10 +2206,7 @@ export default function Telemetria() {
                 </div>
               )}
               <p className="text-xs text-gray-400 mt-2">
-                {modoMapa === 'agrupado'
-                  ? 'Cada bolha mostra quantos eventos tem naquele agrupamento — some sozinha quando você dá zoom e os pontos se separam em bolhas menores. Vermelho = 20+, laranja = 8-19, azul = até 7.'
-                  : 'Mancha de calor — melhor pra ver a concentração exata numa rua/bairro específico, de perto.'}
-                {' '}{pontosMapa.length} ponto(s) com coordenadas no filtro atual.
+                {pontosMapa.length} ponto(s) com coordenadas no filtro atual.
               </p>
             </div>
           )}
@@ -2209,10 +2214,10 @@ export default function Telemetria() {
           {/* ── Reciclagem Tab ───────────────────────────────────────────── */}
           {tab === 'reciclagem' && (
             <div className="space-y-3">
-              <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-xs text-amber-700">
-                Motorista que ultrapassa {LIMIAR_RECICLAGEM_MES} eventos no mês entra aqui automaticamente. Isso não dispara nada no
-                módulo de Treinamentos — é só um apontamento pra acompanhar se a reciclagem foi feita.
-              </div>
+              <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                Pendências de reciclagem
+                <InfoTip texto={`Motorista que ultrapassa ${LIMIAR_RECICLAGEM_MES} eventos no mês entra aqui automaticamente. Isso não dispara nada no módulo de Treinamentos — é só um apontamento pra acompanhar se a reciclagem foi feita.`} />
+              </h3>
               <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                 {reciclagem.length === 0 ? (
                   <div className="text-center py-12 text-gray-400 text-sm">Nenhuma pendência de reciclagem até agora.</div>

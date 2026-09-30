@@ -12,6 +12,7 @@ import {
   Download, Plus, Loader2, Building2, ShieldCheck, Star, Zap, GitBranch,
   Settings, UserX, Send, Pencil, ChevronRight
 } from 'lucide-react'
+import { InfoTip } from '../components/InfoTip'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { enviarMensagemGrupo, enviarMensagemWhatsApp, enviarImagemGrupo, aguardarEntreEnvios, variarTexto } from '../lib/zapi'
@@ -1911,8 +1912,9 @@ export default function Gsdpq() {
           {abaAtiva === 'vencimentos' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3 bg-white rounded-xl border border-gray-200 px-4 py-3">
-                <p className="text-xs text-gray-500">
-                  Motoristas e ajudantes de distribuição ativos · ciclo de 60 dias (ou 30 para quem tem até 3 meses de empresa) · ordenados por urgência
+                <p className="text-xs text-gray-500 font-medium flex items-center gap-1.5">
+                  Vencimentos
+                  <InfoTip texto="Motoristas e ajudantes de distribuição ativos, ciclo de 60 dias (ou 30 para quem tem até 3 meses de empresa), ordenados por urgência." />
                 </p>
                 <div className="flex items-center gap-2 shrink-0">
                   <button

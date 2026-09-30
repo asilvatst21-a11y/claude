@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Upload, Loader2, ShieldAlert, Settings2, ChevronDown, BarChart2, CalendarClock, Users, Trophy, Search, ChevronLeft, ChevronRight, Bell, HelpCircle } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
+import { InfoTip } from '../components/InfoTip'
 import {
   listarNiveisSubgrupo, salvarNivelSubgrupo, semearNiveisPadrao,
   importarRelatosPdv, listarRelatos, marcarNaoCritico, encerrarComDataRetroativa, corrigirDataFechamento,
@@ -209,7 +210,10 @@ function FinalizacaoModal({
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onFechar}>
       <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-5 max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h3 className="font-semibold text-sm mb-1">Finalizar caso — PDV {relato.codigoPdv}</h3>
+        <h3 className="font-semibold text-sm mb-1 inline-flex items-center gap-1.5">
+          Finalizar caso — PDV {relato.codigoPdv}
+          <InfoTip texto="Aprovar encerra o caso e passa a avisar o motorista quando ele for pra esse PDV. Reabrir volta pra triagem com prazo novo (calculado pela criticidade medida na visita). Não crítico encerra sem avisar o motorista (exige justificativa)." />
+        </h3>
         <p className="text-xs text-muted-foreground mb-3">{relato.subgrupo}</p>
 
         <div className="border rounded-lg p-3 mb-3 bg-muted/20 space-y-2">
@@ -241,12 +245,6 @@ function FinalizacaoModal({
             <p className="text-[11px] text-muted-foreground">Visitado em {formatarDataBR(relato.visitadoEm)}</p>
           )}
         </div>
-
-        <p className="text-xs text-muted-foreground mb-3">
-          <b>Aprovar</b> encerra o caso e passa a avisar o motorista quando ele for pra esse PDV.{' '}
-          <b>Reabrir</b> volta pra triagem com prazo novo (calculado pela criticidade medida na visita).{' '}
-          <b>Não crítico</b> encerra sem avisar o motorista (exige justificativa).
-        </p>
 
         <div className="flex flex-wrap gap-2 justify-end">
           <button onClick={onFechar} className="text-sm px-3 py-1.5 rounded-lg border hover:bg-accent">Cancelar</button>
@@ -514,8 +512,10 @@ export default function SegurancaPdvCritico() {
           <div className="flex items-center gap-2">
             <Settings2 size={16} className="text-muted-foreground" />
             <div>
-              <h2 className="font-semibold text-sm">Criticidade inicial por subgrupo</h2>
-              <p className="text-xs text-muted-foreground">Define a fila e o prazo da visita — o checklist da visita é quem decide a criticidade real.</p>
+              <h2 className="font-semibold text-sm inline-flex items-center gap-1.5">
+                Criticidade inicial por subgrupo
+                <InfoTip texto="Define a fila e o prazo da visita — o checklist da visita é quem decide a criticidade real." />
+              </h2>
             </div>
           </div>
           <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${configAberta ? 'rotate-180' : ''}`} />
@@ -831,8 +831,9 @@ function AnaliseTab({
         </div>
       </div>
       {estatisticas.fechadosSemPrazo > 0 && (
-        <p className="text-xs text-muted-foreground">
-          {estatisticas.fechadosSemPrazo} caso(s) fechado(s) sem prazo/data de fechamento reconhecidos na origem — fora do cálculo de % no prazo.
+        <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+          {estatisticas.fechadosSemPrazo} caso(s) fechado(s) sem prazo/data de fechamento reconhecidos na origem.
+          <InfoTip texto="Esses casos ficam fora do cálculo de % no prazo." />
         </p>
       )}
 

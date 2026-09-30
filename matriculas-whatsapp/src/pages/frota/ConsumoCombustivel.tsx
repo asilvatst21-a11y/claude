@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Fuel, Upload, Loader2, TrendingDown, TrendingUp, Clock, DollarSign, Route, ChevronRight, Info, Leaf } from 'lucide-react'
 import { useAuth } from '../../lib/auth'
+import { InfoTip } from '../../components/InfoTip'
 import {
   parseAbastecimentoCsv, importarAbastecimentos, parseTelemetriaCsv, importarTelemetria,
   parseViagensGeotabXlsx, importarDistanciaDiariaGeotab,
@@ -212,10 +213,8 @@ export default function ConsumoCombustivel() {
       <div>
         <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
           <Fuel className="h-6 w-6 text-primary" /> Consumo de Combustível
+          <InfoTip texto="Ranking de Km/L por motorista — cruza a telemetria diária (Boletim do Veículo) com a meta de cada modelo de veículo (relatório de abastecimento)." />
         </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Ranking de Km/L por motorista — cruza a telemetria diária (Boletim do Veículo) com a meta de cada modelo de veículo (relatório de abastecimento).
-        </p>
       </div>
 
       {/* Import */}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Target, Loader2, CheckCircle2 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
+import { InfoTip } from '../components/InfoTip'
 import {
   rankingAtos, listarSessoes, criarSessao, marcarConcluido, calcularEfetividade, statusSessao, periodosDoMes,
   type AtoRanking, type SessaoTreinamento, type Efetividade, type PeriodoSelecionavel,
@@ -59,11 +60,14 @@ function ConcluirModal({ sessao, onClose, onConfirmado }: { sessao: SessaoTreina
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-white rounded-xl shadow-xl max-w-sm w-full p-5" onClick={(e) => e.stopPropagation()}>
-        <h3 className="font-semibold flex items-center gap-2 mb-1"><CheckCircle2 className="h-4 w-4 text-green-600" /> Marcar como concluído</h3>
+        <h3 className="font-semibold flex items-center gap-2 mb-1">
+          <CheckCircle2 className="h-4 w-4 text-green-600" /> Marcar como concluído
+          <InfoTip texto="Essa data vira o marco pra medir efetividade (relatos do mesmo ato antes x depois)." />
+        </h3>
         <p className="text-sm text-muted-foreground mb-3">{sessao.titulo}</p>
         <label className="text-xs font-medium text-muted-foreground">Data de conclusão</label>
         <input type="date" value={data} onChange={(e) => setData(e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm mt-1 mb-4" />
-        <p className="text-xs text-muted-foreground mb-4">Fica registrado que <b>{usuario?.nome ?? usuario?.login}</b> concluiu essa sessão. Essa data vira o marco pra medir efetividade (relatos do mesmo ato antes x depois).</p>
+        <p className="text-xs text-muted-foreground mb-4">Fica registrado que <b>{usuario?.nome ?? usuario?.login}</b> concluiu essa sessão.</p>
         <div className="flex justify-end gap-2">
           <button onClick={onClose} className="px-3 py-1.5 text-sm rounded-lg border">Cancelar</button>
           <button onClick={confirmar} disabled={salvando} className="px-3 py-1.5 text-sm rounded-lg bg-primary text-white disabled:opacity-50">
@@ -229,9 +233,12 @@ export default function SegurancaTreinamentos() {
       {/* Ranking */}
       <div className="bg-white border rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b">
-          <h2 className="font-semibold text-sm">Atos mais recorrentes — {periodo.rotulo}</h2>
+          <h2 className="font-semibold text-sm inline-flex items-center gap-1.5">
+            Atos mais recorrentes — {periodo.rotulo}
+            <InfoTip texto="Relatos classificados 'Ato Inseguro', agrupados por tipo de ato, de período retroativo escolhido (mês ou semana). Variação vs. período anterior de mesmo tamanho." />
+          </h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Relatos classificados "Ato Inseguro", agrupados por tipo de ato, de {formatarDataBR(periodo.inicio)} a {formatarDataBR(periodo.fim)}. Variação vs. período anterior de mesmo tamanho — dá pra escolher mês e semana retroativos pra lançamento.
+            {formatarDataBR(periodo.inicio)} a {formatarDataBR(periodo.fim)}
           </p>
         </div>
         <div className="p-5">
@@ -394,8 +401,10 @@ export default function SegurancaTreinamentos() {
       {sessoesConcluidas.length > 0 && (
         <div className="bg-white border rounded-2xl overflow-hidden">
           <div className="px-5 py-4 border-b">
-            <h2 className="font-semibold text-sm">Efetividade pós-treinamento</h2>
-            <p className="text-xs text-muted-foreground mt-0.5">Média de relatos/semana daquele ato, 4 semanas antes vs. 4 semanas depois da conclusão.</p>
+            <h2 className="font-semibold text-sm inline-flex items-center gap-1.5">
+              Efetividade pós-treinamento
+              <InfoTip texto="Média de relatos/semana daquele ato, 4 semanas antes vs. 4 semanas depois da conclusão." />
+            </h2>
           </div>
           <div className="px-5">
             {sessoesConcluidas.map((s) => (

@@ -6,6 +6,7 @@ import { useAuth } from '@/lib/auth'
 import { processarFixacaoMotorista, type HistoricoTmlMotorista } from '@/lib/frota'
 import { isSalaTML } from '@/lib/tml'
 import { notificarFinanceiroWhatsApp } from '@/lib/chapaDescarga'
+import { InfoTip } from '../../components/InfoTip'
 
 type Fase = 'idle' | 'lendo' | 'importando' | 'ok' | 'erro'
 interface Log { tipo: 'ok' | 'erro' | 'info'; msg: string }
@@ -497,11 +498,12 @@ export default function ImportCatalogoPage() {
         <div className="flex items-start gap-3">
           <Users className="h-5 w-5 text-primary mt-0.5 shrink-0" />
           <div>
-            <h2 className="font-semibold">Importar Base do Mapa (motorista e ajudantes)</h2>
+            <h2 className="font-semibold inline-flex items-center gap-1.5">
+              Importar Base do Mapa (motorista e ajudantes)
+              <InfoTip texto="O sistema lê o mapa (coluna M), o motorista (V/W) e os ajudantes (Y/Z e AB/AC) e os anexa automaticamente na confirmação enviada ao motorista no WhatsApp." />
+            </h2>
             <p className="text-sm text-muted-foreground">
               Selecione a planilha diária (.xlsx) com a aba <code className="text-xs bg-muted px-1 rounded">Base</code>.
-              O sistema lê o mapa (coluna M), o motorista (V/W) e os ajudantes (Y/Z e AB/AC) e os anexa
-              automaticamente na confirmação enviada ao motorista no WhatsApp.
               A data vem do nome do arquivo — ex: <code className="text-xs bg-muted px-1 rounded">17062026.xlsx</code> → 17/06/2026.
               Importar novamente o mesmo dia substitui os dados anteriores.
             </p>

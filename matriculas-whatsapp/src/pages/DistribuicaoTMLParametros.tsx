@@ -4,6 +4,7 @@ import { ArrowLeft, Loader2, RefreshCw, Save, SlidersHorizontal, ChevronDown, Ch
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { formatarDataBR } from '../lib/utils'
+import { InfoTip } from '../components/InfoTip'
 import {
   DESLOCAMENTO_IDEAL_MIN, DESLOCAMENTO_ESTOURO_MIN, CHECKLIST_IDEAL_MIN, CONFERENCIA_IDEAL_MIN, META_TML_TOTAL_MIN,
   gatilhoEstouroMinutos, etapaIdealMinutos, salaVigenteNaData, isSalaTML, SALA_TML_LABEL, type SalaTML,
@@ -284,8 +285,10 @@ export default function DistribuicaoTMLParametros() {
         <>
           <div className="border rounded-lg bg-white">
             <div className="px-4 py-3 border-b">
-              <h2 className="font-semibold text-sm">Meta de duração da matinal por dia da semana</h2>
-              <p className="text-xs text-muted-foreground">Quanto tempo a matinal deve durar (em minutos) em cada dia.</p>
+              <h2 className="font-semibold text-sm flex items-center gap-1">
+                Meta de duração da matinal por dia da semana
+                <InfoTip texto="Quanto tempo a matinal deve durar (em minutos) em cada dia." />
+              </h2>
             </div>
             <div className="p-4 space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -433,11 +436,10 @@ export default function DistribuicaoTMLParametros() {
 
           <div className="border rounded-lg bg-white">
             <div className="px-4 py-3 border-b">
-              <h2 className="font-semibold text-sm">Gatilho de estouro do deslocamento</h2>
-              <p className="text-xs text-muted-foreground">
-                Tempo de deslocamento (início do checklist menos fim da matinal) considerado ideal e a partir de quantos
-                minutos é um estouro de gatilho.
-              </p>
+              <h2 className="font-semibold text-sm flex items-center gap-1">
+                Gatilho de estouro do deslocamento
+                <InfoTip texto="Tempo de deslocamento (início do checklist menos fim da matinal) considerado ideal e a partir de quantos minutos é um estouro de gatilho." />
+              </h2>
             </div>
             <div className="p-4 space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -496,11 +498,10 @@ export default function DistribuicaoTMLParametros() {
 
           <div className="border rounded-lg bg-white">
             <div className="px-4 py-3 border-b">
-              <h2 className="font-semibold text-sm">Tempo ideal de checklist e de conferência</h2>
-              <p className="text-xs text-muted-foreground">
-                Usado na Análise do TML (passo a passo por mapa) pra marcar se o checklist e a
-                conferência de cada placa estouraram o tempo ou não.
-              </p>
+              <h2 className="font-semibold text-sm flex items-center gap-1">
+                Tempo ideal de checklist e de conferência
+                <InfoTip texto="Usado na Análise do TML (passo a passo por mapa) pra marcar se o checklist e a conferência de cada placa estouraram o tempo ou não." />
+              </h2>
             </div>
             <div className="p-4 space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -559,11 +560,10 @@ export default function DistribuicaoTMLParametros() {
 
           <div className="border rounded-lg bg-white">
             <div className="px-4 py-3 border-b">
-              <h2 className="font-semibold text-sm">Tempo de Movimentação — calculado automaticamente</h2>
-              <p className="text-xs text-muted-foreground">
-                {META_TML_TOTAL_MIN}min − Matinal do dia − Deslocamento − Checklist − Conferência. Não é editável aqui:
-                muda sozinho quando você altera a Matinal por dia ou os fixos acima (ainda não salvos contam no cálculo).
-              </p>
+              <h2 className="font-semibold text-sm flex items-center gap-1">
+                Tempo de Movimentação — calculado automaticamente
+                <InfoTip texto={`${META_TML_TOTAL_MIN}min − Matinal do dia − Deslocamento − Checklist − Conferência. Não é editável aqui: muda sozinho quando você altera a Matinal por dia ou os fixos acima (ainda não salvos contam no cálculo).`} />
+              </h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">

@@ -10,6 +10,7 @@ import {
 } from '../lib/variavelArmazem'
 import { buscarAcumuladoPorCpf, buscarColaboradoresTurnoPorPrefixoCpf, temVinculoAtividadeAtivo, type AcumuladoColaboradorMes } from '../lib/variavelTurno'
 import { formatarDataBR } from '../lib/utils'
+import { InfoTip } from '../components/InfoTip'
 
 function competenciaLabel(mesRotulo: string): string {
   const [, mes] = mesRotulo.split('-')
@@ -447,9 +448,12 @@ function AcumuladoAtividadesSecao({ filial, cpfReal, mesRotulo }: { filial: stri
                   <span className="font-semibold">{a.atividadeNome}</span>
                   <span className="text-gray-500"> · {a.turno} · {a.dias.length} dia(s)</span>
                   {a.metaAcumulada && (
-                    <span className={`ml-1.5 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${a.totalGerado > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
-                      {a.totalGerado > 0 ? 'meta batida' : 'meta não batida'}
-                    </span>
+                    <>
+                      <span className={`ml-1.5 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${a.totalGerado > 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                        {a.totalGerado > 0 ? 'meta batida' : 'meta não batida'}
+                      </span>
+                      <InfoTip texto="Meta pelo acumulado do período: o valor não varia por dia. Cada linha é só o indicador do dia, em vermelho quando aquele dia não bateu a meta." />
+                    </>
                   )}
                 </span>
                 <span className="flex items-center gap-2">
@@ -459,12 +463,6 @@ function AcumuladoAtividadesSecao({ filial, cpfReal, mesRotulo }: { filial: stri
               </button>
               {abertaAgora && (
                 <div className="divide-y border-t border-gray-100">
-                  {a.metaAcumulada && (
-                    <div className="px-3 py-2 text-[11px] text-gray-500 bg-gray-50/60">
-                      Meta pelo acumulado do período — o valor não varia por dia. Cada linha é só o indicador do dia, em
-                      vermelho quando aquele dia não bateu a meta.
-                    </div>
-                  )}
                   {a.dias.map((d, i) => (
                     <div key={i} className="flex items-center justify-between px-3 py-2 text-xs bg-gray-50/60">
                       <span>
@@ -515,8 +513,10 @@ function FaixasModal({ clusters, onClose }: { clusters: Cluster[]; onClose: () =
       <div className="bg-white rounded-t-3xl sm:rounded-2xl w-full sm:max-w-sm max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="px-5 py-4 border-b flex items-center justify-between sticky top-0 bg-white">
           <div>
-            <h3 className="text-base font-bold text-gray-900">Quanto você recebe por faixa</h3>
-            <p className="text-xs text-gray-500 mt-0.5">Vale para a pontuação de cada dia.</p>
+            <h3 className="text-base font-bold text-gray-900 flex items-center gap-1.5">
+              Quanto você recebe por faixa
+              <InfoTip texto="Vale para a pontuação de cada dia." posicao="bottom" />
+            </h3>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"><X className="h-4 w-4 text-gray-500" /></button>
         </div>
@@ -528,7 +528,12 @@ function FaixasModal({ clusters, onClose }: { clusters: Cluster[]; onClose: () =
               <table className="w-full text-sm">
                 <thead className="bg-gray-50">
                   <tr>
-                    <th className="text-left px-3 py-2 font-semibold text-gray-500 text-xs">Faixa de pontos</th>
+                    <th className="text-left px-3 py-2 font-semibold text-gray-500 text-xs">
+                      <span className="inline-flex items-center gap-1.5">
+                        Faixa de pontos
+                        <InfoTip texto="Você recebe todos os pontos do dia pagos na faixa em que o total se encaixar." />
+                      </span>
+                    </th>
                     <th className="text-right px-3 py-2 font-semibold text-gray-500 text-xs">A cada 1.000 pts</th>
                   </tr>
                 </thead>
@@ -543,7 +548,6 @@ function FaixasModal({ clusters, onClose }: { clusters: Cluster[]; onClose: () =
               </table>
             </div>
           )}
-          <p className="text-xs text-gray-400 mt-3 text-center">Você recebe todos os pontos do dia pagos na faixa em que o total se encaixar.</p>
         </div>
       </div>
     </div>

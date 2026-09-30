@@ -5,6 +5,7 @@ import {
   CheckCircle, AlertTriangle, Clock, Scale, Grid3x3, Image,
 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { InfoTip } from '../components/InfoTip'
 import { supabase } from '../lib/supabase'
 import { parsePesoPlacaBuffer, parsePlacasFreightechBuffer } from '../lib/tmlParser'
 import {
@@ -446,8 +447,10 @@ export default function SegurancaExcessoPeso() {
           className="w-full flex items-center justify-between px-4 py-3 border-b text-left hover:bg-muted/20 transition-colors"
         >
           <div>
-            <h2 className="font-semibold text-sm">Excesso de Peso — hoje ({formatarDataBR(hojeISO())})</h2>
-            <p className="text-xs text-muted-foreground">Peso Lotação × peso carregado, puxado da escala já importada</p>
+            <h2 className="font-semibold text-sm inline-flex items-center gap-1.5">
+              Excesso de Peso — hoje ({formatarDataBR(hojeISO())})
+              <InfoTip texto="Peso Lotação × peso carregado, puxado da escala já importada." />
+            </h2>
           </div>
           <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${excessoAberto ? 'rotate-180' : ''}`} />
         </button>

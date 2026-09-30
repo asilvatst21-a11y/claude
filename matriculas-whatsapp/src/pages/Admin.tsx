@@ -6,6 +6,7 @@ import type { Usuario, Filial, DtoAvaliador, GsdpqColaborador } from '../types'
 import { SECOES_SISTEMA } from '../types'
 import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2, Lock, MessageSquare, ClipboardCheck, X, ToggleRight, ToggleLeft } from 'lucide-react'
 import { listarGrupos, type GrupoZApi } from '../lib/zapi'
+import { InfoTip } from '../components/InfoTip'
 import {
   listarUsuarios, criarUsuario, atualizarUsuario, removerUsuario,
   resetarSenhaUsuario, atualizarPermissoesUsuario,
@@ -324,13 +325,10 @@ function AbaGsdpqManual({
       </div>
 
       <div className="bg-white border border-gray-200 rounded-xl p-5 space-y-4">
-        <div className="flex items-start gap-2 text-sm text-gray-500">
-          <ClipboardCheck size={16} className="text-accent-500 shrink-0 mt-0.5" />
-          <p>
-            Lança uma avaliação de GSDPQ pra quem já foi conferido fora da planilha normal — sobe automaticamente como
-            100% OK (todas as perguntas da última avaliação importada, sem nenhum NO). Entra igual a qualquer outra
-            avaliação, sem marcação especial — conta pro vencimento e pro histórico normalmente.
-          </p>
+        <div className="flex items-center gap-1.5 text-sm font-medium text-gray-700">
+          <ClipboardCheck size={16} className="text-accent-500 shrink-0" />
+          Lançamento manual de GSDPQ
+          <InfoTip texto="Pra quem já foi conferido fora da planilha normal — sobe automaticamente como 100% OK (todas as perguntas da última avaliação importada, sem nenhum NO). Entra igual a qualquer outra avaliação, sem marcação especial: conta pro vencimento e pro histórico normalmente." />
         </div>
 
         <div>

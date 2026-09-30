@@ -10,6 +10,7 @@ import { supabase } from '../lib/supabase'
 import { enviarImagemGrupo, listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
 import { formatarDataBR } from '../lib/utils'
+import { InfoTip } from '../components/InfoTip'
 import {
   KPIS_FECHAMENTO, type KpiFechamento, type SalaFechamento, type ParametroFechamento,
   recalcularAutomaticos, recalcularAutomaticosPeriodo, primeiroDiaDoMes, salvarValorManual, diasDaSemanaAte, buscarValoresFechamento, buscarParametros,
@@ -491,13 +492,15 @@ export default function FechamentoDia() {
 
             <div className="border rounded-lg p-3 space-y-2">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <span className="text-sm font-medium">Jornada Líquida</span>
+                <span className="text-sm font-medium flex items-center gap-1">
+                  Jornada Líquida
+                  <InfoTip texto={'O sistema considera "bateu jornada" quando o MPD é "PC financeira" e a Hora MPD está dentro de 10h20 desde o início da matinal da sala (Colorado até 17:20, Sub-Fúria até 18:20).'} />
+                </span>
                 <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-green-50 text-green-700">● Automático (via upload 03.11.49.02)</span>
               </div>
               <p className="text-xs text-muted-foreground">
                 Suba o relatório 03.11.49.02 (Mapa, Data Entrega, Placa, Motorista, MPD, Hora MPD, Entregas) — o mesmo da Carta de Controle TML.
-                O sistema considera "bateu jornada" quando o MPD é "PC financeira" e a Hora MPD está dentro de 10h20 desde o início da matinal da sala
-                (Colorado até 17:20, Sub-Fúria até 18:20). Esse upload também alimenta as entregas do dia usadas na Devolução PDV abaixo.
+                Esse upload também alimenta as entregas do dia usadas na Devolução PDV abaixo.
               </p>
               <label className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border cursor-pointer hover:bg-accent w-fit">
                 {enviandoMapas ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
@@ -515,12 +518,14 @@ export default function FechamentoDia() {
 
             <div className="border rounded-lg p-3 space-y-2">
               <div className="flex items-center justify-between flex-wrap gap-2">
-                <span className="text-sm font-medium">Devolução PDV</span>
+                <span className="text-sm font-medium flex items-center gap-1">
+                  Devolução PDV
+                  <InfoTip texto="O sistema soma as devoluções por mapa/dia e cruza com as entregas do dia (relatório 03.11.49.02 acima) pra calcular o % por sala automaticamente." />
+                </span>
                 <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-full bg-green-50 text-green-700">● Automático (via upload)</span>
               </div>
               <p className="text-xs text-muted-foreground">
                 Suba o relatório de devolução (mesmo formato da planilha do cliente — 1 linha por nota devolvida, Mapa e Data).
-                O sistema soma as devoluções por mapa/dia e cruza com as entregas do dia (relatório 03.11.49.02 acima) pra calcular o % por sala automaticamente.
               </p>
               <label className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border cursor-pointer hover:bg-accent w-fit">
                 {enviandoDevolucao ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
@@ -635,12 +640,10 @@ export default function FechamentoDia() {
 
       {aba === 'farol' && (
         <div className="rounded-lg border p-4 space-y-4">
-          <h2 className="font-semibold text-sm">Farol Motoristas do dia</h2>
-          <p className="text-sm text-muted-foreground">
-            Gerado automaticamente, sem subir nenhum relatório — a partir do que o próprio sistema já apurou pro dia: Aderência ao Raio
-            (BEES/Jornada), TML (Análise TML), Devolução (03.11.49.02 + upload de Devolução PDV) e IV-Deslocamento
-            (checklist_tml). Motorista e ajudante de cada mapa vêm do cadastro de equipe (mesmo import da aba "Base" usado em Reposições).
-          </p>
+          <h2 className="font-semibold text-sm flex items-center gap-1">
+            Farol Motoristas do dia
+            <InfoTip texto={'Gerado automaticamente, sem subir nenhum relatório — a partir do que o próprio sistema já apurou pro dia: Aderência ao Raio (BEES/Jornada), TML (Análise TML), Devolução (03.11.49.02 + upload de Devolução PDV) e IV-Deslocamento (checklist_tml). Motorista e ajudante de cada mapa vêm do cadastro de equipe (mesmo import da aba "Base" usado em Reposições).'} />
+          </h2>
           <button onClick={gerarFarolDoDia} disabled={processandoFarol} className="flex items-center gap-1.5 text-sm px-3 py-2 rounded-md border hover:bg-accent disabled:opacity-50 w-fit">
             {processandoFarol ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />} Gerar Farol do dia
           </button>
@@ -835,12 +838,10 @@ function ParametrosTab({ filial, parametros, onSalvo }: { filial: string; parame
 
   return (
     <div className="rounded-lg border p-4 space-y-3">
-      <h2 className="font-semibold text-sm flex items-center gap-1.5"><Settings className="h-4 w-4" /> Meta, Bench, Gatilho e Direção por KPI</h2>
-      <p className="text-xs text-muted-foreground">
-        Direção define se maior valor é melhor ou pior. Bench é o patamar de <strong>Destaque</strong> (precisa superar,
-        não só bater a Meta). Gatilho é o patamar que, quando ultrapassado, marca o indicador como <strong>Bate-papo</strong>
-        (aciona o convite automático por WhatsApp) — sem Gatilho definido, qualquer valor que não bate a Meta já vira Bate-papo.
-      </p>
+      <h2 className="font-semibold text-sm flex items-center gap-1.5">
+        <Settings className="h-4 w-4" /> Meta, Bench, Gatilho e Direção por KPI
+        <InfoTip texto='Direção define se maior valor é melhor ou pior. Bench é o patamar de Destaque (precisa superar, não só bater a Meta). Gatilho é o patamar que, quando ultrapassado, marca o indicador como Bate-papo (aciona o convite automático por WhatsApp) — sem Gatilho definido, qualquer valor que não bate a Meta já vira Bate-papo.' />
+      </h2>
       <div className="space-y-2">
         {KPIS_FECHAMENTO.map((k) => {
           const p = parametros.find((pp) => pp.kpi === k.key)

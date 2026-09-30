@@ -16,6 +16,7 @@ import {
   type ColaboradorElegivel, type AtividadeColaborador, type ConferenteEquipeMembro, type TurnoRegistro,
   type RegistroOperador, type HorarioFechamentoTurno,
 } from '../../lib/variavelTurno'
+import { InfoTip } from '../../components/InfoTip'
 
 const UNIDADE_LABEL: Record<TurnoUnidade, string> = {
   percentual: '% percentual', reais: 'R$', numero: 'número', ok_nok: 'OK / NOK', tempo: 'Tempo (hh:mm)',
@@ -1239,7 +1240,10 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
               </div>
             </>
           ) : (
-            <div className="sm:col-span-2 flex items-end text-[11px] text-gray-400 pb-2">Direção e valor da meta não se aplicam a OK/NOK — só considera "bateu" quando o registro é OK.</div>
+            <div className="sm:col-span-2 flex items-center gap-1.5 text-[11px] text-gray-400 pb-2">
+              Direção e valor da meta não se aplicam a OK/NOK
+              <InfoTip texto='Só considera "bateu" quando o registro é OK.' />
+            </div>
           )}
           <div className="sm:col-span-2">
             <label className="block text-[11px] font-medium text-gray-500 mb-1">Conferente que fecha o turno</label>
@@ -1251,13 +1255,15 @@ export default function VariavelTurnoAdmin({ filial }: { filial: string }) {
           <div className="sm:col-span-2 flex items-end pb-2">
             <label className="flex items-center gap-2 text-xs text-gray-700">
               <input type="checkbox" checked={form.porOperador} onChange={(e) => setForm((f) => ({ ...f, porOperador: e.target.checked }))} />
-              Lançamento por operador — cada colaborador lança o próprio valor do dia (ex.: Quebra), em vez de todos herdarem um valor único do turno.
+              Lançamento por operador
+              <InfoTip texto="Cada colaborador lança o próprio valor do dia (ex.: Quebra), em vez de todos herdarem um valor único do turno." />
             </label>
           </div>
           <div className="sm:col-span-2 flex items-end pb-2">
             <label className="flex items-center gap-2 text-xs text-gray-700">
               <input type="checkbox" checked={form.metaAcumulada} onChange={(e) => setForm((f) => ({ ...f, metaAcumulada: e.target.checked }))} />
-              Meta acumulada — paga o valor final CHEIO se a média da competência inteira (21→20) bater a meta, ou ZERO se não bater, em vez de cota por dia batido (ex.: TMA).
+              Meta acumulada
+              <InfoTip texto="Paga o valor final CHEIO se a média da competência inteira (21→20) bater a meta, ou ZERO se não bater, em vez de cota por dia batido (ex.: TMA)." />
             </label>
           </div>
         </div>

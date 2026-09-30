@@ -3,6 +3,7 @@ import { Loader2, Plus, Power, RefreshCw, Search, Settings2, Upload, TrafficCone
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import { formatarDataBR } from '../lib/utils'
+import { InfoTip } from '../components/InfoTip'
 import { formatarBRL } from '../lib/variavelArmazem'
 import { listarGrupos, type GrupoZApi } from '../lib/zapi'
 import { GroupPicker } from './DistribuicaoTMLWhatsappConfig'
@@ -149,10 +150,8 @@ export default function DistribuicaoFarolCriticos() {
         <div>
           <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
             <TrafficCone className="h-6 w-6 text-primary" /> Farol de Mercados e PDVs Travas
+            <InfoTip texto="Status de entrega vindo do BEES (por PDV), motorista/placa de escalas_tml, valor da nota do CORA." />
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Status de entrega vindo do BEES (por PDV), motorista/placa de escalas_tml, valor da nota do CORA.
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <input type="date" value={data} onChange={(e) => setData(e.target.value)} className="px-3 py-2 text-sm border rounded-md" />

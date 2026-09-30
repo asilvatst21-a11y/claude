@@ -5,6 +5,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
+import { InfoTip } from '../components/InfoTip'
 import {
   listarPontosRisco, criarPontoRisco, atualizarPontoRisco, listarSugestoes, aprovarSugestao, rejeitarSugestao,
   buscarCidadesBairrosConhecidos, normalizarTexto,
@@ -67,9 +68,12 @@ function MapaRotasRisco({ pontos }: { pontos: PontoRisco[] }) {
   return (
     <div className="bg-white border rounded-2xl overflow-hidden">
       <div className="px-5 py-4 border-b">
-        <h2 className="font-semibold text-sm">Mapa de calor por severidade</h2>
+        <h2 className="font-semibold text-sm inline-flex items-center gap-1.5">
+          Mapa de calor por severidade
+          <InfoTip texto="Todos os pontos com coordenada cadastrada, coloridos por severidade." />
+        </h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Todos os pontos com coordenada cadastrada, coloridos por severidade. <span className="text-red-600 font-semibold">● Alto</span> · <span className="text-amber-600 font-semibold">● Moderado</span> · <span className="text-green-600 font-semibold">● Baixo</span>
+          <span className="text-red-600 font-semibold">● Alto</span> · <span className="text-amber-600 font-semibold">● Moderado</span> · <span className="text-green-600 font-semibold">● Baixo</span>
         </p>
       </div>
       <div className="p-5">
@@ -147,7 +151,10 @@ function CidadesBairrosField({
   return (
     <div className="sm:col-span-2 space-y-2">
       <div className="flex items-center justify-between">
-        <label className="text-xs font-medium text-muted-foreground">Cidade / bairro <span className="font-normal">(pode adicionar mais de uma — ex.: duas rotas que passam pelo mesmo trecho)</span></label>
+        <label className="text-xs font-medium text-muted-foreground inline-flex items-center gap-1.5">
+          Cidade / bairro <span className="font-normal">(pode adicionar mais de uma — ex.: duas rotas que passam pelo mesmo trecho)</span>
+          <InfoTip texto="É o que liga esse ponto ao aviso automático e à consulta pela Aurora, cruzando com a rota do mapa do dia — basta um dos pares bater. Sem nenhum cadastrado (nem PDV), o ponto fica só cadastrado, sem cruzamento automático." />
+        </label>
       </div>
       <div className="space-y-2">
         {linhas.map((par, i) => (
@@ -251,7 +258,6 @@ function AprovarModal({ sugestao, conhecidos, onClose, onAprovado }: {
               <input value={pdvReferencia} onChange={(e) => setPdvReferencia(e.target.value)} placeholder="Código do PDV mais próximo" className="w-full border rounded-lg px-3 py-2 text-sm mt-1" />
             </div>
           </div>
-          <p className="text-[11px] text-muted-foreground">Cidade/bairro (pode ter mais de um par) é o que liga esse ponto ao aviso automático e à consulta pela Aurora, cruzando com a rota do mapa do dia — basta um dos pares bater. Sem nenhum cadastrado (nem PDV), o ponto fica só cadastrado, sem cruzamento automático.</p>
         </div>
         {erro && <p className="text-sm text-red-600 mt-3">{erro}</p>}
         <div className="flex justify-end gap-2 mt-4">
@@ -530,8 +536,10 @@ export default function SegurancaRotasRisco() {
       {/* Novo ponto */}
       <div className="bg-white border rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b">
-          <h2 className="font-semibold text-sm">Novo ponto de risco</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Com PDV de referência, entra automaticamente no aviso ao motorista e na consulta via Aurora.</p>
+          <h2 className="font-semibold text-sm inline-flex items-center gap-1.5">
+            Novo ponto de risco
+            <InfoTip texto="Com PDV de referência, entra automaticamente no aviso ao motorista e na consulta via Aurora." />
+          </h2>
         </div>
         <div className="p-5 space-y-4">
           <div className="grid sm:grid-cols-2 gap-4">

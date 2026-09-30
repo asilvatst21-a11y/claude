@@ -13,6 +13,7 @@ import {
   horarioInicioMatinalPadrao, horarioFinalMatinalPadrao, tempoDeslocamentoComMatinalReal,
 } from '../lib/tml'
 import { formatarDataBR } from '../lib/utils'
+import { InfoTip } from '../components/InfoTip'
 import {
   listarMotoristasComDeslocamento, buscarHistoricoMensalDeslocamento, buscarTabelaoDeslocamento,
   type MotoristaComDeslocamento, type HistoricoMensalMotorista, type MesDeslocamento, type TabelaoDeslocamento,
@@ -97,15 +98,15 @@ interface ChaveGerenciamento {
 }
 
 function Card({
-  icon: Icon, label, value, hint, accent = 'text-accent-600 bg-accent/40',
-}: { icon: typeof Timer; label: string; value: string; hint?: string; accent?: string }) {
+  icon: Icon, label, value, hint, titleExtra, accent = 'text-accent-600 bg-accent/40',
+}: { icon: typeof Timer; label: string; value: string; hint?: string; titleExtra?: React.ReactNode; accent?: string }) {
   return (
     <div className="border rounded-xl bg-white p-4 flex items-start gap-3 shadow-sm hover:shadow-md transition-shadow">
       <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${accent}`}>
         <Icon className="h-5 w-5" />
       </div>
       <div>
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-xs text-muted-foreground flex items-center gap-1">{label}{titleExtra}</p>
         <p className="text-xl font-bold leading-tight">{value}</p>
         {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
       </div>
@@ -113,10 +114,10 @@ function Card({
   )
 }
 
-function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function ChartCard({ title, subtitle, titleExtra, children }: { title: string; subtitle?: string; titleExtra?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="border rounded-xl bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
-      <h3 className="text-sm font-semibold">{title}</h3>
+      <h3 className="text-sm font-semibold flex items-center gap-1">{title}{titleExtra}</h3>
       {subtitle && <p className="text-xs text-muted-foreground mb-2">{subtitle}</p>}
       {children}
     </div>
@@ -468,9 +469,9 @@ export default function DistribuicaoTMLDeslocamento() {
       <div>
         <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
           <Timer className="h-6 w-6 text-primary" /> Tempo de Deslocamento
+          <InfoTip texto="Horário em que o motorista iniciou o checklist menos o horário real de fim da matinal (registrado no Timer da Matinal)." />
         </h1>
         <p className="text-sm text-muted-foreground">
-          Horário em que o motorista iniciou o checklist menos o horário real de fim da matinal (registrado no Timer da Matinal).
           Ideal hoje: até {gatilhoAtual.ideal} min. Estouro de gatilho hoje: acima de {gatilhoAtual.estouro} min.
           Ajuste esses valores na aba{' '}
           <Link to="/distribuicao/tml/parametros" className="text-accent-600 underline">Parâmetros</Link>.
@@ -632,8 +633,8 @@ export default function DistribuicaoTMLDeslocamento() {
 
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <Card icon={Timer} label="Tempo médio de deslocamento" value={`${tempoDeslocamentoMedioGeral.toFixed(0)} min`} accent="text-cyan-600 bg-cyan-50" />
-            <Card icon={AlertTriangle} label="Estouro de gatilho" value={`${estouroGatilhoGeral} (${pctEstouroGatilhoGeral.toFixed(1)}%)`} hint={`deslocamento acima do gatilho vigente em cada data`} accent="text-red-600 bg-red-50" />
-            <Card icon={TrendingDown} label="Iniciaram antes da matinal" value={`${antesMatinalGeral} (${pctAntesMatinalGeral.toFixed(1)}%)`} hint="checklist começou antes do turno" accent="text-amber-600 bg-amber-50" />
+            <Card icon={AlertTriangle} label="Estouro de gatilho" value={`${estouroGatilhoGeral} (${pctEstouroGatilhoGeral.toFixed(1)}%)`} titleExtra={<InfoTip texto="Deslocamento acima do gatilho vigente em cada data." />} accent="text-red-600 bg-red-50" />
+            <Card icon={TrendingDown} label="Iniciaram antes da matinal" value={`${antesMatinalGeral} (${pctAntesMatinalGeral.toFixed(1)}%)`} titleExtra={<InfoTip texto="Checklist começou antes do turno." />} accent="text-amber-600 bg-amber-50" />
             <Card icon={CheckCircle2} label="Registros de checklist" value={String(comDeslocamento.length)} accent="text-blue-600 bg-blue-50" />
           </div>
 
@@ -665,7 +666,8 @@ export default function DistribuicaoTMLDeslocamento() {
           {porDiaDeslocamento.length > 0 && (
             <ChartCard
               title="Tempo médio de deslocamento por dia"
-              subtitle={`Média diária do horário de início do checklist menos o fim real da matinal${sala !== 'TODAS' ? ` — ${SALA_TML_LABEL[sala]}` : ''}`}
+              subtitle={sala !== 'TODAS' ? SALA_TML_LABEL[sala] : undefined}
+              titleExtra={<InfoTip texto="Média diária do horário de início do checklist menos o fim real da matinal." />}
             >
               <ResponsiveContainer width="100%" height={260}>
                 <ComposedChart data={porDiaDeslocamento} margin={{ top: 20 }}>
@@ -818,10 +820,10 @@ export default function DistribuicaoTMLDeslocamento() {
             <button onClick={() => setHistoricoEstourosAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b text-left">
               {historicoEstourosAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
               <div>
-                <h2 className="text-sm font-semibold">Histórico de estouros — matinal e deslocamento</h2>
-                <p className="text-xs text-muted-foreground">
-                  Todo dia em que a matinal passou da meta ou o checklist começou com mais que o gatilho de estouro vigente naquela data, com o motivo registrado (quando houver).
-                </p>
+                <h2 className="text-sm font-semibold flex items-center gap-1">
+                  Histórico de estouros — matinal e deslocamento
+                  <InfoTip texto="Todo dia em que a matinal passou da meta ou o checklist começou com mais que o gatilho de estouro vigente naquela data, com o motivo registrado (quando houver)." />
+                </h2>
               </div>
             </button>
             {historicoEstourosAberto && (historicoEstouros.length === 0 ? (
@@ -863,7 +865,7 @@ export default function DistribuicaoTMLDeslocamento() {
           </div>
 
           {porDiaMatinal.length > 0 && (
-            <ChartCard title="Duração média da matinal por dia" subtitle="Tempo médio de início até o fim da matinal, comparado à meta do dia">
+            <ChartCard title="Duração média da matinal por dia" titleExtra={<InfoTip texto="Tempo médio de início até o fim da matinal, comparado à meta do dia." />}>
               <ResponsiveContainer width="100%" height={240}>
                 <ComposedChart data={porDiaMatinal} margin={{ top: 20 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />

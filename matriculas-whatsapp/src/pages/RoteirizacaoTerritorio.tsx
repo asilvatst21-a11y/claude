@@ -4,6 +4,7 @@ import { ArrowLeft, ChevronDown, ChevronRight, Loader2, Plus, RefreshCw, Search,
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import type { DiaSemanaRoteirizacao, FrotaPlaca, RoteirizacaoPlacaDia, SetorRoteirizacao } from '../types'
+import { InfoTip } from '../components/InfoTip'
 
 const DIAS: { chave: DiaSemanaRoteirizacao; label: string }[] = [
   { chave: 'SEG', label: 'Segunda' },
@@ -268,8 +269,10 @@ export default function RoteirizacaoTerritorio() {
         <button onClick={() => setResumoAberto(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 text-left border-b">
           {resumoAberto ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
           <div>
-            <h2 className="font-semibold text-sm">Quantidade de placas por território</h2>
-            <p className="text-xs text-muted-foreground">Quantas placas estão cadastradas em cada setor, em cada dia da semana — somando as escolhas feitas na grade acima.</p>
+            <h2 className="font-semibold text-sm flex items-center gap-1">
+              Quantidade de placas por território
+              <InfoTip texto="Quantas placas estão cadastradas em cada setor, em cada dia da semana — somando as escolhas feitas na grade acima." />
+            </h2>
           </div>
         </button>
         {resumoAberto && (loading ? (

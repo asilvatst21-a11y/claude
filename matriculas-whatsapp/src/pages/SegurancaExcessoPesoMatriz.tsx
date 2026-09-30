@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ArrowLeft, Loader2, Grid3x3 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
+import { InfoTip } from '../components/InfoTip'
 import { buscarHistoricoExcessoPeso, formatarKg, type HistoricoExcessoPeso, type SituacaoExcesso } from '../lib/pesoExcesso'
 
 function mesAtualISO(): string {
@@ -151,8 +152,10 @@ export default function SegurancaExcessoPesoMatriz() {
       <div className="border rounded-lg bg-white">
         <div className="px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h2 className="font-semibold text-sm">{mes}</h2>
-            <p className="text-xs text-muted-foreground">Célula = situação do dia. Número = kg de excesso quando houve.</p>
+            <h2 className="font-semibold text-sm inline-flex items-center gap-1.5">
+              {mes}
+              <InfoTip texto="Célula = situação do dia. Número = kg de excesso quando houve." />
+            </h2>
           </div>
           <div className="flex gap-3 text-xs text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-green-200 inline-block" /> Dentro do limite</span>

@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase'
 import { useAuth } from '../lib/auth'
 import { imprimirDocumentoFluxo, geraDocumento } from '../lib/documentos'
 import type { FluxoPunitivo } from '../types'
+import { InfoTip } from '../components/InfoTip'
 
 // ─── Sequência punitiva ──────────────────────────────────────────────────
 
@@ -255,16 +256,12 @@ function ModalDefinirAcao({ grupo, historico, motivosPadrao, colabList, onClose,
               ))}
               <span className="text-gray-500">{fmtDate(solicitacao.data_infracao ?? solicitacao.data_acao)}</span>
               {grupo.length > 1 && (
-                <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-semibold">
+                <span className="px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 font-semibold inline-flex items-center gap-1">
                   {grupo.length} solicitações no mesmo dia
+                  <InfoTip posicao="bottom" texto="Várias ocorrências no mesmo dia geram um único fluxo. Confira o motivo combinado abaixo." />
                 </span>
               )}
             </div>
-            {grupo.length > 1 && (
-              <p className="text-orange-600 text-[11px]">
-                Regra: várias ocorrências no mesmo dia geram um único fluxo. Confira o motivo combinado abaixo.
-              </p>
-            )}
             {solicitacao.registrado_por && (
               <p className="text-gray-400">Solicitado por: {solicitacao.registrado_por}</p>
             )}

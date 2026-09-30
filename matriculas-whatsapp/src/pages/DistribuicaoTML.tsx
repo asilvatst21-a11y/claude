@@ -20,6 +20,7 @@ import { formatarDataBR } from '../lib/utils'
 import { ENVIOS_TML_PAUSADOS } from '../lib/whatsappStatus'
 import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorTelefone, buscarStatusColaboradoresPorMatricula, podeEnviarPara } from '../lib/statusAtivo'
 import { avisarMotoristasRotaRiscoPorRegiao } from '../lib/rotasRisco'
+import { InfoTip } from '../components/InfoTip'
 
 const MOTIVOS_PADRAO = ['ATRASO NA MATINAL', 'ATRASO COLABORADOR', 'MANUTENÇÃO', 'CONFERENCIA DE CARGA', 'OUTRO']
 
@@ -190,18 +191,22 @@ async function gerarNumero(filial: string): Promise<string> {
 }
 
 function UploadBox({
-  titulo, descricao, onFile, isUploading,
+  titulo, descricao, descricaoTip, onFile, isUploading,
 }: {
   titulo: string
-  descricao: string
+  descricao?: string
+  descricaoTip?: string
   onFile: (file: File) => void
   isUploading: boolean
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   return (
     <div className="border rounded-lg bg-white p-4">
-      <h3 className="text-sm font-semibold">{titulo}</h3>
-      <p className="text-xs text-muted-foreground mt-0.5 mb-3">{descricao}</p>
+      <h3 className="text-sm font-semibold inline-flex items-center gap-1.5">
+        {titulo}
+        {descricaoTip && <InfoTip texto={descricaoTip} />}
+      </h3>
+      {descricao && <p className="text-xs text-muted-foreground mt-0.5 mb-3">{descricao}</p>}
       <div
         className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-accent-500 hover:bg-accent/30 transition-colors"
         onClick={() => inputRef.current?.click()}
@@ -1537,13 +1542,13 @@ export default function DistribuicaoTML() {
         />
         <UploadBox
           titulo="2. Saída na portaria (03.11.20)"
-          descricao="Compara o horário de saída com o limite da sala. Motoristas que perderem o TML ficam pendentes de envio do alerta na tabela abaixo."
+          descricaoTip="Compara o horário de saída com o limite da sala. Quem perde o TML fica pendente de envio do alerta na tabela abaixo."
           onFile={handleSaida}
           isUploading={uploadingSaida}
         />
         <UploadBox
           titulo="3. Checklist (HR INICIO)"
-          descricao="Mede o tempo de deslocamento: quanto tempo depois da matinal o motorista começou o checklist."
+          descricaoTip="Mede o tempo de deslocamento: quanto tempo depois da matinal o motorista começou o checklist."
           onFile={handleChecklist}
           isUploading={uploadingChecklist}
         />
@@ -1727,8 +1732,10 @@ export default function DistribuicaoTML() {
           className="w-full flex items-center justify-between px-4 py-3 border-b text-left hover:bg-muted/20 transition-colors"
         >
           <div>
-            <h2 className="font-semibold text-sm">Alertas de TML</h2>
-            <p className="text-xs text-muted-foreground">Motoristas que saíram após o limite de tolerância</p>
+            <h2 className="font-semibold text-sm inline-flex items-center gap-1.5">
+              Alertas de TML
+              <InfoTip texto="Motoristas que saíram após o limite de tolerância" />
+            </h2>
           </div>
           <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${alertasAbertos ? 'rotate-180' : ''}`} />
         </button>

@@ -23,6 +23,7 @@ import {
   type AtividadeRankingColaborador, type ComparativoAtividadeColaborador, type ExtratoAtividadesColaborador,
 } from '../../lib/variavelTurno'
 import VariavelTurnoAdmin from './VariavelTurnoAdmin'
+import { InfoTip } from '../../components/InfoTip'
 
 // A importação é sempre referente a D-1 (dia anterior); a data já vem
 // pré-selecionada em ontem.
@@ -77,22 +78,26 @@ function baixarCSV(nomeArquivo: string, linhas: (string | number)[][]) {
 // Seção recolhível — mesmo padrão usado no histórico de valor e no de
 // pontuação média, para o painel não ficar longo demais por padrão.
 function Colapsavel({
-  titulo, icon: Icon, aberto: abertoInicial = true, extra, children,
+  titulo, icon: Icon, aberto: abertoInicial = true, extra, tituloExtra, children,
 }: {
   titulo: string
   icon: React.ElementType
   aberto?: boolean
   extra?: ReactNode
+  tituloExtra?: ReactNode
   children: ReactNode
 }) {
   const [aberto, setAberto] = useState(abertoInicial)
   return (
     <div className="border rounded-lg bg-white">
       <div className="px-4 py-3 border-b flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-        <button onClick={() => setAberto((a) => !a)} className="flex items-center gap-2 text-sm font-semibold hover:text-accent-700 transition-colors">
-          {aberto ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
-          <Icon className="h-4 w-4 text-accent-600" /> {titulo}
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setAberto((a) => !a)} className="flex items-center gap-2 text-sm font-semibold hover:text-accent-700 transition-colors">
+            {aberto ? <ChevronUp className="h-4 w-4 text-muted-foreground" /> : <ChevronDown className="h-4 w-4 text-muted-foreground" />}
+            <Icon className="h-4 w-4 text-accent-600" /> {titulo}
+          </button>
+          {tituloExtra}
+        </div>
         {extra}
       </div>
       {aberto && children}
@@ -418,11 +423,15 @@ function TabelaoMensalTab({ dados, loading }: { dados: TabelaoMensal | null; loa
             <table className="w-full text-sm">
               <thead className="bg-muted/50">
                 <tr>
-                  <th className="sticky left-0 bg-muted/50 text-left px-3 py-2 font-medium text-muted-foreground min-w-[220px]">Ajudante</th>
+                  <th className="sticky left-0 bg-muted/50 text-left px-3 py-2 font-medium text-muted-foreground min-w-[220px]">
+                    <span className="inline-flex items-center gap-1.5">Ajudante <InfoTip texto='"—" indica mês sem lançamento pra esse ajudante.' /></span>
+                  </th>
                   {mesesOrdenados.map((mes) => (
                     <th key={mes} className="text-right px-3 py-2 font-medium text-muted-foreground whitespace-nowrap">{rotuloMes(mes)}</th>
                   ))}
-                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">Tendência</th>
+                  <th className="text-right px-3 py-2 font-medium text-muted-foreground">
+                    <span className="inline-flex items-center gap-1.5">Tendência <InfoTip texto="Compara o último mês visível com o primeiro." /></span>
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y">
@@ -458,7 +467,6 @@ function TabelaoMensalTab({ dados, loading }: { dados: TabelaoMensal | null; loa
               </tfoot>
             </table>
           </div>
-          <div className="px-4 py-2.5 text-[11px] text-muted-foreground border-t">"—" indica mês sem lançamento pra esse ajudante. Tendência compara o último mês visível com o primeiro.</div>
         </div>
       )}
     </div>
@@ -846,10 +854,13 @@ export default function ArmazemVariavel() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-xs text-muted-foreground mb-0.5">Armazém</p>
-          <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2"><Wallet className="h-5 w-5 text-accent-600" /> Variável</h1>
+          <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+            <Wallet className="h-5 w-5 text-accent-600" /> Variável
+            {aba === 'pontuacao' && <InfoTip texto="O valor é calculado por cluster e o painel atualiza na hora." />}
+          </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {aba === 'pontuacao'
-              ? 'Suba o relatório de pontuação do dia — o valor é calculado por cluster e o painel atualiza na hora.'
+              ? 'Suba o relatório de pontuação do dia.'
               : aba === 'historico'
               ? 'Evolução mês a mês por colaborador.'
               : aba === 'tabelao'
@@ -1265,7 +1276,10 @@ export default function ArmazemVariavel() {
           <div className="text-center py-12 text-muted-foreground text-sm">Nenhuma pontuação no período selecionado.</div>
         ) : (
           <div>
-            <p className="px-4 pt-3 text-[11px] text-muted-foreground">Filial teve lançamento em {diasPeriodoRank} dia(s) no período — "faltas" é comparado com esse total, não com os dias corridos.</p>
+            <p className="px-4 pt-3 text-[11px] text-muted-foreground flex items-center gap-1.5">
+              Filial teve lançamento em {diasPeriodoRank} dia(s) no período.
+              <InfoTip texto="'Faltas' é comparado com esse total, não com os dias corridos." />
+            </p>
             <div className="overflow-x-auto p-4 pt-2">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
@@ -1303,14 +1317,17 @@ export default function ArmazemVariavel() {
       </Colapsavel>
 
       {/* Queda/alta de desempenho vs. período anterior equivalente */}
-      <Colapsavel titulo="Queda de Desempenho" icon={ShieldAlert}>
+      <Colapsavel
+        titulo="Queda de Desempenho"
+        icon={ShieldAlert}
+        tituloExtra={<InfoTip texto="Compara a pontuação média do período selecionado com o período imediatamente anterior de mesma duração." />}
+      >
         {loadingComparativo ? (
           <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
         ) : quedasOrdenadas.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground text-sm">Sem período anterior comparável para esta janela de datas.</div>
         ) : (
           <div className="p-4">
-            <p className="text-xs text-muted-foreground mb-3">Compara a pontuação média de {formatarDataBR(rankIni)} a {formatarDataBR(rankFim)} com o período imediatamente anterior de mesma duração.</p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
@@ -1344,6 +1361,7 @@ export default function ArmazemVariavel() {
       <Colapsavel
         titulo="Migração de Cluster"
         icon={Sparkles}
+        tituloExtra={<InfoTip texto="Compara a faixa (cluster) indicada pela média mensal de cada colaborador entre o mês anterior e o mês selecionado." />}
         extra={
           <label className="flex items-center gap-2 text-sm">
             <CalendarDays className="h-4 w-4 text-muted-foreground" />
@@ -1357,7 +1375,6 @@ export default function ArmazemVariavel() {
           <div className="text-center py-12 text-muted-foreground text-sm">Ninguém mudou de faixa entre este mês e o anterior.</div>
         ) : (
           <div className="p-4">
-            <p className="text-xs text-muted-foreground mb-3">Compara a faixa (cluster) indicada pela média mensal de cada colaborador entre {formatarDataBR(mesAnteriorDe(mesHist) + '-01')} e {formatarDataBR(mesHist + '-01')}.</p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
@@ -1422,7 +1439,10 @@ export default function ArmazemVariavel() {
           <div className="text-center py-12 text-muted-foreground text-sm">Nenhum lançamento manual no período selecionado (usa o mesmo "De/até" do ranking de pontuação acima).</div>
         ) : (
           <div>
-            <p className="px-4 pt-3 text-[11px] text-muted-foreground">Filial teve lançamento manual em {diasPeriodoRankAtividades} dia(s) no período — "faltas" é comparado com esse total.</p>
+            <p className="px-4 pt-3 text-[11px] text-muted-foreground flex items-center gap-1.5">
+              Filial teve lançamento manual em {diasPeriodoRankAtividades} dia(s) no período.
+              <InfoTip texto="'Faltas' é comparado com esse total." />
+            </p>
             <div className="overflow-x-auto p-4 pt-2">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">
@@ -1456,14 +1476,17 @@ export default function ArmazemVariavel() {
       </Colapsavel>
 
       {/* Queda/alta de lançamentos manuais vs. período anterior equivalente */}
-      <Colapsavel titulo="Queda — Lançamentos Manuais" icon={ShieldAlert}>
+      <Colapsavel
+        titulo="Queda — Lançamentos Manuais"
+        icon={ShieldAlert}
+        tituloExtra={<InfoTip texto="Compara o valor de lançamentos manuais do período selecionado com o período imediatamente anterior de mesma duração." />}
+      >
         {loadingComparativoAtividades ? (
           <div className="flex items-center justify-center py-12"><Loader2 className="h-6 w-6 animate-spin text-accent-500" /></div>
         ) : quedasAtividadesOrdenadas.length === 0 ? (
           <div className="text-center py-12 text-muted-foreground text-sm">Sem período anterior comparável para esta janela de datas.</div>
         ) : (
           <div className="p-4">
-            <p className="text-xs text-muted-foreground mb-3">Compara o valor de lançamentos manuais de {formatarDataBR(rankIni)} a {formatarDataBR(rankFim)} com o período imediatamente anterior de mesma duração.</p>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50">

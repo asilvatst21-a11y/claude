@@ -19,6 +19,7 @@ import {
   type LinhaJornada, type SalaJornada, type SituacaoJornada, type KpisJornada, type StatusPrevisao,
 } from '../lib/jornada'
 import { formatarDataBR } from '../lib/utils'
+import { InfoTip } from '../components/InfoTip'
 import { formatarBRL } from '../lib/variavelArmazem'
 import { ENVIOS_JORNADA_PAUSADOS } from '../lib/whatsappStatus'
 import { buscarStatusColaboradoresPorNome, buscarStatusColaboradoresPorTelefone, buscarStatusColaboradoresPorMatricula, podeEnviarPara } from '../lib/statusAtivo'
@@ -164,10 +165,11 @@ function StatusPrevisaoBadge({
 }
 
 function ImportBox({
-  titulo, descricao, onFile, isUploading, statusLine,
+  titulo, descricao, titleExtra, onFile, isUploading, statusLine,
 }: {
   titulo: string
-  descricao: string
+  descricao?: string
+  titleExtra?: React.ReactNode
   onFile: (file: File) => void
   isUploading: boolean
   statusLine: string | null
@@ -175,8 +177,8 @@ function ImportBox({
   const inputRef = useRef<HTMLInputElement>(null)
   return (
     <div className="border rounded-lg bg-white p-4">
-      <h3 className="text-sm font-semibold">{titulo}</h3>
-      <p className="text-xs text-muted-foreground mt-0.5 mb-3">{descricao}</p>
+      <h3 className="text-sm font-semibold flex items-center gap-1">{titulo}{titleExtra}</h3>
+      {descricao && <p className="text-xs text-muted-foreground mt-0.5 mb-3">{descricao}</p>}
       <div
         className="border-2 border-dashed rounded-lg p-6 text-center cursor-pointer hover:border-accent-500 hover:bg-accent/30 transition-colors"
         onClick={() => inputRef.current?.click()}
@@ -1328,9 +1330,9 @@ export default function JornadaRota() {
         <div className="bg-yellow-50 border border-yellow-200 text-yellow-800 text-sm rounded-lg px-3 py-2 flex items-start gap-2">
           <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
           <span>
-            {semDadosDePlano} mapa(s) sem tempo previsto/entregas previstas — por isso a previsão de chegada,
-            a aderência e o % de conclusão ficam vazios pra eles. Isso acontece quando a escala foi importada
-            antes dessas 3 colunas existirem. Reimporte a escala de hoje (03.11.49.02) em{' '}
+            {semDadosDePlano} mapa(s) sem tempo previsto/entregas previstas
+            <InfoTip texto="Por isso a previsão de chegada, a aderência e o % de conclusão ficam vazios pra eles. Isso acontece quando a escala foi importada antes dessas 3 colunas existirem." />
+            . Reimporte a escala de hoje (03.11.49.02) em{' '}
             <Link to="/distribuicao/tml" className="underline font-medium">Carta de Controle TML</Link> pra corrigir.
           </span>
         </div>
@@ -1423,7 +1425,7 @@ export default function JornadaRota() {
         />
         <ImportBox
           titulo="2. Roteirizador"
-          descricao="Tempo planejado por placa — base da previsão de chegada e da dispersão de tempo."
+          titleExtra={<InfoTip texto="Tempo planejado por placa — base da previsão de chegada e da dispersão de tempo." />}
           onFile={handleImportarRoteirizador}
           isUploading={uploadingRot}
           statusLine={ultimoImportRot ? `Atualizado às ${new Date(ultimoImportRot).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}` : 'Ainda não importado hoje'}
@@ -1464,8 +1466,10 @@ export default function JornadaRota() {
       <div className="border rounded-lg bg-white">
         <div className="px-4 py-3 border-b flex items-center justify-between gap-3 flex-wrap">
           <div>
-            <h2 className="font-semibold text-sm">Carta de controle da jornada</h2>
-            <p className="text-xs text-muted-foreground">Cada bolinha é um mapa — previsão de chegada × % de conclusão</p>
+            <h2 className="font-semibold text-sm flex items-center gap-1">
+              Carta de controle da jornada
+              <InfoTip texto="Cada bolinha é um mapa — previsão de chegada × % de conclusão." />
+            </h2>
           </div>
           <div className="flex gap-3 text-xs text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" /> 100% concluído</span>

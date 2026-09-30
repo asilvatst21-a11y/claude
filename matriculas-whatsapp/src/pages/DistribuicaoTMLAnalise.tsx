@@ -17,6 +17,7 @@ import {
 } from '../lib/tml'
 import { buscarConferenciaPorMapaPeriodo, type ConferenciaPassoMapa } from '../lib/conferencia'
 import { formatarDataBR } from '../lib/utils'
+import { InfoTip } from '../components/InfoTip'
 
 const CORES = ['#2563eb', '#16a34a', '#d97706', '#dc2626', '#7c3aed', '#0891b2', '#be185d']
 const TOOLTIP_STYLE = { borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12 }
@@ -93,15 +94,18 @@ interface LinhaAlerta {
 }
 
 function Card({
-  icon: Icon, label, value, hint, accent = 'text-accent-600 bg-accent/40',
-}: { icon: typeof BarChart2; label: string; value: string; hint?: string; accent?: string }) {
+  icon: Icon, label, value, hint, titleExtra, accent = 'text-accent-600 bg-accent/40',
+}: { icon: typeof BarChart2; label: string; value: string; hint?: string; titleExtra?: React.ReactNode; accent?: string }) {
   return (
     <div className="border rounded-xl bg-white p-4 flex items-start gap-3 shadow-sm hover:shadow-md transition-shadow">
       <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${accent}`}>
         <Icon className="h-5 w-5" />
       </div>
       <div>
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-xs text-muted-foreground inline-flex items-center gap-1">
+          {label}
+          {titleExtra}
+        </p>
         <p className="text-xl font-bold leading-tight">{value}</p>
         {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
       </div>
@@ -109,19 +113,25 @@ function Card({
   )
 }
 
-function SectionTitle({ title, subtitle }: { title: string; subtitle?: string }) {
+function SectionTitle({ title, subtitle, titleExtra }: { title: string; subtitle?: string; titleExtra?: React.ReactNode }) {
   return (
     <div className="border-l-4 border-accent-500 pl-3">
-      <h2 className="text-base font-bold">{title}</h2>
+      <h2 className="text-base font-bold inline-flex items-center gap-1.5">
+        {title}
+        {titleExtra}
+      </h2>
       {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
     </div>
   )
 }
 
-function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
+function ChartCard({ title, subtitle, titleExtra, children }: { title: string; subtitle?: string; titleExtra?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="border rounded-xl bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
-      <h3 className="text-sm font-semibold">{title}</h3>
+      <h3 className="text-sm font-semibold inline-flex items-center gap-1.5">
+        {title}
+        {titleExtra}
+      </h3>
       {subtitle && <p className="text-xs text-muted-foreground mb-2">{subtitle}</p>}
       {children}
     </div>
@@ -781,14 +791,13 @@ export default function DistribuicaoTMLAnalise() {
               <b>{META_TML_TOTAL_MIN}min</b>
             </div>
           )}
-          {verPor === 'periodo' && (
-            <p className="text-xs text-muted-foreground">
-              A meta de cada etapa varia por dia da semana — no período, cada mapa é comparado com a meta do
-              próprio dia em que rodou (ver coluna "Meta" da tabela).
-            </p>
-          )}
-
-          <SectionTitle title="Tempo médio por etapa" subtitle={`${aberturaPorMapa.length} mapa(s) no filtro`} />
+          <SectionTitle
+            title="Tempo médio por etapa"
+            subtitle={`${aberturaPorMapa.length} mapa(s) no filtro`}
+            titleExtra={verPor === 'periodo' && (
+              <InfoTip texto='A meta de cada etapa varia por dia da semana — cada mapa é comparado com a meta do próprio dia em que rodou (ver coluna "Meta" da tabela).' />
+            )}
+          />
 
           <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
             {([
@@ -912,12 +921,12 @@ export default function DistribuicaoTMLAnalise() {
             <Card icon={CheckCircle2} label="Saídas no período" value={String(totalSaidas)} accent="text-blue-600 bg-blue-50" />
             <Card icon={AlertTriangle} label="TMLs perdidos" value={`${totalPerdidos} (${pctPerdido.toFixed(1)}%)`} accent="text-red-600 bg-red-50" />
             <Card icon={CheckCircle2} label="% Atingimento do TML" value={`${pctAtingimento.toFixed(1)}%`} accent="text-green-600 bg-green-50" />
-            <Card icon={Users} label="Justificados" value={`${totalJustificados} (${pctJustificado.toFixed(0)}%)`} hint="do total de TMLs perdidos" accent="text-violet-600 bg-violet-50" />
+            <Card icon={Users} label="Justificados" value={`${totalJustificados} (${pctJustificado.toFixed(0)}%)`} titleExtra={<InfoTip texto="% calculado sobre o total de TMLs perdidos" />} accent="text-violet-600 bg-violet-50" />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Card icon={Clock} label="Tempo médio de saída — Geral CDD" value={`${tempoSaidaMedioGeral.toFixed(0)} min`} hint="saída real − horário matinal, todas as salas" accent="text-cyan-600 bg-cyan-50" />
-            <Card icon={CheckCircle2} label="% Conformidade — Geral CDD" value={`${pctConformidadeGeral.toFixed(1)}%`} hint="carros que saíram dentro da tolerância" accent="text-green-600 bg-green-50" />
+            <Card icon={Clock} label="Tempo médio de saída — Geral CDD" value={`${tempoSaidaMedioGeral.toFixed(0)} min`} titleExtra={<InfoTip texto="Saída real menos horário matinal, considerando todas as salas" />} accent="text-cyan-600 bg-cyan-50" />
+            <Card icon={CheckCircle2} label="% Conformidade — Geral CDD" value={`${pctConformidadeGeral.toFixed(1)}%`} titleExtra={<InfoTip texto="% dos carros que saíram dentro da tolerância" />} accent="text-green-600 bg-green-50" />
           </div>
 
           <div className="grid sm:grid-cols-2 gap-4">
@@ -977,7 +986,7 @@ export default function DistribuicaoTMLAnalise() {
 
             <ChartCard
               title="Tempo médio de saída e % de conformidade por sala"
-              subtitle="Saída real − horário matinal · conformidade = dentro da tolerância de cada sala"
+              titleExtra={<InfoTip texto="Tempo médio = saída real − horário matinal. Conformidade = % dentro da tolerância de cada sala." />}
             >
               <ResponsiveContainer width="100%" height={240}>
                 <ComposedChart data={porSala} margin={{ top: 20 }}>
@@ -1006,7 +1015,7 @@ export default function DistribuicaoTMLAnalise() {
 
           <ChartCard
             title="Histórico de TML médio e conformidade por dia"
-            subtitle="Barras: tempo médio de saída (min) · Linha: % de conformidade"
+            titleExtra={<InfoTip texto="Barras = tempo médio de saída (min). Linha = % de conformidade." />}
           >
             <ResponsiveContainer width="100%" height={280}>
               <ComposedChart data={porDia} margin={{ top: 24, right: 8, left: 0, bottom: 0 }}>
@@ -1034,7 +1043,7 @@ export default function DistribuicaoTMLAnalise() {
 
           <SectionTitle
             title="Ranking de Motoristas"
-            subtitle="Média do motorista no período selecionado, por etapa — filtre pelo pior indicador."
+            titleExtra={<InfoTip texto="Média do motorista no período selecionado, por etapa. Use os filtros abaixo para ordenar pelo pior indicador." />}
           />
           <div className="flex gap-2 flex-wrap">
             {RANKING_METRICAS.map((m) => (
@@ -1158,7 +1167,8 @@ export default function DistribuicaoTMLAnalise() {
           <div className="grid sm:grid-cols-2 gap-4">
             <ChartCard
               title="Distribuição por motivo"
-              subtitle={`Top ${MOTIVO_TOP_N} motivos${ugcFiltro !== 'TODAS' ? ` — área ${ugcFiltro}` : ' — todas as áreas'}; o restante agrupado em "Outros"`}
+              subtitle={ugcFiltro !== 'TODAS' ? `Área ${ugcFiltro}` : 'Todas as áreas'}
+              titleExtra={<InfoTip texto={`Mostra os ${MOTIVO_TOP_N} motivos mais frequentes; o restante fica agrupado em "Outros".`} />}
             >
               {porMotivo.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Nenhuma justificativa registrada no período{ugcFiltro !== 'TODAS' ? ' para essa área' : ''}.</p>

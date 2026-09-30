@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useDropzone } from 'react-dropzone'
 import { Link } from 'react-router-dom'
 import html2canvas from 'html2canvas'
@@ -11,6 +11,7 @@ import { valesSupabase } from '../lib/valesSupabase'
 import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import { enviarImagemGrupo } from '../lib/zapi'
+import { InfoTip } from '../components/InfoTip'
 import {
   parseDisponibilidadeDiariaCsv, parseHistoricoXlsx, resumoPorDia, disponiveisNoDia,
   rankingIndisponibilidadePorPlaca, cruzarTerritorio, detectarTrocasTerritorio, placasAtivasFiltro, resumoPorPerfil, statusPlacasNoDia, matrizDisponibilidade,
@@ -45,15 +46,18 @@ const STATUS_FIXACAO_COR: Record<AlertaFixacaoMotorista['status'], string> = {
 const TOOLTIP_STYLE = { borderRadius: 10, border: '1px solid #e5e7eb', boxShadow: '0 8px 24px rgba(0,0,0,0.08)', fontSize: 12 }
 
 function Card({
-  icon: Icon, label, value, hint, accent = 'text-accent-600 bg-accent/40',
-}: { icon: typeof Truck; label: string; value: string; hint?: string; accent?: string }) {
+  icon: Icon, label, value, hint, accent = 'text-accent-600 bg-accent/40', titleExtra,
+}: { icon: typeof Truck; label: string; value: string; hint?: string; accent?: string; titleExtra?: ReactNode }) {
   return (
     <div className="border rounded-xl bg-white p-4 flex items-start gap-3 shadow-sm hover:shadow-md transition-shadow">
       <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${accent}`}>
         <Icon className="h-5 w-5" />
       </div>
       <div>
-        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className="text-xs text-muted-foreground flex items-center gap-1">
+          {label}
+          {titleExtra}
+        </p>
         <p className="text-xl font-bold leading-tight">{value}</p>
         {hint && <p className="text-xs text-muted-foreground mt-0.5">{hint}</p>}
       </div>
@@ -1078,13 +1082,6 @@ export default function Frota() {
 
       {aba === 'territorio' && (
         <div className="space-y-5">
-          <p className="text-xs text-gray-500">
-            Cruza, por placa, o território disponibilizado (coluna "Região" do relatório Frota Disponibilizada, .csv importado na
-            aba Disponibilidade) com a região realmente executada no dia — vinda da aba "Base" da planilha diária (Base do Mapa).
-            Essa Base já é importada em <span className="font-medium">Financeiro → Catálogo/Vendas</span>: o mesmo import atualiza o
-            território aqui automaticamente, não precisa subir de novo. Basta importar o CSV da Frota do mesmo dia na aba Disponibilidade.
-          </p>
-
           <details className="bg-white rounded-xl border border-gray-200 p-4">
             <summary className="text-xs font-medium text-gray-500 cursor-pointer">Importações manuais (fallback) — só se precisar recarregar um dia</summary>
             <div className="mt-3 space-y-4">
@@ -1172,6 +1169,7 @@ export default function Frota() {
                 <Card
                   icon={aderencia !== null && aderencia >= 80 ? CheckCircle2 : XCircle}
                   label="% Aderência (território x execução)"
+                  titleExtra={<InfoTip texto='Cruza, por placa, o território disponibilizado (coluna "Região" do relatório Frota Disponibilizada) com a região realmente executada no dia, vinda da Base do Mapa diária (já importada em Financeiro → Catálogo/Vendas).' />}
                   value={aderencia !== null ? `${aderencia}%` : '—'}
                   accent={aderencia !== null && aderencia >= 80 ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}
                 />
@@ -1182,6 +1180,7 @@ export default function Frota() {
                   <div className="flex items-center justify-between mb-1">
                     <h3 className="text-sm font-semibold text-amber-800 flex items-center gap-1.5">
                       <MapPinned size={16} /> Possíveis trocas de roteirização ({trocas.length})
+                      <InfoTip texto="Pares de placas NOK no mesmo dia em que o território de uma bateu com o que a outra executou (e vice-versa) — indício de erro do roteirizador (mapas trocados entre as placas), não de falha real de fixação." />
                     </h3>
                     <button
                       onClick={() => baixarImagem(exportTrocasRef, setExportandoTrocas, `Frota_Trocas_Territorio_${diaTerritorio === 'todos' ? 'todos' : diaTerritorio}.png`)}
@@ -1192,11 +1191,6 @@ export default function Frota() {
                       Exportar imagem
                     </button>
                   </div>
-                  <p className="text-xs text-amber-700 mb-3">
-                    Pares de placas NOK no mesmo dia em que o território de uma bateu com o que a outra executou (e
-                    vice-versa) — indício de erro do roteirizador (mapas trocados entre as placas), não de falha real
-                    de fixação.
-                  </p>
                   <div className="space-y-2">
                     {trocas.map((t, i) => (
                       <div key={`${t.data}-${t.placaA}-${t.placaB}-${i}`} className="bg-white rounded-lg border border-amber-100 p-3 text-xs">
@@ -1215,7 +1209,10 @@ export default function Frota() {
                 <div className="flex items-center justify-between mb-3">
                   <button onClick={() => setCruzamentoTerritorioAberto(v => !v)} className="flex items-center gap-1.5 text-left min-w-0">
                     <ChevronDown size={14} className={`shrink-0 transition-transform ${cruzamentoTerritorioAberto ? '' : '-rotate-90'}`} />
-                    <h3 className="text-sm font-semibold text-gray-700">Cruzamento por placa/dia (somente placas roteirizadas no PCD)</h3>
+                    <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                      Cruzamento por placa/dia
+                      <InfoTip texto="Mostra somente placas roteirizadas no PCD." />
+                    </h3>
                   </button>
                   <button
                     onClick={() => baixarImagem(exportCruzamentoRef, setExportandoCruzamento, `Frota_Cruzamento_Territorio_${diaTerritorio === 'todos' ? 'todos' : diaTerritorio}.png`)}
@@ -1269,17 +1266,6 @@ export default function Frota() {
 
       {aba === 'motorista' && (
         <div className="space-y-5">
-          <p className="text-xs text-gray-500">
-            Cruza a matrícula fixada na placa (cadastro em /frota/placas) com a matrícula que realmente rodou no dia, vinda
-            da escala/saída importada na tela TML — Carta de Controle. Cada divergência dispara automaticamente uma
-            solicitação de justificativa pro supervisor da sala via WhatsApp — o número que recebe a mensagem é o
-            cadastrado em{' '}
-            <Link to="/distribuicao/tml/supervisores" className="text-brand-700 underline hover:text-brand-800">
-              Supervisores — TML
-            </Link>{' '}
-            (um supervisor por sala, COLORADO ou SUB-FURIA).
-          </p>
-
           {carregando ? (
             <div className="flex items-center justify-center py-20 text-gray-400">
               <Loader2 size={24} className="animate-spin mr-2" /> Carregando dados...
@@ -1405,6 +1391,7 @@ export default function Frota() {
                 <Card
                   icon={aderenciaMotorista !== null && aderenciaMotorista >= 80 ? CheckCircle2 : XCircle}
                   label="% Aderência (motorista fixado x executado)"
+                  titleExtra={<InfoTip texto="Cruza a matrícula fixada na placa (cadastro em /frota/placas) com a matrícula que realmente rodou no dia, vinda da escala/saída da TML. Cada divergência dispara uma solicitação de justificativa pro supervisor da sala via WhatsApp (cadastrado em Supervisores — TML)." />}
                   value={aderenciaMotorista !== null ? `${aderenciaMotorista}%` : '—'}
                   accent={aderenciaMotorista !== null && aderenciaMotorista >= 80 ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}
                 />
