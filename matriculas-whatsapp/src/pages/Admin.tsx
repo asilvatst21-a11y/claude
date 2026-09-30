@@ -4,7 +4,7 @@ import { useAuth } from '../lib/auth'
 import { formatarDataBR } from '../lib/utils'
 import type { Usuario, Filial, DtoAvaliador, GsdpqColaborador } from '../types'
 import { SECOES_SISTEMA } from '../types'
-import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2, Lock, MessageSquare, ClipboardCheck, X } from 'lucide-react'
+import { Plus, Pencil, Trash2, Shield, KeyRound, Building2, UserCheck, Search, Loader2, Lock, MessageSquare, ClipboardCheck, X, ToggleRight, ToggleLeft } from 'lucide-react'
 import { listarGrupos, type GrupoZApi } from '../lib/zapi'
 import {
   listarUsuarios, criarUsuario, atualizarUsuario, removerUsuario,
@@ -824,6 +824,12 @@ function AbaFiliais({ filiais, recarregar }: { filiais: Filial[]; recarregar: ()
     recarregar()
   }
 
+  async function toggleAtivo(f: Filial) {
+    if (f.ativo && !confirm(`Desativar a filial ${f.nome}?\n\nNinguém vai conseguir fazer login nela até ser reativada. O histórico não é afetado.`)) return
+    await supabase.from('filiais').update({ ativo: !f.ativo }).eq('id', f.id)
+    recarregar()
+  }
+
   return (
     <>
       <div className="flex justify-end mb-4">
@@ -837,16 +843,27 @@ function AbaFiliais({ filiais, recarregar }: { filiais: Filial[]; recarregar: ()
           <thead className="bg-gray-50 border-b border-gray-200">
             <tr>
               <th className="text-left px-4 py-3 font-medium text-gray-600">Nome</th>
+              <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
               <th className="text-right px-4 py-3 font-medium text-gray-600">Ações</th>
             </tr>
           </thead>
           <tbody>
             {filiais.length === 0 && (
-              <tr><td colSpan={2} className="text-center py-10 text-gray-400">Nenhuma filial cadastrada</td></tr>
+              <tr><td colSpan={3} className="text-center py-10 text-gray-400">Nenhuma filial cadastrada</td></tr>
             )}
             {filiais.map(f => (
-              <tr key={f.id} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="px-4 py-3 text-gray-700 flex items-center gap-2"><Building2 size={14} className="text-brand-600" /> {f.nome}</td>
+              <tr key={f.id} className={`border-b border-gray-100 hover:bg-gray-50 ${!f.ativo ? 'bg-gray-50/60' : ''}`}>
+                <td className="px-4 py-3 text-gray-700 flex items-center gap-2">
+                  <Building2 size={14} className={f.ativo ? 'text-brand-600' : 'text-gray-400'} />
+                  <span className={f.ativo ? '' : 'text-gray-400'}>{f.nome}</span>
+                </td>
+                <td className="px-4 py-3">
+                  <button onClick={() => toggleAtivo(f)} className="flex items-center gap-1 text-xs">
+                    {f.ativo
+                      ? <><ToggleRight size={18} className="text-brand-600" /><span className="text-brand-700">Ativa</span></>
+                      : <><ToggleLeft size={18} className="text-gray-400" /><span className="text-gray-500">Inativa</span></>}
+                  </button>
+                </td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex justify-end gap-1">
                     <button onClick={() => abrirEditar(f)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded"><Pencil size={15} /></button>

@@ -47,6 +47,7 @@ export const SECOES_SISTEMA = [
 export interface Filial {
   id: string
   nome: string
+  ativo: boolean
   grupo_fluxo_whatsapp: string | null
   grupo_reposicoes_whatsapp: string | null
   grupo_solicitacao_2_whatsapp: string | null

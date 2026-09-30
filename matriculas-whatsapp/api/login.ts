@@ -102,6 +102,25 @@ export default async function handler(req: any, res: any) {
     return
   }
 
+  // Filial desativada pelo admin bloqueia login (histórico continua intacto
+  // — ver aba "Filiais" em Admin.tsx). Sem registro em "filiais" ainda
+  // (nome legado não migrado) é tratado como ativa, pra não travar logins
+  // existentes por engano.
+  const { data: filialRow, error: erroFilial } = await supabase
+    .from('filiais')
+    .select('ativo')
+    .eq('nome', filial)
+    .maybeSingle()
+  if (erroFilial) {
+    console.error('login: erro ao checar status da filial:', erroFilial.message)
+    res.status(500).json({ sucesso: false, erro: 'Erro ao validar. Tente de novo.' })
+    return
+  }
+  if (filialRow && filialRow.ativo === false) {
+    res.status(200).json({ sucesso: false, erro: 'Esta filial está inativa. Contate o administrador.' })
+    return
+  }
+
   // Upgrade transparente para hash quando a senha ainda está em texto puro.
   if (!ehHash(armazenada)) {
     try {
