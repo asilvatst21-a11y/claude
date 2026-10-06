@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { Truck, RefreshCw, FileSpreadsheet, Plus, X, Building2, CalendarDays, Check, Pencil, Loader2, MapPin, Route, Users } from 'lucide-react'
+import { Truck, RefreshCw, FileSpreadsheet, Plus, X, Building2, CalendarDays, Check, Pencil, Loader2, MapPin, Route, Users, Trash2 } from 'lucide-react'
 import { useAuth } from '../lib/auth'
 import { supabase } from '../lib/supabase'
 import type { SolicitacaoExtra } from '../types'
@@ -140,6 +140,13 @@ export default function Distribuicao() {
     setSolicitacoes((prev) => prev.map((x) => (x.id === s.id ? { ...x, competencia_pagamento: comp } : x)))
     const { error } = await supabase.from('solicitacoes_extra').update({ competencia_pagamento: comp }).eq('id', s.id)
     if (error) { setErro(error.message); fetchSolicitacoes() }
+  }
+
+  async function excluirSolicitacao(s: SolicitacaoExtra) {
+    if (!confirm(`Excluir a solicitação de ${s.nome_solicitante} (${formatDate(s.data_solicitacao)})?\n\nEssa ação não pode ser desfeita.`)) return
+    const { error } = await supabase.from('solicitacoes_extra').delete().eq('id', s.id)
+    if (error) { setErro(error.message); return }
+    setSolicitacoes((prev) => prev.filter((x) => x.id !== s.id))
   }
 
   function abrirEdicaoValor(s: SolicitacaoExtra) {
@@ -372,6 +379,7 @@ export default function Distribuicao() {
                 <th className="text-right px-4 py-3 font-medium text-muted-foreground">Valor</th>
                 <th className="text-left px-4 py-3 font-medium text-muted-foreground">Competência</th>
                 <th className="text-center px-4 py-3 font-medium text-muted-foreground">Pagamento</th>
+                <th className="text-center px-4 py-3 font-medium text-muted-foreground">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -429,6 +437,15 @@ export default function Distribuicao() {
                       <Check className="h-3.5 w-3.5" /> {s.pago ? 'Pago' : 'Marcar pago'}
                     </button>
                   </td>
+                  <td className="px-4 py-3 text-center">
+                    <button
+                      onClick={() => excluirSolicitacao(s)}
+                      title="Excluir solicitação"
+                      className="text-muted-foreground hover:text-red-600 transition-colors"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </td>
                 </tr>
               )})}
             </tbody>
@@ -484,12 +501,21 @@ export default function Distribuicao() {
                     {competenciasOpcoes.map(c => <option key={c} value={c}>{compLabel(c)}</option>)}
                   </select>
                 </label>
-                <button
-                  onClick={() => marcarPago(s)}
-                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold ${s.pago ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}
-                >
-                  <Check className="h-3.5 w-3.5" /> {s.pago ? 'Pago' : 'Marcar pago'}
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => marcarPago(s)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold ${s.pago ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}
+                  >
+                    <Check className="h-3.5 w-3.5" /> {s.pago ? 'Pago' : 'Marcar pago'}
+                  </button>
+                  <button
+                    onClick={() => excluirSolicitacao(s)}
+                    title="Excluir solicitação"
+                    className="p-1.5 text-muted-foreground hover:text-red-600 transition-colors"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               </div>
             </div>
           ))}
