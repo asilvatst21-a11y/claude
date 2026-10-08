@@ -43,7 +43,10 @@ interface ResumoColaborador {
 // linhas de BEES, DEVOLUÇÃO, TML e RETORNO DE ROTA — as linhas de GSDPQ
 // continuam sendo tratadas (e atualizadas) pela própria tela de GSDPQ.
 function parseDtoDistribuicaoExcel(buffer: ArrayBuffer): Omit<DtoDistribuicaoAvaliacao, 'id' | 'created_at'>[] {
-  const wb = XLSX.read(buffer)
+  // raw:true evita que o SheetJS "adivinhe" datas em colunas de texto do
+  // .csv e as reformate no padrão americano (M/D/AA), corrompendo a data
+  // original (dd/mm/aaaa) — mesmo problema achado no import do GSDPQ.
+  const wb = XLSX.read(buffer, { raw: true })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const raw = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '', raw: false })
   if (raw.length === 0) return []

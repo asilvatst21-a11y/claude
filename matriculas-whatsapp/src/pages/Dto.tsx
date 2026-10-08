@@ -71,7 +71,10 @@ function splitTarefas(valor: string | null): string[] {
 }
 
 function parseDtoExcel(buffer: ArrayBuffer, filial: string): Omit<DtoObservacao, 'id' | 'created_at' | 'status_acao' | 'responsavel_acao' | 'prazo_acao'>[] {
-  const wb = XLSX.read(buffer)
+  // raw:true evita que o SheetJS "adivinhe" datas em colunas de texto do
+  // .csv e as reformate no padrão americano (M/D/AA), corrompendo a data
+  // original (dd/mm/aaaa) — mesmo problema achado no import do GSDPQ.
+  const wb = XLSX.read(buffer, { raw: true })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const raw = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '', raw: false })
   return raw.filter(r => (r['Colaborador'] ?? '').trim()).map(r => {

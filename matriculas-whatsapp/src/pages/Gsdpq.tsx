@@ -313,7 +313,14 @@ function parseGsdpqExcelComprido(raw: Record<string, string>[]): { rows: Omit<Gs
 }
 
 function parseGsdpqExcel(buffer: ArrayBuffer): { rows: Omit<GsdpqAvaliacao, 'id' | 'created_at' | 'colaborador_id'>[]; questoes: string[] } {
-  const wb = XLSX.read(buffer)
+  // raw:true é essencial pro .csv (a exportação agora vem em CSV, não mais
+  // só xlsx): sem isso, o SheetJS tenta "adivinhar" que colunas como DATA/
+  // HR INICIO/HR FINAL são datas e as reformata no padrão americano
+  // (M/D/AA) — "05/10/2026" (5 de outubro) virava "5/10/26" (10 de maio),
+  // corrompendo a data e quebrando o regex de dd/mm/yyyy em
+  // parseDataAvaliacaoTs. Não afeta a leitura de .xlsx (cujas células já
+  // têm tipo definido no próprio arquivo).
+  const wb = XLSX.read(buffer, { raw: true })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const raw = XLSX.utils.sheet_to_json<Record<string, string>>(ws, { defval: '', raw: false })
   if (raw.length === 0) return { rows: [], questoes: [] }
