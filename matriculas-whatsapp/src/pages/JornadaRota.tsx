@@ -845,13 +845,21 @@ export default function JornadaRota() {
       const mapaPorPlaca = new Map((escalas ?? []).map((e) => [e.placa, e.mapa]))
 
       const agora = new Date().toISOString()
-      const rows: { filial: string; mapa: number; placa: string; data: string; tempo_dirigindo_min: number | null; importado_em: string }[] = []
+      // O Roteirizador pode trazer mais de uma linha pra mesma placa no dia
+      // (ex.: segmentos/paradas diferentes da mesma rota) — como o mapa só
+      // depende da placa, isso vira mais de uma linha com a MESMA chave
+      // (filial, mapa, data), e o upsert rejeita de uma vez só ("ON CONFLICT
+      // DO UPDATE command cannot affect row a second time"). Dedup antes de
+      // gravar, mesma regra do resto do projeto (o último ganha).
+      const porChave = new Map<string, { filial: string; mapa: number; placa: string; data: string; tempo_dirigindo_min: number | null; importado_em: string }>()
       let semMapa = 0
       for (const l of linhasArquivo) {
         const mapa = mapaPorPlaca.get(l.placa)
         if (mapa == null) { semMapa++; continue }
-        rows.push({ filial: usuario.filial, mapa, placa: l.placa, data: dataOperacao, tempo_dirigindo_min: l.tempoDirigindoMin, importado_em: agora })
+        const chave = `${usuario.filial}|${mapa}|${dataOperacao}`
+        porChave.set(chave, { filial: usuario.filial, mapa, placa: l.placa, data: dataOperacao, tempo_dirigindo_min: l.tempoDirigindoMin, importado_em: agora })
       }
+      const rows = [...porChave.values()]
       if (rows.length === 0) {
         throw new Error('Nenhuma placa do Roteirizador bateu com a escala do dia. Importe a escala (03.11.49.02) antes.')
       }
