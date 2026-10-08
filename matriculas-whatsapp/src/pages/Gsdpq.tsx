@@ -10,7 +10,7 @@ import {
   FileSpreadsheet, ChevronDown, ChevronUp, AlertTriangle, CheckCircle,
   XCircle, Users, ClipboardList, BarChart2, RefreshCw, Shield, Upload,
   Download, Plus, Loader2, Building2, ShieldCheck, Star, Zap, GitBranch,
-  Settings, UserX, Send, Pencil, ChevronRight
+  Settings, UserX, Send, Pencil, ChevronRight, Clock, AlertCircle
 } from 'lucide-react'
 import { InfoTip } from '../components/InfoTip'
 import { supabase } from '../lib/supabase'
@@ -268,7 +268,7 @@ function parseGsdpqExcelLargo(raw: Record<string, string>[]): { rows: Omit<Gsdpq
     questoes.forEach(q => {
       const resultado = (r[q] ?? '').toString().toUpperCase().trim()
       if (!resultado) return
-      rows.push({ filial, colaborador_nome, realizado_por, funcao: funcao || null, equipe, data_avaliacao, questao: q.trim(), resultado, observacoes })
+      rows.push({ filial, colaborador_nome, realizado_por, funcao: funcao || null, equipe, data_avaliacao, questao: q.trim(), resultado, observacoes, hr_inicio: null, hr_final: null })
     })
   })
 
@@ -306,6 +306,8 @@ function parseGsdpqExcelComprido(raw: Record<string, string>[]): { rows: Omit<Gs
       questao,
       resultado,
       observacoes: '',
+      hr_inicio: (r['HR INICIO'] ?? '').trim() || null,
+      hr_final: (r['HR FINAL'] ?? '').trim() || null,
     })
   })
 
@@ -423,6 +425,82 @@ function calcularRankingQuestoes(avaliacoes: GsdpqAvaliacao[]) {
     .filter(([, v]) => v.NO > 0)
     .map(([questao, v]) => ({ questao, ...v, categoria: getCategoriaQuestao(questao) }))
     .sort((a, b) => b.NO - a.NO)
+}
+
+// "05/10/2026 12:56" → Date. Só o export "comprido" traz HR INICIO/HR
+// FINAL — avaliações do formato antigo ficam sem duração calculável.
+function parseHoraAvaliacao(s: string | null): Date | null {
+  if (!s) return null
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})\s+(\d{1,2}):(\d{2})/)
+  if (!m) return null
+  const [, dia, mes, ano, hora, min] = m
+  return new Date(Number(ano), Number(mes) - 1, Number(dia), Number(hora), Number(min))
+}
+
+export interface ResumoAvaliador {
+  avaliador: string
+  avaliacoes: number // sessões distintas (colaborador + data)
+  colaboradoresAvaliados: number
+  perguntasRespondidas: number
+  totalNO: number
+  totalOK: number
+  percentualDesvio: number
+  principalDesvio: string | null
+  tempoMedioMin: number | null // null = nenhuma sessão com HR INICIO/FINAL legível
+  sessoesComTempo: number
+}
+
+// Agrupa por "REALIZADO POR" (quem fez a avaliação) — métrica nova, sem
+// precedente nesta tela (o campo só era usado pra agrupar sessões no GSD
+// Completo, nunca pra ranquear avaliador).
+function calcularResumoAvaliadores(avaliacoes: GsdpqAvaliacao[]): ResumoAvaliador[] {
+  const porAvaliador = new Map<string, GsdpqAvaliacao[]>()
+  avaliacoes.forEach(av => {
+    const nome = (av.realizado_por ?? '').trim()
+    if (!nome) return
+    const lista = porAvaliador.get(nome) ?? []
+    lista.push(av)
+    porAvaliador.set(nome, lista)
+  })
+
+  return Array.from(porAvaliador.entries()).map(([avaliador, avs]) => {
+    const sessoesChave = new Set(avs.map(a => `${a.colaborador_nome}|${a.data_avaliacao}`))
+    const totalNO = avs.filter(a => a.resultado === 'NO').length
+    const totalOK = avs.filter(a => a.resultado === 'OK').length
+
+    const nosPorQuestao: Record<string, number> = {}
+    avs.forEach(a => { if (a.resultado === 'NO') nosPorQuestao[a.questao] = (nosPorQuestao[a.questao] ?? 0) + 1 })
+    const principalDesvio = Object.entries(nosPorQuestao).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null
+
+    // Duração por sessão (não por pergunta) — todas as linhas da mesma
+    // sessão repetem o mesmo HR INICIO/HR FINAL, então um Map por chave
+    // de sessão evita contar a mesma duração dezenas de vezes.
+    const duracaoPorSessao = new Map<string, number>()
+    avs.forEach(a => {
+      const chave = `${a.colaborador_nome}|${a.data_avaliacao}`
+      if (duracaoPorSessao.has(chave)) return
+      const inicio = parseHoraAvaliacao(a.hr_inicio)
+      const fim = parseHoraAvaliacao(a.hr_final)
+      if (!inicio || !fim) return
+      const min = (fim.getTime() - inicio.getTime()) / 60000
+      if (min > 0 && min < 240) duracaoPorSessao.set(chave, min) // descarta negativo/acima de 4h (erro de dado)
+    })
+    const duracoes = [...duracaoPorSessao.values()]
+    const tempoMedioMin = duracoes.length > 0 ? duracoes.reduce((s, v) => s + v, 0) / duracoes.length : null
+
+    return {
+      avaliador,
+      avaliacoes: sessoesChave.size,
+      colaboradoresAvaliados: new Set(avs.map(a => a.colaborador_nome)).size,
+      perguntasRespondidas: avs.length,
+      totalNO,
+      totalOK,
+      percentualDesvio: totalNO + totalOK > 0 ? Math.round((totalNO / (totalNO + totalOK)) * 1000) / 10 : 0,
+      principalDesvio,
+      tempoMedioMin,
+      sessoesComTempo: duracoes.length,
+    }
+  }).sort((a, b) => b.avaliacoes - a.avaliacoes)
 }
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -805,7 +883,7 @@ export default function Gsdpq() {
   const [novaEquipeValor, setNovaEquipeValor] = useState('')
   const [salvandoEquipe, setSalvandoEquipe] = useState(false)
   const exportVencimentosRef = useRef<HTMLDivElement>(null)
-  const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'colaboradores' | 'questoes' | 'acoes' | 'reincidencias' | 'completo' | 'vencimentos'>('dashboard')
+  const [abaAtiva, setAbaAtiva] = useState<'dashboard' | 'colaboradores' | 'avaliadores' | 'questoes' | 'acoes' | 'reincidencias' | 'completo' | 'vencimentos'>('dashboard')
   const [reincidenciaColab, setReincidenciaColab] = useState('')
   const [reincidenciaQuestaoAberta, setReincidenciaQuestaoAberta] = useState<string | null>(null)
   const [completoData, setCompletoData] = useState('')
@@ -1186,6 +1264,14 @@ export default function Gsdpq() {
 
   const resumos = calcularResumos(avaliacoesFiltradas, questoesFiltradas)
   const rankingQuestoes = calcularRankingQuestoes(avaliacoesFiltradas)
+  const resumoAvaliadores = calcularResumoAvaliadores(avaliacoesFiltradas)
+  const totalAvaliacoesAvaliadores = resumoAvaliadores.reduce((s, r) => s + r.avaliacoes, 0)
+  const totalNOAvaliadores = resumoAvaliadores.reduce((s, r) => s + r.totalNO, 0)
+  const totalOKAvaliadores = resumoAvaliadores.reduce((s, r) => s + r.totalOK, 0)
+  const desvioMedioAvaliadores = totalNOAvaliadores + totalOKAvaliadores > 0
+    ? Math.round((totalNOAvaliadores / (totalNOAvaliadores + totalOKAvaliadores)) * 1000) / 10 : 0
+  const temposValidos = resumoAvaliadores.filter(r => r.tempoMedioMin != null).map(r => r.tempoMedioMin as number)
+  const tempoMedioGeral = temposValidos.length > 0 ? temposValidos.reduce((s, v) => s + v, 0) / temposValidos.length : null
   const equipes = ['Todas', ...Array.from(new Set(avaliacoesPeriodo.map(a => a.equipe).filter(Boolean) as string[]))]
   const funcoes = ['Todas', ...Array.from(new Set(avaliacoesPeriodo.map(a => a.funcao).filter(Boolean) as string[])).sort()]
 
@@ -1402,7 +1488,7 @@ export default function Gsdpq() {
 
           {/* Abas */}
           <div className="flex gap-1 border-b border-gray-200">
-            {([['dashboard', 'Dashboard'], ['colaboradores', 'Por Colaborador'], ['questoes', 'Questões'], ['acoes', 'Ações Disciplinares'], ['reincidencias', 'Reincidências'], ['completo', 'GSD Completo'], ['vencimentos', 'Vencimentos']] as const).map(([id, label]) => (
+            {([['dashboard', 'Dashboard'], ['colaboradores', 'Por Colaborador'], ['avaliadores', 'Avaliadores'], ['questoes', 'Questões'], ['acoes', 'Ações Disciplinares'], ['reincidencias', 'Reincidências'], ['completo', 'GSD Completo'], ['vencimentos', 'Vencimentos']] as const).map(([id, label]) => (
               <button key={id} onClick={() => setAbaAtiva(id)} className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${abaAtiva === id ? 'border-accent-500 text-accent-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>{label}</button>
             ))}
           </div>
@@ -1548,6 +1634,101 @@ export default function Gsdpq() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+
+          {/* ── Avaliadores ── */}
+          {abaAtiva === 'avaliadores' && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {[
+                  { label: 'Avaliadores ativos', value: resumoAvaliadores.length, icon: Users, color: 'purple' },
+                  { label: 'Avaliações realizadas', value: totalAvaliacoesAvaliadores, icon: ClipboardList, color: 'blue' },
+                  { label: 'Desvio médio encontrado', value: `${desvioMedioAvaliadores}%`, icon: AlertTriangle, color: desvioMedioAvaliadores <= 10 ? 'green' : desvioMedioAvaliadores <= 25 ? 'yellow' : 'red' },
+                  { label: 'Tempo médio por avaliação', value: tempoMedioGeral != null ? `${Math.round(tempoMedioGeral)} min` : '—', icon: Clock, color: 'blue' },
+                ].map(({ label, value, icon: Icon, color }) => {
+                  const colorMap: Record<string, string> = { blue: 'bg-blue-50 text-blue-700', purple: 'bg-purple-50 text-purple-700', red: 'bg-red-50 text-red-600', green: 'bg-brand-50 text-brand-700', yellow: 'bg-yellow-50 text-yellow-600' }
+                  return (
+                    <div key={label} className="bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-3">
+                      <div className={`p-2.5 rounded-lg ${colorMap[color]}`}><Icon size={20} /></div>
+                      <div><p className="text-xs text-gray-500">{label}</p><p className="text-2xl font-bold text-gray-900">{value}</p></div>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {resumoAvaliadores.length === 0 ? (
+                <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400 text-sm">
+                  Nenhuma avaliação com "Realizado por" preenchido no período filtrado.
+                </div>
+              ) : (
+                <div className="grid lg:grid-cols-3 gap-4">
+                  <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 overflow-hidden">
+                    <div className="bg-gray-50 px-4 py-2 border-b border-gray-200">
+                      <span className="text-xs text-gray-500 font-medium">Avaliadores — ordenado por quantidade de avaliações</span>
+                    </div>
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b border-gray-200">
+                        <tr>
+                          <th className="text-left px-4 py-2.5 font-medium text-gray-600">Avaliador</th>
+                          <th className="text-center px-4 py-2.5 font-medium text-gray-600">Avaliações</th>
+                          <th className="text-center px-4 py-2.5 font-medium text-gray-600">Colaboradores</th>
+                          <th className="text-left px-4 py-2.5 font-medium text-gray-600 w-40">% Desvio</th>
+                          <th className="text-center px-4 py-2.5 font-medium text-gray-600">
+                            <span className="inline-flex items-center gap-1">Tempo médio
+                              <InfoTip texto="Média de HR FINAL − HR INICIO entre as avaliações daquele avaliador que tinham esses dois horários preenchidos na planilha. Avaliações do formato antigo (sem essas colunas) não entram na conta." />
+                            </span>
+                          </th>
+                          <th className="text-left px-4 py-2.5 font-medium text-gray-600">Desvio mais encontrado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {resumoAvaliadores.map(r => {
+                          const muitoRapido = tempoMedioGeral != null && r.tempoMedioMin != null && r.sessoesComTempo >= 3 && r.tempoMedioMin < tempoMedioGeral * 0.5
+                          return (
+                            <tr key={r.avaliador} className="border-b border-gray-100 last:border-0">
+                              <td className="px-4 py-2.5 font-medium text-gray-800">{r.avaliador}</td>
+                              <td className="px-4 py-2.5 text-center tabular-nums">{r.avaliacoes}</td>
+                              <td className="px-4 py-2.5 text-center tabular-nums text-gray-500">{r.colaboradoresAvaliados}</td>
+                              <td className="px-4 py-2.5"><ConformidadeBar pct={100 - r.percentualDesvio} /></td>
+                              <td className="px-4 py-2.5 text-center tabular-nums">
+                                {r.tempoMedioMin != null ? (
+                                  <span className={`inline-flex items-center gap-1 ${muitoRapido ? 'text-orange-600 font-semibold' : 'text-gray-700'}`}>
+                                    {muitoRapido && <AlertCircle size={13} />}
+                                    {Math.round(r.tempoMedioMin)} min
+                                  </span>
+                                ) : <span className="text-gray-300">—</span>}
+                              </td>
+                              <td className="px-4 py-2.5 text-gray-600 text-xs max-w-xs truncate" title={r.principalDesvio ?? ''}>{r.principalDesvio ?? '—'}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                    {resumoAvaliadores.some(r => tempoMedioGeral != null && r.tempoMedioMin != null && r.sessoesComTempo >= 3 && r.tempoMedioMin < tempoMedioGeral * 0.5) && (
+                      <div className="px-4 py-2.5 border-t border-gray-100 bg-orange-50 text-xs text-orange-700 flex items-center gap-1.5">
+                        <AlertCircle size={13} className="shrink-0" /> Avaliador com tempo médio abaixo de 50% da média geral — pode indicar avaliação superficial.
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="bg-white rounded-xl border border-gray-200 p-5">
+                    <p className="text-sm font-semibold text-gray-700 mb-3">Principais desvios encontrados no período</p>
+                    <div className="space-y-2">
+                      {rankingQuestoes.slice(0, 8).map((q, i) => (
+                        <div key={q.questao} className="flex items-start gap-2">
+                          <span className="text-xs font-bold text-gray-400 w-4 shrink-0 pt-0.5">{i + 1}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-gray-700 leading-snug">{q.questao}</p>
+                            <p className="text-xs text-red-600 font-semibold">{q.NO} NO{q.NO > 1 ? 's' : ''}</p>
+                          </div>
+                        </div>
+                      ))}
+                      {rankingQuestoes.length === 0 && <p className="text-xs text-gray-400">Nenhum desvio no período.</p>}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

@@ -194,6 +194,10 @@ export interface GsdpqAvaliacao {
   questao: string
   resultado: string
   observacoes: string | null
+  // Só vêm preenchidos no export "comprido" (DTO_RESPOSTAS) — formato antigo
+  // não tem essas colunas, fica null.
+  hr_inicio: string | null
+  hr_final: string | null
   created_at: string
 }
 
